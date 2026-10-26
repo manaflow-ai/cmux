@@ -57,11 +57,44 @@ follows at the compositor's next vsync, at most one refresh later.
 
 Prints p50, p95, p99 and max per hop and per segment, and writes the same
 as JSON next to the CSV.
+
+3. Chromium surfaces and the energy saver (p14-energy-135: D8 of plans/cmux-next/chrome-parity/p14-energy.md, the
+saver adds no visible latency). Launched, like mode 1:
+
+  scripts/cmux-next/bench-typing.py --app APP --surface agent-composer-chromium,chromium-page-scroll \\
+      --energy-saver off,on [--samples 120] [--scrolls 3] [--out DIR] [--dry-run]
+
+   --surface terminal                 mode 1 (the default)
+   --surface agent-composer-chromium  the agent chat's composer in a Chromium page (`browser.defaultEngine: chromium`,
+                                      the mock agent host). Keys go to the page through `debug.key {target: page}`,
+                                      stamped at their send. Key->frame is the page's own typingStats (webviews acpmux
+                                      perf.ts): from the keydown's event time to the next requestAnimationFrame
+                                      (`key_to_frame_ms`, the frame that draws the key, as Chrome's EventLatency ends a
+                                      key at its frame) and to after that frame (`key_to_paint_ms`), p50/p95/max.
+   --surface chromium-page-scroll     idle-budget's scroll page (SCROLL_PAGE) in a Chromium tab, scrolled by --scrolls
+                                      trackpad gestures of --scroll-seconds (2 s) each: one `debug.mouse {target: page,
+                                      action: scroll}` event per display refresh (--hz, default the main display's).
+                                      The page records every frame while input is active. Reported: frames, frame
+                                      intervals p50/p95/p99/max, fps, wheel events sent and received, and dropped
+                                      frames: refreshes that passed with no frame, sum of round(interval / refresh) - 1
+                                      (acpmux perf.ts droppedFrames; Chrome counts a scroll's missed vsyncs the same
+                                      way, cc/metrics/scroll_jank_dropped_frame_tracker.cc).
+   --energy-saver on|off   `energy.saver: always` or `off`, with the default-off `energySaver` feature on in both
+                           (idle-budget.saver_launch), on any surface. debug.energy is read before and after the
+                           measurement; a run whose saver state is not the asked one has `saver.mismatch` and D8 does
+                           not judge it.
+   A comma list in --surface or --energy-saver runs every combination, one launch each, in DIR/<surface>-saver-<state>.
+   With both saver states of a surface, `BENCH-TYPING-D8 {json}` lines judge D8: key->frame p95 with the saver at most
+   +0.5 ms over off (terminal: the single phase), and no dropped frame of the scroll with the saver on; DIR/d8.json
+   holds every run and the verdicts. Reported, never an exit status.
+   --dry-run prints one `BENCH-TYPING-PLAN {json}` line per combination (the single-run command, the cmux-next.json
+   keys and environment it adds) and launches nothing.
 """
 
 import argparse
 import bisect
 import csv
+import functools
 import glob
 import importlib.util
 import json
@@ -361,17 +394,18 @@ class Launched:
         from bench_launch import BenchApp
         self.args = args
         bundle = bench_tagged.resolve_app(args.tag, args.app)
-        self.out = os.path.abspath(args.out or os.path.join(bench_tagged.ROOT, "artifacts", "bench-typing",
-                                                             args.tag or os.path.basename(bundle)))
+        self.out = default_out(args, bundle)
         os.makedirs(self.out, exist_ok=True)
         self.probe = os.path.join(self.out, "typing.csv")
         self.flows = os.path.join(self.out, "flows")
         os.makedirs(self.flows, exist_ok=True)
         for stale in glob.glob(os.path.join(self.flows, "flows-*.jsonl")):
             os.unlink(stale)  # an earlier run's marks would match nothing, but cost the parse
+        config, env = launch_config("terminal", args.energy_saver)
         self.app = BenchApp(bundle, out=self.out, perf_session="stress" if args.stress else "light",
-                            env={"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_TRACE_FLOWS": self.flows},
-                            window=(40, 40, 1600, 1000))
+                            env={"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_TRACE_FLOWS": self.flows, **env},
+                            config=config, window=WINDOW)
+        self.saver = SaverCheck(args.energy_saver)
         self.stress_module = load_stress()
         self.stress = None
         self.report = {"opts": {k: str(v) for k, v in vars(args).items()}, "phases": {}, "log": []}
@@ -525,6 +559,7 @@ class Launched:
             self.stress.show(workspace)
             self.stress.focus_pane(typed)
             self.stress.action("tab.focus", target=f"tab:{typed_tab}")
+            self.saver.read(self.app)
             self.type_keys(args.warmup, "warmup")
             self.report["phases"]["single"] = self.phase("single", pid)
             if flood_tabs:
@@ -536,6 +571,7 @@ class Launched:
                 time.sleep(2.0)  # the flood runs before the first key
                 self.stress.focus_pane(typed)
                 self.report["phases"]["flood"] = self.phase("flood", pid)
+            self.saver.read(self.app)
         finally:
             for tab, _ in flooders:
                 self.stress.send(tab, "\x03")  # Ctrl-C: the flooder writes its achieved rate and the shell returns
@@ -547,6 +583,9 @@ class Launched:
         return 0
 
     def finish(self):
+        self.report["saver"] = self.saver.report()
+        if self.report["saver"] and self.report["saver"]["mismatch"]:
+            self.note(f"saver: {self.report['saver']['mismatch']}")
         phases = self.report["phases"]
         single, flood = phases.get("single"), phases.get("flood")
         if single and flood:
@@ -558,7 +597,7 @@ class Launched:
             if withheld:
                 self.report["ipc8_scope"] = f"daemon-side only: the app series are withheld in {', '.join(withheld)}"
                 self.note(f"ipc8: {self.report['ipc8_scope']}")
-        story = f"bench-typing-flood-{self.args.flood}"
+        story = f"bench-typing-flood-{self.args.flood}" + saver_suffix(self.args.energy_saver)
         recorded = {}
         for name, entry in phases.items():
             recorded.update(bench_tagged.record_series(
@@ -570,6 +609,456 @@ class Launched:
         with open(os.path.join(self.out, "report.json"), "w") as f:
             json.dump(self.report, f, indent=1, default=str)
         print(f"== report {os.path.join(self.out, 'report.json')}", flush=True)
+
+
+# ---------------------------------------------------------------- Chromium surfaces and the energy saver (mode 3)
+
+SCRIPT = "scripts/cmux-next/bench-typing.py"
+TERMINAL, COMPOSER, SCROLL = "terminal", "agent-composer-chromium", "chromium-page-scroll"
+SURFACES = (TERMINAL, COMPOSER, SCROLL)
+SAVER_STATES = ("on", "off")
+WINDOW = (40, 40, 1600, 1000)
+BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}  # BenchApp's default config
+CHROMIUM_CONFIG = {"browser": {"defaultEngine": "chromium"}}
+AGENT_MOCK_ENV = {"CMUX_NEXT_AGENT_PANE_MOCK": "1"}  # the mock agent host (AgentPaneMockHost): no agent account
+MOCK_SESSION = "mock-session"  # the mock host's session, which shows the composer
+COMPOSER_KEYS = "abcdefghijklmnopqrstuvwxyz"  # no return (it sends the prompt), no `/` or `@` (they open menus)
+D8_TYPING_MS = 0.5  # D8: key->frame p95 with the saver on at most this much over off
+DEFAULT_HZ = 120.0  # the fleet's measure display (split-spring --vdisplay=120) when the main display's rate is unknown
+
+
+@functools.lru_cache(maxsize=None)
+def idle_budget():
+    """idle-budget.py (saver_launch, saver_state and saver_mismatch, the scroll page server), loaded by path once."""
+    spec = importlib.util.spec_from_file_location("idle_budget", os.path.join(HERE, "idle-budget.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def launch_config(surface, saver):
+    """(cmux-next.json, added environment) of one run: BenchApp's default config, Chromium as the engine of the
+    Chromium surfaces, the mock agent host for the composer, and --energy-saver's setting and feature (None: none)."""
+    config, env = dict(BASE_CONFIG), {}
+    if surface in (COMPOSER, SCROLL):
+        config.update(CHROMIUM_CONFIG)
+    if surface == COMPOSER:
+        env.update(AGENT_MOCK_ENV)
+    if saver is not None:
+        saver_config, saver_env = idle_budget().saver_launch(saver == "on")
+        config.update(saver_config)
+        env.update(saver_env)
+    return config, env
+
+
+def saver_suffix(saver):
+    return f"-saver-{saver}" if saver else ""
+
+
+def saver_block(asked, observed, reason):
+    """The report's `saver`: the asked state, debug.energy's isSaver before and after the measurement and why, and the
+    mismatch (idle-budget.saver_mismatch: an end with no debug.energy proves no saver); None when nothing was asked."""
+    if asked is None:
+        return None
+    return {"asked": asked, "observed": list(observed), "reason": reason,
+            "mismatch": idle_budget().saver_mismatch(asked == "on", list(observed) or [None])}
+
+
+class SaverCheck:
+    """--energy-saver as the app reports it (debug.energy), read before and after the measurement."""
+
+    def __init__(self, asked):
+        self.asked, self.observed, self.reason = asked, [], None
+
+    def read(self, app):
+        if self.asked is None:
+            return
+        ib = idle_budget()
+        saver, reason = ib.saver_state(ib.read_rpc(app, "debug.energy"))
+        self.observed.append(saver)
+        self.reason = reason or self.reason
+
+    def report(self):
+        return saver_block(self.asked, self.observed, self.reason)
+
+
+def default_out(args, bundle=None):
+    """The run's artifacts folder: --out, else artifacts/bench-typing/<tag or bundle name>."""
+    name = args.tag or os.path.basename(os.path.normpath(bundle or args.app))
+    return os.path.abspath(args.out or os.path.join(bench_tagged.ROOT, "artifacts", "bench-typing", name))
+
+
+def combinations(args):
+    """[(surface, saver state or None)] of the --surface and --energy-saver lists, in their order."""
+    return [(surface, saver) for surface in args.surfaces for saver in (args.savers or [None])]
+
+
+def single_argv(args, surface, saver, out):
+    """The command of one combination: what the multi-run executes in this process, as one launch."""
+    argv = ["python3", SCRIPT, *(["--app", args.app] if args.app else ["--tag", args.tag]), "--surface", surface]
+    if saver:
+        argv += ["--energy-saver", saver]
+    if surface == SCROLL:
+        argv += ["--scrolls", str(args.scrolls), "--scroll-seconds", f"{args.scroll_seconds:g}",
+                 "--scroll-px", f"{args.scroll_px:g}", *(["--hz", f"{args.hz:g}"] if args.hz else [])]
+    else:
+        argv += ["--samples", str(args.samples), "--warmup", str(args.warmup), "--interval", f"{args.interval:g}"]
+    if surface == TERMINAL:
+        argv += [*(["--flood", str(args.flood), "--flood-mbps", f"{args.flood_mbps:g}"] if args.flood else []),
+                 *(["--stress"] if args.stress else [])]
+    return argv + ["--out", out]
+
+
+def plan(args):
+    """One row per combination: its surface, saver state, artifacts folder, single-run command, and the cmux-next.json
+    and environment its launch adds (``launch_config``)."""
+    base, combos = default_out(args), combinations(args)
+    rows = []
+    for surface, saver in combos:
+        out = base if len(combos) == 1 else os.path.join(base, surface + saver_suffix(saver))
+        config, env = launch_config(surface, saver)
+        rows.append({"surface": surface, "energy_saver": saver, "out": out,
+                     "command": shlex.join(single_argv(args, surface, saver, out)), "config": config, "env": env})
+    return rows
+
+
+def composer_result(stats, sent, failed=0):
+    """The composer run's numbers from the page's typingStats ({keys, to_frame: {p50_ms, p95_ms, max_ms}, to_paint}):
+    key_to_frame_ms and key_to_paint_ms as {n, p50, p95, max} (None with no timed key), and `untimed`, the sent keys
+    that reached no timing (focus left the composer, or the key never arrived); {"error": ...} with no typingStats."""
+    if not isinstance(stats, dict) or stats.get("error") or not isinstance(stats.get("keys"), int):
+        return {"sent": sent, "failed_keys": failed, "error": f"no typingStats: {json.dumps(stats)[:200]}"}
+    keys = stats["keys"]
+
+    def dist(block):
+        if not keys or not isinstance(block, dict):
+            return None
+        return {"n": keys, "p50": block.get("p50_ms"), "p95": block.get("p95_ms"), "max": block.get("max_ms")}
+    return {"sent": sent, "failed_keys": failed, "timed": keys, "untimed": max(0, sent - failed - keys),
+            "key_to_frame_ms": dist(stats.get("to_frame")), "key_to_paint_ms": dist(stats.get("to_paint"))}
+
+
+def frame_drops(intervals, nominal_ms):
+    """Refreshes that passed with no frame: sum of max(0, round(interval / nominal) - 1) (webviews acpmux perf.ts
+    droppedFrames; Chrome's scroll jank tracker counts a scroll's missed vsyncs the same way,
+    cc/metrics/scroll_jank_dropped_frame_tracker.cc)."""
+    return sum(max(0, round(interval / nominal_ms) - 1) for interval in intervals)
+
+
+def scroll_result(reads, hz, gestures=()):
+    """The scroll run's numbers from the page's reads (IdlePages.read_scroll: {wheels, scrolled_px, frames_ms}, one
+    per gesture) at `hz`: frames, frame intervals (p50/p95/p99/max), fps over the recorded span, dropped frames, wheel
+    events sent (``gestures``) and received, pixels scrolled, per scroll and in total. `error` when a read failed or
+    the page recorded no frame (no wheel event reached it)."""
+    nominal = 1000.0 / hz
+    intervals, scrolls, errors, span = [], [], [], 0.0
+    for read in reads:
+        if not isinstance(read, dict) or "error" in read:
+            errors.append((read or {}).get("error", "no read") if isinstance(read, dict) else "no read")
+            continue
+        times = read["frames_ms"]
+        gaps = [b - a for a, b in zip(times, times[1:])]
+        intervals += gaps
+        span += times[-1] - times[0] if len(times) > 1 else 0.0
+        scrolls.append({"frames": len(times), "dropped_frames": frame_drops(gaps, nominal), "wheels": read["wheels"],
+                        "scrolled_px": read["scrolled_px"]})
+    result = {"hz": hz, "nominal_ms": round(nominal, 3), "scrolls": scrolls,
+              "frames": sum(s["frames"] for s in scrolls),
+              "wheels_sent": sum(g.get("events", 0) for g in gestures),
+              "wheels_received": sum(s["wheels"] for s in scrolls),
+              "scrolled_px": sum(s["scrolled_px"] for s in scrolls),
+              "frame_interval_ms": bench_tagged.distribution(intervals),
+              "dropped_frames": frame_drops(intervals, nominal) if intervals else None,
+              "fps": round(len(intervals) / (span / 1000), 1) if span > 0 else None,
+              "intervals_ms": [round(interval, 2) for interval in intervals]}
+    if errors:
+        result["error"] = "; ".join(errors)
+    elif not intervals:
+        result["error"] = "the page recorded no frames while scrolled: no wheel event reached it"
+    return result
+
+
+def typing_p95(surface, report):
+    """D8's key->frame p95 (ms) of one run's report, or None: the terminal's single phase, the composer's page."""
+    if surface == TERMINAL:
+        stats = (((report.get("phases") or {}).get("single") or {}).get("stats") or {}).get("key_to_frame_ms")
+    else:
+        stats = report.get("key_to_frame_ms")
+    return (stats or {}).get("p95")
+
+
+def d8_verdicts(reports):
+    """{surface: {check, on, off, [delta_ms], verdict, [why]}} of each surface that ran with both saver states, from
+    {(surface, state): report}. Verdicts: pass, fail, or unscored (a run failed, its saver state was not the asked
+    one, or it has no number)."""
+    verdicts = {}
+    for surface in SURFACES:
+        on, off = reports.get((surface, "on")), reports.get((surface, "off"))
+        if on is None or off is None:
+            continue
+        why = [f"saver {state}: {r['error']}" for state, r in (("on", on), ("off", off)) if r.get("error")]
+        why += [f"saver {state}: {r['saver']['mismatch']}" for state, r in (("on", on), ("off", off))
+                if (r.get("saver") or {}).get("mismatch")]
+        if surface == SCROLL:
+            entry = {"check": "dropped frames while scrolled with the saver on == 0",
+                     "on": on.get("dropped_frames"), "off": off.get("dropped_frames")}
+            passed = entry["on"] == 0
+        else:
+            entry = {"check": f"key->frame p95 with the saver on <= off + {D8_TYPING_MS:g} ms",
+                     "on": typing_p95(surface, on), "off": typing_p95(surface, off)}
+            passed = None
+            if entry["on"] is not None and entry["off"] is not None:
+                entry["delta_ms"] = round(entry["on"] - entry["off"], 3)
+                passed = entry["delta_ms"] <= D8_TYPING_MS
+        if entry["on"] is None or entry["off"] is None:
+            why.append("no number in both runs")
+        verdicts[surface] = {**entry, "verdict": "unscored" if why else "pass" if passed else "fail",
+                             **({"why": why} if why else {})}
+    return verdicts
+
+
+def chat_opening(error):
+    """True when action.run's error only says the action is still running (the reply came before the page)."""
+    if not isinstance(error, dict):
+        return False
+    return (error.get("data") or {}).get("state") == "in_progress" or error.get("code") == "timeout"
+
+
+def wait_until(check, seconds, step=0.1):
+    """check()'s first truthy value within `seconds`, else None."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(step)  # bench: bounded wait for the page
+    return None
+
+
+class SurfaceRun:
+    """One launch of a Chromium surface with its saver state: the app, its report.json and its saver reads."""
+
+    surface = None
+
+    def __init__(self, args):
+        from bench_launch import BenchApp
+        self.args = args
+        bundle = bench_tagged.resolve_app(args.tag, args.app)
+        self.out = default_out(args, bundle)
+        os.makedirs(self.out, exist_ok=True)
+        config, env = launch_config(self.surface, args.energy_saver)
+        self.app = BenchApp(bundle, out=self.out, env=env, config=config, window=WINDOW)
+        self.saver = SaverCheck(args.energy_saver)
+        self.report = {"surface": self.surface, "energy_saver": args.energy_saver,
+                       "opts": {k: str(v) for k, v in vars(args).items()}, "log": []}
+
+    def note(self, text):
+        print(text, flush=True)
+        self.report["log"].append(text)
+
+    def run(self):
+        self.app.launch()  # LaunchError (a SystemExit) with the reason
+        self.report.update(tag=self.app.tag, app=self.app.app, pid=self.app.process.pid, host=bench_tagged.host_block())
+        try:
+            self.measure()
+        except BaseException as error:
+            self.report["error"] = f"{type(error).__name__}: {getattr(error, 'code', None) or error}"[:500]
+            raise
+        finally:
+            self.report["saver"] = self.saver.report()
+            if self.report["saver"] and self.report["saver"]["mismatch"]:
+                self.note(f"saver: {self.report['saver']['mismatch']}")
+            with open(os.path.join(self.out, "report.json"), "w") as f:
+                json.dump(self.report, f, indent=1, default=str)
+            print(f"== report {os.path.join(self.out, 'report.json')}", flush=True)
+            self.app.stop()
+        return 0
+
+    def measure(self):
+        raise NotImplementedError
+
+
+class ComposerRun(SurfaceRun):
+    """--surface agent-composer-chromium (module docstring, mode 3)."""
+
+    surface = COMPOSER
+
+    def pane(self, action, timeout=30, **params):
+        reply = self.app.rpc("debug.agent_pane", {**params, "action": action}, timeout=timeout)
+        return reply if isinstance(reply, dict) else {}
+
+    def open_chat(self):
+        """A new agent chat on the mock session, its composer shown in Chromium; returns its pane."""
+        reply = self.app.rpc("action.run", {"action": "palette.newAgentChat", "args": {}, "focus": True,
+                                            "origin": "script"}, timeout=60)
+        error = reply.get("error") if isinstance(reply, dict) else None
+        if error and not chat_opening(error):
+            raise SystemExit(f"bench-typing: palette.newAgentChat refused: {json.dumps(error)[:200]}")
+        if not wait_until(lambda: self.pane("readiness", timeout=5).get("document_ready"), 60):
+            raise SystemExit("bench-typing: the agent chat page did not load in 60 s")
+        self.pane("select_session", session=MOCK_SESSION)
+        if not wait_until(lambda: self.pane("readiness", timeout=5).get("composer_visible"), 30):
+            raise SystemExit("bench-typing: the agent chat never showed its composer")
+        engine = self.pane("engine")
+        self.report["engine"] = engine
+        if engine.get("engine") != "cef":
+            raise SystemExit(f"bench-typing: the agent chat is not in Chromium: {json.dumps(engine)[:200]}")
+        return engine.get("pane")
+
+    def type_keys(self, pane, count):
+        """`count` keys into the composer through debug.key, one in flight at a time; (failed keys, rpc round trips)."""
+        failed, trips = 0, []
+        for index in range(count):
+            t0 = time.perf_counter()
+            reply = self.app.rpc("debug.key", {"target": "page", "pane": pane, "key": COMPOSER_KEYS[index % len(COMPOSER_KEYS)],
+                                               "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+            trips.append((time.perf_counter() - t0) * 1000)
+            if isinstance(reply, dict) and reply.get("error"):
+                failed += 1
+                self.note(f"key {index}: {json.dumps(reply)[:160]}")
+            rest = self.args.interval - (time.perf_counter() - t0)
+            if rest > 0:
+                time.sleep(rest)  # bench: one key in flight at a time
+        time.sleep(0.5)  # bench: the last key's frame lands
+        return failed, trips
+
+    def measure(self):
+        pane = self.open_chat()
+        if not self.pane("focus_composer").get("focused"):
+            raise SystemExit("bench-typing: the composer did not take focus")
+        self.saver.read(self.app)
+        self.type_keys(pane, self.args.warmup)
+        self.pane("reset_typing")
+        failed, trips = self.type_keys(pane, self.args.samples)
+        stats = self.pane("typing_stats")
+        self.saver.read(self.app)
+        self.report.update(composer_result(stats, self.args.samples, failed), key_rpc_ms=summarize(trips),
+                           composer_text_length=self.pane("readiness").get("composer_text_length"))
+        for key in ("key_to_frame_ms", "key_to_paint_ms"):
+            stats = self.report.get(key)
+            self.note(f"{COMPOSER} {key}: " + (f"p50 {stats['p50']} p95 {stats['p95']} max {stats['max']} n={stats['n']}"
+                                               if stats else "(no samples)"))
+        if self.report.get("error"):
+            self.note(f"{COMPOSER}: {self.report['error']}")
+
+
+class ScrollRun(SurfaceRun):
+    """--surface chromium-page-scroll (module docstring, mode 3)."""
+
+    surface = SCROLL
+
+    def __init__(self, args):
+        super().__init__(args)
+        self.pages = idle_budget().IdlePages()
+
+    def gesture(self, hz):
+        """One trackpad gesture on the shown page: began, changed at `hz` for --scroll-seconds, ended. Returns the
+        events sent, failed and late (sent after their slot), its seconds and achieved rate."""
+        count = max(2, round(self.args.scroll_seconds * hz))
+        period, failed, late = 1.0 / hz, 0, 0
+        start = deadline = time.monotonic()
+        for index in range(count):
+            phase = "began" if index == 0 else "ended" if index == count - 1 else "changed"
+            reply = self.app.rpc("debug.mouse", {"target": "page", "action": "scroll", "phase": phase,
+                                                 "dy": 0 if phase == "ended" else -self.args.scroll_px}, timeout=5)
+            if isinstance(reply, dict) and reply.get("error"):
+                failed += 1
+            deadline += period
+            rest = deadline - time.monotonic()
+            if rest > 0:
+                time.sleep(rest)  # bench: one wheel event per display refresh
+            else:
+                late += 1
+        seconds = time.monotonic() - start
+        return {"events": count, "failed": failed, "late": late, "seconds": round(seconds, 3),
+                "hz": round(count / seconds, 1) if seconds > 0 else None}
+
+    def display_hz(self):
+        if self.args.hz:
+            return self.args.hz, "--hz"
+        measured = (self.report.get("host") or {}).get("display_hz")
+        return (float(measured), "main display") if measured else (DEFAULT_HZ, "assumed: the display rate is unknown")
+
+    def measure(self):
+        ib = idle_budget()
+        hz, source = self.display_hz()
+        self.report["hz_source"] = source
+        try:
+            ib.run_action(self.app, "openBrowser.chromium", {"url": self.pages.origin + ib.SCROLL_PATH}, focus=True,
+                          timeout=90)
+        except ib.SessionShapeError as error:
+            raise SystemExit(f"bench-typing: {error}") from error
+        if not self.pages.wait_loaded("scroll", 90):
+            raise SystemExit("bench-typing: the scroll page did not load in 90 s")
+        time.sleep(1.0)  # bench: the page's first frames land before the record starts
+        self.saver.read(self.app)
+        first = self.pages.read_scroll(10)  # the page starts a clean record
+        if "error" in first:
+            raise SystemExit(f"bench-typing: the scroll page does not answer: {first['error']}")
+        gestures, reads = [], []
+        for _ in range(self.args.scrolls):
+            gestures.append(self.gesture(hz))
+            time.sleep(ib.SCROLL_QUIET_MS / 1000 + 0.15)  # bench: the page's record ends after its quiet time
+            reads.append(self.pages.read_scroll(10))
+        self.saver.read(self.app)
+        result = scroll_result(reads, hz, gestures)
+        self.report.update(result, gestures=gestures)
+        self.note(bench_tagged.summary_line(f"{SCROLL} frame_interval_ms", result["frame_interval_ms"], width=36))
+        self.note(f"{SCROLL}: {result['frames']} frames at {hz:g} Hz ({source}), fps {result['fps']}, dropped "
+                  f"{result['dropped_frames']}, wheel events {result['wheels_received']}/{result['wheels_sent']}"
+                  + (f"; {result['error']}" if result.get("error") else ""))
+        self.report["recorded"] = bench_tagged.record_series(
+            self.app, f"bench-typing-{SCROLL}" + saver_suffix(self.args.energy_saver),
+            {"frame_interval_ms": result["intervals_ms"]}, engine="chromium", log=self.note)
+
+    def run(self):
+        try:
+            return super().run()
+        finally:
+            self.pages.close()
+
+
+def runner(args):
+    """The run of args.surface (one combination)."""
+    return {COMPOSER: ComposerRun, SCROLL: ScrollRun}.get(args.surface, Launched)(args)
+
+
+def run_all(args, rows):
+    """Every combination of `rows` (``plan``), one launch each; a failed one is recorded and the rest still run. Prints
+    and writes (DIR/d8.json) the D8 verdicts."""
+    reports = {}
+    for row in rows:
+        print(f"== {row['surface']} energy saver {row['energy_saver']}: {row['command']}", flush=True)
+        one = argparse.Namespace(**{**vars(args), "surface": row["surface"], "energy_saver": row["energy_saver"],
+                                    "out": row["out"]})
+        run = None
+        try:
+            run = runner(one)
+            run.run()
+            report = run.report
+        except SystemExit as error:  # LaunchError included: one combination's failure; the others still run
+            report = {**(run.report if run else {}), "error": str(error.code)[:500]}
+            print(f"== {row['surface']} energy saver {row['energy_saver']} failed: {error.code}", flush=True)
+        reports[(row["surface"], row["energy_saver"])] = report
+    verdicts = d8_verdicts(reports)
+    for surface, verdict in verdicts.items():
+        print("BENCH-TYPING-D8 " + json.dumps({"surface": surface, **verdict}), flush=True)
+    path = os.path.join(default_out(args), "d8.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"runs": {f"{s}{saver_suffix(v)}": r for (s, v), r in reports.items()}, "d8": verdicts}, f,
+                  indent=1, default=str)
+    print(f"== d8 {path}", flush=True)
+    return 0
+
+
+def parse_list(parser, text, choices, flag):
+    """The comma list `text` of --`flag` (each one of `choices`, repeats dropped), or a parser error."""
+    values = list(dict.fromkeys(v.strip() for v in text.split(",") if v.strip()))
+    unknown = [v for v in values if v not in choices]
+    if unknown or not values:
+        parser.error(f"--{flag} takes a comma list of {', '.join(choices)}; got {text!r}")
+    return values
 
 
 def parse_args(argv=None):
@@ -589,13 +1078,33 @@ def parse_args(argv=None):
     parser.add_argument("--keys", default="abcdefghijklmnopqrstuvwxyz")
     parser.add_argument("--driver", default=str(Path.home() / ".local/bin/cua-driver"))
     parser.add_argument("--analyze-only", action="store_true", help="summarize an existing CSV")
+    parser.add_argument("--surface", default=TERMINAL,
+                        help=f"launched mode: what is typed into or scrolled, a comma list of {', '.join(SURFACES)}")
+    parser.add_argument("--energy-saver", default=None,
+                        help="launched mode: on, off or on,off (energy.saver always/off, the energySaver feature on)")
+    parser.add_argument("--scrolls", type=int, default=3, help=f"{SCROLL}: gestures, one record each")
+    parser.add_argument("--scroll-seconds", type=float, default=2.0, help=f"{SCROLL}: seconds of each gesture")
+    parser.add_argument("--scroll-px", type=float, default=24.0, help=f"{SCROLL}: pixels per wheel event")
+    parser.add_argument("--hz", type=float, default=None,
+                        help=f"{SCROLL}: the rate of the wheel events and of dropped frames (default the main display's)")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="launched mode: print each combination's plan and launch nothing")
     args = parser.parse_args(argv)
     launched = bool(args.tag or args.app)
+    args.surfaces = parse_list(parser, args.surface, SURFACES, "surface")
+    args.savers = parse_list(parser, args.energy_saver, SAVER_STATES, "energy-saver") if args.energy_saver else []
+    args.surface, args.energy_saver = args.surfaces[0], (args.savers or [None])[0]
+    if not launched and (args.surfaces != [TERMINAL] or args.savers or args.dry_run):
+        parser.error("--surface, --energy-saver and --dry-run need --tag or --app (launched mode)")
     if launched:
         if args.pid or args.window or args.csv or args.analyze_only:
             parser.error("--tag/--app launches its own app: no --pid, --window, --csv or --analyze-only")
         if args.flood < 0:
             parser.error("--flood takes N >= 0")
+        if (args.flood or args.stress) and args.surfaces != [TERMINAL]:
+            parser.error("--flood and --stress are terminal-only: --surface terminal")
+        if args.scrolls < 1 or args.scroll_seconds <= 0 or args.scroll_px <= 0 or (args.hz is not None and args.hz <= 0):
+            parser.error("--scrolls, --scroll-seconds, --scroll-px and --hz take positive values")
         args.samples = 120 if args.samples is None else args.samples
         args.warmup = 10 if args.warmup is None else args.warmup
         args.interval = 0.15 if args.interval is None else args.interval
@@ -613,10 +1122,18 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    if args.launched:
-        return Launched(args).run()
-    attached_main(args)
-    return 0
+    if not args.launched:
+        attached_main(args)
+        return 0
+    rows = plan(args)
+    if args.dry_run:
+        for row in rows:
+            print("BENCH-TYPING-PLAN " + json.dumps(row), flush=True)
+        return 0
+    if len(rows) == 1:
+        args.out = rows[0]["out"]
+        return runner(args).run()
+    return run_all(args, rows)
 
 
 if __name__ == "__main__":
