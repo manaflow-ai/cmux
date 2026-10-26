@@ -42,9 +42,10 @@
 //!   prompts until the user answers it in the app or the CLI.
 //! - Web and Peer: no `_acpmux/process/*` (a process's command line and
 //!   its kill are local), refused in `processes.rs`, which runs first.
-//! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
-//!   server on makes the harness start the stdio command the user's config
-//!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web only: no `_acpmux/set_tools` or `_acpmux/mcp/reconnect`
+//!   (`tools.remote`). Turning an MCP server on, or reconnecting it, makes
+//!   the harness start the stdio command the user's config names on this
+//!   machine; unlike a mode, no asking table makes that safe.
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
@@ -151,7 +152,8 @@ pub(super) fn mark_forwarded(
     forwarded: &mut Value,
 ) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
-    // the prompt goes there without it.
+    // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
+    // takes it from this link and stamps the provenance itself.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
     }
@@ -182,6 +184,14 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // A person's name (`author.rs`) comes over the unix socket, or from a peer forwarding one it
+    // took there; never from Web, the app's pane or a peer forwarding for its own Web client.
+    if crate::author::present(params)
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::author::origin_refused());
     }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
@@ -400,9 +410,11 @@ async fn check_inner(
     }
     // An MCP server turned on runs its configured command here: the app and
     // the unix socket only (a peer forwarding for its own Web client too).
-    if m == method::MUX_SET_TOOLS && control_of(origin, auth, params) == crate::hub::Control::Web {
+    // Reconnecting one starts its configured command again: the same callers.
+    let tools = matches!(m, method::MUX_SET_TOOLS | method::MUX_MCP_RECONNECT);
+    if tools && control_of(origin, auth, params) == crate::hub::Control::Web {
         return Err(RpcError::invalid_params(
-            "tools.remote: a chat's tools are turned on or off only in the app or over the local unix socket",
+            "tools.remote: a chat's tools are turned on or off, or reconnected, only in the app or over the local unix socket",
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
@@ -566,24 +578,29 @@ pub(super) fn after(
 }
 
 /// A new Web session in a mode that does not ask is moved to its family's
-/// asking default; a family with none (unknown) is ended and refused.
+/// asking default; a family with none (unknown) is ended and refused. `peer`:
+/// an enrolled peer of this host started it ([`settles_as_peer`]).
 pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
+    peer: bool,
 ) -> Result<(), RpcError> {
     // The Codex bridge takes any mode from an authenticated Web connection
     // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
     // that asks before every change (`BRIDGE_ASKING_MODES`), never in the
-    // bridge's own default (`agent`: edits and commands without asking).
+    // bridge's own default (`agent`: edits and commands without asking);
+    // one an enrolled peer starts under deny-all, in the policy's `read-only`
+    // (`hub/policy_mode.rs` `bridge_settle_modes`), whose sandbox refuses
+    // every write.
     if hub.any_mode_for_web(&s.meta()) {
+        let settled = hub.bridge_settle_modes(s, peer).await;
         let asks = |m: &crate::store::SessionMeta| {
-            crate::web_modes::mode_of(m)
-                .is_some_and(|mode| crate::web_modes::BRIDGE_ASKING_MODES.contains(&mode.as_str()))
+            crate::web_modes::mode_of(m).is_some_and(|mode| settled.contains(&mode))
         };
         if asks(&s.meta()) {
             return Ok(());
         }
-        let Some(&start) = crate::web_modes::BRIDGE_ASKING_MODES.first() else {
+        let Some(start) = settled.first() else {
             let _ = hub.kill(s, true).await;
             return Err(no_reviewed_asking_mode());
         };
@@ -609,6 +626,19 @@ pub(super) async fn settle_web_session_mode(
     // starting mode set.
     hub.restore_web_control(s);
     Ok(())
+}
+
+/// Whether a connection is an enrolled peer of this host for
+/// [`settle_web_session_mode`]: another acpmux that presented this launch's
+/// peer token (`peer_auth.rs`), for itself, not forwarding for a Web client
+/// (`via: web`). A paired device, the Web and an unknown origin are not.
+pub(super) fn settles_as_peer(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> bool {
+    auth == super::ConnAuth::PeerToken
+        && control_of(origin, auth, params) == crate::hub::Control::Peer
 }
 
 fn no_reviewed_asking_mode() -> RpcError {
@@ -798,11 +828,11 @@ async fn web_starts_asking(
             if !(draft && not_asking) {
                 return Err(e);
             }
-            settle_web_session_mode(hub, &t).await?;
+            settle_web_session_mode(hub, &t, false).await?;
         } else if draft && hub.any_mode_for_web(&t.meta()) {
             // A new Codex bridge target starts asking too (a Web connection
             // may switch it later, as any bridge session).
-            settle_web_session_mode(hub, &t).await?;
+            settle_web_session_mode(hub, &t, false).await?;
         }
         return hub.web_control_check(&t, control);
     }

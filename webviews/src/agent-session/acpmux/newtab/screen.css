@@ -342,6 +342,12 @@
   flex-wrap: nowrap;
   padding: 0;
 }
+/* In Claude's split layout the New Tab plus belongs before the prompt, matching chat Composer's
+   leading control; the model/mic/send row remains under the field. */
+.nt-input .nt-split-plus {
+  flex: none;
+  margin-top: 12px;
+}
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
   width: 24px;
