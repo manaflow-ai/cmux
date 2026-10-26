@@ -34,10 +34,22 @@ public final class TraceRuntime: Sendable {
     /// Stub until task 003 adds the ring: the records the `write` methods let through their category
     /// gate, so tests can see the gate.
     let stubRecordCount = Atomic<UInt64>(0)
+    /// The clock of every record's `t_ns` (plans/cmux-next/trace.md "Release trace ring v1").
+    let clock: TraceClock
+    /// Stub until task 003 adds the ring and its decoder: a test's sink that sees each record this runtime
+    /// writes, with the fields the ring would hold. nil outside tests.
+    let stubRecorder: (@Sendable (StubRecord) -> Void)?
 
     /// A runtime for a process of kind `role`, with every category off.
     public init(role: Role) {
+        self.init(role: role, clock: TraceClock(), stubRecorder: nil)
+    }
+
+    /// A runtime whose records take their times from `clock` and go to `stubRecorder` too (tests).
+    init(role: Role, clock: TraceClock, stubRecorder: (@Sendable (StubRecord) -> Void)?) {
         self.role = role
+        self.clock = clock
+        self.stubRecorder = stubRecorder
         hangWatch = HangWatch()
     }
 
@@ -68,10 +80,35 @@ public final class TraceRuntime: Sendable {
     ///   - flags: How to read the arguments.
     ///   - arg0: The first number (the name's doc comment says what it holds).
     ///   - arg1: The second number; the async id or track id when ``RecordFlags/asyncID`` is set.
+    /// - Returns: Whether the record was written (its category was on). A begin's caller keeps it and ends a
+    ///   written begin with ``writeEnd(name:categoryBit:phase:flags:arg0:arg1:)``.
+    @discardableResult
     public func write(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags = [],
-                      arg0: UInt64 = 0, arg1: UInt64 = 0) {
-        guard isEnabled(categoryBit: categoryBit) else { return }
-        stubRecordCount.add(1, ordering: .relaxed) // Task 003: claim a slot in this thread's chunk and publish.
+                      arg0: UInt64 = 0, arg1: UInt64 = 0) -> Bool {
+        guard isEnabled(categoryBit: categoryBit) else { return false }
+        publish(name: name, categoryBit: categoryBit, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+        return true
+    }
+
+    /// Writes the end (E or AE) of a begin that ``write(name:categoryBit:phase:flags:arg0:arg1:)`` wrote, without
+    /// reading the category flags: a recorded begin always gets its end, even when `trace.stop` or the
+    /// secure-input gate turned its category off in between. Chrome's scoped trace event reads the category
+    /// once, at the begin (base/trace_event/trace_event.h `INTERNAL_TRACE_EVENT_ADD_SCOPED`). Never call it for
+    /// a begin whose write returned false.
+    ///
+    /// - Parameters: As ``write(name:categoryBit:phase:flags:arg0:arg1:)``.
+    public func writeEnd(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags = [],
+                         arg0: UInt64 = 0, arg1: UInt64 = 0) {
+        publish(name: name, categoryBit: categoryBit, phase: phase, flags: flags, arg0: arg0, arg1: arg1)
+    }
+
+    /// Task 003: claim a slot in this thread's chunk and publish the record.
+    private func publish(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags, arg0: UInt64, arg1: UInt64) {
+        stubRecordCount.add(1, ordering: .relaxed)
+        if let stubRecorder {
+            stubRecorder(StubRecord(tNanos: clock.nowNanos(), name: name, categoryBit: categoryBit, phase: phase,
+                                    flags: flags, arg0: arg0, arg1: arg1))
+        }
     }
 
     /// Writes one record under a name outside the catalog (a task's post site, an acpmux callsite) when
@@ -177,8 +214,27 @@ extension TraceRuntime {
         }
     }
 
+    /// One record as the stub hands it to a test's recorder: the fields of the ring's 32-byte record
+    /// (trace.md "Release trace ring v1") that the writer chooses. Task 003's decoder replaces it.
+    struct StubRecord: Sendable, Equatable {
+        /// `t_ns`: ``TraceClock`` nanoseconds at the write.
+        var tNanos: UInt64
+        /// The catalog id.
+        var name: UInt16
+        /// The category bit.
+        var categoryBit: UInt8
+        /// The phase.
+        var phase: Phase
+        /// How to read the arguments.
+        var flags: RecordFlags
+        /// The first number.
+        var arg0: UInt64
+        /// The second number.
+        var arg1: UInt64
+    }
+
     /// How to read a record's arguments (the record's flags byte).
-    public struct RecordFlags: OptionSet, Sendable {
+    public struct RecordFlags: OptionSet, Sendable, Equatable {
         /// The byte.
         public let rawValue: UInt8
         /// Flags from the byte.
