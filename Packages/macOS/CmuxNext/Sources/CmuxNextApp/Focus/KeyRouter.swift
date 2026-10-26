@@ -390,7 +390,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Keys typed for a terminal that is still a picture (p08-startup-061, KeyRouter+TypeAhead).
     lazy var launchPictureKeys: LaunchPictureKeys = {
         let keys = LaunchPictureKeys { [weak self] target, events in self?.deliverLaunchPictureKeys(events, to: target) ?? false }
-        keys.onActiveChange = { [modes] in modes.set(.launchPicture, $0) }
+        keys.onActiveChange = { [modes = self.modes] in modes.set(.launchPicture, $0) }
         return keys
     }()
     /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
