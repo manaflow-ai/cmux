@@ -372,8 +372,9 @@ when no caller is known or the caller cannot be found (a shell outside cmux, a
 stale terminal id, an app that does not answer), under `--socket`, `--session`
 or `--machine`, below an explicit parent that is not the caller's, above an
 explicit id or name, and for a browser target. The daemon itself only knows
-`current` as focused. `cmux agents` and the MCP tools keep `current` focused
-and do not take `caller`.
+`current` as focused. `cmux agents` keeps `current` focused and does not take
+`caller`. The MCP tools resolve `current` to the chat's own place themselves,
+use `focused` for the object the person looks at, and do not take `caller`.
 
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to

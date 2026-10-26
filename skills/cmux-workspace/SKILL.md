@@ -187,7 +187,7 @@ Lists act on that one session. `--all-sessions` runs a list on every local sessi
 - `pane split` and `workspace create` keep focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane or workspace.
 - If a command rejects a valid id, report it. Do not work around by focusing.
 - Do not close, focus, move, or send input to another workspace unless the user names that target.
-- Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `current`, or an exact name (`name:<value>` forces a name).
+- Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `caller`, `current`, or an exact name (`name:<value>` forces a name).
 
 ## References
 

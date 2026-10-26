@@ -355,8 +355,8 @@ fn run_resource<B: Backend>(
         }
         Err(error) => return Err(AgentFailure::Usage(error.0)),
     };
-    // The MCP transport sends plain unary requests: its `current` is still
-    // the focused object, as for every MCP tool, and it has no `caller`.
+    // `cmux agents` sends plain unary requests with no caller placement: its
+    // `current` is still the focused object, and it has no `caller`.
     let caller = json!("caller");
     if plan.params.as_object().is_some_and(|params| {
         super::command::plan::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
