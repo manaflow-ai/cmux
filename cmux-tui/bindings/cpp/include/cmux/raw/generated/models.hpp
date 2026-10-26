@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "43809fd7d722d834588b3aab6384dbcdf8f755c500368d8dff2de87bc045e23d";
+inline constexpr std::string_view kProtocolIrSha256 = "fe84acbe2f8a991aef2f52252cb62b788905b404c1ad8fac0cfba766a8397876";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -82,6 +82,7 @@ struct BrowserRuntimeRow;
 struct BrowserRuntimeStartResult;
 struct BrowserRuntimeStatusResult;
 struct BrowserRuntimeStopResult;
+struct CancelStreamResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
@@ -416,6 +417,7 @@ struct BrowserRuntimeStopRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct CancelRequestRequest;
+struct CancelStreamRequest;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ClearHistoryRequest;
@@ -830,6 +832,7 @@ struct ScrollChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
 struct StatusEvent;
+struct StreamEndEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
 struct SurfaceResizeFailedEvent;
@@ -862,6 +865,7 @@ struct AgentCliJobResolutionIndeterminate;
 struct AgentCliJobResolutionNotFound;
 struct AgentCliJobResolutionPending;
 struct AgentCliJobResolutionPrepared;
+enum class CancelStreamResultOutcome;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -899,6 +903,7 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
+enum class StreamEndEventReason;
 struct CloudAttachmentUploadResultStoredPoster;
 struct CloudAttachmentUploadResultStoredPreview;
 struct ConversationAttachmentUploadResultStoredPoster;
@@ -1957,6 +1962,7 @@ struct AttachSurfaceRequest {
     std::optional<bool> snapshot_images{};
     std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
+    Field<std::uint16_t> stream{};
     Field<Id> surface{};
     Field<std::uint64_t> viewer_backlog_bytes{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
@@ -2273,6 +2279,22 @@ struct BrowserWheelRequest {
 struct CancelRequestRequest {
     std::optional<JsonValue> target{};
     friend bool operator==(const CancelRequestRequest&, const CancelRequestRequest&) = default;
+};
+
+struct CancelStreamRequest {
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamRequest&, const CancelStreamRequest&) = default;
+};
+
+enum class CancelStreamResultOutcome {
+    applied,
+    ended,
+};
+
+struct CancelStreamResult {
+    CancelStreamResultOutcome outcome{};
+    std::uint16_t stream{};
+    friend bool operator==(const CancelStreamResult&, const CancelStreamResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -3843,6 +3865,7 @@ struct DeleteWorkspaceGroupRequest {
 
 struct DetachAttachedViewRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const DetachAttachedViewRequest&, const DetachAttachedViewRequest&) = default;
@@ -5803,6 +5826,7 @@ struct RegisterBrowserProviderRequest {
 
 struct ReleaseAttachedViewSizeRequest {
     Field<std::string> lease{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
@@ -6028,6 +6052,7 @@ struct ResizeAttachedViewRequest {
     Field<SizingIdentity> identity{};
     Field<std::string> lease{};
     std::uint16_t rows{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     Field<std::string> view{};
     friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
@@ -6918,6 +6943,7 @@ struct SnapshotRequestRequest {
     Field<SnapshotRequestHave> have{};
     Field<std::string> reason{};
     Field<std::string> request_id{};
+    Field<std::uint16_t> stream{};
     Id surface{};
     friend bool operator==(const SnapshotRequestRequest&, const SnapshotRequestRequest&) = default;
 };
@@ -6959,6 +6985,19 @@ struct StatusEvent {
     std::optional<EventCause> cause{};
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
+};
+
+enum class StreamEndEventReason {
+    canceled,
+    detached,
+    overflow,
+    attach_failed,
+};
+
+struct StreamEndEvent {
+    StreamEndEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const StreamEndEvent&, const StreamEndEvent&) = default;
 };
 
 struct SubscribeActivityRequest {
@@ -8114,6 +8153,12 @@ template <>
 struct Codec<BrowserRuntimeStopResult> {
     static Result<Json> encode(const BrowserRuntimeStopResult& value);
     static Result<BrowserRuntimeStopResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamResult> {
+    static Result<Json> encode(const CancelStreamResult& value);
+    static Result<CancelStreamResult> decode(const Json& value);
 };
 
 template <>
@@ -10118,6 +10163,12 @@ template <>
 struct Codec<CancelRequestRequest> {
     static Result<Json> encode(const CancelRequestRequest& value);
     static Result<CancelRequestRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamRequest> {
+    static Result<Json> encode(const CancelStreamRequest& value);
+    static Result<CancelStreamRequest> decode(const Json& value);
 };
 
 template <>
@@ -12605,6 +12656,12 @@ struct Codec<StatusEvent> {
 };
 
 template <>
+struct Codec<StreamEndEvent> {
+    static Result<Json> encode(const StreamEndEvent& value);
+    static Result<StreamEndEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<SurfaceExitedEvent> {
     static Result<Json> encode(const SurfaceExitedEvent& value);
     static Result<SurfaceExitedEvent> decode(const Json& value);
@@ -12794,6 +12851,12 @@ template <>
 struct Codec<AgentCliJobResolutionPrepared> {
     static Result<Json> encode(const AgentCliJobResolutionPrepared& value);
     static Result<AgentCliJobResolutionPrepared> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelStreamResultOutcome> {
+    static Result<Json> encode(const CancelStreamResultOutcome& value);
+    static Result<CancelStreamResultOutcome> decode(const Json& value);
 };
 
 template <>
@@ -13016,6 +13079,12 @@ template <>
 struct Codec<SettingsChangedEventOrigin> {
     static Result<Json> encode(const SettingsChangedEventOrigin& value);
     static Result<SettingsChangedEventOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<StreamEndEventReason> {
+    static Result<Json> encode(const StreamEndEventReason& value);
+    static Result<StreamEndEventReason> decode(const Json& value);
 };
 
 template <>

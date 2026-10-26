@@ -78,6 +78,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 110,
             rows: 35,
+            stream: None,
         },
         &writer,
     )
@@ -95,6 +96,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 70,
             rows: 20,
+            stream: None,
         },
         &writer,
     )
@@ -117,6 +119,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
                 identity: None,
                 cols: 40,
                 rows: 10,
+                stream: None,
             },
             &writer,
         )
@@ -135,6 +138,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 40,
             rows: 10,
+            stream: None,
         },
         &foreign_writer,
     )
@@ -149,6 +153,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -162,6 +167,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -176,11 +182,13 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 60,
             rows: 18,
+            stream: None,
         },
         Command::ReleaseAttachedViewSize {
             surface: surface.id,
             lease: Some(first_lease.clone()),
             view: None,
+            stream: None,
         },
     ] {
         let retired = handle_command(&mux, client, command, &writer).unwrap();
@@ -197,6 +205,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 90,
             rows: 28,
+            stream: None,
         },
         &writer,
     )
@@ -215,6 +224,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             identity: None,
             cols: 55,
             rows: 16,
+            stream: None,
         },
         &writer,
     )
@@ -245,6 +255,7 @@ fn attachment_leases_fence_independent_same_connection_views() {
             surface: surface.id,
             lease: Some(second_lease),
             view: None,
+            stream: None,
         },
         &writer,
     )
@@ -310,6 +321,7 @@ fn attachment_resize_waits_for_detach_lifecycle_and_becomes_superseded() {
                 identity: None,
                 cols: 80,
                 rows: 24,
+                stream: None,
             },
             &resize_writer,
         );
@@ -387,6 +399,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 identity: None,
                 cols: resized.0,
                 rows: resized.1,
+                stream: None,
             },
             &writer,
         )
@@ -404,6 +417,7 @@ fn terminal_view_leases_converge_after_500_rapid_attach_resize_detach_cycles() {
                 identity: None,
                 cols: 40,
                 rows: 10,
+                stream: None,
             },
             &writer,
         )

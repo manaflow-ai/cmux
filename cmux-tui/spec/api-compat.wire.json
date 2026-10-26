@@ -387,6 +387,10 @@
         "id": 4621,
         "priority": "control"
       },
+      "cancel-stream": {
+        "id": 794,
+        "priority": "control"
+      },
       "chief-inspect": {
         "id": 3856,
         "priority": "control"
@@ -1823,6 +1827,10 @@
       },
       "status": {
         "id": 49420,
+        "priority": "control"
+      },
+      "stream-end": {
+        "id": 49164,
         "priority": "control"
       },
       "surface-exited": {
