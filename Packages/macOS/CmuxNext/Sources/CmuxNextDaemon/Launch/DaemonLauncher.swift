@@ -201,7 +201,7 @@ public struct DaemonLauncher: Sendable {
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,
-    /// else the app's own), filtered, plus the app's identity keys and
+    /// else the app's own, and only then the capture starts at once), filtered, plus the app's identity keys and
     /// `overrides` and the `resolved` ones over them, then `cli` (the bundled `cmux` first on `PATH`). It
     /// never waits for `$SHELL -l -i`, which takes 5-17 s on some setups;
     /// the app's terminals do not depend on it, because each carries its
@@ -379,14 +379,6 @@ public struct DaemonLauncher: Sendable {
             clock: clock
         ), let parsed = try? Self.parseEnsure(result), parsed.status == "running" else { return nil }
         return parsed
-    }
-
-    /// Starts capturing the login environment now, so the first terminals
-    /// have it as early as possible and the next launch remembers it. Call
-    /// at the top of `main`; the capture runs off the main thread.
-    public static func prewarmLoginEnvironment() {
-        // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
-        Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
     }
 
     static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {
