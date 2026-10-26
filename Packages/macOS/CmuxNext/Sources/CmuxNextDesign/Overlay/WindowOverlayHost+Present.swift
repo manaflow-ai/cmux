@@ -3,7 +3,8 @@ public import AppKit
 public extension WindowOverlayHost {
     /// Shows `content` above every page of the window. `content` keeps its
     /// frame size (its fitting size when it has none); the kind and anchor
-    /// decide where it goes.
+    /// decide where it goes. A content that later changes size by Auto Layout is read in its holder's
+    /// `layout()`; one that sets its own frame tells its handle (``OverlayHandle/contentDidResize()``).
     func present(_ content: NSView, options: OverlayOptions) -> OverlayHandle {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
@@ -21,6 +22,7 @@ public extension WindowOverlayHost {
         content.alphaValue = 1
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
+            clipView.onLayout = { [weak self] in self?.containerDidLayout() }
             clipView.addSubview(content)
             container.addSubview(clipView)
             handle.clipView = clipView
@@ -119,7 +121,7 @@ public extension WindowOverlayHost {
         return true
     }
 
-    /// The panel laid out its overlays (a window resize, a content that resized itself): the panel takes or
+    /// The panel laid out its overlays (a window resize, a content Auto Layout resized): the panel takes or
     /// lets go of the mouse under a pointer that did not move, read from the frames now.
     func containerDidLayout() {
         guard cachedRegions != nil, !regionsFramesAreCurrent() else { return }

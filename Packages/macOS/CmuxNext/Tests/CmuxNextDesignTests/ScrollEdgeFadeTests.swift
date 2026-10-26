@@ -28,6 +28,9 @@ struct ScrollEdgeFadeTests {
 
     @Test func theFadeFollowsScrollsAndResizesFromTheClipHooks() throws {
         let scrollView = Self.scrollView(documentHeight: 400)
+        // The clip's notifications off before the fade: scrolls and resizes reach it through the clip's hooks.
+        scrollView.contentView.postsBoundsChangedNotifications = false
+        scrollView.contentView.postsFrameChangedNotifications = false
         let fade = ScrollEdgeFadeView(scrollView: scrollView)
         let window = Self.window(showing: fade)
         defer { window.close() }
@@ -48,7 +51,12 @@ struct ScrollEdgeFadeTests {
 
     @Test func theScrollFitFollowsTheDocumentAndTheClipFromTheClipHooks() throws {
         let scrollView = Self.scrollView(documentHeight: 60)
+        scrollView.contentView.postsBoundsChangedNotifications = false
+        scrollView.contentView.postsFrameChangedNotifications = false
         let fit = ScrollFitElasticity(scrollView: scrollView)
+        let clip = try #require(scrollView.contentView as? ScrollGeometryClipView, "the fit did not install its clip")
+        #expect(!clip.postsBoundsChangedNotifications && !clip.postsFrameChangedNotifications,
+                "the fit turned the clip's notifications on")
         let document = try #require(scrollView.documentView)
         #expect(scrollView.verticalScrollElasticity == .none)
 

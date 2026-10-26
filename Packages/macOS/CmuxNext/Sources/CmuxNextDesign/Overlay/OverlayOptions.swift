@@ -120,6 +120,14 @@ public final class OverlayHandle {
         host?.layout(self)
     }
 
+    /// The content set its own frame size (a card sized to new rows): the host places it again and
+    /// takes or lets go of the mouse under a pointer that did not move. Chromium's bubble owner does the
+    /// same with `SizeToContents()` (ui/views/bubble/bubble_dialog_delegate.cc). A content sized by
+    /// Auto Layout needs no call: its holder's `layout()` reads it.
+    public func contentDidResize() {
+        host?.layout(self)
+    }
+
     /// From now on clicks pass through the overlay to what is below (it
     /// is fading out: the page under it gets the next click at once).
     public func stopTakingMouse() {

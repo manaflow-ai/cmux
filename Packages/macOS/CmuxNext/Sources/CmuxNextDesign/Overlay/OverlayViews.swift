@@ -3,7 +3,8 @@ import AppKit
 /// Holds presented overlays; flipped so overlay frames read top-down in tests and logs.
 final class OverlayContainerView: NSView {
     nonisolated override var isFlipped: Bool { false }
-    /// Its host reads the overlays' sizes after each layout pass.
+    /// Its host reads the overlays' sizes after each layout pass. Auto Layout marks this view for layout
+    /// when it solves a new frame for a content held here (a SwiftUI popover that grew).
     var onLayout: (() -> Void)?
 
     override func layout() {
@@ -14,6 +15,15 @@ final class OverlayContainerView: NSView {
 
 /// Clips a `.pane` overlay to its pane minus the occluders (a mask with holes).
 final class OverlayClipView: NSView {
+    /// Its host reads the overlay's size after each layout pass, as ``OverlayContainerView/onLayout``:
+    /// this view, not the container, holds a `.pane` overlay's content.
+    var onLayout: (() -> Void)?
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
