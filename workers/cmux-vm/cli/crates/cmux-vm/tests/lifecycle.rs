@@ -2340,6 +2340,7 @@ async fn exec_fails_when_the_command_fails() {
     assert!(out.stderr.contains("acpmux: not found"), "{}", out.stderr);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
     let server = MockServer::start().await;

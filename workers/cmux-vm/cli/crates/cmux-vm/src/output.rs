@@ -3,7 +3,9 @@
 //! still reach the caller. Client sessions restrict JSON to known fields to
 //! prevent token disclosure. Human mode decodes into the generated types.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
+#[cfg(unix)]
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
 
@@ -22,20 +24,25 @@ pub struct Printer<'a> {
 
 /// Reserve a token path before making the request that mints the one-time
 /// token. Failed requests leave the empty 0600 reservation in place.
+#[cfg(unix)]
 pub fn reserve_token_file(path: &Path) -> Result<File, CliError> {
     let mut file = OpenOptions::new();
     file.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        file.mode(0o600);
-    }
+    use std::os::unix::fs::OpenOptionsExt;
+    file.mode(0o600);
     file.open(path).map_err(|e| {
         CliError::unexpected(format!(
             "could not prepare the token file {}: {e}; choose a new --token-file",
             path.display()
         ))
     })
+}
+
+#[cfg(not(unix))]
+pub fn reserve_token_file(_path: &Path) -> Result<File, CliError> {
+    Err(CliError::usage(
+        "--token-file requires Unix mode 0600 permissions; omit it to print the one-time token to stdout",
+    ))
 }
 
 impl<'a> Printer<'a> {

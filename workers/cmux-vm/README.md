@@ -488,7 +488,7 @@ cmux-vm client-session revoke vm_... vcs_... [--yes]
 
 `create` prints the SSH line (`<providerVmId>+<user>@beta-ssh.freestyle.sh`) and
 shows the provider token once. Use `--token-file` to write it to a newly created
-0600 file; the token is never logged. Existing paths are refused before minting.
+0600 file on Unix; other platforms use stdout. The token is never logged. Existing paths are refused before minting.
 A failed request leaves an empty reservation; inspect the session list and revoke
 any newly created session before retrying with a new path.
 All commands accept `--json`. Create JSON includes `sshLine` and the token only
