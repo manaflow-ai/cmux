@@ -8,7 +8,8 @@
 # Chrome's equivalent is the chrome_pgo_phase=1 build that tools/pgo/generate_profile.py runs
 # (docs/pgo.md). Stage 1 (run-scenarios.py --stage profile, task 050) drives the real scenarios.
 #
-# Run it on a fleet Mac (cmux-ci run --class isolated --script ...), never on a person's Mac.
+# It runs only as a fleet step (lib/fleet-only.sh), never on a person's Mac:
+#   cmux-ci run --class isolated --script "scripts/cmux-next/pgo/build-profile.sh --tag TAG" --ref SHA
 #
 # Exit codes: 0 ok, 1 the build or the profile check failed, 2 usage.
 #
@@ -19,6 +20,12 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 root="$(cd "$script_dir/../../.." && pwd -P)"
+
+# shellcheck source=SCRIPTDIR/../lib/fleet-only.sh
+source "$script_dir/../lib/fleet-only.sh"
+cmux_next_require_fleet pgo/build-profile.sh "xcodebuild (reload.sh --config profile) and an app launch" \
+  "none, a cmux-ci fleet step" \
+  'cmux-ci run --class isolated --script "scripts/cmux-next/pgo/build-profile.sh --tag TAG" --ref SHA'
 
 usage() {
   sed -n '2,2p' "${BASH_SOURCE[0]}" | sed 's/^# /usage: /' >&2
@@ -56,7 +63,7 @@ if [[ ! "$timeout" =~ ^[1-9][0-9]*$ ]]; then
 fi
 for arg in "${reload_args[@]+"${reload_args[@]}"}"; do
   case "$arg" in
-    --tag|--tag=*|--config|--config=*|--release|--derived-data|--name|--launch)
+    --tag|--tag=*|--config|--config=*|--release|--derived-data|--name|--launch|--build-only)
       echo "error: $arg is set by build-profile.sh; do not pass it after --" >&2
       exit 2 ;;
   esac
@@ -71,10 +78,21 @@ fi
 app="$derived/Build/Products/Release/cmux DEV ${tag}.app"
 reload="${CMUX_PGO_RELOAD:-$root/scripts/reload.sh}"
 
+# Not --build-only: that mode stamps only a staging copy and deletes it on exit. A tagged build without --launch
+# stamps the Release product (cmux.app) and moves it to `cmux DEV <tag>.app` as a new directory, and starts
+# nothing; --no-global-cli-links leaves /tmp/cmux-cli alone. The inode check refuses a bundle from an earlier build.
+bundle_inode() {
+  if [[ -d "$app" ]]; then python3 -I -c 'import os, sys; print(os.stat(sys.argv[1]).st_ino)' "$app"; fi
+}
 if (( build )); then
+  stale_inode="$(bundle_inode)"
   echo "==> build-profile: building the profile configuration of tag ${tag}"
-  "$reload" --tag "$tag" --config profile --build-only --derived-data "$derived" \
+  "$reload" --tag "$tag" --config profile --no-global-cli-links --derived-data "$derived" \
     "${reload_args[@]+"${reload_args[@]}"}"
+  if [[ -n "$stale_inode" && "$(bundle_inode)" == "$stale_inode" ]]; then
+    echo "error: $app is the bundle of an earlier build: reload.sh did not publish this one" >&2
+    exit 1
+  fi
 fi
 
 if [[ ! -d "$app" ]]; then

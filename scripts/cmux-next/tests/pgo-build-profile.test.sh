@@ -32,17 +32,35 @@ grep -qF "XCODEBUILD_ARGS+=('OTHER_LDFLAGS=\$(inherited) -fprofile-instr-generat
 mkdir -p "$work/bin"
 cat >"$work/bin/reload" <<'SH'
 #!/usr/bin/env bash
-# Records its arguments and stages the bundle STUB_CONFIG / STUB_SECTION describe.
+# Records its arguments and builds the way scripts/reload.sh does for a Release tag: xcodebuild's product is
+# the unstamped cmux.app; a copy is stamped (CMUXBuildConfiguration = STUB_CONFIG, STUB_SECTION in the
+# executable) at `.cmux DEV <tag>.reload-$$.app`. With --build-only (or STUB_PUBLISH=0) that copy is deleted
+# on exit; otherwise it replaces `cmux DEV <tag>.app` (rm -rf, then mv).
 printf '%s\n' "$@" >"$STUB_LOG"
-derived="" tag=""
+derived="" tag="" build_only=0
 while [[ $# -gt 0 ]]; do
-  case "$1" in --derived-data) derived="$2"; shift 2 ;; --tag) tag="$2"; shift 2 ;; *) shift ;; esac
+  case "$1" in
+    --derived-data) derived="$2"; shift 2 ;;
+    --tag) tag="$2"; shift 2 ;;
+    --build-only) build_only=1; shift ;;
+    *) shift ;;
+  esac
 done
-app="$derived/Build/Products/Release/cmux DEV $tag.app"
-mkdir -p "$app/Contents/MacOS"
-python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux DEV", "CMUXBuildConfiguration": sys.argv[2]}, open(sys.argv[1], "wb"))' \
-  "$app/Contents/Info.plist" "$STUB_CONFIG"
-printf 'MACHO %s DATA' "$STUB_SECTION" >"$app/Contents/MacOS/cmux DEV"
+products="$derived/Build/Products/Release"
+mkdir -p "$products/cmux.app/Contents/MacOS"
+python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux"}, open(sys.argv[1], "wb"))' \
+  "$products/cmux.app/Contents/Info.plist"
+printf 'MACHO %s DATA' "$STUB_SECTION" >"$products/cmux.app/Contents/MacOS/cmux"
+staging="$products/.cmux DEV $tag.reload-$$.app"
+cp -R "$products/cmux.app" "$staging"
+python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux", "CMUXBuildConfiguration": sys.argv[2]}, open(sys.argv[1], "wb"))' \
+  "$staging/Contents/Info.plist" "$STUB_CONFIG"
+if [[ "$build_only" -eq 1 || "${STUB_PUBLISH:-1}" == 0 ]]; then
+  rm -rf "$staging"
+else
+  rm -rf "$products/cmux DEV $tag.app"
+  mv "$staging" "$products/cmux DEV $tag.app"
+fi
 SH
 cat >"$work/bin/launcher" <<'SH'
 #!/usr/bin/env bash
@@ -63,6 +81,15 @@ run() {
   local expected="$1" name="$2"; shift 2
   local status=0
   rm -rf "$work/derived" "$work/out"
+  if [[ "${SEED_STALE:-0}" == 1 ]]; then
+    # An earlier profile build of the same tag, with counters, left at the final path.
+    local stale="$work/derived/Build/Products/Release/cmux DEV pgo-t.app"
+    mkdir -p "$stale/Contents/MacOS"
+    python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleExecutable": "cmux", "CMUXBuildConfiguration": "profile"}, open(sys.argv[1], "wb"))' \
+      "$stale/Contents/Info.plist"
+    printf 'MACHO __llvm_prf_cnts STALE' >"$stale/Contents/MacOS/cmux"
+  fi
+  CMUX_CI_STEP_KEY=pgo-build-profile-test \
   CMUX_DERIVED_DATA="$work/derived" CMUX_PGO_RELOAD="$work/bin/reload" CMUX_PGO_LAUNCHER="$work/bin/launcher" \
     CMUX_PGO_LLVM_PROFDATA="$work/bin/profdata" STUB_LOG="$work/reload.args" \
     bash "$script" "$@" >"$work/stdout" 2>"$work/stderr" || status=$?
@@ -81,7 +108,7 @@ expected_args="--tag
 pgo-t
 --config
 profile
---build-only
+--no-global-cli-links
 --derived-data
 $work/derived
 --swift-frontend-workaround"
@@ -105,8 +132,20 @@ grep -qF "built with --config 'bench'" "$work/stderr" || fail "bench bundle: wro
 STUB_SECTION=__text run 1 "uninstrumented" --tag pgo-t --out "$work/out"
 grep -qF 'no __llvm_prf_cnts section' "$work/stderr" || fail "uninstrumented: wrong reason"
 
+# reload.sh deletes a --build-only artifact, so only a published tagged bundle can be checked.
+STUB_PUBLISH=0 run 1 "nothing published" --tag pgo-t --out "$work/out"
+grep -qF 'no profile build at' "$work/stderr" || fail "nothing published: wrong reason"
+
+# A bundle an earlier build left must not stand in for this build's.
+SEED_STALE=1 STUB_PUBLISH=0 run 1 "stale bundle" --tag pgo-t --out "$work/out"
+grep -qF 'is the bundle of an earlier build' "$work/stderr" || fail "stale bundle: wrong reason"
+SEED_STALE=1 run 0 "stale bundle replaced" --tag pgo-t --out "$work/out"
+grep -qF 'STALE' "$work/derived/Build/Products/Release/cmux DEV pgo-t.app/Contents/MacOS/cmux" \
+  && fail "stale bundle replaced: checked the earlier bundle"
+
 run 2 "bad tag" --tag "Pgo T"
 run 2 "config after --" --tag pgo-t -- --config bench
+run 2 "build-only after --" --tag pgo-t -- --build-only
 run 2 "bad timeout" --tag pgo-t --timeout 0
 
 if (( failures )); then
