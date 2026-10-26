@@ -112,7 +112,7 @@ struct DeviceHubSocketWakeTests {
         #expect(first.sent.isEmpty)
 
         // The same policy again reconnects nothing.
-        energy.update(EnergyPolicy(onBattery: true, networkResumes: 1))
+        energy.update(EnergyPolicy(networkResumes: 1, onBattery: true))
         #expect(!second.closed)
         #expect(connector.attempts == 2)
         task.cancel()
