@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f'
+IR_SHA256 = '9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda'
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,7 @@ COMMANDS = {
         'apps-agent-inventory-changed',
         'local-admin',
         12,
-        'apps-v1',
+        'agent-cli-app-invalidation-v1',
         ('local-admin',),
         None,
         {
@@ -175,7 +175,7 @@ COMMANDS = {
         None,
         {
             'families': CommandFieldMetadata(None, None),
-            'inventory_watch': CommandFieldMetadata(None, None),
+            'inventory_watch': CommandFieldMetadata(None, 'agent-cli-app-invalidation-v1'),
             'origin': CommandFieldMetadata(None, None),
         },
     ),

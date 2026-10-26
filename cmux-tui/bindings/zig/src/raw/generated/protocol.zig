@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f";
+pub const ir_sha256 = "9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3530,7 +3530,7 @@ pub fn appsAgentInventoryChanged(client: anytype, request: AppsAgentInventoryCha
             .name = "apps-agent-inventory-changed",
             .authority = "local-admin",
             .since = 12,
-            .capability = "apps-v1",
+            .capability = "agent-cli-app-invalidation-v1",
         },
         request,
     );
@@ -3675,6 +3675,9 @@ pub fn appsProviderRegister(client: anytype, request: AppsProviderRegisterReques
             .authority = "local-admin",
             .since = 12,
             .capability = "apps-v1",
+            .fields = &.{
+                .{ .name = "inventory_watch", .since = null, .capability = "agent-cli-app-invalidation-v1" },
+            },
         },
         request,
     );
@@ -12133,7 +12136,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
-    .{ .name = "apps-agent-inventory-changed", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-agent-inventory-changed", .authority = "local-admin", .since = 12, .capability = "agent-cli-app-invalidation-v1", .stream = null },
     .{ .name = "apps-dispatch", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "apps-link-changed", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "apps-list", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },

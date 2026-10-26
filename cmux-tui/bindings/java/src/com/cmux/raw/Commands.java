@@ -14,13 +14,13 @@ public final class Commands {
     public static final CommandMetadata ADD_SCREENS_TO_SCREEN_GROUP = new CommandMetadata("add-screens-to-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ADD_TABS_TO_TAB_GROUP = new CommandMetadata("add-tabs-to-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata APPS_AGENT_INVENTORY_CHANGED = new CommandMetadata("apps-agent-inventory-changed", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata APPS_AGENT_INVENTORY_CHANGED = new CommandMetadata("apps-agent-inventory-changed", Authority.LOCAL_ADMIN, 12, "agent-cli-app-invalidation-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_DISPATCH = new CommandMetadata("apps-dispatch", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_LINK_CHANGED = new CommandMetadata("apps-link-changed", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_LIST = new CommandMetadata("apps-list", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_LOGS = new CommandMetadata("apps-logs", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_MOUNT = new CommandMetadata("apps-mount", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata APPS_PROVIDER_REGISTER = new CommandMetadata("apps-provider-register", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata APPS_PROVIDER_REGISTER = new CommandMetadata("apps-provider-register", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.ofEntries(Map.entry("inventory_watch", "agent-cli-app-invalidation-v1")));
     public static final CommandMetadata APPS_PROVIDER_RESULT = new CommandMetadata("apps-provider-result", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_RUN = new CommandMetadata("apps-run", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPS_SET = new CommandMetadata("apps-set", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());

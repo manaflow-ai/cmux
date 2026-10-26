@@ -82,6 +82,56 @@ fn try_handle(cmd: &str) -> bool { cmd == "cancel-request" }
                 CHECKER.command_names()
             self.assertIn("needs #[serde(rename", errors.getvalue())
 
+    def test_module_local_admin_needs_the_guard_in_every_handler(self) -> None:
+        guarded = """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+}
+fn cancel_request(mux: &Mux, client: u64) -> bool {
+    if !mux.control_clients.is_unix(client) { return false; }
+    true
+}
+fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        # A Unix guard in a helper does not cover the unguarded literal handler.
+        unguarded = """\
+enum Command {
+    #[serde(rename = "apps-list")]
+    List,
+}
+fn helper(mux: &Mux, client: u64) -> bool { if !mux.control_clients.is_unix(client) { return false; } true }
+fn cancel_request(mux: &Mux, client: u64) -> bool { true }
+fn try_handle(mux: &Mux, client: u64, cmd: &str) -> Option<bool> {
+    if cmd == "cancel-request" { return Some(cancel_request(mux, client)); }
+    if !mux.control_clients.is_unix(client) { return Some(false); }
+    Some(true)
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            apps = tui / "crates/cmux-tui-core/src/server/apps.rs"
+            apps.parent.mkdir(parents=True)
+            apps.write_text(guarded)
+            with patch.object(CHECKER, "TUI", tui):
+                self.assertEqual(
+                    CHECKER.module_command_profiles(),
+                    {"apps-list": "local-admin", "cancel-request": "local-admin"},
+                )
+            apps.write_text(unguarded)
+            errors = io.StringIO()
+            with (
+                patch.object(CHECKER, "TUI", tui),
+                redirect_stderr(errors),
+                self.assertRaises(SystemExit),
+            ):
+                CHECKER.module_command_profiles()
+            self.assertIn("cancel_request does not refuse non-Unix connections", errors.getvalue())
+
     def test_rust_function_body_ignores_braces_in_string_literals(self) -> None:
         source = r'''
 fn metadata(&self) -> ActionMetadata {

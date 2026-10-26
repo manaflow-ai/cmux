@@ -10255,7 +10255,13 @@ These operations are exposed only in the SDKs' private `raw` namespace.
 ## App supervisor (apps-v1)
 
 `identify` advertises `apps-v1` and `cancel-request-v1` when the daemon has an
-app host (plans/cmux-next/app-platform.md section 13.2). `server/apps.rs` serves
+app host (plans/cmux-next/app-platform.md section 13.2). `cancel-request` needs
+`cancel-request-v1`. `apps-agent-inventory-changed`, `inventory_watch` on
+`apps-provider-register` and its `inventory_demand` answer need
+`agent-cli-app-invalidation-v1`: an `apps-v1` daemon without it refuses the
+command as an unknown variant and ignores `inventory_watch`. A registration that
+lists the `agent_cli` family needs `agent-cli-app-provider-v1`. Every other
+command needs `apps-v1`. `server/apps.rs` serves
 these commands before the daemon's `Command` enum sees the line; `sdk-schema.json`
 lists their fields, results and framed-IPC attributes (family `apps`, `0x12`).
 All of them are `local-admin`: a WebSocket or remote connection gets

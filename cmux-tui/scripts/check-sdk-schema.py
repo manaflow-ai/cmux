@@ -45,43 +45,17 @@ RUNTIME_NAMED_REQUEST_REFS = {
 }
 
 
-class ModuleCommands:
-    """A server module that decodes its own commands before the server's
-    Command enum sees the line (p05-ipc queue Q2).
-
-    `enum_name` is its `#[serde(tag = "cmd")]` enum, each variant named with
-    `#[serde(rename = "...")]`; `envelope` is the struct that flattens the
-    enum, whose other fields (minus the reply `id`) every variant accepts;
-    `literals` maps a command the module matches by name to its request
-    struct; `refused_envelope_fields` lists envelope fields a command's
-    handler refuses before decoding. check-spec-inventory.py lists the same
-    modules for command names.
-    """
-
-    __slots__ = ("enum_name", "envelope", "literals", "refused_envelope_fields")
-
-    def __init__(
-        self,
-        enum_name: str,
-        envelope: str,
-        literals: dict[str, str],
-        refused_envelope_fields: dict[str, set[str]],
-    ) -> None:
-        self.enum_name = enum_name
-        self.envelope = envelope
-        self.literals = literals
-        self.refused_envelope_fields = refused_envelope_fields
+# Server modules that decode their own commands (p05-ipc queue Q2). One table
+# for this checker and check-spec-inventory.py; its description names each key.
+MODULE_COMMANDS_PATH = Path(__file__).with_name("server-module-commands.json")
 
 
-MODULE_COMMANDS = {
-    "apps": ModuleCommands(
-        enum_name="Command",
-        envelope="Request",
-        literals={"cancel-request": "CancelRequest"},
-        # server/apps.rs accepts only id, cmd and demand_sequence here.
-        refused_envelope_fields={"apps-agent-inventory-changed": {"origin"}},
-    ),
-}
+def module_commands() -> dict[str, dict[str, Any]]:
+    modules = json.loads(MODULE_COMMANDS_PATH.read_text(encoding="utf-8")).get("modules")
+    if not isinstance(modules, dict):
+        fail(f"{MODULE_COMMANDS_PATH.name} needs a modules object")
+    return modules
+
 
 # Request fields the server takes as raw JSON and then decodes element by
 # element into a named type, so a bad element gets the command's own error
@@ -304,11 +278,12 @@ def _without_reply_id(fields: dict[str, RuntimeField]) -> dict[str, RuntimeField
 
 
 def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
-    """Request fields of the commands MODULE_COMMANDS decode. A module file
-    that is gone serves nothing, so its schema commands become stale."""
+    """Request fields of the commands server-module-commands.json lists. A
+    module file that is gone serves nothing, so its schema commands become
+    stale."""
 
     commands: dict[str, dict[str, RuntimeField]] = {}
-    for module, spec in MODULE_COMMANDS.items():
+    for module, spec in module_commands().items():
         path = SERVER.with_suffix("") / f"{module}.rs"
         if not path.exists():
             continue
@@ -316,27 +291,31 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
         label = f"server/{module}.rs"
         envelope = {
             name: field
-            for name, field in _without_reply_id(_rust_struct_fields(source, spec.envelope)).items()
+            for name, field in _without_reply_id(_rust_struct_fields(source, spec["envelope"])).items()
             if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
         }
-        found = _module_enum_fields(_rust_enum_body(source, spec.enum_name), f"{label} {spec.enum_name}")
-        for name, refused in spec.refused_envelope_fields.items():
+        enum_name = spec["enum"]
+        refused_fields = {
+            name: set(fields) for name, fields in spec.get("refused_envelope_fields", {}).items()
+        }
+        found = _module_enum_fields(_rust_enum_body(source, enum_name), f"{label} {enum_name}")
+        for name in refused_fields:
             if name not in found:
                 fail(f"{label}: refused envelope fields name unknown command {name!r}")
         for name, fields in found.items():
             shared = {
                 key: field
                 for key, field in envelope.items()
-                if key not in spec.refused_envelope_fields.get(name, set())
+                if key not in refused_fields.get(name, set())
             }
             duplicate = sorted(set(fields) & set(shared))
             if duplicate:
                 fail(f"{label} {name} repeats envelope fields {duplicate}")
             found[name] = {**fields, **shared}
-        for name, request_type in spec.literals.items():
+        for name, literal in spec.get("literals", {}).items():
             if f'"{name}"' not in source:
                 fail(f"{label} no longer matches {name!r}")
-            found[name] = _without_reply_id(_rust_struct_fields(source, request_type))
+            found[name] = _without_reply_id(_rust_struct_fields(source, literal["request"]))
         for name, fields in found.items():
             if name in commands:
                 fail(f"module command {name!r} is served twice")

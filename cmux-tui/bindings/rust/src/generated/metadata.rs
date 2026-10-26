@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f.
+// cmux-tui mux protocol 12, IR 9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f";
+pub const SDK_IR_SHA256: &str = "9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -84,7 +84,7 @@ pub const APPLY_LAYOUT_METADATA: CommandMetadata = CommandMetadata {
 pub const APPS_AGENT_INVENTORY_CHANGED_METADATA: CommandMetadata = CommandMetadata {
     name: "apps-agent-inventory-changed",
     since: 12,
-    capability: Some("apps-v1"),
+    capability: Some("agent-cli-app-invalidation-v1"),
     authority: "local-admin",
     stream: None,
 };

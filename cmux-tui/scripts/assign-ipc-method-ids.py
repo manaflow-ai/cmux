@@ -241,7 +241,9 @@ MEMORY = (
     # until the connection closes. Nothing here is journaled.
     "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
     "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
-    "apps-provider-result", "cancel-request",
+    "apps-provider-result",
+    # Cancels an in-flight apps-run or script cell of this connection only.
+    "cancel-request",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.

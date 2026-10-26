@@ -10490,6 +10490,7 @@
      },
      "presence": "optional",
      "nullable": false,
+     "capability": "agent-cli-app-invalidation-v1",
      "constraints": [
       "Only when the request set inventory_watch."
      ]
@@ -29356,7 +29357,8 @@
       "presence": "required",
       "nullable": false,
       "constraints": [
-       "Non-empty; each a provider family the daemon routes to the app."
+       "Non-empty; each a provider family the daemon routes to the app.",
+       "The agent_cli family needs agent-cli-app-provider-v1."
       ]
      },
      "inventory_watch": {
@@ -29367,6 +29369,7 @@
       "presence": "optional",
       "nullable": false,
       "default": false,
+      "capability": "agent-cli-app-invalidation-v1",
       "constraints": [
        "Opts into the inventory demand snapshot; needs the agent_cli family."
       ]
@@ -29408,7 +29411,7 @@
   "apps-agent-inventory-changed": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "apps-v1",
+   "capability": "agent-cli-app-invalidation-v1",
    "request": {
     "kind": "object",
     "fields": {

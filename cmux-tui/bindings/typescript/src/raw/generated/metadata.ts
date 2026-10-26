@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f. */
+/* cmux-tui mux protocol 12, IR 9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "75c373c9569b5852f9f3d40ac84528739a65afea0e56921d522b2e32ef14e39f" as const;
+export const SDK_IR_SHA256 = "9a20560be8b8c2f3942af2a3154a92628b1c7a49616f3c839aabcf2359c06fda" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -79,7 +79,7 @@ export const COMMAND_METADATA = {
   "apps-agent-inventory-changed": {
     "authority": "local-admin",
     "since": 12,
-    "capability": "apps-v1",
+    "capability": "agent-cli-app-invalidation-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -149,7 +149,12 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "apps-v1",
-    "fields": {},
+    "fields": {
+      "inventory_watch": {
+        "since": null,
+        "capability": "agent-cli-app-invalidation-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The Mac app serves ops the daemon does not own (plans/cmux-next/app-op-routing.md).",
@@ -5230,6 +5235,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "inventory_demand": {
+        "capability": "agent-cli-app-invalidation-v1",
         "constraints": [
           "Only when the request set inventory_watch."
         ],
@@ -15232,7 +15238,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "fields": {
         "families": {
           "constraints": [
-            "Non-empty; each a provider family the daemon routes to the app."
+            "Non-empty; each a provider family the daemon routes to the app.",
+            "The agent_cli family needs agent-cli-app-provider-v1."
           ],
           "nullable": false,
           "presence": "required",
@@ -15245,6 +15252,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "inventory_watch": {
+          "capability": "agent-cli-app-invalidation-v1",
           "constraints": [
             "Opts into the inventory demand snapshot; needs the agent_cli family."
           ],
