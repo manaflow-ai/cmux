@@ -189,7 +189,7 @@ extension CEFRuntime {
     }
 
     func routeDevToolsKey(_ event: NSEvent, inspected browser: Int32) -> Bool {
-        guard devToolsKeyPolicy == .preKeyHook, event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control]),
               let tab = tabsByBrowser[browser], let router = tab.keyRouter else { return false }
         return router.browserTab(tab, devToolsKeyEquivalent: event) == .handledByHost
     }
