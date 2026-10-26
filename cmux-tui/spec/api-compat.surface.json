@@ -12211,9 +12211,20 @@
         "required": true
       },
       "/data/harnesses/*/family": {
-        "ty": "string",
+        "ty": "enum",
         "required": true,
-        "nullable": true
+        "nullable": true,
+        "values": [
+          "amp",
+          "chief",
+          "claude",
+          "codex",
+          "copilot",
+          "cursor",
+          "gemini",
+          "opencode",
+          "pi"
+        ]
       },
       "/data/harnesses/*/id": {
         "ty": "string",
@@ -12289,9 +12300,20 @@
         "required": true
       },
       "/data/harnesses/*/family": {
-        "ty": "string",
+        "ty": "enum",
         "required": true,
-        "nullable": true
+        "nullable": true,
+        "values": [
+          "amp",
+          "chief",
+          "claude",
+          "codex",
+          "copilot",
+          "cursor",
+          "gemini",
+          "opencode",
+          "pi"
+        ]
       },
       "/data/harnesses/*/id": {
         "ty": "string",

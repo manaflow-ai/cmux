@@ -158,69 +158,55 @@ class LiveSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "event stream drift"):
             self.validate(document, self.inventory)
 
-    def test_sniffed_command_request_fields_come_from_its_module(self) -> None:
-        served = CHECKER.sniffed_commands.resolve(CHECKER.SERVER.with_suffix(""))
-        self.assertEqual(served["agent-inventory"].fields, {"expected_machine_id"})
-        self.assertEqual(
-            served["agent-inventory-watch"].fields,
-            {"expected_machine_id", "enabled", "expected_watch_id", "admission_receipt"},
+    def test_agent_inventory_requests_come_from_the_enums_their_handlers_decode(self) -> None:
+        commands = CHECKER.handler_command_fields(
+            {"agent-inventory", "agent-inventory-refresh", "agent-inventory-watch"}
         )
-        self.assertTrue(all(command.local_admin for command in served.values()))
+        presence = {
+            name: {field: CHECKER._runtime_field_presence(value) for field, value in fields.items()}
+            for name, fields in commands.items()
+        }
+        self.assertEqual(
+            presence,
+            {
+                "agent-inventory": {"expected_machine_id": ("optional", False)},
+                "agent-inventory-refresh": {"expected_machine_id": ("required", False)},
+                "agent-inventory-watch": {
+                    "expected_machine_id": ("required", False),
+                    "enabled": ("required", False),
+                    "expected_watch_id": ("optional", False),
+                    "admission_receipt": ("optional", False),
+                },
+            },
+        )
 
-    def test_sniffed_command_missing_request_field_is_rejected(self) -> None:
+    def test_agent_inventory_watch_field_type_drift_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
-        document["commands"]["agent-inventory-watch"]["request"]["fields"].pop("enabled")
-        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for agent-inventory-watch"):
+        document["commands"]["agent-inventory-watch"]["request"]["fields"]["enabled"]["type"] = {
+            "kind": "scalar",
+            "name": "string",
+        }
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "type drift"):
             self.validate(document, self.inventory)
 
-    def test_sniffed_command_wrong_authority_is_rejected(self) -> None:
+    def test_agent_inventory_watch_fence_presence_drift_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
-        inventory = copy.deepcopy(self.inventory)
-        document["commands"]["agent-inventory"]["authority"] = "control"
-        inventory["commands"]["local-admin"].remove("agent-inventory")
-        inventory["commands"]["control"].append("agent-inventory")
-        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "sniffed command authority drift"):
-            self.validate(document, inventory)
+        fields = document["commands"]["agent-inventory-watch"]["request"]["fields"]
+        fields["expected_machine_id"]["presence"] = "optional"
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
 
-
-class SniffedCommandSourceTests(unittest.TestCase):
-    """sniffed_commands.resolve reads a fixture server/ directory."""
-
-    CHAIN = "fn frame() { agent_inventory::try_handle(m, c, s, w); }\n"
-    MODULE = (
-        "pub(super) fn try_handle(mux: &Mux, message: &str) -> Option<bool> {\n"
-        "    // fields.remove(\"commented_out\") is not a field\n"
-        "    let mode = match fields.remove(\"cmd\").as_deref() {\n"
-        "        Some(\"agent-inventory\") => 1,\n"
-        "        _ => return None,\n"
-        "    };\n"
-        "    if !mux.control_clients.is_unix(client) { return Some(false); }\n"
-        "    let quote = '\"';\n"
-        "    let _ = fields.remove(\"expected_machine_id\");\n"
-        "    Some(true)\n"
-        "}\n"
-    )
-
-    def resolve(self, chain: str, module: str) -> dict:
-        with tempfile.TemporaryDirectory() as directory:
-            server = Path(directory)
-            (server / "connection_frame.rs").write_text(chain, encoding="utf-8")
-            (server / "agent_inventory.rs").write_text(module, encoding="utf-8")
-            return CHECKER.sniffed_commands.resolve(server, {"agent-inventory"})
-
-    def test_fields_and_guard_come_from_try_handle(self) -> None:
-        served = self.resolve(self.CHAIN, self.MODULE)["agent-inventory"]
-        self.assertEqual(served.fields, {"expected_machine_id"})
-        self.assertTrue(served.local_admin)
-
-    def test_a_module_off_the_sniffer_chain_is_rejected(self) -> None:
-        with self.assertRaisesRegex(CHECKER.sniffed_commands.SniffedCommandError, "never calls"):
-            self.resolve("fn frame() {}\n", self.MODULE)
-
-    def test_a_module_that_no_longer_matches_the_name_is_rejected(self) -> None:
-        module = self.MODULE.replace('Some("agent-inventory")', 'Some("agent-stock")')
-        with self.assertRaisesRegex(CHECKER.sniffed_commands.SniffedCommandError, "never matches"):
-            self.resolve(self.CHAIN, module)
+    def test_present_non_null_option_is_optional_and_not_nullable(self) -> None:
+        refusing = CHECKER.RuntimeField(
+            "Option<String>", ('default, deserialize_with = "present_non_null"',)
+        )
+        self.assertEqual(CHECKER._runtime_field_presence(refusing), ("optional", False))
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-inventory"]["request"]["fields"]["expected_machine_id"][
+            "nullable"
+        ] = True
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift"):
+            self.validate(document, self.inventory)
 
 
 if __name__ == "__main__":

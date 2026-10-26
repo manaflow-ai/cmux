@@ -150,6 +150,34 @@ Result<AgentInventoryChannel> Codec<AgentInventoryChannel>::decode(const Json& v
     return make_error(ErrorCode::decode, "unknown AgentInventoryChannel value");
 }
 
+Result<Json> Codec<AgentInventoryFamily>::encode(const AgentInventoryFamily& value) {
+    switch (value) {
+        case AgentInventoryFamily::claude: return Json(std::string("claude"));
+        case AgentInventoryFamily::codex: return Json(std::string("codex"));
+        case AgentInventoryFamily::opencode: return Json(std::string("opencode"));
+        case AgentInventoryFamily::pi: return Json(std::string("pi"));
+        case AgentInventoryFamily::chief: return Json(std::string("chief"));
+        case AgentInventoryFamily::gemini: return Json(std::string("gemini"));
+        case AgentInventoryFamily::amp: return Json(std::string("amp"));
+        case AgentInventoryFamily::copilot: return Json(std::string("copilot"));
+        case AgentInventoryFamily::cursor: return Json(std::string("cursor"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<AgentInventoryFamily> Codec<AgentInventoryFamily>::decode(const Json& value) {
+    if (value == Json(std::string("claude"))) return AgentInventoryFamily::claude;
+    if (value == Json(std::string("codex"))) return AgentInventoryFamily::codex;
+    if (value == Json(std::string("opencode"))) return AgentInventoryFamily::opencode;
+    if (value == Json(std::string("pi"))) return AgentInventoryFamily::pi;
+    if (value == Json(std::string("chief"))) return AgentInventoryFamily::chief;
+    if (value == Json(std::string("gemini"))) return AgentInventoryFamily::gemini;
+    if (value == Json(std::string("amp"))) return AgentInventoryFamily::amp;
+    if (value == Json(std::string("copilot"))) return AgentInventoryFamily::copilot;
+    if (value == Json(std::string("cursor"))) return AgentInventoryFamily::cursor;
+    return make_error(ErrorCode::decode, "unknown AgentInventoryFamily value");
+}
+
 Result<Json> Codec<AgentInventoryHarness>::encode(const AgentInventoryHarness& value) {
     (void)value;
     Json::Object object;
@@ -238,7 +266,7 @@ Result<AgentInventoryHarness> Codec<AgentInventoryHarness>::decode(const Json& v
         if (field_family->is_null()) {
             result.family.reset();
         } else {
-            auto decoded = decode_value<std::string>(*field_family);
+            auto decoded = decode_value<AgentInventoryFamily>(*field_family);
             if (!decoded) return std::move(decoded).error();
             result.family = std::move(decoded).value();
         }

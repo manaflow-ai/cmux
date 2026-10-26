@@ -51,9 +51,14 @@
       "size": 1064
     },
     {
+      "path": "AgentInventoryFamily.java",
+      "sha256": "68321860024ca186e40dd795e28d45edd2d1d2c5692fc860b3fa83bb252da94c",
+      "size": 1066
+    },
+    {
       "path": "AgentInventoryHarness.java",
-      "sha256": "df232ed5383547969ad6245e0c99506360f851c4d98cd38c0a3028d300e860db",
-      "size": 8375
+      "sha256": "757596b2b7d0a568c1c7a71c2ab2049bcab0d1168c888bb02518a28b0acaed75",
+      "size": 8348
     },
     {
       "path": "AgentInventoryRefreshRequest.java",
@@ -2162,7 +2167,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "12a53fb6da618b652a06903480187c220406e6441f3a420c8420de2589292a24",
+      "sha256": "a703bb4eeeb2eb392404568cef337f2df7a9a33967678da41c83561b9a14bbcd",
       "size": 7486
     },
     {
@@ -3492,7 +3497,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207",
+  "ir_sha256": "dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

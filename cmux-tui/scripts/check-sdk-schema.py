@@ -52,10 +52,8 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 }
 
 sys.path.insert(0, str(BINDINGS))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
-import sniffed_commands  # noqa: E402
 
 
 class SdkSchemaError(ValueError):
@@ -301,6 +299,14 @@ def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     # and may be null.
     if optional_type and any("required_nullable" in value for value in field.attributes):
         return "required", True
+    # An `Option<T>` with `default` and the `present_non_null` deserializer
+    # (server/command_args.rs) may be absent and refuses null.
+    if (
+        optional_type
+        and any("present_non_null" in value for value in field.attributes)
+        and any(re.search(r"\bdefault\b", value) for value in field.attributes)
+    ):
+        return "optional", False
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.
@@ -434,38 +440,13 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
             fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
         for name in refused:
             del fields[name]
-    try:
-        sniffed = sniffed_commands.resolve(SERVER.with_suffix(""))
-    except sniffed_commands.SniffedCommandError as error:
-        fail(str(error))
-    both = sorted(set(sniffed) & set(runtime_commands))
-    if both:
-        fail(f"sniffed commands also in the Rust Command enum: {', '.join(both)}")
-    compare_names(
-        set(ir.commands), set(runtime_commands) | set(sniffed), "runtime SDK command"
-    )
+    compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
     for command_name, command in ir.commands.items():
         request = command["request"]
         assert isinstance(request, Mapping)
         raw_fields = request["fields"]
         assert isinstance(raw_fields, Mapping)
         schema_fields = raw_fields
-        if command_name in sniffed:
-            # A sniffer reads its fields one by one, so only the names are
-            # checked here; their types are the module's.
-            served = sniffed[command_name]
-            compare_names(
-                set(schema_fields),
-                set(served.fields),
-                f"SDK request field for {command_name} (server/{served.server.file})",
-            )
-            if served.local_admin != (command["authority"] == "local-admin"):
-                fail(
-                    f"sniffed command authority drift for {command_name}, "
-                    f"SDK={command['authority']}, server/{served.server.file} "
-                    f"{'refuses' if served.local_admin else 'admits'} non-Unix clients"
-                )
-            continue
         runtime_fields = runtime_commands[command_name]
         compare_names(
             set(schema_fields),

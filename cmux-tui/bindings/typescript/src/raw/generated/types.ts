@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207. */
+/* cmux-tui mux protocol 12, IR dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -21,13 +21,15 @@ export type AgentInventoryAuth = "signedIn" | "signedOut" | "unknown";
 
 export type AgentInventoryChannel = "npm" | "bun" | "brew" | "brewCask" | "native" | "launcher" | "standalone" | "missing";
 
+export type AgentInventoryFamily = "claude" | "codex" | "opencode" | "pi" | "chief" | "gemini" | "amp" | "copilot" | "cursor";
+
 export type AgentInventoryHarness = {
   "auth": AgentInventoryAuth;
   "channel": AgentInventoryChannel;
   /** When the owner's health check saved this row, in Unix milliseconds. */
   "checkedAt": bigint;
-  /** Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
-  "family": (string) | null;
+  /** Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+  "family": (AgentInventoryFamily) | null;
   /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
   "id": string;
   /** Latest registry version from the last successful check, or null. */

@@ -9612,6 +9612,20 @@
     "waiting"
    ]
   },
+  "AgentInventoryFamily": {
+   "kind": "enum",
+   "values": [
+    "claude",
+    "codex",
+    "opencode",
+    "pi",
+    "chief",
+    "gemini",
+    "amp",
+    "copilot",
+    "cursor"
+   ]
+  },
   "AgentInventoryChannel": {
    "kind": "enum",
    "values": [
@@ -9648,12 +9662,12 @@
     },
     "family": {
      "type": {
-      "kind": "scalar",
-      "name": "string"
+      "kind": "ref",
+      "name": "AgentInventoryFamily"
      },
      "presence": "required",
      "nullable": true,
-     "description": "Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know."
+     "description": "Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know."
     },
     "channel": {
      "type": {

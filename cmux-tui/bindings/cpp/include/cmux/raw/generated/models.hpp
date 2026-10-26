@@ -14,12 +14,13 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207";
+inline constexpr std::string_view kProtocolIrSha256 = "dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
 enum class AgentInventoryAuth;
 enum class AgentInventoryChannel;
+enum class AgentInventoryFamily;
 struct AgentInventoryHarness;
 struct AgentInventoryRefreshResult;
 struct AgentInventoryResult;
@@ -806,11 +807,23 @@ enum class AgentInventoryChannel {
     missing,
 };
 
+enum class AgentInventoryFamily {
+    claude,
+    codex,
+    opencode,
+    pi,
+    chief,
+    gemini,
+    amp,
+    copilot,
+    cursor,
+};
+
 struct AgentInventoryHarness {
     AgentInventoryAuth auth{};
     AgentInventoryChannel channel{};
     std::uint64_t checked_at{};
-    std::optional<std::string> family{};
+    std::optional<AgentInventoryFamily> family{};
     std::string id{};
     std::optional<std::string> latest{};
     std::optional<std::uint64_t> latest_checked_at{};
@@ -6164,6 +6177,12 @@ template <>
 struct Codec<AgentInventoryChannel> {
     static Result<Json> encode(const AgentInventoryChannel& value);
     static Result<AgentInventoryChannel> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryFamily> {
+    static Result<Json> encode(const AgentInventoryFamily& value);
+    static Result<AgentInventoryFamily> decode(const Json& value);
 };
 
 template <>

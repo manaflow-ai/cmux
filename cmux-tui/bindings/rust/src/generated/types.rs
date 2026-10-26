@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207.
+// cmux-tui mux protocol 12, IR dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -69,6 +69,29 @@ pub enum AgentInventoryChannel {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentInventoryFamily {
+    #[serde(rename = "claude")]
+    Claude,
+    #[serde(rename = "codex")]
+    Codex,
+    #[serde(rename = "opencode")]
+    Opencode,
+    #[serde(rename = "pi")]
+    Pi,
+    #[serde(rename = "chief")]
+    Chief,
+    #[serde(rename = "gemini")]
+    Gemini,
+    #[serde(rename = "amp")]
+    Amp,
+    #[serde(rename = "copilot")]
+    Copilot,
+    #[serde(rename = "cursor")]
+    Cursor,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentInventoryHarness {
     pub auth: AgentInventoryAuth,
@@ -76,8 +99,8 @@ pub struct AgentInventoryHarness {
     /// When the owner's health check saved this row, in Unix milliseconds.
     #[serde(rename = "checkedAt")]
     pub checked_at: u64,
-    /// Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
-    pub family: Nullable<String>,
+    /// Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
+    pub family: Nullable<AgentInventoryFamily>,
     /// Harness profile id: 1-128 bytes of \`\[A-Za-z0-9._-\]\`.
     pub id: String,
     /// Latest registry version from the last successful check, or null.

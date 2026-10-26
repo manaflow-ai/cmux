@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207";
+pub const ir_sha256 = "dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -77,13 +77,52 @@ pub const AgentInventoryChannel = enum {
     }
 };
 
+pub const AgentInventoryFamily = enum {
+    claude,
+    codex,
+    opencode,
+    pi,
+    chief,
+    gemini,
+    amp,
+    copilot,
+    cursor,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "claude")) return .claude;
+        if (std.mem.eql(u8, value, "codex")) return .codex;
+        if (std.mem.eql(u8, value, "opencode")) return .opencode;
+        if (std.mem.eql(u8, value, "pi")) return .pi;
+        if (std.mem.eql(u8, value, "chief")) return .chief;
+        if (std.mem.eql(u8, value, "gemini")) return .gemini;
+        if (std.mem.eql(u8, value, "amp")) return .amp;
+        if (std.mem.eql(u8, value, "copilot")) return .copilot;
+        if (std.mem.eql(u8, value, "cursor")) return .cursor;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .claude => "claude",
+            .codex => "codex",
+            .opencode => "opencode",
+            .pi => "pi",
+            .chief => "chief",
+            .gemini => "gemini",
+            .amp => "amp",
+            .copilot => "copilot",
+            .cursor => "cursor",
+        };
+    }
+};
+
 pub const AgentInventoryHarness = struct {
     auth: AgentInventoryAuth,
     channel: AgentInventoryChannel,
     /// When the owner's health check saved this row, in Unix milliseconds.
     checked_at: u64,
-    /// Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
-    family: wire.Nullable([]const u8),
+    /// Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.
+    family: wire.Nullable(AgentInventoryFamily),
     /// Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`.
     id: []const u8,
     /// Latest registry version from the last successful check, or null.

@@ -52,6 +52,17 @@ class AgentInventoryChannel(str, Enum):
     STANDALONE = 'standalone'
     MISSING = 'missing'
 
+class AgentInventoryFamily(str, Enum):
+    CLAUDE = 'claude'
+    CODEX = 'codex'
+    OPENCODE = 'opencode'
+    PI = 'pi'
+    CHIEF = 'chief'
+    GEMINI = 'gemini'
+    AMP = 'amp'
+    COPILOT = 'copilot'
+    CURSOR = 'cursor'
+
 class AgentPresenceActivity(str, Enum):
     THINKING = 'thinking'
     EDITING = 'editing'
@@ -378,7 +389,7 @@ class AgentInventoryHarness:
     auth: AgentInventoryAuth
     channel: AgentInventoryChannel
     checkedAt: int
-    family: Union[str, None]
+    family: Union[AgentInventoryFamily, None]
     id: str
     latest: Union[str, None]
     latestCheckedAt: Union[int, None]
@@ -6108,6 +6119,7 @@ __all__ = [
     'AnyEvent',
     'AgentInventoryAuth',
     'AgentInventoryChannel',
+    'AgentInventoryFamily',
     'AgentPresenceActivity',
     'AgentReportSource',
     'AgentSource',

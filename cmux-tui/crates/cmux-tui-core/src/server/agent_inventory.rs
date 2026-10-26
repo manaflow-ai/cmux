@@ -4,9 +4,8 @@
 //!
 //! Wire: `agent-inventory` and `agent-inventory-refresh` in spec/sdk-schema.json (agents
 //! family; the refresh is `background` priority because it waits on registries for
-//! seconds). This sniffer answers them before `Command`, so check-sdk-schema.py reads
-//! `try_handle` through scripts/sniffed_commands.py: a request field is a
-//! `fields.remove("...")` here and a schema field there.
+//! seconds). `try_handle` decodes them as [`Command`] before the server's `Command` enum,
+//! so check-sdk-schema.py reads their request fields from it (scripts/handler_commands.py).
 
 #[path = "agent_inventory_watch.rs"]
 pub(super) mod watch;
@@ -21,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::agent_session_attach::agent_session_link::{AcpmuxLink, LinkError};
+use super::command_args::present_non_null;
 use super::responses::send_response;
 use super::{MessageWriter, Response};
 use crate::mux::Mux;
@@ -28,6 +28,8 @@ use crate::mux::Mux;
 pub(super) const CAPABILITY: &str = "agent-inventory-v1";
 pub(super) const OWNER_CAPABILITY: &str = "agent-inventory-owner-v1";
 pub(super) const REFRESH_CAPABILITY: &str = "agent-inventory-refresh-v1";
+const READ_COMMAND: &str = "agent-inventory";
+const REFRESH_COMMAND: &str = "agent-inventory-refresh";
 const MAX_READS: usize = 8;
 const MAX_HARNESSES: usize = 256;
 /// Spec `AgentInventoryChannel`.
@@ -35,10 +37,33 @@ const CHANNELS: [&str; 8] =
     ["npm", "bun", "brew", "brewCask", "native", "launcher", "standalone", "missing"];
 /// Spec `AgentInventoryAuth`.
 const AUTH: [&str; 3] = ["signedIn", "signedOut", "unknown"];
-/// The CLI families forwarded as `family`; any other family is sent as null.
+/// Spec `AgentInventoryFamily`: the CLI families forwarded as `family`; any other is null.
 const FAMILIES: [&str; 9] =
     ["claude", "codex", "opencode", "pi", "chief", "gemini", "amp", "copilot", "cursor"];
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The two requests `try_handle` serves; spec/sdk-schema.json types them.
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Command {
+    #[serde(rename = "agent-inventory")]
+    Read(ReadParams),
+    #[serde(rename = "agent-inventory-refresh")]
+    Refresh(RefreshParams),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReadParams {
+    #[serde(default, deserialize_with = "present_non_null")]
+    expected_machine_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RefreshParams {
+    expected_machine_id: String,
+}
 
 #[derive(Clone, Copy)]
 enum ReadMode {
@@ -130,23 +155,19 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
-        Some("agent-inventory") => ReadMode::Cached,
-        Some("agent-inventory-refresh") => ReadMode::Refresh,
-        _ => return None,
-    };
+    if !matches!(fields.get("cmd").and_then(Value::as_str), Some(READ_COMMAND | REFRESH_COMMAND)) {
+        return None;
+    }
     let id = fields.remove("id");
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return Some(reply(writer, id, Err(Failure::NotTrusted)));
     }
-    let expected_machine = fields.remove("expected_machine_id");
-    if !fields.is_empty() || (matches!(mode, ReadMode::Refresh) && expected_machine.is_none()) {
-        return Some(reply(writer, id, Err(Failure::BadRequest)));
-    }
+    let (mode, expected_machine) = match serde_json::from_value::<Command>(Value::Object(fields)) {
+        Ok(Command::Read(params)) => (ReadMode::Cached, params.expected_machine_id),
+        Ok(Command::Refresh(params)) => (ReadMode::Refresh, Some(params.expected_machine_id)),
+        Err(_) => return Some(reply(writer, id, Err(Failure::BadRequest))),
+    };
     if let Some(expected) = expected_machine {
-        let Value::String(expected) = expected else {
-            return Some(reply(writer, id, Err(Failure::BadRequest)));
-        };
         let Ok(expected) = crate::resource::MachinePublicId::parse(expected) else {
             return Some(reply(writer, id, Err(Failure::BadRequest)));
         };
@@ -336,7 +357,7 @@ pub(super) mod schema {
 
     use serde_json::Value;
 
-    use super::{AUTH, CHANNELS, Harness, Inventory, View};
+    use super::{AUTH, CHANNELS, FAMILIES, Harness, Inventory, View};
 
     fn sdk_schema() -> Value {
         serde_json::from_str(include_str!("../../../../spec/sdk-schema.json"))
@@ -413,5 +434,14 @@ pub(super) mod schema {
     fn accepted_channels_and_auth_are_the_schema_enums() {
         assert_eq!(enum_values("AgentInventoryChannel"), CHANNELS);
         assert_eq!(enum_values("AgentInventoryAuth"), AUTH);
+    }
+
+    #[test]
+    fn forwarded_families_are_the_schema_enum() {
+        assert_eq!(enum_values("AgentInventoryFamily"), FAMILIES);
+        let schema = sdk_schema();
+        let family = &schema["types"]["AgentInventoryHarness"]["fields"]["family"];
+        assert_eq!(family["type"]["name"], "AgentInventoryFamily");
+        assert_eq!(family["nullable"], true);
     }
 }

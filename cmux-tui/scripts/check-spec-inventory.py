@@ -13,9 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
 SPEC = TUI / "spec"
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import sniffed_commands  # noqa: E402
-
 
 def fail(message: str) -> None:
     print(f"spec inventory error: {message}", file=sys.stderr)
@@ -225,16 +222,6 @@ def rust_match_arms(source: str, function: str, enum_name: str) -> dict[str, str
     return arms
 
 
-def sniffed_commands_in(names: set[str]) -> dict[str, "sniffed_commands.SniffedCommand"]:
-    """The commands of `names` that a server module's try_handle answers (sniffed_commands.py)."""
-
-    try:
-        return sniffed_commands.resolve(TUI / "crates/cmux-tui-core/src/server", names)
-    except sniffed_commands.SniffedCommandError as error:
-        fail(str(error))
-    return {}
-
-
 def command_handler_body(module: str, function: str) -> str:
     """Body of a command handler that a dispatch arm delegates to
     (`cmd_<family>::<function>(...)` in server/cmd_<family>.rs)."""
@@ -272,8 +259,6 @@ def command_profiles() -> dict[str, set[str]]:
     sdk_commands = load_sdk_catalog().get("commands")
     if not isinstance(sdk_commands, dict):
         fail("raw SDK catalog commands must be an object")
-    sniffed = sniffed_commands_in(set(sdk_commands))
-    runtime_commands |= set(sniffed)
     stale_sdk_commands = sorted(set(sdk_commands) - runtime_commands)
     if stale_sdk_commands:
         fail(
@@ -298,7 +283,6 @@ def command_profiles() -> dict[str, set[str]]:
         profiles.setdefault(profile, set()).add(name)
 
     guarded = guarded_command_profiles(source)
-    guarded.update({name: "local-admin" for name, served in sniffed.items() if served.local_admin})
     for name, guarded_profile in guarded.items():
         if name not in runtime_commands:
             fail(f"privileged command guard references unknown command {name}")
@@ -1240,9 +1224,7 @@ def validate_commands(inventory: dict) -> set[str]:
     compare_mapping(actual_profiles, runtime_profiles, "command profile")
     commands = [name for group in command_groups.values() for name in group]
     inventory_commands = unique(commands, "command")
-    runtime_commands = command_names() | set(
-        sniffed_commands_in(set(load_sdk_catalog().get("commands", {})))
-    )
+    runtime_commands = command_names()
     profile_commands = set().union(*runtime_profiles.values())
     compare(runtime_commands, profile_commands, "command profile metadata")
     compare(runtime_commands, inventory_commands, "command")

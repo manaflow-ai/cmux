@@ -15,8 +15,8 @@ public final class AgentInventoryHarness implements WireValue {
     private final AgentInventoryChannel channel;
     /** When the owner's health check saved this row, in Unix milliseconds. */
     private final UInt64 checkedAt;
-    /** Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
-    private final String family;
+    /** Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+    private final AgentInventoryFamily family;
     /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
     private final String id;
     /** Latest registry version from the last successful check, or null. */
@@ -54,7 +54,7 @@ public final class AgentInventoryHarness implements WireValue {
     public AgentInventoryAuth auth() { return auth; }
     public AgentInventoryChannel channel() { return channel; }
     public UInt64 checkedAt() { return checkedAt; }
-    public String family() { return family; }
+    public AgentInventoryFamily family() { return family; }
     public String id() { return id; }
     public String latest() { return latest; }
     public UInt64 latestCheckedAt() { return latestCheckedAt; }
@@ -71,7 +71,7 @@ public final class AgentInventoryHarness implements WireValue {
         Object rawCheckedAt = Wire.required(object, "checkedAt");
         builder.checkedAt(Wire.uint64(rawCheckedAt, "AgentInventoryHarness.checkedAt"));
         Object rawFamily = Wire.required(object, "family");
-        builder.family(rawFamily == null ? null : Wire.string(rawFamily, "AgentInventoryHarness.family"));
+        builder.family(rawFamily == null ? null : AgentInventoryFamily.fromWire(rawFamily));
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "AgentInventoryHarness.id"));
         Object rawLatest = Wire.required(object, "latest");
@@ -119,7 +119,7 @@ public final class AgentInventoryHarness implements WireValue {
         private boolean channelSet;
         private UInt64 checkedAt;
         private boolean checkedAtSet;
-        private String family;
+        private AgentInventoryFamily family;
         private boolean familySet;
         private String id;
         private boolean idSet;
@@ -147,7 +147,7 @@ public final class AgentInventoryHarness implements WireValue {
             this.checkedAtSet = true;
             return this;
         }
-        public Builder family(String value) {
+        public Builder family(AgentInventoryFamily value) {
             this.family = value;
             this.familySet = true;
             return this;

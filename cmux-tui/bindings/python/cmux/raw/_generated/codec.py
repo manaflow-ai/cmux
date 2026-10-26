@@ -638,6 +638,7 @@ MODEL_BY_PATH = {
 ENUM_BY_PATH = {
     'types/AgentInventoryAuth': models.AgentInventoryAuth,
     'types/AgentInventoryChannel': models.AgentInventoryChannel,
+    'types/AgentInventoryFamily': models.AgentInventoryFamily,
     'types/AgentPresenceActivity': models.AgentPresenceActivity,
     'types/AgentReportSource': models.AgentReportSource,
     'types/AgentSource': models.AgentSource,

@@ -9655,8 +9655,10 @@ machines, and it is not the final shared machine registry.
 `AgentInventoryResult`, `AgentInventoryRefreshResult` and
 `AgentInventoryWatchResult`. The refresh has `background` priority: it waits on
 registries for seconds and must not delay control requests. `server/agent_inventory.rs`
-and `server/agent_inventory_watch.rs` answer them before the `Command` enum;
-`scripts/sniffed_commands.py` keeps their request fields equal to the schema's.
+and `server/agent_inventory_watch.rs` decode them as their own `cmd`-tagged
+enums before the `Command` enum, so `scripts/handler_commands.py` checks their
+request fields, types and presence against the schema's like every other
+handler command. A row's `family` is the `AgentInventoryFamily` enum or null.
 
 `agent-inventory-v1` is advertised when the daemon has its own acpmux socket
 configured. A trusted native connection (the app's local, SSH or Cloud carrier)

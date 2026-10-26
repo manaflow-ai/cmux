@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207. */
+/* cmux-tui mux protocol 12, IR dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1c44b920fa20b23278111888c09c83cee778be92ffd6ca0d4ca07ee71e96c207" as const;
+export const SDK_IR_SHA256 = "dc29ac8ca9ec2b4d6f532fb7f92fc13673dfb22a2d991858d7c17a4a04c687de" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -4454,6 +4454,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "missing"
     ]
   },
+  "AgentInventoryFamily": {
+    "kind": "enum",
+    "values": [
+      "claude",
+      "codex",
+      "opencode",
+      "pi",
+      "chief",
+      "gemini",
+      "amp",
+      "copilot",
+      "cursor"
+    ]
+  },
   "AgentInventoryHarness": {
     "additional_properties": false,
     "fields": {
@@ -4483,12 +4497,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "family": {
-        "description": "Recognized CLI family (claude, codex, opencode, pi, chief, gemini, amp, copilot or cursor) from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.",
+        "description": "Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.",
         "nullable": true,
         "presence": "required",
         "type": {
-          "kind": "scalar",
-          "name": "string"
+          "kind": "ref",
+          "name": "AgentInventoryFamily"
         }
       },
       "id": {
