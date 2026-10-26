@@ -186,10 +186,21 @@ extension Metrics {
     /// - Returns: Whether the samples were added.
     @discardableResult
     public func record(_ id: HistogramID, folding histogram: MetricsDelta.Histogram) -> Bool {
-        guard histogram.name == id.name, histogram.layout == id.layout, let store = MetricsStore.attached(to: runtime) else {
-            return false
-        }
+        guard let store = foldingStore(id, histogram) else { return false }
         return store.add(id, count: histogram.count, sum: histogram.sum, buckets: histogram.buckets)
+    }
+
+    /// Whether ``record(_:folding:)`` would add `histogram` to `id` now: the same name and bucket layout, a store
+    /// attached and `id` not expired in it.
+    public func accepts(_ id: HistogramID, folding histogram: MetricsDelta.Histogram) -> Bool {
+        foldingStore(id, histogram) != nil
+    }
+
+    /// The attached store when it has a block for `id` and `histogram` was counted in `id`'s layout.
+    private func foldingStore(_ id: HistogramID, _ histogram: MetricsDelta.Histogram) -> MetricsStore? {
+        guard histogram.name == id.name, histogram.layout == id.layout, let store = MetricsStore.attached(to: runtime),
+              store.slots[id] != nil else { return nil }
+        return store
     }
 }
 
@@ -199,7 +210,8 @@ extension Metrics {
 /// the app's own histograms (``MetricsStore/delta()``).
 ///
 /// One fold runs at a time; a fold asked for while one runs is counted as ``Outcome/busy`` and the next report picks
-/// up its samples. ``tally`` counts every outcome, a missing file included.
+/// up its samples. ``tally`` counts every outcome, a missing file included; the app shows it in `debug.shipping_mode`'s
+/// `hang_reports.daemon_metrics_fold`.
 ///
 /// ```swift
 /// let fold = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: folder), metrics: Metrics(), work: work)
@@ -250,6 +262,13 @@ public actor DaemonMetricsFold {
         /// No outcome yet.
         public init() {}
 
+        /// Each count under its snake_case name, as `debug.shipping_mode` shows them (`missing`, `no_daemon`, ...).
+        public var byName: [String: UInt64] {
+            ["folded": UInt64(folded), "samples": samples, "no_daemon": UInt64(noDaemon), "missing": UInt64(missing),
+             "unreadable": UInt64(unreadable), "no_store": UInt64(noStore), "cursor_unwritten": UInt64(cursorUnwritten),
+             "busy": UInt64(busy), "cancelled": UInt64(cancelled)]
+        }
+
         /// Counts `outcome`.
         public mutating func count(_ outcome: Outcome) {
             switch outcome {
@@ -267,10 +286,11 @@ public actor DaemonMetricsFold {
         }
     }
 
-    /// The names of the daemon histograms the fold takes from the file; the file's other histograms (locks, the
-    /// journal) stay in the daemon's own section.
-    static let foldedNames: Set<String> = Set(
-        ([HistogramID.daemonDispatchQueue] + HistogramID.MethodClass.allCases.map(HistogramID.daemonRequest)).map(\.name))
+    /// The daemon histograms the fold takes from the file, by name; the file's other histograms (locks, the journal)
+    /// stay in the daemon's own section.
+    static let foldedIDs: [String: HistogramID] = Dictionary(
+        ([HistogramID.daemonDispatchQueue] + HistogramID.MethodClass.allCases.map(HistogramID.daemonRequest)).map { ($0.name, $0) },
+        uniquingKeysWith: { first, _ in first })
 
     private let reader: ChildMetricsReader
     private let metrics: Metrics
@@ -304,8 +324,10 @@ public actor DaemonMetricsFold {
         return outcome
     }
 
-    /// One fold, blocking: the file's samples since the cursor, for the daemon histograms, are written to the cursor
-    /// first and then added to `metrics`' store, so a failed cursor write folds nothing and nothing folds twice.
+    /// One fold, blocking: the file's samples since the cursor, for the daemon histograms the app's store takes
+    /// (``Metrics/accepts(_:folding:)``), are written to the cursor first and then added to `metrics`' store, so a
+    /// failed cursor write folds nothing, nothing folds twice, and a sample the app refuses (an id expired in the
+    /// app, or counted in another layout) stays in the file for the daemon's own section.
     public static func foldNow(pid: UInt32, reader: ChildMetricsReader, metrics: Metrics) -> Outcome {
         reader.removeOrphanCursors()
         let file = reader.file(pid: pid)
@@ -313,24 +335,22 @@ public actor DaemonMetricsFold {
         guard MetricsStore.attached(to: metrics.runtime) != nil else { return .noStore }
         let contents: MetricsLaunchContents
         do throws(MetricsLaunchFoldError) { contents = try reader.read(file) } catch { return .unreadable }
-        let taken = contents.delta.histograms.filter { foldedNames.contains($0.name) }
+        let taken = contents.delta.histograms.compactMap { histogram -> (id: HistogramID, histogram: MetricsDelta.Histogram)? in
+            guard let id = foldedIDs[histogram.name], metrics.accepts(id, folding: histogram) else { return nil }
+            return (id, histogram)
+        }
         guard !taken.isEmpty else { return .folded(histograms: 0, samples: 0) }
         do throws(ChildMetricsCursorError) {
-            try reader.advance(file, launch: contents.id, by: taken)
+            try reader.advance(file, launch: contents.id, by: taken.map(\.histogram))
         } catch {
             return .cursorUnwritten
         }
-        let byName = Dictionary(taken.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-        var added: [MetricsDelta.Histogram] = []
-        for methodClass in HistogramID.MethodClass.allCases {
-            if let histogram = byName[HistogramID.daemonRequest(methodClass).name],
-               metrics.record(.daemonRequest(methodClass), folding: histogram) {
-                added.append(histogram)
-            }
+        var histograms = 0
+        var samples: UInt64 = 0
+        for (id, histogram) in taken where metrics.record(id, folding: histogram) {
+            histograms += 1
+            samples &+= histogram.count
         }
-        if let histogram = byName[HistogramID.daemonDispatchQueue.name], metrics.record(.daemonDispatchQueue, folding: histogram) {
-            added.append(histogram)
-        }
-        return .folded(histograms: added.count, samples: added.reduce(0) { $0 &+ $1.count })
+        return .folded(histograms: histograms, samples: samples)
     }
 }

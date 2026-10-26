@@ -107,8 +107,23 @@ final class HangReportsController {
 
     /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
     private func foldDaemonMetrics() async {
+        await Self.foldDaemonMetrics(daemonMetrics, pid: daemonPID(), logger: logger)
+    }
+
+    /// One fold of `daemonMetrics` for the daemon `pid`. Every outcome is counted in its tally (`debug.shipping_mode`'s
+    /// `hang_reports.daemon_metrics_fold`); one that left the daemon's samples out of the report is also logged.
+    private static func foldDaemonMetrics(_ daemonMetrics: DaemonMetricsFold?, pid: Int32?, logger: Logger) async {
         guard let daemonMetrics else { return }
-        await daemonMetrics.fold(pid: daemonPID())
+        let outcome = await daemonMetrics.fold(pid: pid)
+        let described = String(describing: outcome), daemon = pid ?? 0
+        switch outcome {
+        case .folded, .noDaemon, .busy:
+            break
+        case .missing, .noStore, .cancelled:
+            logger.notice("daemon metrics not folded: \(described, privacy: .public), pid \(daemon, privacy: .public)")
+        case .unreadable, .cursorUnwritten:
+            logger.error("daemon metrics not folded: \(described, privacy: .public), pid \(daemon, privacy: .public)")
+        }
     }
 
     /// The watchdog sink (the app chains it after the lag-spike reporter); nil where nothing is sent.
@@ -121,7 +136,8 @@ final class HangReportsController {
     func shippingModeState(setting: Bool?) async -> ShippingModeReport.HangReports {
         let decision = isAvailable ? setting.map { String(describing: Self.decision(defaults: defaults, settingOn: $0)) } : nil
         return ShippingModeReport.HangReports(available: isAvailable, setting: setting, decision: decision,
-                                              enabled: await service?.isEnabled ?? false)
+                                              enabled: await service?.isEnabled ?? false,
+                                              daemonMetricsFold: await daemonMetrics?.tally.byName)
     }
 
     /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
@@ -190,11 +206,11 @@ final class HangReportsController {
             if subscriber == nil {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
-                let daemonMetrics = daemonMetrics, daemonPID = daemonPID
+                let daemonMetrics = daemonMetrics, daemonPID = daemonPID, logger = logger
                 let subscriber = MetricKitSubscriber(since: since) { input in
                     // task-owner: one fold, then one delivery handed to the service actor.
                     Task { @MainActor in
-                        await daemonMetrics?.fold(pid: daemonPID())
+                        await Self.foldDaemonMetrics(daemonMetrics, pid: daemonPID(), logger: logger)
                         await service.receive(input)
                     }
                 }

@@ -73,6 +73,8 @@ struct ChildMetricsReaderTests {
         #expect(await fold.fold(pid: 0) == .noDaemon)
         let tally = await fold.tally
         #expect(tally.missing == 1 && tally.noDaemon == 2 && tally.folded == 0)
+        #expect(tally.byName["missing"] == 1 && tally.byName["no_daemon"] == 2 && tally.byName["folded"] == 0,
+                "debug.shipping_mode does not show the missing file")
         #expect(app.delta().isEmpty)
     }
 
@@ -153,6 +155,29 @@ struct ChildMetricsReaderTests {
         let contents = try reader.read(file)
         try reader.advance(file, launch: "daemon-\(Self.daemonPID)-1", by: contents.delta.histograms)
         #expect(Self.histogram(.daemonRequest(.query), in: try reader.read(file).delta)?.count == 1)
+        withExtendedLifetime(daemon) {}
+    }
+
+    @Test func aDaemonIdTheAppRefusesStaysInTheFile() async throws {
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let (daemon, daemonMetrics) = try daemonFile()
+        // An app whose catalog has no daemon.request.topology (an app update expired it while the daemon ran).
+        let runtime = TraceRuntime(role: .app)
+        let app = MetricsStore(role: .app, profile: Self.profile(version: "app-2"), pid: 100,
+                               catalog: Self.catalog.filter { $0 != .daemonRequest(.topology) })
+        #expect(app.attach(to: runtime))
+        let metrics = Metrics(runtime: runtime)
+        daemonMetrics.record(.daemonRequest(.query), 300)
+        daemonMetrics.record(.daemonRequest(.topology), 50)
+        let fold = DaemonMetricsFold(reader: reader(running: true), metrics: metrics, work: InlineFiles())
+
+        #expect(await fold.fold(pid: Int32(Self.daemonPID)) == .folded(histograms: 1, samples: 1))
+        #expect(Self.histogram(.daemonRequest(.query), in: app.delta())?.count == 1)
+        #expect(Self.histogram(.daemonRequest(.topology), in: app.delta()) == nil)
+        let left = try reader(running: true).read(reader(running: true).file(pid: Self.daemonPID)).delta
+        #expect(Self.histogram(.daemonRequest(.query), in: left) == nil, "a folded sample would be sent again in the daemon's section")
+        let topology = try #require(Self.histogram(.daemonRequest(.topology), in: left), "a refused sample was marked folded")
+        #expect(topology.count == 1 && topology.sum == 50)
         withExtendedLifetime(daemon) {}
     }
 
