@@ -92,7 +92,7 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
                 clock: any Clock<Duration>) async -> Result<Set<String>, CEFRuntime.BootError> {
         let hello = CEFRemoteHello()
         let context = Unmanaged.passRetained(hello).toOpaque()
-        setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFHostReplies.replyCallback)
+        setReplyFn(Unmanaged.passUnretained(replies).toOpaque(), CEFRemoteReplySink.callback)
         guard attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, CEFRemoteHello.callback) == 1 else {
             setReplyFn(nil, nil)
             Unmanaged<CEFRemoteHello>.fromOpaque(context).release()
@@ -155,11 +155,11 @@ private final class CEFRemoteHello {
     }
 }
 
-extension CEFHostReplies {
-    /// C entry for the host's REPLY frames (``CEFRemoteShim/attach(_:replies:helloDeadline:clock:)``):
-    /// runs on the main thread (remote_shim_runtime.h `cmux_remote_reply_fn`) with the table as its
-    /// context, and only copies the fields, which are valid during the call alone.
-    static let replyCallback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
+/// The host's REPLY frames into a ``CEFHostReplies`` (``CEFRemoteShim/attach(_:replies:helloDeadline:clock:)``).
+private struct CEFRemoteReplySink {
+    /// C entry: runs on the main thread (remote_shim_runtime.h `cmux_remote_reply_fn`) with the
+    /// table as its context, and only copies the fields, which are valid during the call alone.
+    static let callback: CEFRemoteShim.ReplyFn = { context, token, fields, length in
         guard let context else { return }
         let body = fields.map { Array(UnsafeRawBufferPointer(start: $0, count: max(length, 0))) } ?? []
         MainActor.assumeIsolated { // main-proof: cmux_remote_reply_fn runs on the main thread (remote_shim_runtime.h)
