@@ -35,6 +35,33 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/MessageCard.tsx",
   ],
   variants: {
+    "baseline-fade": {
+      note: "Gallery-only reconstruction of the previous eight-line gradient clips, for before/after comparison.",
+      snapshot: cards,
+      play: async (ctx) => {
+        const style = ctx.document.createElement("style");
+        style.textContent = `
+          .cv-received__body[data-cut] > .cv-received__text {
+            max-height: calc(var(--cv-line-height) * 8) !important;
+            -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+            mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+          }
+          .cv-received__show, .cv-message__more { display: none; }
+          .cv-message__text {
+            max-height: calc(8 * 20px) !important;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+          }
+          .cv-message__text.is-cut {
+            -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+            mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent);
+          }
+        `;
+        ctx.document.head.append(style);
+        await ctx.click({ selector: ".cv-message .cv-agentmsg__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
+      },
+    },
     "code-first": {
       note: "A tall code card is kept whole. Tab into its controls reveals the full message.",
       snapshot: chat([
