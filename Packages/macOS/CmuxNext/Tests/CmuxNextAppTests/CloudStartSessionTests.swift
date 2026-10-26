@@ -132,7 +132,10 @@ struct CloudStartSessionTests {
         let invoke = try #require(services.registry.action(for: CloudStartSession.action)?.invoke)
         let run = services.registry.capturingRun { invoke(Self.invocation(["agent": .string("claude"), "name": .string(name)])) }
         let task = try #require(run.results.first, "start-session tracked no result")
-        guard case .failure(let failure) = await task.value else { return Issue.record("a create with no Cloud sign-in went through") }
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("a create with no Cloud sign-in went through")
+            return
+        }
         #expect(failure.message.hasPrefix("Couldn't create Cloud machine `\(name)` ("), "\(failure.message)")
         #expect(failure.message.contains("`cmux cloud start-session --name \(name) --agent claude`"))
         #expect(!failure.message.contains(".)"))
