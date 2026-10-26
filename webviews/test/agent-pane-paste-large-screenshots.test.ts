@@ -228,9 +228,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   });
 
   // Enter while a screenshot loads holds the prompt until its chip is ready. Taking the screenshot
-  // back is an edit of what was being sent: the held prompt stays in the field instead of going
-  // out without it.
-  test("Backspace on a loading tile keeps the prompt that was waiting for it", async () => {
+  // back (its × or Backspace, one cancel) is an edit of what was being sent: the held prompt stays
+  // in the field instead of going out without it.
+  test("cancelling a loading tile keeps the prompt that was waiting for it", async () => {
     const page = await newChat({ "chat.upload.begin": "hang" });
     const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
     await prompt.click();
@@ -246,14 +246,10 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.keyboard.press("Enter");
     // Held: the tile is still loading.
     expect(await promptText(page)).toBe("look at this");
-    // To the prompt's start (Home does not move the caret in Chromium on macOS).
-    for (const _ of "look at this") await page.keyboard.press("ArrowLeft");
-    await page.keyboard.press("Backspace");
+    await loading.locator(".acpmux-attachment-remove").click();
     await loading.waitFor({ state: "detached" });
     // The cancel released nothing: the prompt is still there to edit or send again.
-    await page.locator(".acpmux-composer-prompt").evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-    );
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     expect(await promptText(page)).toBe("look at this");
     await page.close();
   });
