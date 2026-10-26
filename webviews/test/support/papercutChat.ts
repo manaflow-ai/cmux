@@ -140,6 +140,12 @@ export async function papercutPane(
   };
   /// The connection drops (acpmux restarted): the page connects again and reads the log again.
   const drop = () => socket?.close();
+  /// Waiters for a method's next send: `sent(method, after)` settles once the pages have sent `method`
+  /// more than `after` times (an event, not a poll).
+  const waiters: { method: string; after: number; done: () => void }[] = [];
+  const count = (method: string) => methods.filter((sent) => sent === method).length;
+  const sent = (method: string, after: number) =>
+    count(method) > after ? Promise.resolve() : new Promise<void>((done) => void waiters.push({ method, after, done }));
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -150,6 +156,10 @@ export async function papercutPane(
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        for (const waiter of waiters.filter((one) => one.method === message.method && count(one.method) > one.after)) {
+          waiters.splice(waiters.indexOf(waiter), 1);
+          waiter.done();
+        }
         socket = ws;
         if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
@@ -205,7 +215,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods, prompts, record, drop };
+  return { open, close, methods, prompts, record, drop, sent };
 }
 
 /// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`

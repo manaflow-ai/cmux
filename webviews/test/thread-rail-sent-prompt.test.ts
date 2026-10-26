@@ -92,10 +92,9 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
     // The connection drops and comes back: the page reads the chat's log again, where the prompt is
     // acpmux's record alone (no send of this page's behind it).
     const attaches = pane!.methods.filter((method) => method === "_acpmux/attach").length;
+    const reattached = pane!.sent("_acpmux/attach", attaches);
     pane!.drop();
-    await page.waitForFunction(() => true);
-    for (let n = 0; n < 200 && pane!.methods.filter((method) => method === "_acpmux/attach").length === attaches; n++)
-      await page.waitForTimeout(50);
+    await reattached;
     expect(pane!.methods.filter((method) => method === "_acpmux/attach").length).toBeGreaterThan(attaches);
     for (let n = 0; n < 20; n++) await page.evaluate(() => window.cmuxPaintFrame());
     const frames = await page.evaluate(() => {
