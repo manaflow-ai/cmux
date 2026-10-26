@@ -397,14 +397,18 @@ export default agentPaneEntry({
     // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
     // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row and Fast mode are available before the session reports. No separate Reasoning chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
+      ready: newTab(),
+      snapshot: reasoningChat(),
+    },
+    "catalog-fast-menu": {
+      note: "Before a session reports config options: the New Tab model menu offers the model's catalog Fast mode beside Effort, as a started chat does.",
       ready: newTab(),
       snapshot: reasoningChat(),
       play: async (ctx: PlayContext) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
-        await ctx.press("Escape");
       },
     },
     "reasoning-chip-stage": {
