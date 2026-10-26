@@ -254,6 +254,7 @@ struct PageLazinessTests {
         let host = makeHost(hosting)
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         host.close(view)
+        host.retirer.closeRetired() // the close's teardown, which waits for the retirer's deadline
         #expect(!view.awaitsFirstShow)
         let window = shownWindow()
         defer { window.close() }

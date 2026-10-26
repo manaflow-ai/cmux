@@ -60,6 +60,9 @@ public final class WebUIHost {
     /// A page starts its document, and its renderer, at its first show, not when it opens
     /// (feature `pageRendererAtFirstShow`, PageWebView+FirstShow.swift).
     public let startsPagesAtFirstShow: Bool
+    /// Ends closed pages after the close's turn (``close(_:)``, p13-webui-064); the agent tabs retire
+    /// their panes on it too, so the app has one teardown deadline.
+    public let retirer: PageRetirer
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
@@ -79,11 +82,14 @@ public final class WebUIHost {
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
+    ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
-                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil) {
+                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
+                retirer: PageRetirer = PageRetirer()) {
         self.chromium = chromium
+        self.retirer = retirer
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
         self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
@@ -127,16 +133,31 @@ public final class WebUIHost {
         return view
     }
 
-    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists and its own
-    /// crash budget. Safe to call twice and for a view this host did not open (it is only closed).
+    /// Ends `view`: it leaves the view tree, the host's lists and its own crash budget now, and its
+    /// routes, bridge and engine page end at the ``retirer``'s deadline, never in the close's turn
+    /// (Cmd-W makes no engine close call). Safe to call twice and for a view this host did not open
+    /// (it is only ended).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
-        view.close()
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
         crashGroups.forget(ObjectIdentifier(view))
+        retirer.retire(view) { view.close() }
+    }
+
+    /// Takes back `view`, closed (``close(_:)``) and not yet ended: it is listed again and that close
+    /// never ends it. Its lifecycle state comes back with its tab's next show or hide.
+    ///
+    /// - Parameter view: The page shown again.
+    /// - Returns: False when `view` was not waiting to end (it is open, or ended already).
+    @discardableResult
+    public func reclaim(_ view: PageWebView) -> Bool {
+        guard retirer.reclaim(view) else { return false }
+        opened.add(view)
+        registry.add(view)
+        return true
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages
