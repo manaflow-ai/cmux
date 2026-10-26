@@ -32,6 +32,7 @@ let package = Package(
     targets: [
         // The atomic instructions on the macOS 14 / iOS 17 floor, where Synchronization.Atomic is not
         // available: static inline C over the compiler's atomic builtins (no package dependency to resolve).
+        // settings-allow: C target, no Swift sources (CmuxSafeConcurrencyAtomics.c and its header)
         .target(name: "CmuxSafeConcurrencyAtomics"),
         .target(
             name: "CmuxSafeConcurrency",
