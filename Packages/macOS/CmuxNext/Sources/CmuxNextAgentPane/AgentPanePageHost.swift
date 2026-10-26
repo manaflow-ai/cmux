@@ -13,7 +13,9 @@ enum AgentPanePageHost {
                                               routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)],
                                               documentAttributes: AgentPaneTunables.documentAttributes,
                                               options: PageEngineOptions(fullFrameRate: renderRate != .capped,
-                                                                         chromiumAgentChat: AgentPaneTunables.chromium.value)))
+                                                                         chromiumAgentChat: AgentPaneTunables.chromium.value,
+                                                                         sharesWebKitProcess: true),
+                                              dynamicResources: AgentPageResources()))
         // The composer menu's edits run as the page view's own responder actions.
         provider.onEdit = { [weak page] command in page?.performEdit(command.selector) }
         return page

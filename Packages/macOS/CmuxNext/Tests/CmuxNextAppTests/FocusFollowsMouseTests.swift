@@ -45,7 +45,7 @@ struct FocusFollowsMouseTests {
             return root.convert(CGPoint(x: frame.midX, y: frame.midY), to: nil)
         }
 
-        /// One scroll event over `point` (window coordinates), as the layout's monitor sees it.
+        /// One scroll event over `point` (window coordinates), as the layout's tap intercept sees it.
         @discardableResult
         func scroll(at point: CGPoint, dy: Int32 = -12, phase: CGScrollPhase? = nil, momentum: CGMomentumScrollPhase = .none,
                     units: CGScrollEventUnit = .pixel) -> Bool {

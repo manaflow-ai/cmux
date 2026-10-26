@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -114,7 +115,7 @@ extension WebKitDriver {
                 backups.pruneExpired()
                 return try backups.load(restoreID)
             }
-            guard let decoded = try? JSONDecoder().decode(CookieBackupRecord.self, from: plain) else {
+            guard let decoded = try? JSONDecoder().blockingDecode(CookieBackupRecord.self, from: plain) else {
                 throw CookieBackupError("the backup \(restoreID) is damaged")
             }
             record = decoded

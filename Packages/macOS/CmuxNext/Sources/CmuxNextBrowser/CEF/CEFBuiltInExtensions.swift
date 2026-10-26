@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 import Foundation
 
@@ -62,7 +63,7 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
         for profile in children where profile.lastPathComponent.hasPrefix("Profile-") || profile.lastPathComponent == "Default" {
             for name in ["Secure Preferences", "Preferences"] {
                 guard let data = try? Data(contentsOf: profile.appendingPathComponent(name)), data.range(of: id) != nil,
-                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let root = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
                       let settings = (root["extensions"] as? [String: Any])?["settings"] as? [String: Any],
                       let entry = settings[adBlockerID] as? [String: Any] else { continue }
                 let path = entry["path"] as? String ?? ""

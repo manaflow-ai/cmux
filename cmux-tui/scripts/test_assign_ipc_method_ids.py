@@ -213,6 +213,14 @@ class AssignmentTests(unittest.TestCase):
 
 
 class SwiftSourceTests(unittest.TestCase):
+    def test_agent_session_call_sites_are_macos_names(self) -> None:
+        names = ASSIGN.swift_call_site_names()
+        commands = {name for name in live()["commands"] if name.startswith("agent-session-")}
+        self.assertEqual(len(commands), 11)
+        self.assertLessEqual(commands, names)
+        for name in commands:
+            self.assertIn("macos", live()["commands"][name]["clients"])
+
     def test_swift_spawning_requests_are_listed(self) -> None:
         spawning = ASSIGN.swift_spawning_commands()
         self.assertTrue({"new-tab", "split", "create-terminal"} <= spawning)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -49,7 +50,7 @@ nonisolated struct CloudApprovalAnswer: Sendable {
         let held = read["value"] as? [String: Any] ?? [:]
         guard held["op"] as? String == op else { throw Failure.mismatch(request: request, reason: "op") }
         guard held["state"] as? String == "pending" else { throw Failure.mismatch(request: request, reason: "state") }
-        let confirmed = try JSONSerialization.jsonObject(with: params) as? NSDictionary
+        let confirmed = try JSONSerialization.blockingJSONObject(with: params) as? NSDictionary
         guard let confirmed, let heldParams = held["params"] as? NSDictionary, heldParams.isEqual(confirmed) else {
             throw Failure.mismatch(request: request, reason: "params")
         }
@@ -69,7 +70,7 @@ nonisolated struct CloudApprovalAnswer: Sendable {
 
     private func post(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
         let data = try await call(path, try JSONSerialization.data(withJSONObject: body))
-        guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.refused(code: "bad_reply") }
+        guard let reply = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { throw Failure.refused(code: "bad_reply") }
         if let error = reply["error"] as? [String: Any], reply["ok"] as? Bool != true, reply["value"] == nil {
             throw Failure.refused(code: error["code"] as? String ?? "unknown")
         }

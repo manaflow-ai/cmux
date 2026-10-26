@@ -876,6 +876,15 @@ final class LongTextStore: @unchecked Sendable {
         return h.finalize()
     }
 
+    /// cmux: whether index `i` holds exactly the bytes of `p`.
+    private static func sameBytes(_ i: LongTextIndex, _ p: UnsafeBufferPointer<UInt8>) -> Bool {
+        i.withBytes { q in // no force unwraps
+            guard q.count == p.count else { return false }
+            guard let qb = q.baseAddress, let pb = p.baseAddress else { return q.count == 0 }
+            return memcmp(qb, pb, q.count) == 0
+        }
+    }
+
     private func index(for text: String, create: Bool = true) -> LongTextIndex? {
         var t = text
         if t.utf8.withContiguousStorageIfAvailable({ _ in true }) == nil { t.makeContiguousUTF8() }
@@ -884,7 +893,9 @@ final class LongTextStore: @unchecked Sendable {
             lock.lock()
             if let i = byAddr[addr] { lock.unlock(); return i }
             let pr = LongTextStore.print(p)
-            if let i = byPrint[pr] { byAddr[addr] = i; lock.unlock(); return i }
+            // cmux: the print (length, first and last KiB) only names a candidate; its bytes decide. A
+            // same-length edit in the middle of a long text has the old text's print and drew the old text.
+            if let i = byPrint[pr], LongTextStore.sameBytes(i, p) { byAddr[addr] = i; lock.unlock(); return i }
             let hd = LongTextStore.head(p)
             let prev = byHead[hd]
             lock.unlock()

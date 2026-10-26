@@ -16,9 +16,9 @@ public final class AgentSessionAttachRequest implements WireValue {
     private final Field<UInt64> afterSeq;
     /** Records before this seq (newest first). */
     private final Field<UInt64> beforeSeq;
-    /** At most 32 acpmux record kinds or categories. */
+    /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
     private final Field<List<String>> kinds;
-    /** Records per page, 1 to 500 (default 200). */
+    /** Records per page, clamped to 1..500 (default 200). */
     private final Field<UInt64> limit;
     /** The agent chat tab: an agent_session tab of this daemon's store. */
     private final UInt64 surface;

@@ -8,6 +8,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
@@ -153,32 +157,106 @@ def load_sdk_catalog() -> dict:
     return document
 
 
+# Server modules that decode their own commands before the server's Command
+# enum sees the line (p05-ipc queue Q2). One table for this checker and
+# check-sdk-schema.py; its description names each key.
+MODULE_COMMANDS_PATH = Path(__file__).with_name("server-module-commands.json")
+
+
+def module_commands() -> dict[str, dict]:
+    modules = json.loads(MODULE_COMMANDS_PATH.read_text()).get("modules")
+    if not isinstance(modules, dict):
+        fail(f"{MODULE_COMMANDS_PATH.name} needs a modules object")
+    return modules
+
+
+def module_command_sources() -> dict[str, str]:
+    """Source of each module in server-module-commands.json that exists, by
+    module name. A removed module serves nothing, so its schema commands
+    become stale. An inline `mod tests` is left out: a test that spells a
+    removed command does not serve it."""
+    sources: dict[str, str] = {}
+    for module in module_commands():
+        path = TUI / "crates/cmux-tui-core/src/server" / f"{module}.rs"
+        if path.exists():
+            production = path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0]
+            sources[module] = strip_rust_comments(production)
+    return sources
+
+
+def module_command_names() -> dict[str, str]:
+    """Wire names served by server-module-commands.json, mapped to their
+    module."""
+    names: dict[str, str] = {}
+    specs = module_commands()
+    for module, source in module_command_sources().items():
+        enum_name = specs[module].get("enum")
+        literals = specs[module].get("literals", {})
+        renames: list[str] = []
+        if enum_name is not None:
+            body = rust_enum_body(source, enum_name)
+            renames = re.findall(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', body)
+            if len(renames) != len(rust_enum_variants(source, enum_name)):
+                fail(f"every server/{module}.rs {enum_name} variant needs #[serde(rename = ...)]")
+        for literal in literals:
+            if f'"{literal}"' not in source:
+                fail(f"server/{module}.rs no longer matches {literal!r}")
+        for name in [*renames, *literals]:
+            if name in names:
+                fail(f"module command {name!r} is served twice")
+            names[name] = module
+    return names
+
+
+def module_command_profiles() -> dict[str, str]:
+    """The listed authority of each module command. local-admin must be the
+    code's: the non-Unix refusal in the module's enum handler and in the
+    handler of every literal command, the functions that dispatch them."""
+    profiles: dict[str, str] = {}
+    specs = module_commands()
+    sources = module_command_sources()
+    names = module_command_names()
+    for module, source in sources.items():
+        spec = specs[module]
+        authority = spec.get("authority")
+        if not isinstance(authority, str):
+            fail(f"server/{module}.rs needs an authority in {MODULE_COMMANDS_PATH.name}")
+        literals = spec.get("literals", {})
+        if authority == "local-admin":
+            handlers = {literal["handler"] for literal in literals.values()}
+            if "enum" in spec:
+                handlers.add(spec["enum_handler"])
+            for handler in sorted(handlers):
+                if not re.search(
+                    r"if\s+!\s*mux\.control_clients\.is_unix\(",
+                    rust_function_body(source, handler),
+                ):
+                    fail(f"server/{module}.rs {handler} does not refuse non-Unix connections")
+        for name, owner in names.items():
+            if owner == module:
+                profiles[name] = authority
+    return profiles
+
+
 def command_names() -> set[str]:
     source = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     variants = rust_enum_variants(source, "Command")
-    return {camel_to_kebab(variant) for variant in variants}
+    names = {camel_to_kebab(variant) for variant in variants}
+    modules = module_command_names()
+    overlap = sorted(names & set(modules))
+    if overlap:
+        fail(f"commands in both the server Command enum and a module: {', '.join(overlap)}")
+    return names | set(modules)
 
 
 def sniffed_command_names(candidates: set[str]) -> set[str]:
-    """The candidates a server handler module serves before the Command enum
-    (server/connection_frame.rs): a production module with a `try_handle`
-    spells the name as a string literal. check-sdk-schema.py checks their
-    request fields."""
-    root = TUI / "crates/cmux-tui-core/src/server"
-    if not root.is_dir():
-        return set()
-    literals: set[str] = set()
-    for path in sorted(root.rglob("*.rs")):
-        if path.name.endswith("_tests.rs") or "tests" in path.relative_to(root).parts[:-1]:
-            continue
-        production = strip_rust_comments(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
-        if "fn try_handle(" not in production:
-            continue
-        for token in rust_tokens(production):
-            value = rust_string_value(token)
-            if value is not None:
-                literals.add(value)
-    return candidates & literals
+    """The candidates a handler module decodes before the Command enum
+    (handler_commands.py, the rule check-sdk-schema.py also uses)."""
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    return candidates & set(decoded)
 
 
 def served_command_names(sdk_commands: set[str]) -> set[str]:
@@ -312,6 +390,7 @@ def command_profiles() -> dict[str, set[str]]:
         profiles.setdefault(profile, set()).add(name)
 
     guarded = guarded_command_profiles(source)
+    guarded.update(module_command_profiles())
     for name, guarded_profile in guarded.items():
         if name not in runtime_commands:
             fail(f"privileged command guard references unknown command {name}")

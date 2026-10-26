@@ -361,6 +361,43 @@ import Testing
         #expect(left == ["Kept_Run-10--2.input", "Kept_Run-10--2.txt"])
     }
 
+    /// An awaiting run draws what the plain run draws, iteration for iteration, and fails with the same
+    /// replay line.
+    @Test func awaitingRunsDrawAndFailAsPlainRuns() async throws {
+        let run = FuzzRun("awaits", seed: 0x5A, iterations: 12, environment: FuzzEnvironment())
+        var plain: [UInt64] = []
+        try run.forEach { rng in plain.append(rng.next()) }
+        var awaited: [UInt64] = []
+        let ran = try await run.forEachAwaiting { rng in
+            await Task.yield()
+            awaited.append(rng.next())
+        }
+        #expect(ran == 12 && awaited == plain)
+
+        let corpus = FuzzCorpus(seeds: [Data("a".utf8), Data("bc".utf8)])
+        var plainInputs: [Data] = []
+        try run.forEachInput(corpus) { plainInputs.append($0) }
+        var awaitedInputs: [Data] = []
+        let inputs = try await run.forEachInputAwaiting(corpus) { input in
+            await Task.yield()
+            awaitedInputs.append(input)
+        }
+        #expect(inputs == 14 && awaitedInputs == plainInputs)
+
+        var seen = 0
+        do {
+            try await run.forEachAwaiting { _ in
+                await Task.yield()
+                seen += 1
+                try FuzzRun.check(seen < 4, "the fourth fails")
+            }
+            Issue.record("the run did not fail")
+        } catch FuzzError.failed(let failure) {
+            #expect(failure.iteration == 3)
+            #expect(failure.replay == "CMUX_FUZZ_SEED=0x5a CMUX_FUZZ_ITERATIONS=4 (iteration 3 of awaits)")
+        }
+    }
+
     @Test func runNamesBecomeSafeFileNames() {
         #expect(FuzzArtifacts.fileName(for: "a/b c") == "a_b_c")
         #expect(FuzzArtifacts.fileName(for: "..") == "run")

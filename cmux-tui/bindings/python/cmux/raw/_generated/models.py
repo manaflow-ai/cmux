@@ -63,6 +63,31 @@ class AgentState(str, Enum):
     DONE = 'done'
     UNKNOWN = 'unknown'
 
+class AppOrigin(str, Enum):
+    USER = 'user'
+    CLI = 'cli'
+    MCP = 'mcp'
+    SCRIPT = 'script'
+    REMOTE = 'remote'
+
+class AppScopeClass(str, Enum):
+    STANDARD = 'standard'
+    SENSITIVE = 'sensitive'
+    RESTRICTED = 'restricted'
+    ELEVATED = 'elevated'
+    UNKNOWN = 'unknown'
+
+class AppSource(str, Enum):
+    DEFAULT = 'default'
+    USER = 'user'
+    BUNDLED = 'bundled'
+    LOCAL = 'local'
+
+class AppTier(str, Enum):
+    FIRST_PARTY = 'first-party'
+    VERIFIED = 'verified'
+    UNVERIFIED = 'unverified'
+
 class BrowserProviderAuthentication(str, Enum):
     NONE = 'none'
     BEARER = 'bearer'
@@ -358,6 +383,89 @@ class ActivitySubscribeResult:
 
 
 @dataclass(frozen=True)
+class AgentCLIIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobPath:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobPath'
+    terminal_id: str
+    kind: Literal['terminal']
+    pane_id: str
+    screen_id: str
+    tab_id: str
+    workspace_id: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobReceipt:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobReceipt'
+    cli: str
+    machine: str
+    path: AgentCLIJobPath
+    replayed: bool
+    revision: str
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionCreated:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/created'
+    receipt: AgentCLIJobReceipt
+    state: Literal['created']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionFailed:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/failed'
+    code: str
+    state: Literal['failed']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionIndeterminate:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/indeterminate'
+    state: Literal['indeterminate']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionNotFound:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/not_found'
+    state: Literal['not_found']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPending:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/pending'
+    state: Literal['pending']
+
+
+@dataclass(frozen=True)
+class AgentCLIJobResolutionPrepared:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIJobResolution/variants/prepared'
+    state: Literal['prepared']
+
+
+@dataclass(frozen=True)
+class AgentCLIStoredIntent:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentCLIStoredIntent'
+    cli: str
+    key: str
+    machine: str
+    profiles: List[str]
+    receipt: Union[AgentCLIJobReceipt, None]
+    root_key: str
+    session: str
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -388,6 +496,69 @@ class AgentSessionSource:
 
 
 @dataclass(frozen=True)
+class AppGrant:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppGrant'
+    granted: bool
+    scope: str
+
+
+@dataclass(frozen=True)
+class AppHiddenAccess:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppHiddenAccess'
+    automations: bool
+    cli: bool
+    mcp: bool
+
+
+@dataclass(frozen=True)
+class AppLogLine:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppLogLine'
+    level: str
+    message: str
+    ts_ms: int
+
+
+@dataclass(frozen=True)
+class AppPaletteCommand:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppPaletteCommand'
+    op: str
+    title: Union[JsonValue, None]
+    when: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppRecord:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppRecord'
+    available: bool
+    bundle_dir: Union[str, None]
+    commands: List[AppPaletteCommand]
+    enabled: bool
+    grants: List[str]
+    hidden: bool
+    hidden_access: AppHiddenAccess
+    hide_only: bool
+    id: str
+    installed: bool
+    manifest: Union[JsonValue, None]
+    sandboxed: bool
+    scope_classes: Dict[str, AppScopeClass]
+    source: AppSource
+    tier: AppTier
+    version: str
+    revision: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppTerminalLink:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppTerminalLink'
+    app: str
+    channel: str
+    id: str
+    socket: Union[str, None]
+    target: str
+
+
+@dataclass(frozen=True)
 class AppliedPane:
     __cmux_schema_path__: ClassVar[str] = 'types/AppliedPane'
     surface: Id
@@ -399,6 +570,51 @@ class ApplyLayoutResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ApplyLayoutResult'
     screen: Id
     panes: List[AppliedPane]
+
+
+@dataclass(frozen=True)
+class AppsInventoryDemand:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsInventoryDemand'
+    enabled: bool
+    sequence: int
+
+
+@dataclass(frozen=True)
+class AppsLinkChangedResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsLinkChangedResult'
+    servers: int
+
+
+@dataclass(frozen=True)
+class AppsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsListResult'
+    apps: List[AppRecord]
+    revision: int
+
+
+@dataclass(frozen=True)
+class AppsLogsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsLogsResult'
+    lines: List[AppLogLine]
+
+
+@dataclass(frozen=True)
+class AppsProviderRegisterResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsProviderRegisterResult'
+    families: List[str]
+    inventory_demand: Union[AppsInventoryDemand, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsRunResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsRunResult'
+    value: Union[JsonValue, None]
+
+
+@dataclass(frozen=True)
+class AppsTerminalLinksResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AppsTerminalLinksResult'
+    links: List[AppTerminalLink]
 
 
 @dataclass(frozen=True)
@@ -2260,6 +2476,83 @@ class AddTabsToTabGroupRequest:
 
 
 @dataclass(frozen=True)
+class AgentCliIntentsAttachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/request'
+    expected_machine_id: str
+    expected_session_id: str
+    key: str
+    receipt: AgentCLIJobReceipt
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsAttachResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-attach/result'
+    changed: bool
+    intent: AgentCLIStoredIntent
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/request'
+    expected_machine_id: str
+    expected_session_id: str
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsListResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-list/result'
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/request'
+    expected_machine_id: str
+    expected_session_id: str
+    intents: List[AgentCLIIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsRecordResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-record/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/request'
+    expected_machine_id: str
+    expected_session_id: str
+    keys: List[str]
+
+
+@dataclass(frozen=True)
+class AgentCliIntentsSettleResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-intents-settle/result'
+    changed: bool
+    intents: List[AgentCLIStoredIntent]
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
+class AgentCliUpdateJobResolveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-cli-update-job-resolve/request'
+    cli: str
+    expected_machine_id: str
+    expected_session_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True)
 class AgentSessionAttachRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-attach/request'
     surface: Id
@@ -2402,6 +2695,115 @@ class ApplyLayoutRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsAgentInventoryChangedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-agent-inventory-changed/request'
+    demand_sequence: int
+
+
+@dataclass(frozen=True)
+class AppsDispatchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-dispatch/request'
+    event: str
+    mount_id: str
+    node: str
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+    payload: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsLinkChangedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-link-changed/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-list/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsLogsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-logs/request'
+    app: str
+    follow: Union[bool, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsMountRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-mount/request'
+    app: str
+    interface: str
+    mount_id: str
+    context: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsProviderRegisterRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-provider-register/request'
+    families: List[str]
+    inventory_watch: Union[bool, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsProviderResultRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-provider-result/request'
+    ok: bool
+    request_id: int
+    body: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsRunRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-run/request'
+    app: str
+    op: str
+    args: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    gesture: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsSetRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-set/request'
+    app: str
+    idempotency_key: str
+    enabled: Union[bool, None, MissingType] = field(default=MISSING)
+    grant: Union[AppGrant, None, MissingType] = field(default=MISSING)
+    hidden: Union[bool, None, MissingType] = field(default=MISSING)
+    hidden_access: Union[AppHiddenAccess, None, MissingType] = field(default=MISSING)
+    installed: Union[bool, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+    sandboxed: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsStoreRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-store/request'
+    op: str
+    args: Union[JsonValue, None, MissingType] = field(default=MISSING)
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsTerminalLinksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-terminal-links/request'
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AppsUnmountRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/apps-unmount/request'
+    mount_id: str
+    origin: Union[AppOrigin, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2553,6 +2955,12 @@ class BrowserWheelGuardedRequest:
     frame_seq: int
     x_px: float
     y_px: float
+
+
+@dataclass(frozen=True)
+class CancelRequestRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/cancel-request/request'
+    target: Union[JsonValue, None]
 
 
 @dataclass(frozen=True)
@@ -6168,6 +6576,7 @@ class WorkspaceRenamedEvent(EventBase):
 
 
 # Named protocol aliases.
+AgentCLIJobResolution = Union[AgentCLIJobResolutionCreated, AgentCLIJobResolutionFailed, AgentCLIJobResolutionIndeterminate, AgentCLIJobResolutionNotFound, AgentCLIJobResolutionPending, AgentCLIJobResolutionPrepared]
 AgentSessionAcpmuxReply = Any
 AgentSessionPage = Any
 AgentSessionSummary = Any
@@ -6199,6 +6608,10 @@ __all__ = [
     'AgentReportSource',
     'AgentSource',
     'AgentState',
+    'AppOrigin',
+    'AppScopeClass',
+    'AppSource',
+    'AppTier',
     'BrowserProviderAuthentication',
     'BrowserProviderHosting',
     'ClientTransport',
@@ -6232,11 +6645,34 @@ __all__ = [
     'ViewAttachmentOutcome',
     'ActivitySnapshot',
     'ActivitySubscribeResult',
+    'AgentCLIIntent',
+    'AgentCLIJobPath',
+    'AgentCLIJobReceipt',
+    'AgentCLIJobResolutionCreated',
+    'AgentCLIJobResolutionFailed',
+    'AgentCLIJobResolutionIndeterminate',
+    'AgentCLIJobResolutionNotFound',
+    'AgentCLIJobResolutionPending',
+    'AgentCLIJobResolutionPrepared',
+    'AgentCLIStoredIntent',
     'AgentRecord',
     'AgentSessionAnsweredBy',
     'AgentSessionSource',
+    'AppGrant',
+    'AppHiddenAccess',
+    'AppLogLine',
+    'AppPaletteCommand',
+    'AppRecord',
+    'AppTerminalLink',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AppsInventoryDemand',
+    'AppsLinkChangedResult',
+    'AppsListResult',
+    'AppsLogsResult',
+    'AppsProviderRegisterResult',
+    'AppsRunResult',
+    'AppsTerminalLinksResult',
     'AttachedViewOutcomeResult',
     'AttachedViewResizeResult',
     'Bookmark',
@@ -6423,6 +6859,16 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AgentCliIntentsAttachRequest',
+    'AgentCliIntentsAttachResult',
+    'AgentCliIntentsListRequest',
+    'AgentCliIntentsListResult',
+    'AgentCliIntentsRecordRequest',
+    'AgentCliIntentsRecordResult',
+    'AgentCliIntentsSettleRequest',
+    'AgentCliIntentsSettleResult',
+    'AgentCliUpdateJobRequest',
+    'AgentCliUpdateJobResolveRequest',
     'AgentSessionAttachRequest',
     'AgentSessionCancelRequest',
     'AgentSessionCancelResult',
@@ -6441,6 +6887,19 @@ __all__ = [
     'AgentSessionStartResult',
     'AgentSessionTrustRequest',
     'ApplyLayoutRequest',
+    'AppsAgentInventoryChangedRequest',
+    'AppsDispatchRequest',
+    'AppsLinkChangedRequest',
+    'AppsListRequest',
+    'AppsLogsRequest',
+    'AppsMountRequest',
+    'AppsProviderRegisterRequest',
+    'AppsProviderResultRequest',
+    'AppsRunRequest',
+    'AppsSetRequest',
+    'AppsStoreRequest',
+    'AppsTerminalLinksRequest',
+    'AppsUnmountRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
     'BindConversationTabSessionResult',
@@ -6458,6 +6917,7 @@ __all__ = [
     'BrowserReloadRequest',
     'BrowserWheelRequest',
     'BrowserWheelGuardedRequest',
+    'CancelRequestRequest',
     'ChiefInspectRequest',
     'ChiefInspectResult',
     'ClearHistoryRequest',
@@ -6862,6 +7322,7 @@ __all__ = [
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
+    'AgentCLIJobResolution',
     'AgentSessionAcpmuxReply',
     'AgentSessionPage',
     'AgentSessionSummary',

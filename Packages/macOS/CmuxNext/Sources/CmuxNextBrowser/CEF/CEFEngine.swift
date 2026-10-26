@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextInput
 public import CmuxNextWakeups
 public import Foundation
 
@@ -45,13 +46,14 @@ public final class CEFEngine: BrowserEngine {
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
     ///     nil (tests, fixtures): a queue of the engine's own.
+    ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap).
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
                             contextMenus: BrowserContextMenuBuilder = .shared,
-                            waitDeadlines: MainWakeUpQueue? = nil) {
+                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
-                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines)
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines, input: input)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -64,17 +66,20 @@ public final class CEFEngine: BrowserEngine {
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
     ///     nil (tests, fixtures): a queue of the engine's own.
+    ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap). The
+    ///     process-wide runtime hears the tap of the engine made last.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
-                waitDeadlines: MainWakeUpQueue? = nil) {
+                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        CEFRuntime.shared.attachInput(input)
     }
 
     public var availability: BrowserEngineAvailability {
@@ -179,6 +184,13 @@ public final class CEFEngine: BrowserEngine {
         let spares = CEFRuntime.shared.spareWindow
         spares.setWantsPages(pages, runtime: .shared)
         return spares.prepareNext(runtime: .shared)
+    }
+
+    /// Whether spare windows hold a renderer-less placeholder where the fork makes one (the
+    /// `rendererlessSpareWindow` feature, p13-webui-019); off, a spare holds a frozen about:blank
+    /// page. Set before the first ``prepareSpareWindow(pages:)``; a spare already built keeps its kind.
+    public func setRendererlessSpareWindows(_ on: Bool) {
+        CEFRuntime.shared.spareWindow.rendererlessPlaceholders = on
     }
 
     /// Stops keeping a spare window of the cmux pages profile and closes an untaken one: cmux

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextPages
 import Foundation
 import Testing
 import WebKit
@@ -18,12 +19,8 @@ struct AgentPaneScopeGlassTests {
     }
 
     @Test func aChatInAScopeWithAPictureIsGlassNotTheOpaqueThemeColor() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "scope-glass-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appending(path: "index.html")
-        try Data("<html><body></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let file = try #require(AgentPageTestRoot.page)
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
 
         // Outside any picture (the app's scope, background-opacity 1) the chat paints its theme color.
         try #require(ThemeScope.app.backdropSelection == nil, "the test's app scope has a picture")

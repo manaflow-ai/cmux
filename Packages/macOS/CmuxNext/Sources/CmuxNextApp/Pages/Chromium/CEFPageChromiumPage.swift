@@ -31,6 +31,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         set { if tab.occlusionRects != newValue { tab.occlusionRects = newValue } }
     }
 
+    /// The tab's own page window (`CEFTab.isPageWindow(_:)`).
+    func isPageWindow(_ window: NSWindow) -> Bool { tab.isPageWindow(window) }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }

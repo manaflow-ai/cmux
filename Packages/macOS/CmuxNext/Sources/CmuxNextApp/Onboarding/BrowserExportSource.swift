@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A browser whose export steps Import from Another Browser… shows, one row
@@ -28,7 +29,7 @@ nonisolated struct BrowserExportSource: Decodable, Equatable, Sendable {
         struct File: Decodable { let browsers: [BrowserExportSource] }
         guard let url = Bundle.module.url(forResource: "browser-export-steps", withExtension: "json"),
               let data = try? Data(contentsOf: url), // concurrency-allow: a small bundled resource, read once
-              let file = try? JSONDecoder().decode(File.self, from: data) else { return [] }
+              let file = try? JSONDecoder().blockingDecode(File.self, from: data) else { return [] }
         return file.browsers
     }()
 }

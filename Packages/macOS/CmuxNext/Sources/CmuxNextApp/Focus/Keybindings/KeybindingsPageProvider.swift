@@ -17,6 +17,8 @@ final class KeybindingsPageProvider: PageProvider {
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
+    /// True between `record.start` and the recorder's end: the page takes the next key presses.
+    var isRecording: Bool { recorder != nil }
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?

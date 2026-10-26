@@ -15,7 +15,7 @@ extension BrowserHibernation {
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
             // A video in Picture in Picture plays on in its floating window, paused or muted alike.

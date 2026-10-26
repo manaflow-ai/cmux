@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e. */
+/* cmux-tui mux protocol 12, IR da2a6b9df5dddb602e01be846b02aaff27b041e937cb9defbc3c2ccf4f660de1. */
 
 
 import type * as T from "./types.js";
@@ -49,15 +49,82 @@ export interface AddTabsToTabGroupRequest extends CmuxRequestBase {
 export type AddTabsToTabGroupResult = T.TabGroupOutcome;
 
 /** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsAttachRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-attach";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "key": string;
+  "receipt": T.AgentCLIJobReceipt;
+}
+export type AgentCliIntentsAttachResult = {
+  "changed": boolean;
+  "intent": T.AgentCLIStoredIntent;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsListRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-list";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+}
+export type AgentCliIntentsListResult = {
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsRecordRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-record";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "intents": Array<T.AgentCLIIntent>;
+}
+export type AgentCliIntentsRecordResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliIntentsSettleRequest extends CmuxRequestBase {
+  cmd: "agent-cli-intents-settle";
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "keys": Array<string>;
+}
+export type AgentCliIntentsSettleResult = {
+  "changed": boolean;
+  "intents": Array<T.AgentCLIStoredIntent>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResult = T.AgentCLIJobReceipt;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
+  cmd: "agent-cli-update-job-resolve";
+  "cli": string;
+  "expected_machine_id": string;
+  "expected_session_id": string;
+  "idempotency_key": string;
+}
+export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
+
+/** Protocol v12; authority: local-admin. */
 export interface AgentSessionAttachRequest extends CmuxRequestBase {
   cmd: "agent-session-attach";
   /** Records after this seq (oldest first). */
   "after_seq"?: (bigint) | null;
   /** Records before this seq (newest first). */
   "before_seq"?: (bigint) | null;
-  /** At most 32 acpmux record kinds or categories. */
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
   "kinds"?: (Array<string>) | null;
-  /** Records per page, 1 to 500 (default 200). */
+  /** Records per page, clamped to 1..500 (default 200). */
   "limit"?: (bigint) | null;
   /** The agent chat tab: an agent_session tab of this daemon's store. */
   "surface": T.Id;
@@ -100,9 +167,9 @@ export interface AgentSessionEventsRequest extends CmuxRequestBase {
   "after_seq"?: (bigint) | null;
   /** Records before this seq (newest first). */
   "before_seq"?: (bigint) | null;
-  /** At most 32 acpmux record kinds or categories. */
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
   "kinds"?: (Array<string>) | null;
-  /** Records per page, 1 to 500 (default 200). */
+  /** Records per page, clamped to 1..500 (default 200). */
   "limit"?: (bigint) | null;
   /** The agent chat tab: an agent_session tab of this daemon's store. */
   "surface": T.Id;
@@ -131,9 +198,9 @@ export interface AgentSessionObserveRequest extends CmuxRequestBase {
   "after_seq"?: (bigint) | null;
   /** Records before this seq (newest first). */
   "before_seq"?: (bigint) | null;
-  /** At most 32 acpmux record kinds or categories. */
+  /** At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]. */
   "kinds"?: (Array<string>) | null;
-  /** Records per page, 1 to 500 (default 200). */
+  /** Records per page, clamped to 1..500 (default 200). */
   "limit"?: (bigint) | null;
   /** The agent chat tab: an agent_session tab of this daemon's store. */
   "surface": T.Id;
@@ -221,6 +288,122 @@ export interface ApplyLayoutRequest extends CmuxRequestBase {
   "rows"?: (number) | null;
   "workspace"?: (T.Id) | null;
 }
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsAgentInventoryChangedRequest extends CmuxRequestBase {
+  cmd: "apps-agent-inventory-changed";
+  "demand_sequence": bigint;
+}
+export type AppsAgentInventoryChangedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsDispatchRequest extends CmuxRequestBase {
+  cmd: "apps-dispatch";
+  "event": string;
+  "mount_id": string;
+  "node": string;
+  "origin"?: T.AppOrigin;
+  "payload"?: (T.JsonValue) | null;
+}
+export type AppsDispatchResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsLinkChangedRequest extends CmuxRequestBase {
+  cmd: "apps-link-changed";
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsListRequest extends CmuxRequestBase {
+  cmd: "apps-list";
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsLogsRequest extends CmuxRequestBase {
+  cmd: "apps-logs";
+  "app": string;
+  "follow"?: boolean;
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsMountRequest extends CmuxRequestBase {
+  cmd: "apps-mount";
+  "app": string;
+  "context"?: (T.JsonValue) | null;
+  "interface": string;
+  "mount_id": string;
+  "origin"?: T.AppOrigin;
+}
+export type AppsMountResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsProviderRegisterRequest extends CmuxRequestBase {
+  cmd: "apps-provider-register";
+  "families": Array<string>;
+  "inventory_watch"?: boolean;
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsProviderResultRequest extends CmuxRequestBase {
+  cmd: "apps-provider-result";
+  "body"?: (T.JsonValue) | null;
+  "ok": boolean;
+  "origin"?: T.AppOrigin;
+  "request_id": bigint;
+}
+export type AppsProviderResultResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsRunRequest extends CmuxRequestBase {
+  cmd: "apps-run";
+  "app": string;
+  "args"?: (T.JsonValue) | null;
+  "gesture"?: (string) | null;
+  "idempotency_key"?: (string) | null;
+  "op": string;
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsSetRequest extends CmuxRequestBase {
+  cmd: "apps-set";
+  "app": string;
+  "enabled"?: (boolean) | null;
+  "grant"?: (T.AppGrant) | null;
+  "hidden"?: (boolean) | null;
+  "hidden_access"?: (T.AppHiddenAccess) | null;
+  "idempotency_key": string;
+  "installed"?: (boolean) | null;
+  "origin"?: T.AppOrigin;
+  "sandboxed"?: (boolean) | null;
+}
+export type AppsSetResult = T.AppRecord;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsStoreRequest extends CmuxRequestBase {
+  cmd: "apps-store";
+  "args"?: (T.JsonValue) | null;
+  "op": string;
+  "origin"?: T.AppOrigin;
+}
+export type AppsStoreResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsTerminalLinksRequest extends CmuxRequestBase {
+  cmd: "apps-terminal-links";
+  "origin"?: T.AppOrigin;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AppsUnmountRequest extends CmuxRequestBase {
+  cmd: "apps-unmount";
+  "mount_id": string;
+  "origin"?: T.AppOrigin;
+}
+export type AppsUnmountResult = T.EmptyResult;
 
 /** Protocol v5; authority: frontend. */
 export interface AttachSurfaceRequest extends CmuxRequestBase {
@@ -384,6 +567,13 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface CancelRequestRequest extends CmuxRequestBase {
+  cmd: "cancel-request";
+  "target": (T.JsonValue) | null;
+}
+export type CancelRequestResult = T.EmptyResult;
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -3066,6 +3256,12 @@ export type CmuxRequest =
   | AckTabNotificationsRequest
   | AddScreensToScreenGroupRequest
   | AddTabsToTabGroupRequest
+  | AgentCliIntentsAttachRequest
+  | AgentCliIntentsListRequest
+  | AgentCliIntentsRecordRequest
+  | AgentCliIntentsSettleRequest
+  | AgentCliUpdateJobRequest
+  | AgentCliUpdateJobResolveRequest
   | AgentSessionAttachRequest
   | AgentSessionCancelRequest
   | AgentSessionChildrenRequest
@@ -3078,6 +3274,19 @@ export type CmuxRequest =
   | AgentSessionStartRequest
   | AgentSessionTrustRequest
   | ApplyLayoutRequest
+  | AppsAgentInventoryChangedRequest
+  | AppsDispatchRequest
+  | AppsLinkChangedRequest
+  | AppsListRequest
+  | AppsLogsRequest
+  | AppsMountRequest
+  | AppsProviderRegisterRequest
+  | AppsProviderResultRequest
+  | AppsRunRequest
+  | AppsSetRequest
+  | AppsStoreRequest
+  | AppsTerminalLinksRequest
+  | AppsUnmountRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
   | BrowserActivateRequest
@@ -3094,6 +3303,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelRequestRequest
   | ChiefInspectRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
@@ -3389,6 +3599,54 @@ export interface CmuxCommandDefinitionMap {
     capability: "tab-groups-v1";
     stream: null;
   };
+  "agent-cli-intents-attach": {
+    request: AgentCliIntentsAttachRequest;
+    result: AgentCliIntentsAttachResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-list": {
+    request: AgentCliIntentsListRequest;
+    result: AgentCliIntentsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-record": {
+    request: AgentCliIntentsRecordRequest;
+    result: AgentCliIntentsRecordResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-intents-settle": {
+    request: AgentCliIntentsSettleRequest;
+    result: AgentCliIntentsSettleResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-intents-v1";
+    stream: null;
+  };
+  "agent-cli-update-job": {
+    request: AgentCliUpdateJobRequest;
+    result: AgentCliUpdateJobResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-v1";
+    stream: null;
+  };
+  "agent-cli-update-job-resolve": {
+    request: AgentCliUpdateJobResolveRequest;
+    result: AgentCliUpdateJobResolveResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-update-job-resolve-v1";
+    stream: null;
+  };
   "agent-session-attach": {
     request: AgentSessionAttachRequest;
     result: AgentSessionAttachResult;
@@ -3483,6 +3741,110 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "apps-agent-inventory-changed": {
+    request: AppsAgentInventoryChangedRequest;
+    result: AppsAgentInventoryChangedResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-cli-app-invalidation-v1";
+    stream: null;
+  };
+  "apps-dispatch": {
+    request: AppsDispatchRequest;
+    result: AppsDispatchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-link-changed": {
+    request: AppsLinkChangedRequest;
+    result: T.AppsLinkChangedResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-list": {
+    request: AppsListRequest;
+    result: T.AppsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-logs": {
+    request: AppsLogsRequest;
+    result: T.AppsLogsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-mount": {
+    request: AppsMountRequest;
+    result: AppsMountResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-provider-register": {
+    request: AppsProviderRegisterRequest;
+    result: T.AppsProviderRegisterResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-provider-result": {
+    request: AppsProviderResultRequest;
+    result: AppsProviderResultResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-run": {
+    request: AppsRunRequest;
+    result: T.AppsRunResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-set": {
+    request: AppsSetRequest;
+    result: AppsSetResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-store": {
+    request: AppsStoreRequest;
+    result: AppsStoreResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-terminal-links": {
+    request: AppsTerminalLinksRequest;
+    result: T.AppsTerminalLinksResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
+    stream: null;
+  };
+  "apps-unmount": {
+    request: AppsUnmountRequest;
+    result: AppsUnmountResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "apps-v1";
     stream: null;
   };
   "attach-surface": {
@@ -3611,6 +3973,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-request": {
+    request: CancelRequestRequest;
+    result: CancelRequestResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cancel-request-v1";
     stream: null;
   };
   "chief-inspect": {

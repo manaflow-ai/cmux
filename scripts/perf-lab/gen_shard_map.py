@@ -43,10 +43,12 @@ SHARD_MAP_PATH = "scripts/perf-lab/shard_map.json"
 SHARDED_TIERS = ("T0", "T1", "T2")
 
 # Lab class -> waterfall shards and the tiers they run (p12-perf-process.md 3.1 and 3.3; bot_platforms.py
-# num_shards). T0 runs only on the 2 M6 waterfall minis; T1 runs on every class; T2 on the other classes.
+# num_shards). T0 runs only on the 2 M6 waterfall minis, T1 on m6 and aws-m4pro, T2 on the other classes.
+# cmux20-bench is an M6 16 GB mini, the m6 host class, and a series key names no host (store.series_key): a T1 or
+# T0 story there would join the m6 alerting series, so it runs T2 only (tests/test_host_setup.py checks this).
 LAYOUT: dict[str, dict[str, object]] = {
     "m6": {"shards": 2, "tiers": ("T0", "T1")},
-    "cmux20-bench": {"shards": 1, "tiers": ("T1", "T2")},
+    "cmux20-bench": {"shards": 1, "tiers": ("T2",)},
     "aws-m4pro": {"shards": 1, "tiers": ("T1", "T2")},
 }
 

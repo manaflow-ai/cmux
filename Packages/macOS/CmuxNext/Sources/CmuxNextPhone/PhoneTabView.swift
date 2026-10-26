@@ -61,6 +61,9 @@ public final class PhoneTabView: NSView {
     /// The phone this tab shows, as the tab's restore route (`sim:<udid>`).
     public var route: String? { deviceID?.description }
 
+    /// Notes typed for the running recording and not sent yet: only this view holds them.
+    public var hasUnsentNotes: Bool { !notesField.stringValue.isEmpty }
+
     private func start() async {
         do {
             try await service.reload()

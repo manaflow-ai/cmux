@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e.
+// cmux-tui mux protocol 12, IR da2a6b9df5dddb602e01be846b02aaff27b041e937cb9defbc3c2ccf4f660de1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -44,6 +44,89 @@ pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub key: String,
+    pub receipt: T::AgentCLIJobReceipt,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachResult {
+    pub changed: bool,
+    pub intent: T::AgentCLIStoredIntent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListResult {
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub intents: Vec<T::AgentCLIIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub keys: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResult = T::AgentCLIJobReceipt;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobResolveRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSessionAttachRequest {
     /// Records after this seq (oldest first).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -51,10 +134,10 @@ pub struct AgentSessionAttachRequest {
     /// Records before this seq (newest first).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_seq: Optional<u64>,
-    /// At most 32 acpmux record kinds or categories.
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of \[a-z_.\].
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kinds: Optional<Vec<String>>,
-    /// Records per page, 1 to 500 (default 200).
+    /// Records per page, clamped to 1..500 (default 200).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
     /// The agent chat tab: an agent_session tab of this daemon's store.
@@ -111,10 +194,10 @@ pub struct AgentSessionEventsRequest {
     /// Records before this seq (newest first).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_seq: Optional<u64>,
-    /// At most 32 acpmux record kinds or categories.
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of \[a-z_.\].
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kinds: Optional<Vec<String>>,
-    /// Records per page, 1 to 500 (default 200).
+    /// Records per page, clamped to 1..500 (default 200).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
     /// The agent chat tab: an agent_session tab of this daemon's store.
@@ -152,10 +235,10 @@ pub struct AgentSessionObserveRequest {
     /// Records before this seq (newest first).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub before_seq: Optional<u64>,
-    /// At most 32 acpmux record kinds or categories.
+    /// At most 32 acpmux record kinds or categories, each 1 to 64 bytes of \[a-z_.\].
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kinds: Optional<Vec<String>>,
-    /// Records per page, 1 to 500 (default 200).
+    /// Records per page, clamped to 1..500 (default 200).
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
     /// The agent chat tab: an agent_session tab of this daemon's store.
@@ -280,6 +363,163 @@ pub struct ApplyLayoutRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsAgentInventoryChangedRequest {
+    pub demand_sequence: u64,
+}
+
+#[rustfmt::skip]
+pub type AppsAgentInventoryChangedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsDispatchRequest {
+    pub event: String,
+    pub mount_id: String,
+    pub node: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub payload: Optional<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type AppsDispatchResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsLinkChangedRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsListRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsLogsRequest {
+    pub app: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub follow: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsMountRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub context: Optional<T::JsonValue>,
+    pub interface: String,
+    pub mount_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsMountResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderRegisterRequest {
+    pub families: Vec<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub inventory_watch: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsProviderResultRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub body: Optional<T::JsonValue>,
+    pub ok: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    pub request_id: u64,
+}
+
+#[rustfmt::skip]
+pub type AppsProviderResultResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsRunRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub gesture: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub idempotency_key: Optional<String>,
+    pub op: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsSetRequest {
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub enabled: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub grant: Optional<T::AppGrant>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hidden: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub hidden_access: Optional<T::AppHiddenAccess>,
+    pub idempotency_key: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub installed: Optional<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sandboxed: Optional<bool>,
+}
+
+#[rustfmt::skip]
+pub type AppsSetResult = T::AppRecord;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsStoreRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub args: Optional<T::JsonValue>,
+    pub op: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsStoreResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AppsTerminalLinksRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsUnmountRequest {
+    pub mount_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub origin: Option<T::AppOrigin>,
+}
+
+#[rustfmt::skip]
+pub type AppsUnmountResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -534,6 +774,15 @@ pub struct BrowserWheelGuardedRequest {
 
 #[rustfmt::skip]
 pub type BrowserWheelGuardedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelRequestRequest {
+    pub target: Nullable<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+pub type CancelRequestResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4380,6 +4629,30 @@ impl CmuxClient {
         self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
     }
 
+    pub fn agent_cli_intents_attach(&mut self, request: AgentCliIntentsAttachRequest) -> Result<AgentCliIntentsAttachResult> {
+        self.execute(&AGENT_CLI_INTENTS_ATTACH_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_list(&mut self, request: AgentCliIntentsListRequest) -> Result<AgentCliIntentsListResult> {
+        self.execute(&AGENT_CLI_INTENTS_LIST_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_record(&mut self, request: AgentCliIntentsRecordRequest) -> Result<AgentCliIntentsRecordResult> {
+        self.execute(&AGENT_CLI_INTENTS_RECORD_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_settle(&mut self, request: AgentCliIntentsSettleRequest) -> Result<AgentCliIntentsSettleResult> {
+        self.execute(&AGENT_CLI_INTENTS_SETTLE_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job(&mut self, request: AgentCliUpdateJobRequest) -> Result<AgentCliUpdateJobResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job_resolve(&mut self, request: AgentCliUpdateJobResolveRequest) -> Result<AgentCliUpdateJobResolveResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
+    }
+
     pub fn agent_session_attach(&mut self, request: AgentSessionAttachRequest) -> Result<AgentSessionAttachResult> {
         self.execute(&AGENT_SESSION_ATTACH_METADATA, &request)
     }
@@ -4426,6 +4699,61 @@ impl CmuxClient {
 
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
+    }
+
+    pub fn apps_agent_inventory_changed(&mut self, request: AppsAgentInventoryChangedRequest) -> Result<AppsAgentInventoryChangedResult> {
+        self.execute(&APPS_AGENT_INVENTORY_CHANGED_METADATA, &request)
+    }
+
+    pub fn apps_dispatch(&mut self, request: AppsDispatchRequest) -> Result<AppsDispatchResult> {
+        self.execute(&APPS_DISPATCH_METADATA, &request)
+    }
+
+    pub fn apps_link_changed(&mut self, request: AppsLinkChangedRequest) -> Result<T::AppsLinkChangedResult> {
+        self.execute(&APPS_LINK_CHANGED_METADATA, &request)
+    }
+
+    pub fn apps_list(&mut self, request: AppsListRequest) -> Result<T::AppsListResult> {
+        self.execute(&APPS_LIST_METADATA, &request)
+    }
+
+    pub fn apps_logs(&mut self, request: AppsLogsRequest) -> Result<T::AppsLogsResult> {
+        self.execute(&APPS_LOGS_METADATA, &request)
+    }
+
+    pub fn apps_mount(&mut self, request: AppsMountRequest) -> Result<AppsMountResult> {
+        self.execute(&APPS_MOUNT_METADATA, &request)
+    }
+
+    pub fn apps_provider_register(&mut self, request: AppsProviderRegisterRequest) -> Result<T::AppsProviderRegisterResult> {
+        if request.inventory_watch.is_some() {
+            self.require_capability_field("apps-provider-register", "agent-cli-app-invalidation-v1")?;
+        }
+        self.execute(&APPS_PROVIDER_REGISTER_METADATA, &request)
+    }
+
+    pub fn apps_provider_result(&mut self, request: AppsProviderResultRequest) -> Result<AppsProviderResultResult> {
+        self.execute(&APPS_PROVIDER_RESULT_METADATA, &request)
+    }
+
+    pub fn apps_run(&mut self, request: AppsRunRequest) -> Result<T::AppsRunResult> {
+        self.execute(&APPS_RUN_METADATA, &request)
+    }
+
+    pub fn apps_set(&mut self, request: AppsSetRequest) -> Result<AppsSetResult> {
+        self.execute(&APPS_SET_METADATA, &request)
+    }
+
+    pub fn apps_store(&mut self, request: AppsStoreRequest) -> Result<AppsStoreResult> {
+        self.execute(&APPS_STORE_METADATA, &request)
+    }
+
+    pub fn apps_terminal_links(&mut self, request: AppsTerminalLinksRequest) -> Result<T::AppsTerminalLinksResult> {
+        self.execute(&APPS_TERMINAL_LINKS_METADATA, &request)
+    }
+
+    pub fn apps_unmount(&mut self, request: AppsUnmountRequest) -> Result<AppsUnmountResult> {
+        self.execute(&APPS_UNMOUNT_METADATA, &request)
     }
 
     pub fn attach_surface(&mut self, request: AttachSurfaceRequest) -> Result<CmuxStream> {
@@ -4520,6 +4848,10 @@ impl CmuxClient {
 
     pub fn browser_wheel_guarded(&mut self, request: BrowserWheelGuardedRequest) -> Result<BrowserWheelGuardedResult> {
         self.execute(&BROWSER_WHEEL_GUARDED_METADATA, &request)
+    }
+
+    pub fn cancel_request(&mut self, request: CancelRequestRequest) -> Result<CancelRequestResult> {
+        self.execute(&CANCEL_REQUEST_METADATA, &request)
     }
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {

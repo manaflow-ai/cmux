@@ -23,30 +23,11 @@ struct MobileIrxConnectionServer: Sendable {
             try? await transport.send(frame)
         }
         let lanes = Task { await serveLanes(transport: transport) }
-        await serveControl(transport: transport, session: session)
-        lanes.cancel()
-        await session.close()
-        await transport.close()
-    }
-
-    private func serveControl(transport: IrxControlByteTransport, session: MobileCompatSession) async {
-        var buffer = Data()
-        do {
-            while let chunk = try await transport.receive() {
-                buffer.append(chunk)
-                var frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-                while !frames.isEmpty {
-                    for frame in frames {
-                        // Requests run in arrival order: input stays ordered.
-                        let response = await session.handle(frame: frame)
-                        try await transport.send(MobileSyncFrameCodec.encodeFrame(response))
-                    }
-                    frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
-                }
-            }
-        } catch {
+        if let error = await MobileControlStream(transport: transport, session: session).run() {
             journal.record("next-host", "control-ended", ["error": String(describing: type(of: error))])
         }
+        lanes.cancel()
+        await transport.close()
     }
 
     private func serveLanes(transport: IrxControlByteTransport) async {

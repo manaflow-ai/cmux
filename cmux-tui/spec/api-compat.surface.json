@@ -6679,6 +6679,182 @@
         "nullable": true
       }
     },
+    "request:agent-cli-intents-attach": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/receipt/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-list": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-record": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*": {
+        "ty": "object"
+      },
+      "/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-intents-settle": {
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/keys": {
+        "ty": "array",
+        "required": true
+      },
+      "/keys/*": {
+        "ty": "string"
+      }
+    },
+    "request:agent-cli-update-job": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-cli-update-job-resolve": {
+      "/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_machine_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/expected_session_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:agent-session-attach": {
       "/after_seq": {
         "ty": "uint64",
@@ -6951,6 +7127,301 @@
       "/workspace": {
         "ty": "uint64",
         "nullable": true
+      }
+    },
+    "request:apps-agent-inventory-changed": {
+      "/demand_sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-dispatch": {
+      "/event": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/node": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/payload": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:apps-link-changed": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-list": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-logs": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/follow": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-mount": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/context": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/interface": {
+        "ty": "string",
+        "required": true
+      },
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-register": {
+      "/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/families/*": {
+        "ty": "string"
+      },
+      "/inventory_watch": {
+        "ty": "boolean"
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-provider-result": {
+      "/body": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/ok": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/request_id": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:apps-run": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/gesture": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-set": {
+      "/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/enabled": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/grant": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/grant/granted": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/grant/scope": {
+        "ty": "string",
+        "required": true
+      },
+      "/hidden": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/hidden_access": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/idempotency_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/installed": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      },
+      "/sandboxed": {
+        "ty": "boolean",
+        "nullable": true
+      }
+    },
+    "request:apps-store": {
+      "/args": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-terminal-links": {
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
+      }
+    },
+    "request:apps-unmount": {
+      "/mount_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/origin": {
+        "ty": "enum",
+        "values": [
+          "cli",
+          "mcp",
+          "remote",
+          "script",
+          "user"
+        ]
       }
     },
     "request:attach-surface": {
@@ -7247,6 +7718,13 @@
       "/y_px": {
         "ty": "float64",
         "required": true
+      }
+    },
+    "request:cancel-request": {
+      "/target": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:chief-inspect": {
@@ -12352,6 +12830,521 @@
         "nullable": true
       }
     },
+    "response:agent-cli-intents-attach": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intent/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intent/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intent/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intent/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intent/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intent/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intent/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-list": {
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-record": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-intents-settle": {
+      "/data/changed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*": {
+        "ty": "object"
+      },
+      "/data/intents/*/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/profiles": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/intents/*/profiles/*": {
+        "ty": "string"
+      },
+      "/data/intents/*/receipt": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/intents/*/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/intents/*/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/intents/*/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/root_key": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/intents/*/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job": {
+      "/data/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:agent-cli-update-job-resolve": {
+      "/data": {
+        "ty": "tagged_union",
+        "required": true,
+        "values": [
+          "created",
+          "failed",
+          "indeterminate",
+          "not_found",
+          "pending",
+          "prepared"
+        ]
+      },
+      "/data/code": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/cli": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/receipt/path/kind": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"terminal\""
+        ]
+      },
+      "/data/receipt/path/pane_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/screen_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/tab_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/path/workspace_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/replayed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/receipt/revision": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/receipt/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/state": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"created\"",
+          "\"failed\"",
+          "\"indeterminate\"",
+          "\"not_found\"",
+          "\"pending\"",
+          "\"prepared\""
+        ]
+      }
+    },
     "response:agent-session-attach": {
       "/data": {
         "ty": "json",
@@ -12485,6 +13478,358 @@
         "required": true
       }
     },
+    "response:apps-agent-inventory-changed": {},
+    "response:apps-dispatch": {},
+    "response:apps-link-changed": {
+      "/data/servers": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-list": {
+      "/data/apps": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/commands/*": {
+        "ty": "object"
+      },
+      "/data/apps/*/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/apps/*/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/apps/*/grants/*": {
+        "ty": "string"
+      },
+      "/data/apps/*/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/apps/*/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/apps/*/revision": {
+        "ty": "uint64"
+      },
+      "/data/apps/*/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/apps/*/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/apps/*/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/apps/*/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/apps/*/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/apps/*/version": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/revision": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-logs": {
+      "/data/lines": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/lines/*": {
+        "ty": "object"
+      },
+      "/data/lines/*/level": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/message": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/lines/*/ts_ms": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-mount": {},
+    "response:apps-provider-register": {
+      "/data/families": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/families/*": {
+        "ty": "string"
+      },
+      "/data/inventory_demand": {
+        "ty": "object"
+      },
+      "/data/inventory_demand/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/inventory_demand/sequence": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:apps-provider-result": {},
+    "response:apps-run": {
+      "/data/value": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:apps-set": {
+      "/data/available": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/bundle_dir": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/commands/*": {
+        "ty": "object"
+      },
+      "/data/commands/*/op": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/commands/*/title": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/commands/*/when": {
+        "ty": "json",
+        "nullable": true
+      },
+      "/data/enabled": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/grants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/grants/*": {
+        "ty": "string"
+      },
+      "/data/hidden": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/hidden_access/automations": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/cli": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hidden_access/mcp": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/hide_only": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/installed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/manifest": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      },
+      "/data/revision": {
+        "ty": "uint64"
+      },
+      "/data/sandboxed": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/scope_classes": {
+        "ty": "map",
+        "required": true
+      },
+      "/data/scope_classes/*": {
+        "ty": "enum",
+        "values": [
+          "elevated",
+          "restricted",
+          "sensitive",
+          "standard",
+          "unknown"
+        ]
+      },
+      "/data/source": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "bundled",
+          "default",
+          "local",
+          "user"
+        ]
+      },
+      "/data/tier": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "first-party",
+          "unverified",
+          "verified"
+        ]
+      },
+      "/data/version": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-store": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:apps-terminal-links": {
+      "/data/links": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/links/*": {
+        "ty": "object"
+      },
+      "/data/links/*/app": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/channel": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/links/*/socket": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/links/*/target": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "response:apps-unmount": {},
     "response:attach-surface": {},
     "response:bind-conversation-tab-session": {
       "/data/conversation": {
@@ -12562,6 +13907,7 @@
     "response:browser-reload": {},
     "response:browser-wheel": {},
     "response:browser-wheel-guarded": {},
+    "response:cancel-request": {},
     "response:chief-inspect": {
       "/data/body": {
         "ty": "json",

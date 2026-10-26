@@ -25,8 +25,9 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names; ios is kept when set by hand
+  clients      sdk for every command; macos for the ipc-census Q1 names and
+               the MACOS_CALL_SITES names, cli for the Q14 names; ios is
+               kept when set by hand
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -126,15 +127,17 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "forget-session", "set-session-icon", "import-session-organization",
         "*-personal-group", "set-personal-*",
     )),
-    "agents": (0x0E, "Agents in terminals and the local feed.", (
-        "list-agents", "report-agent", "feed-local-*",
+    "agents": (0x0E, "Agents in terminals, the local feed and agent CLI updates.", (
+        "list-agents", "report-agent", "feed-local-*", "agent-cli-intents-*", "agent-cli-update-job*",
     )),
     "conversations": (0x0F, "Local conversations, runs, attachments, inbox and search.", (
         "conversation-*", "home-inbox", "history-search", "chief-inspect",
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
-    # 0x12 is p05-ipc-013's apps family.
+    "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
+        "apps-*", "cancel-request",
+    )),
     "agent-sessions": (0x13, "Agent chat tabs attached to this machine's acpmux sessions.", (
         "agent-session-*",
     )),
@@ -176,8 +179,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # assets); a write stays control, so a later control command that names what
 # it wrote cannot pass it. background: stats; else control. An agent chat's
 # prompt, cancel and permission answer are the person's input to the attached
-# session and share input for the same reason; its log pages and images are
-# bulk reads.
+# session (p05-ipc-018: input for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -190,7 +192,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob", "agent-session-events", "agent-session-media",
+        "get-blob",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
@@ -228,6 +230,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
 )
 MEMORY = (
@@ -244,6 +247,14 @@ MEMORY = (
     "subscribe-activity",
     # Start or stop a trace recording: process memory and ring files, never the journal.
     "trace-start", "trace-stop",
+    # The app supervisor's connection state: every apps-* request registers
+    # the connection for apps events; mounts, runs, follows and providers live
+    # until the connection closes. Nothing here is journaled.
+    "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
+    "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
+    "apps-provider-result",
+    # Cancels an in-flight apps-run or script cell of this connection only.
+    "cancel-request",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -257,7 +268,15 @@ MEMORY = (
     "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     "agent-session-children", "agent-session-trust",
 )
-REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
+# apps-set and the App Store mutations of apps-store write apps.json before
+# they apply and reply (apps/supervisor.rs `set`). The agent CLI update ledger
+# and job reply after their SQLite commit: the app records an intent before it
+# contacts an owner so a restarted app resumes the same update, and a job's
+# receipt names a durable creation record (commands.md "Update intent ledger").
+REPLY_AFTER_JOURNAL = (
+    "journal-frontend-event", "apps-set", "apps-store", "agent-cli-intents-record",
+    "agent-cli-intents-settle", "agent-cli-intents-attach", "agent-cli-update-job",
+)
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------
 # A command naming a surface, terminal or view runs in that surface's stream
@@ -290,12 +309,13 @@ CROSSES_STREAM_OK: dict[str, str] = {
 # `spawns_terminal`): their reply can carry `starting:true` and the client gives
 # them the spawn timeout. move-tab-to-split and move-tab-to-column start one
 # only with `respawn`, but an attribute cannot depend on a field, so both are
-# listed. Every Swift TerminalSpawningRequest command must be here.
+# listed. agent-cli-update-job opens a workspace whose terminal runs the
+# prepared update. Every Swift TerminalSpawningRequest command must be here.
 SPAWNS_TERMINAL = (
     "new-tab", "create-terminal", "new-screen", "new-pane", "new-pane-right", "split", "new-row",
     "new-workspace", "run", "restart-tab", "create-surface-with-receipt", "apply-layout",
     "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
-    "move-tab-to-column",
+    "move-tab-to-column", "agent-cli-update-job",
 )
 
 COMMAND_KEY_ORDER = (
@@ -349,6 +369,31 @@ def census_names(queue: str) -> set[str]:
     return {hit["key"] for hit in json.loads(result.stdout)}
 
 
+# Swift clients that send daemon commands by wire name (`call("name", ...)`),
+# not through a request type with `static let command`, the only form census
+# Q1 sees. The file's literals with the prefix are macos names; a pushed event
+# name among them names no command and changes nothing.
+MACOS_CALL_SITES: dict[str, str] = {
+    f"{SWIFT_SOURCES}/CmuxNextDaemon/AgentSession/AgentSessionAttachClient.swift": "agent-session-",
+}
+
+
+def swift_call_site_names() -> set[str]:
+    """The wire names the MACOS_CALL_SITES Swift files spell."""
+
+    names: set[str] = set()
+    for relative, prefix in MACOS_CALL_SITES.items():
+        try:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"MACOS_CALL_SITES: cannot read {relative}: {error}") from error
+        found = set(re.findall(rf'"({re.escape(prefix)}[a-z0-9-]+)"', text))
+        if not found:
+            raise AssignError(f"MACOS_CALL_SITES: {relative} spells no {prefix}* name")
+        names |= found
+    return names
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -396,7 +441,7 @@ def swift_spawning_commands() -> set[str]:
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
-    macos: Callable[[], set[str]] = lambda: census_names("Q1")
+    macos: Callable[[], set[str]] = lambda: census_names("Q1") | swift_call_site_names()
     cli: Callable[[], set[str]] = lambda: census_names("Q14")
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
