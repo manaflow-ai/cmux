@@ -318,11 +318,10 @@ impl Hub {
                 let ended = {
                     let mut all = self.subagent_retries.lock();
                     let Some(subs) = all.subs.get_mut(&session.id) else { return };
-                    let id = subs.iter().find(|(_, s)| s.raw_agent.as_deref() == Some(task));
-                    let Some(id) = id.map(|(id, _)| id.clone()) else { return };
-                    let sub = subs.get_mut(&id).expect("found above");
+                    let found = subs.iter_mut().find(|(_, s)| s.raw_agent.as_deref() == Some(task));
+                    let Some((id, sub)) = found else { return };
                     sub.raw_agent = None;
-                    (id, sub.name.clone())
+                    (id.clone(), sub.name.clone())
                 };
                 let (id, name) = ended;
                 let state = match text("status") {
