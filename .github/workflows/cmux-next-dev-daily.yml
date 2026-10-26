@@ -730,6 +730,13 @@ jobs:
   # verify to succeed with outputs.verified 'true' (as publish does) and the
   # digest verify tested to be the one tip-dmg built from. So a build verify
   # rejects never reaches the feed, and there is nothing to roll back.
+  #
+  # The full DMG first, deltas after (as nightly's generate-nightly-deltas
+  # does): tip-dmg's appcast offers the full DMG alone, so a Sparkle that reads
+  # the feed tip writes installs it, just without a delta. tip-deltas then
+  # makes the deltas from the feed's older builds and adds them to this
+  # build's item with a second compare-and-swap. If it fails, the feed stays
+  # as tip wrote it: valid, with no deltas for this build.
   tip-dmg:
     name: Build the cmux NEXT DEV tip DMG
     # Advisory, as tip is: a red tip-dmg never makes the dispatcher re-publish
@@ -765,7 +772,7 @@ jobs:
       TIP_BUILD: ${{ needs.sign.outputs.build }}
       TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
       TIP_APPCAST: appcast-arm64.xml
-      # Builds the feed keeps; the newest gets deltas from the others.
+      # Builds the feed keeps; tip-deltas gives the newest deltas from the others.
       TIP_KEEP: "3"
     steps:
       - name: Checkout trusted feed scripts
@@ -784,14 +791,13 @@ jobs:
           name: cmux-next-dev-daily-signed
           path: signed-handoff
 
-      # Never roll the feed back, and fetch the builds deltas start from.
+      # Never roll the feed back (tip-deltas fetches the delta bases later).
       - name: Read the live tip feed
         id: feed
         run: |
           set -euo pipefail
           (cd signed-handoff && shasum -a 256 -c "$APP_ARCHIVE_NAME.sha256")
           [[ "$TIP_BUILD" =~ ^[0-9]+$ ]] || { echo "tip build '$TIP_BUILD' is not a number" >&2; exit 1; }
-          mkdir -p tip-previous
           status="$(curl --silent --show-error --location --retry 3 --output tip-live.xml --write-out '%{http_code}' \
             -H 'Cache-Control: no-cache' "$TIP_BASE_URL/$TIP_APPCAST?build=$TIP_BUILD")"
           if [[ "$status" == 404 ]]; then
@@ -806,10 +812,6 @@ jobs:
             echo "fresh=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          tail -n +2 tip-previous.txt | while read -r url; do
-            curl --fail --silent --show-error --location --retry 3 -o "tip-previous/$(basename "$url")" "$url" \
-              || echo "::warning::could not fetch $url; no delta from it"
-          done
           echo "fresh=true" >> "$GITHUB_OUTPUT"
 
       # The signed archive the sign job made on Linux (its sha256 was checked
@@ -900,16 +902,15 @@ jobs:
           mkdir -p tip-new
           cp "$dmg" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
 
-      - name: Generate the tip appcast with deltas
+      # The full DMG alone: no previous archives, so no deltas (tip-deltas
+      # adds them once tip has published this item).
+      - name: Generate the full-DMG tip appcast
         id: appcast
         if: steps.feed.outputs.fresh == 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
           DOWNLOAD_URL_PREFIX: https://files.cmux.com/nightly-next/tip/
           RELEASE_NOTES_URL: https://github.com/${{ github.repository }}/commit/${{ needs.sign.outputs.source_sha }}
-          SPARKLE_PREVIOUS_ARCHIVES_DIR: tip-previous
-          SPARKLE_MAXIMUM_DELTAS: "2"
-          SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-
         run: |
           set -euo pipefail
           # The feed key must be the key the app inside this DMG trusts:
@@ -933,8 +934,12 @@ jobs:
             exit 1
           fi
           python3 scripts/ci/tip_feed.py check "tip-out/$TIP_APPCAST" --build "$TIP_BUILD"
-          # What tip publishes: the stapled DMG, the deltas, the appcast, and the
-          # digest of the archive the DMG holds (tip compares it with verify's).
+          if ls tip-out/*.delta >/dev/null 2>&1 || grep -q "<sparkle:deltas>" "tip-out/$TIP_APPCAST"; then
+            echo "the first tip appcast must offer the full DMG alone" >&2
+            exit 1
+          fi
+          # What tip publishes: the stapled DMG, the appcast, and the digest of
+          # the archive the DMG holds (tip compares it with verify's).
           mkdir -p tip-handoff-out
           cp "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" tip-out/* tip-handoff-out/
           cp "signed-handoff/$APP_ARCHIVE_NAME.sha256" tip-handoff-out/built-from.sha256
@@ -986,6 +991,11 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+    outputs:
+      # 'true' once the feed R2 holds names this build's full DMG.
+      written: ${{ steps.feed.outputs.written }}
+      # The attempt tag in the DMG name that feed serves.
+      run_tag: ${{ steps.feed.outputs.run_tag }}
     env:
       # Names unique to this tip attempt, which alone may remove them: a re-run
       # of tip alone publishes tip-dmg's files under its own names, so it never
@@ -1059,6 +1069,7 @@ jobs:
       # Archives and deltas first, the feed last: a feed never names a file
       # that is not there yet.
       - name: Upload the tip feed to R2
+        id: feed
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1134,5 +1145,171 @@ jobs:
           {
             echo "### cmux NEXT DEV tip $TIP_BUILD"
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"
-            echo "deltas: $(find tip-out -name '*.delta' | wc -l | tr -d ' ')"
+            echo "full DMG published; tip-deltas adds the deltas"
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "run_tag=$TIP_RUN_TAG" >> "$GITHUB_OUTPUT"
+          echo "written=true" >> "$GITHUB_OUTPUT"
+
+  tip-deltas:
+    name: Add deltas to the cmux NEXT DEV tip feed
+    # Advisory, as tip is. A failure leaves the feed as tip wrote it: the full
+    # DMG, signed, with no deltas for this build.
+    continue-on-error: true
+    needs: [sign, tip-dmg, tip]
+    if: ${{ !cancelled() && needs.sign.outputs.build != '' && needs.tip.outputs.written == 'true' }}
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): the feed write is a compare-and-swap that adds deltas only
+    # to this build's item while it is still the newest.
+    environment: release
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    env:
+      # The DMG's name in the feed (tip's attempt) and in tip-dmg's handoff.
+      TIP_RUN_TAG: ${{ needs.tip.outputs.run_tag }}
+      DMG_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}
+      TIP_BUILD: ${{ needs.sign.outputs.build }}
+      TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
+      TIP_R2_PREFIX: nightly-next/tip
+      TIP_APPCAST: appcast-arm64.xml
+      TIP_KEEP: "3"
+    steps:
+      - name: Checkout trusted feed scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the tip DMG
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.tip-dmg.outputs.handoff }}
+          path: tip-handoff
+
+      # Bases only while this build's item is the feed's newest, from this
+      # attempt's DMG, with no deltas yet.
+      - name: Fetch the delta bases
+        id: bases
+        # The feed as R2 holds it, not a CDN copy that may predate tip's write.
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-binaries
+        run: |
+          set -euo pipefail
+          [[ "$TIP_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ && "$DMG_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] \
+            || { echo "no run tags ('$TIP_RUN_TAG', '$DMG_RUN_TAG')" >&2; exit 1; }
+          # The same bytes tip published, under the name the feed serves them
+          # by, so the generated item's URL is the live item's.
+          mkdir -p tip-new
+          mv "tip-handoff/cmux-NEXT-DEV-$TIP_BUILD-$DMG_RUN_TAG.dmg" "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
+          dmg_url="$TIP_BASE_URL/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
+          etag="$(python3 scripts/ci/r2_cas.py get --key "$TIP_R2_PREFIX/$TIP_APPCAST" --out tip-live.xml)"
+          [[ "$etag" != absent ]] || { echo "::notice::the tip feed is gone; no deltas"; exit 0; }
+          python3 scripts/ci/tip_feed.py bases tip-live.xml --build "$TIP_BUILD" --url "$dmg_url" --keep "$TIP_KEEP" > tip-bases.txt
+          if [[ "$(head -n 1 tip-bases.txt)" != ours ]]; then
+            echo "::notice::no deltas for build $TIP_BUILD: $(head -n 1 tip-bases.txt | cut -d' ' -f2-)"
+            exit 0
+          fi
+          mkdir -p tip-previous
+          tail -n +2 tip-bases.txt | while read -r url; do
+            curl --fail --silent --show-error --location --retry 3 -o "tip-previous/$(basename "$url")" "$url" \
+              || echo "::warning::could not fetch $url; no delta from it"
+          done
+          if ! ls tip-previous/*.dmg >/dev/null 2>&1; then
+            echo "::notice::no older build to make a delta from"
+            exit 0
+          fi
+          echo "dmg_url=$dmg_url" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the tip deltas
+        id: deltas
+        if: steps.bases.outputs.dmg_url != ''
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
+          DOWNLOAD_URL_PREFIX: https://files.cmux.com/nightly-next/tip/
+          RELEASE_NOTES_URL: https://github.com/${{ github.repository }}/commit/${{ needs.sign.outputs.source_sha }}
+          SPARKLE_PREVIOUS_ARCHIVES_DIR: tip-previous
+          SPARKLE_MAXIMUM_DELTAS: "2"
+          # Unique to this job's attempt and write-once: a re-run makes its own.
+          SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-
+        run: |
+          set -euo pipefail
+          mkdir -p tip-out
+          ./scripts/sparkle_generate_appcast.sh "tip-new/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" cmux-next-tip "tip-out/$TIP_APPCAST" 2>&1 | tee tip-appcast.log
+          if grep -q "generate_appcast did not add edSignature" tip-appcast.log; then
+            echo "generate_appcast refused the key for this archive; adding no deltas" >&2
+            exit 1
+          fi
+          python3 scripts/ci/tip_feed.py check "tip-out/$TIP_APPCAST" --build "$TIP_BUILD"
+
+      # Deltas first, the feed last; the feed is the one tip wrote with only
+      # this build's <sparkle:deltas> added (tip_feed.py add-deltas).
+      - name: Add the deltas to the tip feed
+        if: steps.bases.outputs.dmg_url != ''
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          R2_BUCKET: cmux-binaries
+          DMG_URL: ${{ steps.bases.outputs.dmg_url }}
+        run: |
+          set -euo pipefail
+          key="$TIP_R2_PREFIX/$TIP_APPCAST"
+          # The deltas carry this job's own attempt in their names, so until a
+          # feed names them they are this attempt's alone: a run that ends
+          # without writing the feed removes them. After a feed write with no
+          # clear answer, they stay.
+          uploaded=() written=false unsure=false
+          cleanup() {
+            local status=$?  # the step's own status, kept: the trap never turns a failure green
+            if [[ "$unsure" == true ]]; then
+              echo "::warning::a tip feed write ended without a clear answer; keeping this attempt's deltas"
+            elif [[ "$written" != true ]]; then
+              for object in ${uploaded[@]+"${uploaded[@]}"}; do
+                python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
+              done
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          for attempt in 1 2 3 4 5; do
+            etag="$(python3 scripts/ci/r2_cas.py get --key "$key" --out tip-live-now.xml)"
+            [[ "$etag" != absent ]] || { echo "::notice::the tip feed is gone; adding no deltas"; exit 0; }
+            rc=0
+            python3 scripts/ci/tip_feed.py add-deltas "tip-out/$TIP_APPCAST" tip-live-now.xml --build "$TIP_BUILD" \
+              --url "$DMG_URL" --files tip-out --out tip-merged.xml || rc=$?
+            if (( rc == 4 )); then
+              echo "::notice::the feed no longer takes deltas for build $TIP_BUILD; not writing it"
+              exit 0
+            fi
+            (( rc == 0 )) || exit "$rc"
+            python3 scripts/ci/tip_feed.py check tip-merged.xml --build "$TIP_BUILD"
+            if (( ${#uploaded[@]} == 0 )); then
+              for delta in tip-out/*.delta; do
+                [[ -f "$delta" ]] || continue
+                object="$TIP_R2_PREFIX/$(basename "$delta")"
+                uploaded+=("$object")
+                python3 scripts/ci/upload-r2-object.py --file "$delta" --endpoint-url "$R2_ENDPOINT" \
+                  --bucket cmux-binaries --key "$object" --content-type application/octet-stream \
+                  --cache-control "public, max-age=31536000, immutable" --write-once
+              done
+            fi
+            rc=0 unsure=true
+            python3 scripts/ci/r2_cas.py put --key "$key" --file tip-merged.xml \
+              --content-type application/xml --cache-control "no-cache, no-store, must-revalidate" --if-match "$etag" || rc=$?
+            if (( rc == 0 )); then written=true; break; fi
+            (( rc == 3 )) || exit "$rc"
+            unsure=false  # R2 refused the write: it never lands
+            echo "::warning::another run wrote the tip feed first; reading it again (attempt $attempt)"
+            (( attempt < 5 )) || { echo "the tip feed kept changing under build $TIP_BUILD" >&2; exit 1; }
+          done
+          echo "### cmux NEXT DEV tip $TIP_BUILD: $(find tip-out -name '*.delta' | wc -l | tr -d ' ') deltas added" >> "$GITHUB_STEP_SUMMARY"
