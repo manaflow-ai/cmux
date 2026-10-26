@@ -152,6 +152,7 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only; the shape is layout's
         layer?.cornerRadius = 0 // flat body and left edge; the top-right edge has Chrome's cut.
         layer?.masksToBounds = true
         railShape.fillColor = NSColor.black.cgColor
@@ -170,6 +171,12 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
     override func layout() {
         super.layout()
         updateShape()
@@ -184,7 +191,6 @@ final class GroupLineView: NSView {
             layer?.backgroundColor = NSColor.clear.cgColor
             railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
         }
-        updateShape()
     }
 
     private func updateShape() {

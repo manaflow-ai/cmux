@@ -26,12 +26,14 @@ final class FileExplorerService {
     /// The Files section of `controller` (made once per window by ``RightSidebarSections``).
     func makeSection(for controller: WindowController) -> FileExplorerSectionView {
         let id = UUID().uuidString
+        let apps = services.map { WorkspaceFileApps(queries: $0.workspaceQueries) }
         let view = FileExplorerSectionView(
             model: FileExplorerModel(),
             rootFolder: { [weak self, weak controller] in controller.flatMap { self?.folder(focusedIn: $0) } },
             perform: { [weak self] id in self?.perform(ActionID(rawValue: id)) },
             rowMenu: { [weak self] hasSelection in self?.rowMenu(hasSelection: hasSelection, explorer: id) },
-            openWith: services.map { FileExplorerOpenWithMenu(registry: $0.registry) },
+            openWith: services.map { FileExplorerOpenWithMenu(registry: $0.registry, appIcon: { [apps] in apps?.showIcon(of: $0, in: $1) }) },
+            apps: apps ?? UnwiredFileApps(),
             effects: effects,
             showError: { [weak self, weak controller] reason in
                 self?.services?.refusalHUD.show(reason, in: controller?.window)

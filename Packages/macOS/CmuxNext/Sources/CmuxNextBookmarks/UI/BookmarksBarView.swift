@@ -29,6 +29,7 @@ public final class BookmarksBarView: NSView {
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         for button in [overflow, otherButton] {
             button.isBordered = false
             button.bezelStyle = .accessoryBarAction

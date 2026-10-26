@@ -18,16 +18,16 @@ enum ServerHandlers {
                 throw refusal(for: error)
             }
         })
-        registry.bind("server.stopServing", run: { _ in
+        let mainWork = context.services.mainWork
+        registry.bind("server.stopServing", run: { invocation in
             menuBar.hide()
-            registry.track(Task { @MainActor in
-                do throws(ServerStopServing.Failure) {
-                    try await ServerStopServing.app().run()
-                    return nil
-                } catch {
-                    return ActionWorkFailure(error.message)
-                }
-            })
+            // The reverts and the unregisters are awaited off main; the failure is the run's, in one task on main.
+            registry.trackWork(owner: "ServerHandlers.stopServing", on: mainWork) {
+                try await stopServing()
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                return ActionWorkFailure((error as? ServerStopServing.Failure)?.message ?? String(describing: error))
+            }
         })
         registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
         registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
@@ -39,14 +39,26 @@ enum ServerHandlers {
                 throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
             }
             let services = context.services
-            registry.track(Task { @MainActor in
-                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, mainWork: services.mainWork, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
-                let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
-                                                              name: invocation["name"]?.stringValue,
-                                                              runChief: invocation["chief"]?.boolValue)
-                return reject.map { ActionWorkFailure($0) }
-            })
+            // The pairing's cloud calls are awaited off main; the refusal is the run's, in one task on main.
+            registry.trackWork(owner: "ServerHandlers.addServer", on: mainWork) {
+                await approve(code: code, invocation, services)
+            } then: { result in
+                guard case .success(let reject?) = result else { return nil }
+                return ActionWorkFailure(reject)
+            }
         })
+    }
+
+    /// Stop Serving on this Mac (`ServerStopServing`).
+    private static func stopServing() async throws(ServerStopServing.Failure) {
+        try await ServerStopServing.app().run()
+    }
+
+    /// A headless Add Server approval of pairing `code`; nil when approved, else why not.
+    private static func approve(code: String, _ invocation: ActionInvocation, _ services: AppServices) async -> String? {
+        let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, mainWork: services.mainWork, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+        return await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
+                                                name: invocation["name"]?.stringValue, runChief: invocation["chief"]?.boolValue)
     }
 
     private static func refusal(for failure: ServerLaunchAgent.Failure) -> ActionFailure {

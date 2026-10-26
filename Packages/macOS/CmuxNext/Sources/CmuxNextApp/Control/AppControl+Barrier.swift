@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextDesign
 import CmuxNextOracle
@@ -16,8 +17,9 @@ extension AppControl {
     /// client (the CLI talking to the daemon) finished before the request.
     func registerSyncBarrier(_ router: ControlRouter, daemon: DaemonService) {
         let offline = MiscHandlerStrings.daemonOffline
-        router.registerSyncBarrier { [weak daemon] in
-            guard let connection = await MainActor.run(body: { daemon?.connection }) else {
+        router.registerSyncBarrier { [weak daemon, work = mainWork] in
+            // The CLI's barrier: its read of the connection is automation work.
+            guard let connection = await work.apply(.automation, owner: "control.sync_barrier", { daemon?.connection }) else {
                 throw ControlError(code: "unavailable", message: offline)
             }
             _ = try await connection.request(IdentifyRequest())

@@ -25,6 +25,8 @@ struct AgentReplySites {
         links.pullRequest = { [replies = services.pullRequests.replies] url in replies.answer(url) }
         links.registerPullRequests = { [replies = services.pullRequests.replies] urls in replies.register(urls) }
         links.useResolver(SystemRemoteResolver(runner: services.work))
+        links.workspaceQueries = services.workspaceQueries
+        links.browsers = AgentPaneWorkspaceBrowsers(queries: services.workspaceQueries)
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

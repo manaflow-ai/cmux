@@ -22,8 +22,35 @@ extension AppServices {
         return folder
     }
 
-    /// Starts the launch preload and the likelihood observers.
+    /// Starts the launch preload and the likelihood observers. With the Chromium Host, Chromium's start holds the
+    /// main thread only for its shim calls (the host spawns and attaches off main, the start's disk reads run off
+    /// main), so once the launch's restore finished, one startup post starts it where ``ChromiumHostLaunchStart``
+    /// puts it, with no idle wait (``ChromiumHostLaunchSlot``, p08-startup-046); the warm-up, armed in the same post,
+    /// cannot start it sooner.
     func startChromiumWarmup() {
+        guard chromiumRuntime.source.backend == .host, let launchStartup else { return armChromiumWarmup() }
+        let preference = cache.browserTabs.preference
+        let slot = ChromiumHostLaunchSlot(startup: launchStartup, decide: { [weak self] in
+            guard let self else { return nil }
+            return ChromiumHostLaunchStart(showsChromiumPane: showsChromiumPane, defaultIsChromium: preference.defaultEngine == .chromium,
+                                           hasChromiumTab: machines.hasChromiumTab)
+        }, start: { [weak self] start in
+            self?.armChromiumWarmup()
+            self?.chromiumWarmup.startWithoutIdleWait(start.reason)
+        }, noStart: { [weak self] in self?.armChromiumWarmup() })
+        windows.whenRestored { slot.restored() }
+    }
+
+    /// A shown window's pane shows a Chromium tab: a restored Chromium page the person sees.
+    private var showsChromiumPane: Bool {
+        windows.controllers.contains { controller in
+            controller.visibility.isVisible
+                && controller.content?.panes.values.contains { $0.selectedTab?.browserEngine == BrowserEngineTag.cef.rawValue } == true
+        }
+    }
+
+    /// Arms the warm-up: its launch timer, the likelihood observers and the spare windows.
+    private func armChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
@@ -59,7 +86,7 @@ extension AppServices {
         })
         palettes.whenBuilt { [weak self] palette in  // the palette is built after launch (p08-startup-023)
             guard let self else { return }
-            chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, warmup: chromiumWarmup))
+            lifetimeFollowers.append(ChromiumPaletteSignal(palette.model, warmup: chromiumWarmup, on: mainWork))
         }
     }
 }

@@ -17,6 +17,8 @@ final class AppComputerUsePermissionSource: ComputerUsePermissionSource {
 
     var helperAppURL: URL? { setup.helperAppURL }
 
+    var helperAppIcon: NSImage? { setup.helperAppIcon }
+
     func permissions() -> AsyncStream<ComputerUsePermissions> {
         let setup = setup
         setup.recheck()

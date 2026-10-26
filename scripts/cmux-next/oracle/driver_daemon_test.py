@@ -132,6 +132,49 @@ class PointerTests(unittest.TestCase):
             d.resolve_refs("$step:later#/value", replies)
 
 
+    def test_without_pointers_removes_what_each_names(self):
+        doc = {"cursor": {"generation": "g1"}, "terminals": [{"id": "t1", "extra": {"a": 1}, "rows": 24},
+                                                              {"id": "t2", "rows": 24}]}
+        out = d.without_pointers(doc, ["/cursor", "/terminals/*/extra", "/nothing/here", "/terminals/7"])
+        self.assertEqual(out, {"terminals": [{"id": "t1", "rows": 24}, {"id": "t2", "rows": 24}]})
+        self.assertIn("cursor", doc, "the input is not changed")
+        self.assertEqual(d.without_pointers([1, 2, 3], ["/*"]), [])
+        self.assertEqual(d.without_pointers({"a/b": 1, "c": 2}, ["/a~1b"]), {"c": 2})
+
+
+class ExpectTests(unittest.TestCase):
+    """case-v1 expect.result: $step: references resolve first, and resultExcept drops pointers from both sides."""
+
+    def check(self, expect, reply, replies):
+        run = object.__new__(d.CaseRun)
+        run.state = d.CaseState(replies=dict(replies))
+        run.check_expect({"id": "after", "expect": expect}, ("ok", reply))
+
+    def test_a_reply_equal_to_an_earlier_one_but_for_the_except_pointers_passes(self):
+        before = {"session": {"generation": "g1", "id": "s1"}, "cursor": {"revision": "2"}}
+        after = {"session": {"generation": "g2", "id": "s1"}, "cursor": {"revision": "3"}}
+        self.check({"outcome": "ok", "result": "$step:before#", "resultExcept": ["/cursor", "/session/generation"]},
+                   after, {"before": before})
+        self.check({"outcome": "ok", "result": "$step:before#/session/id"}, "s1", {"before": before})
+
+    def test_a_difference_outside_the_except_pointers_fails_at_its_pointer(self):
+        before = {"hooks": [{"manifest": {"hook_id": "oracle"}, "cursor": "1"}]}
+        with self.assertRaises(d.CaseError) as caught:
+            self.check({"outcome": "ok", "result": "$step:before#", "resultExcept": ["/hooks/*/cursor"]},
+                       {"hooks": []}, {"before": before})
+        self.assertEqual(caught.exception.status, "Failure")
+        self.assertIn("result differs at /hooks/0", caught.exception.message)
+
+    def test_a_bool_never_equals_a_number(self):
+        with self.assertRaises(d.CaseError):
+            self.check({"outcome": "ok", "result": "$step:before#"}, {"replayed": 1}, {"before": {"replayed": True}})
+
+    def test_a_reference_to_a_step_without_a_reply_is_a_crash(self):
+        with self.assertRaises(d.CaseError) as caught:
+            self.check({"outcome": "ok", "result": "$step:gone#"}, {}, {})
+        self.assertEqual(caught.exception.status, "Crash")
+
+
 class PredicateTests(unittest.TestCase):
     def check(self, wait, value, baseline=d.MISSING):
         return d.predicate_holds(wait, value, baseline)
@@ -491,6 +534,38 @@ class LiveTests(unittest.TestCase):
         case["allow_crashes"] = []
         result = self.run_case(case)
         self.assertEqual((result["status"], result["step"]), ("Crash", "kill-daemon"))
+
+    def shutdown_case(self) -> dict:
+        """create-ws, session.shutdown that ends the daemon, a restart without a before snapshot, a read."""
+        case = example_case()
+        create = next(s for s in case["steps"] if s["id"] == "create-ws")
+        stop = {"id": "stop", "op": "resource.call", "target": create["target"], "ends": "daemon",
+                "args": {"method": "session.shutdown", "params": {}, "idempotencyKey": "driver-test.stop"},
+                "expect": {"outcome": "ok", "receipt": "mutation_result"}, "checkpoint": ["before"]}
+        restart = {"id": "restart", "op": "restart", "target": {"process": "daemon"},
+                   "expect": {"outcome": "ok", "receipt": "identify"}, "checkpoint": ["settled"]}
+        read = {"id": "list", "op": "resource.call", "readOnly": True,
+                "args": {"method": "workspace.list", "params": {}}, "expect": {"outcome": "ok"}}
+        case["steps"] = [create, stop, restart, read]
+        case["allow_crashes"] = [{"kind": "daemon", "reason": "session.shutdown stops the daemon on purpose",
+                                  "steps": ["stop"]}]
+        return case
+
+    def test_a_call_that_ends_the_daemon_owns_its_exit_and_the_restart_starts_it(self):
+        """The exit is awaited in the call, so the restart never sends shutdown-daemon to an exiting daemon."""
+        for _ in range(3):
+            result = self.run_case(self.shutdown_case())
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual([(c["step"], c["checkpoint"]) for c in result["checkpoints"]],
+                             [("create-ws", "before"), ("create-ws", "settled"), ("stop", "before"),
+                              ("restart", "settled"), ("list", "settled")])
+
+    def test_an_ended_daemon_outside_allow_crashes_is_a_crash_at_the_call(self):
+        case = self.shutdown_case()
+        case["allow_crashes"][0]["steps"] = ["restart"]
+        result = self.run_case(case)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "stop"))
+        self.assertIn("I17", result["message"])
 
     def test_wrong_typed_error_is_a_failure(self):
         case = example_case()

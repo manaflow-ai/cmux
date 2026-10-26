@@ -14,6 +14,7 @@ public final class HistoryPageHostView: NSView {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let hosting = NSHostingView(rootView: HistoryPageView(model: model, appearance: appearanceState))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)

@@ -49,6 +49,7 @@ final class WindowManager {
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
     private var restacking: Set<String> = [], keepsOrder = false
+    // memory: fixed one 32-byte CGRect per new window that waits for its claimed workspace (`claimNew`); `makeController` takes it when the window opens
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -87,6 +88,8 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
+    /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
+    private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
     /// One-shot work for a workspace a reveal is still mounting, by window
@@ -199,6 +202,9 @@ final class WindowManager {
         }
     }
 
+    /// Runs `work` once the launch's session restore finished (the saved windows back, the launch window adopted or closed).
+    func whenRestored(_ work: @escaping () -> Void) { if restoreWaiters == nil { work() } else { restoreWaiters?.append(work) } }
+
     private func restore() async {
         guard !restored else { return }
         restored = true
@@ -262,6 +268,9 @@ final class WindowManager {
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
         launchPaneRefs?.finishRestore(of: self)
         launchPaneRefs = nil
+        let waiting = restoreWaiters ?? []
+        restoreWaiters = nil
+        for work in waiting { work() }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
         let onboarding = AppOnboardingServices(owner: services.onboarding)

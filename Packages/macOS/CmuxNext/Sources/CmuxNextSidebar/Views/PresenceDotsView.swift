@@ -14,6 +14,7 @@ final class PresenceDotsView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         overflow.isHidden = true
         addSubview(overflow)
         setAccessibilityElement(false)

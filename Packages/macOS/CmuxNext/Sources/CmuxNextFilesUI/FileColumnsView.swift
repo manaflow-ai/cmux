@@ -57,6 +57,17 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     }
 
     func reveal(_ name: String) {}
+
+    /// Asks each loaded column's rows for their cells again (``browser(_:willDisplayCell:atRow:column:)`` sets the
+    /// icon). `reloadColumn(_:)` would make the column it reloads the last one and close the deeper columns open.
+    func redrawIcons() {
+        guard browser.lastColumn >= 0 else { return }
+        for column in 0...browser.lastColumn {
+            guard let parent = browser.parentForItems(inColumn: column) as? FileColumnNode,
+                  let rows = listings[parent.entry.url.standardizedFileURL.path], !rows.isEmpty else { continue }
+            browser.reloadData(forRowIndexes: IndexSet(integersIn: 0..<rows.count), inColumn: column)
+        }
+    }
     func beginRename(_ name: String) {}
 
     /// A click that leaves no selection sends the action with selectedColumn -1 (#24776): the

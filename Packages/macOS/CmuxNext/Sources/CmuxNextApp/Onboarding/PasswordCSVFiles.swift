@@ -25,7 +25,7 @@ struct PasswordCSVFiles {
     /// The guided steps (source, the source's export steps, the open panel), then the import of
     /// the picked file and its move to the Trash.
     func chooseImport(profile: String) throws {
-        let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter())
+        let guide = PasswordCSVGuide(presenter: LivePasswordCSVGuidePresenter(queries: services.workspaceQueries))
         services.registry.track(Task { @MainActor in
             guard let url = await guide.run() else { return nil }
             return await importFile(url, profile: profile)

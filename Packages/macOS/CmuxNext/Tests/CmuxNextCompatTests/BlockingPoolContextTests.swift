@@ -15,7 +15,7 @@ import Testing
 struct BlockingPoolContextTests {
     /// The names `debug.blocking` and the hang reports use never change.
     @Test func theContextsKeepTheirNames() {
-        #expect(BlockingContext.allCases.map(\.rawValue) == ["main", "pool", "lane", "dedicated", "cpu-lane"])
+        #expect(BlockingContext.allCases.map(\.rawValue) == ["main", "pool", "lane", "dedicated", "cpu-lane", "lane-sync"])
     }
 
     /// GCD root queues (and the cooperative pool's queues, which share the prefix) are pools; a named queue (one

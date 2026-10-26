@@ -16,4 +16,8 @@ public nonisolated struct MachineAgentInventoryAdmissionRequest: DaemonRequest {
     /// Creates the capability-negotiated enable request.
     /// - Parameter expectedMachineID: The exact owner of the captured ready transport.
     public init(expectedMachineID: ResourceID) { self.expectedMachineID = expectedMachineID }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id", enabled, admissionReceipt = "admission_receipt"
+    }
 }
