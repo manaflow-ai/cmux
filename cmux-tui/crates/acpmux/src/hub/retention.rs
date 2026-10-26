@@ -19,7 +19,9 @@
 //! (`retention_worker`, after `load_logs`), and again when a chat closes, at most every
 //! [`SPACING`]: one worker that waits on a wake, no timer. A chat that closes is too recent for
 //! that pass; the wake only gives a daemon that runs for weeks a pass now and then, and the chats
-//! closed long before it are compacted then. The worker holds the hub weakly and ends with it.
+//! closed long before it are compacted then. The worker ends when the daemon shuts down (its stop
+//! condition): it waits on the hub's shutdown beside its wake, and a pass under way stops between
+//! two chats (`shutting_down`).
 //! `_acpmux/retention {dryRun?, archive?, olderThanDays?, only?}` (`acpmux daemon retention`) runs
 //! one now: a dry run only measures; `archive` keeps every old segment under
 //! `<archive>/<id>/<pass>/`. One pass at a time; it reads each chat's log once, one chat after
@@ -30,8 +32,6 @@
 use super::*;
 use crate::store::{CompactMode, Compaction};
 
-/// Wakes the worker: a chat closed.
-static WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 /// The least time between two automatic passes.
 const SPACING: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
@@ -76,28 +76,31 @@ impl Report {
 
 impl Hub {
     /// A chat closed: a later pass may compact its log. Only wakes the worker; no lock is taken.
-    pub(super) fn retention_wake() {
-        WAKE.notify_one();
+    pub(super) fn retention_wake(&self) {
+        self.retention_wake.notify_one();
     }
 
     /// The daemon's one retention worker (module docs): a pass now, then one per wake once
     /// [`SPACING`] passed since the last. Off when `store.closedLogDays` is 0.
     pub fn retention_worker(self: &Arc<Self>) {
-        let hub = Arc::downgrade(self);
+        let hub = self.clone();
         tokio::spawn(async move {
             let mut last: Option<std::time::Instant> = None;
             loop {
-                {
-                    let Some(hub) = hub.upgrade() else { return };
-                    let on = hub.config.read().await.store.closed_log_retention().is_some();
-                    if on && last.is_none_or(|at| at.elapsed() >= SPACING) {
-                        last = Some(std::time::Instant::now());
-                        if let Err(e) = hub.retention_pass(RetentionRequest::default()).await {
-                            tracing::warn!("log retention: {}", e.message);
-                        }
+                if hub.shutting_down() {
+                    return;
+                }
+                let on = hub.config.read().await.store.closed_log_retention().is_some();
+                if on && last.is_none_or(|at| at.elapsed() >= SPACING) {
+                    last = Some(std::time::Instant::now());
+                    if let Err(e) = hub.retention_pass(RetentionRequest::default()).await {
+                        tracing::warn!("log retention: {}", e.message);
                     }
                 }
-                WAKE.notified().await;
+                tokio::select! {
+                    () = hub.shutdown.notified() => return,
+                    () = hub.retention_wake.notified() => {}
+                }
             }
         });
     }
