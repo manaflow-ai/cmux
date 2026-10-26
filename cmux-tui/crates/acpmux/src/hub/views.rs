@@ -16,6 +16,10 @@ pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
+/// - `working` again: work the session started runs on past its last turn
+///   (`subagentsWorkingSince`: a background subagent or a working
+///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
+///   task is not done until its subagents are (manaflow-ai/cmux#25230).
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -41,6 +45,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
+        // (`disconnected`) still works while a sub-session it started runs.
+        "unreachable" => answered.then_some("done"),
+        _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
@@ -74,7 +82,8 @@ impl Hub {
 /// The session's lane (cx-v9k2f): what a coordinator watching many agents
 /// needs at a glance, decided here once from the summary's own fields.
 ///
-/// - `working` since its turn started.
+/// - `working` since its turn started, or since its subagents work on past
+///   its last turn.
 /// - `input`: a permission or question waits for the person.
 /// - `failed` since its last turn ended, with that turn's error text (an
 ///   agent dead on "Credit balance too low" must not read as idle).
@@ -110,7 +119,11 @@ pub fn lane(summary: &Value) -> Value {
     };
     let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
-        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        // Its own turn's start, else since its subagents work on past the last one.
+        Some("working") => (
+            "working",
+            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+        ),
         Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
@@ -417,6 +430,8 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary["gitBranch"] = json!(self.git_branch_now(&m));
+        // Since when work it started runs on past its own turn (`work_below.rs`).
+        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
         decide(&mut summary);
         summary
     }
