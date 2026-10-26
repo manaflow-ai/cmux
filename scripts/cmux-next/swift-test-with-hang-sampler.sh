@@ -386,8 +386,12 @@ report_status=$?
 # summary and thousands of unfinished tests; its crash report names the test.
 crash_signal=$(sed -n 's/.*exited with unexpected signal code \([0-9][0-9]*\).*/\1/p' "$log" | head -n 1)
 if [[ -n "$crash_signal" ]]; then
+  # Both report directories, system one first. A test helper on a CI Mac leaves
+  # its report in /Library/Logs/DiagnosticReports, not the $HOME one a login
+  # session gets, so searching $HOME alone reported no crash report for a run
+  # that had plainly died on signal 6 (run 40330489336).
   crashed=$(python3 "$script_dir/ips-crash-summary.py" \
-    "${CMUX_NEXT_CRASH_REPORTS_DIR:-$HOME/Library/Logs/DiagnosticReports}" \
+    "${CMUX_NEXT_CRASH_REPORTS_DIR:-/Library/Logs/DiagnosticReports:$HOME/Library/Logs/DiagnosticReports}" \
     "${CMUX_NEXT_CRASH_OUT:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-crash-reports}" \
     "$started_at" "${CMUX_NEXT_CRASH_WAIT_SECONDS:-20}" 2>&1)
   printf '::error title=cmux-next swift test crash::the test helper died on signal %s; crashed thread: %s\n' \
