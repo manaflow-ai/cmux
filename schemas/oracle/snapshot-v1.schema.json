@@ -1889,7 +1889,7 @@
             "method": "debug.oracle.snapshot",
             "path": "/focus",
             "v0": "debug.focus",
-            "provider": "OracleFocusFacet",
+            "provider": "InputObservationBuilder.oracleFocusFacet",
             "task": "p15-oracle-034",
             "from": "InputObservationBuilder.observe"
           },
@@ -1910,6 +1910,7 @@
                       "id",
                       "isKey",
                       "responder",
+                      "responderPane",
                       "layoutFocus",
                       "ghosttyFocused",
                       "childPage",
@@ -1933,12 +1934,24 @@
                         "type": "boolean"
                       },
                       "responder": {
+                        "description": "the classified first responder's kind; its pane is responderPane",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/responder",
-                          "from": "FocusResponderClassifier.classify(firstResponder)"
+                          "from": "FocusResponderClassifier.classify(firstResponder), the case name"
                         },
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["content", "addressBar", "findBar", "devTools", "sidebar", "sidebarField", "textField", "windowOrNone"]
+                      },
+                      "responderPane": {
+                        "description": "the pane the first responder is in; null for a responder outside every pane",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/responderPane",
+                          "from": "FocusResponderClassifier.classify(firstResponder), its pane"
+                        },
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "pane"
                       },
                       "layoutFocus": {
                         "x-oracle-source": {
@@ -1956,7 +1969,12 @@
                         "items": {"type": "string", "x-oracle-id-kind": "tab"}
                       },
                       "childPage": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/childPage"},
+                        "description": "the tab whose Chromium page window has focus; a cmux page's Chromium tab id is mapped to its tab key, so it differs from debug.focus child_window_page (raw page id) for a cmux page",
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/focus/windows/*/childPage",
+                          "from": "FocusApplier.focusedChildWindowPageID mapped to the tab key"
+                        },
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
                       },
@@ -1995,12 +2013,32 @@
                             "x-oracle-id-kind": "pane"
                           },
                           "target": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/target"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/target",
+                              "from": "String(describing: FocusState.Target)"
+                            },
+                            "type": "string",
+                            "enum": [
+                              "content",
+                              "addressBar",
+                              "findBar",
+                              "devTools",
+                              "sidebar(keyboard: true)",
+                              "sidebar(keyboard: false)",
+                              "sidebarField",
+                              "textField",
+                              "none"
+                            ]
                           },
                           "resolved": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolved"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/resolved",
+                              "from": "FocusState.Resolved.kind"
+                            },
+                            "type": "string",
+                            "pattern": "^(terminal|browserPage|addressBar|findBar|devTools|agentPage|page|conversation|emptyPane|sidebar|sidebarField|textField|none|overlay:(palette|sheet|rename|groupEditor))$"
                           },
                           "resolvedPane": {
                             "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/resolvedPane"},
@@ -2045,10 +2083,11 @@
                         }
                       },
                       "consistent": {
+                        "description": "no InputInvariants.world violation names this window. Not debug.focus's consistent (layout, W1 and Ghostty only): F, W4, W5, W6 (sheet), W7 and W8 violations count here too. An unsettled window is not inconsistent (settle is debug.oracle.settle and I5), and a violation that names no window (W6 palette, W5 app-wide panel) marks none",
                         "x-oracle-source": {
                           "method": "debug.oracle.snapshot",
                           "path": "/focus/windows/*/consistent",
-                          "from": "InputInvariants over this window"
+                          "from": "InputInvariants.world violations naming this window"
                         },
                         "type": "boolean"
                       }
