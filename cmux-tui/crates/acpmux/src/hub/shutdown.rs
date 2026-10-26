@@ -49,8 +49,6 @@ impl Hub {
     /// as cancelled. Returns how many hosted agents it left running for the
     /// next daemon (the local router stays for them).
     pub async fn shutdown_all(&self) -> usize {
-        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`).
-        self.peer_snapshots.flush_now();
         // Pooled sessions are hidden, never user sessions: they end with the
         // daemon, alongside the sessions below.
         let ((), kept) = tokio::join!(self.stop_pool(), self.shutdown_sessions());
@@ -150,6 +148,9 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // What peers' sessions streamed in the last seconds (`peer_snapshot.rs`): the shutdown's
+        // is its last step, after the teardown, and a shutdown past its budget calls it too.
+        self.peer_snapshots.flush_now();
     }
 }
 

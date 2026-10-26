@@ -532,7 +532,9 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
-        let peer_snapshots = peer_snapshot::PeerSnapshots::open(store.peer_cache_dir());
+        // Beside the peer caches, in the home they are in; a memory store keeps neither.
+        let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
