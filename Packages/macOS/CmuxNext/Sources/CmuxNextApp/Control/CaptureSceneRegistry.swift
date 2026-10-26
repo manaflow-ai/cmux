@@ -52,6 +52,9 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("no app window is ready"), "scene": .string(name)])
         }
         let targetWindowID = targetWindow.state.id
+        if definition.name == Self.workspaceAutoNameScene {
+            return await renderWorkspaceAutoName(params, definition: definition, windowID: targetWindowID)
+        }
 
         // Every scene starts from the same dense production fixture. Scene-specific controls below
         // then make the named capture visibly different while preserving real app ownership.
@@ -217,6 +220,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "cloud-start-session-ask", description: "An agent's cmux cloud start-session ask card in its chat."),
         CaptureSceneDefinition(name: "hints-cmd-held", description: "Command modifier hint destination."),
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
+        CaptureSceneDefinition(name: "workspace-auto-name",
+                               description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
         CaptureSceneDefinition(name: homeChiefScene,
                                description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
