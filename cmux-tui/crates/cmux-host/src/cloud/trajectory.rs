@@ -429,9 +429,14 @@ impl Mirror {
             let Ok(bytes) = read_range(&file, offset, size.min(offset + NATIVE_PASS_BYTES)) else {
                 continue;
             };
-            // Only whole lines: the agent may be writing the last one.
-            let Some(end) = bytes.iter().rposition(|b| *b == b'\n') else { continue };
-            for chunk in bytes[..=end].chunks(NATIVE_CHUNK) {
+            // Only whole lines: the agent may be writing the last one. A line longer than a
+            // pass goes in parts (the file only grows); a restore keeps whole lines (stage_bundle).
+            let end = match bytes.iter().rposition(|b| *b == b'\n') {
+                Some(at) => at + 1,
+                None if bytes.len() as u64 == NATIVE_PASS_BYTES => bytes.len(),
+                None => continue,
+            };
+            for chunk in bytes[..end].chunks(NATIVE_CHUNK) {
                 let body = json!({
                     "session": id,
                     "generation": track.generation,
@@ -525,6 +530,8 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
             }
             bytes.extend_from_slice(&data);
         }
+        // A copy cut mid-line (the machine lost between two parts) is restored to its last whole line.
+        bytes.truncate(bytes.iter().rposition(|b| *b == b'\n').map_or(0, |at| at + 1));
         let target = stage.join("native").join(label).join(path);
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent).map_err(err)?;
@@ -534,12 +541,11 @@ fn stage_bundle(api: &mut dyn Api, remote: &Remote, stage: &Path) -> Result<(), 
     Ok(())
 }
 
-/// A session id that names one directory: no separator, `.` or `..`.
+/// A session id that names one directory, as the server accepts it
+/// (`isSessionId`): a letter or digit, then letters, digits, `.`, `_` or `-`.
 fn plain_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 128
-        && id != "."
-        && id != ".."
+    id.len() <= 128
+        && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
         && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 

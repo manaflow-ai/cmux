@@ -37,7 +37,7 @@ struct FakeServer {
 
 impl FakeServer {
     fn at(machine: &str) -> FakeServer {
-        FakeServer { machine: machine.to_owned(), ..FakeServer::at("m1") }
+        FakeServer { machine: machine.to_owned(), ..FakeServer::default() }
     }
 
     /// Calls as `machine`, restored from `parent`.
@@ -506,6 +506,43 @@ fn a_resume_file_larger_than_one_pass_is_sent_over_passes_without_new_records() 
     fs::write(m.claude_file(), format!("{big}{row}")).unwrap();
     assert_eq!(mirror.sync(&mut server, 100), Pass::Idle);
     assert_eq!(server.sessions()["chat-a"].native[&key].len(), big.len() + row.len());
+}
+
+#[test]
+fn a_resume_file_line_longer_than_one_pass_is_sent_in_parts() {
+    let m = Machine::new();
+    m.write_meta("chat-a", 1, CREATED);
+    m.append("chat-a", 1, &lines(1, 1));
+    fs::create_dir_all(m.claude_file().parent().unwrap()).unwrap();
+    // One 5 MiB line (a pasted image), over one pass's 4 MiB, then a short one.
+    let long = format!("{}\n{{\"b\":2}}\n", "z".repeat(5 * 1024 * 1024));
+    fs::write(m.claude_file(), &long).unwrap();
+    let mut server = FakeServer::at("m1");
+    let mut mirror = m.mirror();
+    mirror.prime(&mut server).unwrap();
+    let mut passes = 0;
+    while mirror.sync(&mut server, passes) == Pass::More {
+        passes += 1;
+        assert!(passes < 10);
+    }
+    let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
+    assert_eq!(server.sessions()["chat-a"].native[&key], long.as_bytes());
+}
+
+#[test]
+fn a_restore_keeps_only_whole_lines_of_a_resume_file_cut_mid_line() {
+    let mut server = FakeServer::at("m1");
+    let _first = first_machine(&mut server);
+    // The machine was lost between two parts of a long line.
+    let key = ("claude-project".to_owned(), format!(".claude/projects/-work/{SID}.jsonl"));
+    server.stores.get_mut("m1").unwrap().get_mut("chat-a").unwrap().native.get_mut(&key).unwrap().extend_from_slice(b"{\"turn\":3,");
+    let second = Machine::new();
+    server.as_machine("m2", Some("m1"));
+    let mut acpmux = FakeAcpmux { layout: second.layout.clone(), running: true, fail: 0, imported: vec![] };
+    let mut replacement = second.mirror();
+    assert_eq!(replacement.prime(&mut server).unwrap(), 1);
+    assert_eq!(replacement.restore(&mut server, &mut acpmux), 1);
+    assert_eq!(fs::read(second.claude_file()).unwrap(), b"{\"turn\":1}\n{\"turn\":2}\n");
 }
 
 #[test]

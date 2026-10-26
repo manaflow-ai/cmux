@@ -2,6 +2,7 @@ import type { Principal } from "@cmux/ownership"
 import { authenticate } from "./auth.ts"
 import { isNativePath, isSessionId, NATIVE_CHUNK_MAX_BYTES, type TrajectoryRefusal, type TrajectoryResult } from "./cloud-trajectory-store.ts"
 import type { Env } from "./env.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { principalForOwner, selectTeam, TEAM_HEADER } from "./team-select.ts"
 
@@ -90,6 +91,8 @@ const principalOf = async (request: Request, env: Env): Promise<Principal | Resp
   const token = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!token?.user || !token.team) return answer(401, "auth.unauthenticated", "a token is required")
   if (token.agent !== undefined) return answer(403, "auth.forbidden", "agents cannot read or write chat trajectories")
+  // Only a personal machine's own install among machine installs (machine-installs.ts); a team VM's is refused here.
+  if (isMachineInstallKind(token.install_kind) && token.install_kind !== "vm") return answer(403, "auth.forbidden", "a machine install has no access to chats")
   let p: Principal = token
   if (token.kind === "session") {
     const selected = await selectTeam(env, { ...token, user: token.user, team: token.team }, request.headers.get(TEAM_HEADER))

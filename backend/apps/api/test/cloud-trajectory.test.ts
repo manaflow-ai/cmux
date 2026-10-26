@@ -60,6 +60,10 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     const s = await setup("traj-2")
     await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, meta: meta("chat-a", 4), lines: lines(1, 4) })
     const newer = CREATED + 1000
+    // A replacement that cannot be kept (no session record, or not from seq 1) leaves the old copy.
+    expect((await traj(s.vm, s.machine, "append", { session: "chat-a", generation: newer, lines: lines(1, 1) })).status).toBe(404)
+    expect((await traj(s.vm, s.machine, "append", { session: "chat-a", generation: newer, meta: meta("chat-a", 3, newer), lines: lines(3, 3) })).body.error.code).toBe("cloud.trajectory.gap")
+    expect((await traj(s.vm, s.machine, "read", { session: "chat-a" })).body.value).toMatchObject({ generation: CREATED, last_seq: 4 })
     expect((await traj(s.vm, s.machine, "append", { session: "chat-a", generation: newer, meta: meta("chat-a", 1, newer), lines: lines(1, 1) })).body).toEqual({ ok: true, value: { last_seq: 1 } })
     const stale = await traj(s.vm, s.machine, "append", { session: "chat-a", generation: CREATED, lines: lines(2, 2) })
     expect([stale.status, stale.body.error.code]).toEqual([409, "cloud.trajectory.stale_generation"])
@@ -99,6 +103,10 @@ describe("ACP trajectories outside the VM", { timeout: 60_000 }, () => {
     // Another machine's VM cannot read or write this one's chats.
     const elsewhere = await setup("traj-4-vm")
     expect((await traj(elsewhere.vm, s.machine, "list", {})).status).toBe(403)
+    // A team VM's install is the owner's install with the read class, but a machine install: no access.
+    const teamVm = { identity: "install:inst_teamvm77777777777777", user: s.a.user, team: s.a.team, kind: "install", install: "inst_teamvm77777777777777", grant_classes: ["read", "mutate-own"], install_kind: "team-vm" }
+    const scope = cloudStub(s.a.team) as unknown as { trajectoryScope(e: string, p: unknown, m: string, w: boolean, parent: boolean): Promise<{ ok: boolean; status?: number }> }
+    expect(await scope.trajectoryScope(s.a.team, teamVm, s.machine, false, false)).toMatchObject({ ok: false, status: 403 })
     expect((await worker.fetch(`https://api.test/v1/cloud/machines/${s.machine}/trajectories/list`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(401)
   })
 

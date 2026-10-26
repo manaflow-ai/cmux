@@ -145,6 +145,9 @@ export class TrajectoryStore {
     const replacing = row !== undefined && generation > row.generation
     const freed = replacing ? row!.bytes : 0
     if (replacing && this.totalBytes() - freed + lines.reduce((n, l) => n + bytesOf(l), 0) + (metaText ? bytesOf(metaText) : 0) > MACHINE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: this.totalBytes() } }
+    // A replacement is a fresh log: refuse it before the old copy goes, never after (review 2).
+    if (replacing && metaText === undefined) return { ok: false, refusal: { code: "cloud.trajectory.not_found" } }
+    if (replacing && seqs[0] !== undefined && seqs[0] > 1) return { ok: false, refusal: { code: "cloud.trajectory.gap", last_seq: 0 } }
     if (replacing) {
       this.dropSession(session)
       row = undefined

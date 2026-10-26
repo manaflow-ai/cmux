@@ -6,6 +6,7 @@ import { roleHas } from "./domains/team-roles.ts"
 import { cloudDriver } from "./cloud-driver.ts"
 import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
 import { parseSigningKeys, publicKeyset } from "./link-token.ts"
+import { isMachineInstallKind } from "./machine-installs.ts"
 import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmGate, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import type { TrajectoryScope } from "./cloud-trajectory.ts"
@@ -201,6 +202,8 @@ export class CloudDO extends CloudIdle {
       if (!parent) return { ok: true, store: g.row.id }
       return write ? { ok: false, status: 403, code: "auth.forbidden", message: "a restore source's chats are read only" } : { ok: true, store: g.row.trajectory_parent ?? null }
     }
+    // Review 2 blocker: any other machine install (a team VM's) has no access to chats (machine-installs.ts).
+    if (isMachineInstallKind(principal.install_kind)) return { ok: false, status: 403, code: "auth.forbidden", message: "a machine install has no access to chats" }
     if (write || parent) return { ok: false, status: 403, code: "auth.forbidden", message: "only the machine itself writes its chats" }
     if (principal.team !== entity || !principal.user) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's machines" }
     if (principal.kind === "install" && !principal.grant_classes?.includes("read")) return { ok: false, status: 403, code: "auth.forbidden", message: "this install cannot read" }
