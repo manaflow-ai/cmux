@@ -69,4 +69,6 @@ public nonisolated struct PageError: Error, Sendable, Equatable {
     }
     /// The link to the owner (or the page) is gone (the Settings lead's page pattern).
     public static let closed = PageError(code: "cmux.protocol.closed", message: "the link to the owner is closed", retryable: true)
+    /// The page did not reply to the host's call `op` by its deadline.
+    public static func timedOut(_ op: String) -> PageError { PageError(code: "cmux.protocol.timed_out", message: op, retryable: true) }
 }

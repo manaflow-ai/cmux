@@ -3,6 +3,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   contributeOracleState,
   mergeOracleReadings,
+  noteOracleStateChanged,
+  ORACLE_STATE_CHANGED_OP,
   ORACLE_STATE_ENABLED,
   ORACLE_STATE_OP,
   readOracleState,
@@ -13,6 +15,8 @@ import {
   type OracleStateTarget,
 } from "../oracle-state";
 import { BridgePageClient, type ReplyHandler } from "../../pages/shared/pageClient";
+import { composerOracleReading } from "../../agent-session/acpmux/composerOracle";
+import { settingsOracleReading } from "../../pages/settings/oracleState";
 
 const enabled = (hash = ""): OracleStateTarget => ({ [ORACLE_STATE_ENABLED]: true, location: { hash } });
 
@@ -98,14 +102,17 @@ describe("oracle state over the page bridge", () => {
     let replied: (body: unknown) => void = () => undefined;
     const reply = new Promise<unknown>((resolve) => (replied = resolve));
     const handler: ReplyHandler = {
+      // The page's own change note is a call; the host's answer is the reply.
       postMessage: (body) => {
-        replied(body);
-        return Promise.resolve(null);
+        if ((body as { t?: string }).t !== "call") replied(body);
+        return Promise.resolve({ t: "ok", value: {} });
       },
     };
     const target = enabled("#/chat");
     const client = new BridgePageClient(handler, target);
-    expect(serveOracleState(client, target)).not.toBeNull();
+    const unserve = serveOracleState(client, target);
+    expect(unserve).not.toBeNull();
+    removals.push(() => unserve?.());
     removals.push(contributeOracleState(() => ({ selection: "row-1", panels: ["picker"] }), target));
     client.receive({ t: "call", id: 7, op: ORACLE_STATE_OP, params: {} });
     expect(await reply).toEqual({
@@ -113,5 +120,77 @@ describe("oracle state over the page bridge", () => {
       id: 7,
       value: { route: "/chat", selection: "row-1", panels: ["picker"], draftSha256: null },
     });
+  });
+});
+
+describe("oracle state change notes", () => {
+  /** A host that records the change calls the page makes. */
+  function callingHost(): OracleStateHost & { calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      handle: () => () => undefined,
+      call: (op) => {
+        calls.push(op);
+        return Promise.resolve({});
+      },
+    };
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("changes in one task send one note; adding and removing a part note too", async () => {
+    const host = callingHost();
+    const target = enabled();
+    const unserve = serveOracleState(host, target);
+    removals.push(() => unserve?.());
+    noteOracleStateChanged();
+    noteOracleStateChanged();
+    await settle();
+    expect(host.calls).toEqual([ORACLE_STATE_CHANGED_OP]);
+    const remove = contributeOracleState(() => ({ selection: "a" }), target);
+    await settle();
+    remove();
+    await settle();
+    expect(host.calls).toEqual([ORACLE_STATE_CHANGED_OP, ORACLE_STATE_CHANGED_OP, ORACLE_STATE_CHANGED_OP]);
+  });
+
+  test("no note leaves a page whose host did not enable the oracle", async () => {
+    const host = callingHost();
+    expect(serveOracleState(host, { location: { hash: "" } })).toBeNull();
+    noteOracleStateChanged();
+    await settle();
+    expect(host.calls).toEqual([]);
+  });
+});
+
+describe("oracle state contributors", () => {
+  test("the agent composer gives its chat as the selection and its prompt only as a hash", async () => {
+    const target = enabled("#/chat");
+    removals.push(contributeOracleState(() => composerOracleReading("session-1", "hello"), target));
+    const state = await readOracleState(target);
+    expect(state.selection).toBe("session-1");
+    expect(state.draftSha256).toBe("sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    expect(JSON.stringify(state)).not.toContain("hello");
+    expect(composerOracleReading(undefined, "").selection).toBeNull();
+  });
+
+  test("Settings gives its category as the route, the focused key, its search as panels and a hash", async () => {
+    const target = enabled("#/settings/appearance?focus=ui.theme&q=secret%20words&changed=1");
+    const location = {
+      section: "appearance",
+      focus: "ui.theme",
+      workspace: null,
+      query: "secret words",
+      changedOnly: true,
+    };
+    removals.push(contributeOracleState(() => settingsOracleReading(location, "appearance"), target));
+    const state = await readOracleState(target);
+    expect(state.route).toBe("/settings/appearance");
+    expect(state.selection).toBe("ui.theme");
+    expect(state.panels).toEqual(["changed", "search"]);
+    expect(state.draftSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(JSON.stringify(state)).not.toContain("secret");
+    const idle = settingsOracleReading({ ...location, focus: null, query: "", changedOnly: false }, "general");
+    expect(idle).toEqual({ route: "/settings/general", selection: null, panels: [], draft: "" });
   });
 });

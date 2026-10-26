@@ -11,8 +11,13 @@
 // `window.internals` (third_party/blink/renderer/core/testing/internals.idl) exists only when the
 // host runs web tests (content_shell `--run-web-tests`), never in a shipped Chrome.
 
-/** The op the host calls on the page (PageWebView.oracleStateOp). */
+/** The op the host calls on the page (PageRouter.oracleStateOp). */
 export const ORACLE_STATE_OP = "cmux.page.oracle.state";
+/**
+ * The op the page calls when a reading may have changed (PageRouter.oracleStateChangedOp), so the
+ * host's `debug.oracle.wait_for` on the `webviews` facet wakes at the change, never by a poll.
+ */
+export const ORACLE_STATE_CHANGED_OP = "cmux.page.oracle.changed";
 /** The global a developer build's document-start script sets (PageWebView.oracleStateScript). */
 export const ORACLE_STATE_ENABLED = "__cmuxOracleState";
 
@@ -36,9 +41,10 @@ export interface OracleState {
   draftSha256: string | null;
 }
 
-/** The part of a page client that serves host calls (`PageClient.handle`). */
+/** The part of a page client that serves host calls (`PageClient.handle`) and calls the host. */
 export interface OracleStateHost {
   handle(op: string, handler: (params: unknown) => unknown): () => void;
+  call?(op: string, params: unknown): Promise<unknown>;
 }
 
 /** The globals the gate and the default route read. */
@@ -48,6 +54,10 @@ type Reader = () => OracleStateReading;
 
 /** The parts that contribute, in contribution order (a Set keeps it). */
 const readers = new Set<Reader>();
+/** Tells the host a reading may have changed; set while a host is served. */
+let tellHost: (() => void) | null = null;
+/** A change note is queued for this task (many changes in one task send one note). */
+let changeQueued = false;
 
 /** Whether the host asked this document for its oracle state. */
 export function oracleStateEnabled(target: OracleStateTarget = globalThis as unknown as OracleStateTarget): boolean {
@@ -64,9 +74,23 @@ export function contributeOracleState(
 ): () => void {
   if (!oracleStateEnabled(target)) return () => undefined;
   readers.add(read);
+  noteOracleStateChanged();
   return () => {
-    readers.delete(read);
+    if (readers.delete(read)) noteOracleStateChanged();
   };
+}
+
+/**
+ * Says a part's reading may have changed (its draft, its selection). Changes in one task coalesce
+ * to one note to the host; nothing is sent when the oracle is off or no host is served.
+ */
+export function noteOracleStateChanged(): void {
+  if (!tellHost || changeQueued) return;
+  changeQueued = true;
+  queueMicrotask(() => {
+    changeQueued = false;
+    tellHost?.();
+  });
 }
 
 /**
@@ -78,7 +102,13 @@ export function serveOracleState(
   target: OracleStateTarget = globalThis as unknown as OracleStateTarget,
 ): (() => void) | null {
   if (!oracleStateEnabled(target)) return null;
-  return host.handle(ORACLE_STATE_OP, () => readOracleState(target));
+  const unhandle = host.handle(ORACLE_STATE_OP, () => readOracleState(target));
+  const tell = host.call ? () => void host.call?.(ORACLE_STATE_CHANGED_OP, {}).catch(() => undefined) : null;
+  tellHost = tell;
+  return () => {
+    unhandle();
+    if (tellHost === tell) tellHost = null;
+  };
 }
 
 /** The page's answer now, from every contribution. */

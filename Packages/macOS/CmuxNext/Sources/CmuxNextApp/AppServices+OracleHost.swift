@@ -52,8 +52,10 @@ extension AppServices: OracleHost {
             },
             // The windows front to back, key and main, and each window's state and frame as screen fractions.
             windows.oracleWindowsFacet(events: appEvents),
-            // Each reachable page's own store summary (`cmux.page.oracle.state`), with the tab and pane that show it.
-            OracleWebviewsFacet { [weak self] () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
+            // Each reachable page's own store summary (`cmux.page.oracle.state`), with the tab and pane that show it;
+            // the pages signal their changes.
+            OracleWebviewsFacet(changes: { [feed = webUI.registry.oracleChanges] in feed.subscribe() }) {
+                [weak self] () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
                 guard let self else { throw OracleFacetError("the app services are gone") }
                 return try await oracleWebviews()
             },

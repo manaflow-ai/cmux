@@ -60,6 +60,27 @@ struct OracleWebviewsFacetTests {
         #expect(snapshot["webviews"]?["reason"] == "pages that do not serve cmux.page.oracle.state: cmux.diff")
     }
 
+    @Test func aLoadingOrSilentPageMakesTheFacetNotComparable() async throws {
+        let page = try OracleWebviewsFacet.Page(page: "cmux.agent", tab: "tab_1", pane: "pane_1",
+                                                answer: ["route": "/", "panels": [String]()] as [String: Any])
+        let facet = OracleWebviewsFacet {
+            OracleWebviewsFacet.Reading(pages: [page], loading: ["cmux.settings"], timedOut: ["cmux.diff", "cmux.agent"])
+        }
+        let snapshot = try await OracleFacets([facet]).beginCapture([.webviews]).finish()
+        #expect(snapshot["webviews"]?["status"] == "not-comparable")
+        #expect(snapshot["webviews"]?["reason"]
+            == "pages that are loading: cmux.settings; pages that did not answer in time: cmux.agent, cmux.diff")
+    }
+
+    @Test func thePagesChangeSignalWakesAWait() async {
+        let (signals, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let facets = OracleFacets([OracleWebviewsFacet(changes: { signals }) { OracleWebviewsFacet.Reading() }])
+        #expect(facets.signalsChanges(.webviews))
+        var changes = facets.changes(.webviews)?().makeAsyncIterator()
+        signal.yield()
+        #expect(await changes?.next() != nil)
+    }
+
     @Test func aPageErrorFailsTheSnapshot() async throws {
         let facet = OracleWebviewsFacet { () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
             throw OracleFacetError("page cmux.agent: cmux.oracle.no_digest")

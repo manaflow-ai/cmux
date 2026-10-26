@@ -75,24 +75,35 @@ public struct OracleWebviewsFacet: OracleFacetProvider {
         }
     }
 
-    /// One reading of every page.
+    /// One reading of every page. A page a person can reach that gave no state (``unserved``, ``loading``,
+    /// ``timedOut``) makes the facet not comparable, never a list that silently lacks it: two snapshots of one model
+    /// state would otherwise differ by load or answer timing alone.
     public struct Reading: Sendable, Hashable {
         /// The pages that answered, in the host's page order (the schema compares them as a set).
         public var pages: [Page]
         /// Kinds of loaded pages that do not serve the op (a document that does not boot through the shared page
-        /// client): the facet is then not comparable, never a list that silently lacks them.
+        /// client).
         public var unserved: [String]
+        /// Kinds of pages in a tab or a window whose document is still loading (a navigation, a crash reload, a
+        /// discarded tab coming back).
+        public var loading: [String]
+        /// Kinds of pages that did not answer by the host's deadline.
+        public var timedOut: [String]
 
-        public init(pages: [Page] = [], unserved: [String] = []) {
+        public init(pages: [Page] = [], unserved: [String] = [], loading: [String] = [], timedOut: [String] = []) {
             self.pages = pages
             self.unserved = unserved
+            self.loading = loading
+            self.timedOut = timedOut
         }
 
         /// The facet's value.
         public var value: OracleValue {
-            guard unserved.isEmpty else {
-                let names = Array(Set(unserved)).sorted().joined(separator: ", ")
-                return .notComparable(reason: "pages that do not serve cmux.page.oracle.state: \(names)", task: OracleFacet.webviews.task)
+            let missing = [("do not serve cmux.page.oracle.state", unserved), ("are loading", loading),
+                           ("did not answer in time", timedOut)].filter { !$0.1.isEmpty }
+            guard missing.isEmpty else {
+                let reason = missing.map { "pages that \($0.0): \(Array(Set($0.1)).sorted().joined(separator: ", "))" }
+                return .notComparable(reason: reason.joined(separator: "; "), task: OracleFacet.webviews.task)
             }
             return ["pages": .array(pages.map(\.value))]
         }
@@ -100,10 +111,18 @@ public struct OracleWebviewsFacet: OracleFacetProvider {
 
     public var facet: OracleFacet { .webviews }
     public let capture: OracleFacetCapture
+    public let changes: OracleFacetChanges?
 
-    /// - Parameter read: Asks every loaded page, on the main actor (each page's router lives there); the
-    ///   snapshot's other background facets run meanwhile. Throws when a page answers an error or a bad shape.
-    public init(read: @escaping @MainActor @Sendable () async throws(OracleFacetError) -> Reading) {
+    /// - Parameters:
+    ///   - changes: The pages' change signal (a page posted that its reading changed, a page loaded, opened or
+    ///     closed), so `debug.oracle.wait_for` can wait on this background facet. Moves between tabs and panes wake
+    ///     the wait through the control snapshot's own publishes.
+    ///   - read: Asks every page a person can reach, on the main actor (each page's router lives there); the
+    ///     snapshot's other background facets run meanwhile. Ends by the host's page deadline. Throws when a page
+    ///     answers an error or a bad shape.
+    public init(changes: OracleFacetChanges? = nil,
+                read: @escaping @MainActor @Sendable () async throws(OracleFacetError) -> Reading) {
+        self.changes = changes
         capture = .background { () async throws(OracleFacetError) -> OracleValue in
             try await read().value
         }

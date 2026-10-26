@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextWakeups
 public import Foundation
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
@@ -48,6 +49,9 @@ public final class PageRouter {
     public internal(set) var debugPageHidden = false
     /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
     public internal(set) var debugDeliveriesWhileHidden = 0
+    /// The page's oracle reading may have changed (``oracleStateChangedOp``, p15-oracle-215): its view
+    /// tells the registry, whose feed wakes `debug.oracle.wait_for` on the `webviews` facet.
+    public var oracleStateChanged: (@MainActor () -> Void)?
     #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
@@ -139,6 +143,13 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if op == Self.oracleStateChangedOp {
+            guard !closed else { throw PageError.closed }
+            oracleStateChanged?()
+            return .object([:])
+        }
+        #endif
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
@@ -305,12 +316,33 @@ public final class PageRouter {
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
     /// past the hold, after a thaw, so a frozen page answers it.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
+        try await callPage(op, params: params) { _ in }
+    }
+
+    /// ``callPage(_:params:)`` that fails with ``PageError/timedOut(_:)`` when no reply comes by
+    /// `deadline`: a document with no receive hook, a handler that never settles or a hung content
+    /// process never replies, and only a close or reload would end the wait. The timed-out call
+    /// leaves ``pendingCalls`` at once; a late reply finds nothing to resolve.
+    public func callPage(_ op: String, params: JSONValue, within deadline: Duration,
+                         clock: any Clock<Duration>) async throws -> JSONValue {
+        let timer = DemandTimer(owner: "PageRouter.callPage", clock: clock)
+        defer { timer.cancel() }
+        return try await callPage(op, params: params) { id in
+            timer.schedule(after: deadline) { @MainActor [weak self] in
+                self?.pendingCalls.removeValue(forKey: id)?.resume(throwing: PageError.timedOut(op))
+            }
+        }
+    }
+
+    /// Sends call `op` and waits for its reply; `started` runs with the call's id once it is pending.
+    private func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
         return try await withCheckedThrowingContinuation { continuation in
             pendingCalls[id] = continuation
+            started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }

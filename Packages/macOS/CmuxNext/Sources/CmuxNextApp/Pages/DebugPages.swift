@@ -176,31 +176,75 @@ enum DebugPages {
     }
 }
 
-/// The oracle's `webviews` facet (p15-oracle-215): each loaded page a person can reach (in a tab or a window, never
-/// a parked spare) answers `cmux.page.oracle.state`, placed by the page or agent tab whose view holds it.
+/// The oracle's `webviews` facet (p15-oracle-215): each page a person can reach (in a tab or a window, never a
+/// parked spare) answers `cmux.page.oracle.state`, placed by the page or agent tab whose view holds it.
 extension AppServices {
-    func oracleWebviews() async throws(OracleFacetError) -> OracleWebviewsFacet.Reading {
-        let places = oraclePagePlaces(), spare = newTabSpares.spare?.view
+    /// How long the facet waits for the pages' answers (they are asked together, so one deadline in all).
+    static let oracleWebviewsDeadline: Duration = .seconds(1)
+
+    func oracleWebviews(within deadline: Duration = AppServices.oracleWebviewsDeadline,
+                        clock: any Clock<Duration> = ContinuousClock()) async throws(OracleFacetError) -> OracleWebviewsFacet.Reading {
+        let asked = Self.oracleReachable(webUI.registry.pages(), places: oraclePagePlaces(), spare: newTabSpares.spare?.view)
+            .map { $0.page }
+        let answers = await Self.oracleAnswers(asked, within: deadline, clock: clock)
+        // Placed after every answer, in one turn with a fresh place map: no await falls between the map and its
+        // lookups, and `asked` holds every page, so no view's identifier is reused meanwhile. A page that left every
+        // tab and window while it answered is gone.
         var reading = OracleWebviewsFacet.Reading()
-        for page in webUI.registry.pages() {
-            var holder: NSView? = page
-            while let view = holder, places[ObjectIdentifier(view)] == nil { holder = view.superview }
-            let place = holder.flatMap { places[ObjectIdentifier($0)] }
-            let inSpare = spare.map { page.isDescendant(of: $0) } ?? false
-            guard place != nil || page.window != nil, !inSpare else { continue }
+        for (page, place) in Self.oracleReachable(asked, places: oraclePagePlaces(), spare: newTabSpares.spare?.view) {
             let answer: PageWebView.OracleStateAnswer?
-            do throws(PageError) { answer = try await page.oracleState() } catch {
-                throw OracleFacetError("page \(page.pageID): \(error.code) \(error.message)")
+            switch answers[ObjectIdentifier(page)] {
+            case .success(let value)?: answer = value
+            case .failure(let error)?: throw OracleFacetError("page \(page.pageID): \(error.code) \(error.message)")
+            case nil: answer = nil
             }
             switch answer {
             case .state(let state)?:
                 reading.pages.append(try OracleWebviewsFacet.Page(page: page.pageID, tab: place?.tab, pane: place?.pane,
                                                                   answer: state.foundationObject))
             case .unserved?: reading.unserved.append(page.pageID)
+            case .loading?: reading.loading.append(page.pageID)
+            case .timedOut?: reading.timedOut.append(page.pageID)
             case .gone?, nil: continue
             }
         }
         return reading
+    }
+
+    /// The pages a person can reach, in `pages` order, each with the tab and pane whose view holds it (found
+    /// through its superviews; nil for a page in no tab, such as the Settings window). A page in no tab and no
+    /// window, or inside the New Tab `spare`, is left out. Pure over the views and the map.
+    static func oracleReachable<Page: NSView>(_ pages: [Page], places: [ObjectIdentifier: (tab: String, pane: String)],
+                                              spare: NSView?) -> [(page: Page, place: (tab: String, pane: String)?)] {
+        pages.compactMap { page -> (page: Page, place: (tab: String, pane: String)?)? in
+            var holder: NSView? = page
+            while let view = holder, places[ObjectIdentifier(view)] == nil { holder = view.superview }
+            let place = holder.flatMap { places[ObjectIdentifier($0)] }
+            let inSpare = spare.map { page.isDescendant(of: $0) } ?? false
+            guard place != nil || page.window != nil, !inSpare else { return nil }
+            return (page, place)
+        }
+    }
+
+    /// Every page's answer, asked together on the main actor (each router lives there): N slow pages cost one
+    /// deadline, not N.
+    private static func oracleAnswers(_ pages: [PageWebView], within deadline: Duration, clock: any Clock<Duration>)
+        async -> [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] {
+        await withTaskGroup(of: (ObjectIdentifier, Result<PageWebView.OracleStateAnswer?, PageError>).self) { group in
+            for page in pages {
+                let id = ObjectIdentifier(page)
+                group.addTask { @MainActor in
+                    do throws(PageError) {
+                        return (id, .success(try await page.oracleState(within: deadline, clock: clock)))
+                    } catch {
+                        return (id, .failure(error))
+                    }
+                }
+            }
+            var answers: [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] = [:]
+            for await (id, answer) in group { answers[id] = answer }
+            return answers
+        }
     }
 
     /// The view of each page tab and made agent tab, by its tab and pane (no lookup makes a view or starts acpmux).

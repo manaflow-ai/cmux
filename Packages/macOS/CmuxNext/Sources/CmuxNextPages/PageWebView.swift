@@ -70,7 +70,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
-    var loaded = false { didSet { loadState.set(loading: !loaded, page: self) } }
+    var loaded = false {
+        didSet {
+            loadState.set(loading: !loaded, page: self)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if loaded != oldValue { router.oracleStateChanged?() }
+            #endif
+        }
+    }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
     let loadState = PageLoadState()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
@@ -330,6 +337,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG || CMUX_BENCH_HOOKS
+        // The `webviews` facet's wait (p15-oracle-215) wakes when the page says its reading changed or it loads.
+        let oracleChanges = registry.oracleChanges
+        router.oracleStateChanged = { oracleChanges.signal() }
         noteCensusVisibility(false) // in no window yet (`debug.webui`)
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
