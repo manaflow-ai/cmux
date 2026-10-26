@@ -669,6 +669,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p10-stability-055: HomeFlightRecorder.policy, one lock for the flight recorder policy the app sets once at launch (CmuxNextHome HomeFlightRecording.install) and the vendored FlightRecorder reads statically after a send and on its dump queue. It replaces three nonisolated(unsafe) static vars (isEnabled, capturesWindow, logFolder), now computed accessors over it; MessagesLabHome global_mutable_statics -2 net. It goes when FlightRecorder takes its policy from the pane that owns it (an injected value) instead of a static."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-054..055: CmuxNextCompat StaticCodeValidityCache.process, SecStaticCodeCheckValidity answers kept per version of the code on disk (dev, inode, size, mtime, ctime). It serves five checks that were raw on main or the pool: the bundled acpmux team check, which about ten AcpmuxEnvironment.resolve sites in four packages reach (some on main), the CUA helper, the CEF load check, the rollback team read and the Chromium runtime installer (which takes it injected). The app warms the acpmux answer on its system lane at launch, so the resolves on main find it. It goes when AcpmuxEnvironment.resolve takes the check from the composition root."
     }
   ],
   "observer_wrappers": [

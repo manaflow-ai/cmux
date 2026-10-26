@@ -34,14 +34,18 @@ struct WebKitHTTPSignIn {
         let memory = memory, key = key, failures = failures, lanes = lanes
         let kind = BrowserPromptKind.credentials(host: space.host, realm: space.realm.flatMap { $0.isEmpty ? nil : $0 })
         ask(kind, space.host) { response in
-            if let memory, let lanes {
-                // task-owner: one Keychain write on the system lane; nothing waits on it
-                Task { _ = try? await lanes.runSystem(.bestEffort) { memory.record(response, for: key, failures: failures) } }
-            }
+            if let memory, let lanes { Self.record(response, in: memory, key: key, failures: failures, on: lanes) }
             guard let credential = BrowserHTTPAuth.urlCredential(for: response) else {
                 return completionHandler(.cancelAuthenticationChallenge, nil)
             }
             completionHandler(.useCredential, credential)
         }
+    }
+
+    /// Saves (a checked Remember) or forgets the answer on the system lane, from off the main actor.
+    private nonisolated static func record(_ response: BrowserPromptResponse, in memory: BrowserHTTPSignInMemory,
+                                           key: BrowserHTTPCredentialKey, failures: Int, on lanes: any MayBlockRunner) {
+        // task-owner: one Keychain write on the system lane; nothing waits on it
+        Task { _ = try? await lanes.runSystem(.bestEffort) { memory.record(response, for: key, failures: failures) } }
     }
 }

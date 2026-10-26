@@ -32,8 +32,7 @@ struct PasteField: View {
                         let value = secret
                         saving = true
                         // The Keychain write runs off the main thread; the field stays until it answers.
-                        Task {
-                            let failure = await model.saveKey(value, for: provider)
+                        model.saveKey(value, for: provider) { failure in
                             saving = false
                             if let failure { error = failure } else { close() }
                         }

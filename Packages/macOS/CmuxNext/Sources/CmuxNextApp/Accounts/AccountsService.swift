@@ -142,17 +142,30 @@ final class AccountsService: AccountsServices {
         openPage(url)
     }
 
-    /// The Keychain write runs on the system lane (it waits for securityd), never on main.
-    func saveKey(_ key: String, for provider: AIProvider) async throws {
-        if let showcaseMock { return try await showcaseMock.saveKey(key, for: provider) }
+    /// The Keychain write runs on the system lane (it waits for securityd), never on main; `done` gets its
+    /// error on main through the scheduler.
+    func saveKey(_ key: String, for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
+        if let showcaseMock { return showcaseMock.saveKey(key, for: provider, done: done) }
         let keys = keys
-        try await services.work.run(.userBlocking, mayBlock: .system) { try keys.save(key, for: provider) }
+        services.work.run(.userBlocking, mayBlock: .system) { Self.failure { try keys.save(key, for: provider) } }
+            .reply(on: services.mainWork, class: .visible, owner: "accounts.saveKey") { done($0) }
     }
 
-    func deleteSavedKey(for provider: AIProvider) async throws {
-        if let showcaseMock { return try await showcaseMock.deleteSavedKey(for: provider) }
+    func deleteSavedKey(for provider: AIProvider, done: @escaping @MainActor @Sendable ((any Error)?) -> Void) {
+        if let showcaseMock { return showcaseMock.deleteSavedKey(for: provider, done: done) }
         let keys = keys
-        try await services.work.run(.userBlocking, mayBlock: .system) { try keys.delete(for: provider) }
+        services.work.run(.userBlocking, mayBlock: .system) { Self.failure { try keys.delete(for: provider) } }
+            .reply(on: services.mainWork, class: .visible, owner: "accounts.deleteSavedKey") { done($0) }
+    }
+
+    /// A Keychain call's error, nil when it succeeded.
+    private nonisolated static func failure(_ body: () throws -> Void) -> (any Error)? {
+        do {
+            try body()
+            return nil
+        } catch {
+            return error
+        }
     }
 
     /// Types `line` and Return into a new terminal tab of the focused pane,

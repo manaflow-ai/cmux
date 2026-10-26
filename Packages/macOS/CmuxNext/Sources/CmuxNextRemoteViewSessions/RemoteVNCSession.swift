@@ -1,6 +1,6 @@
 public import AppKit
-public import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxVNC
 import CmuxVNCDemoServer
@@ -17,20 +17,23 @@ public final class RemoteVNCSession {
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
     /// The app's lanes: every Keychain call of the sign-in runs on their system lane, never on main.
-    private let lanes: any MayBlockRunner
-    /// The saved sign-in's read before a connect or the sign-in sheet (the newest one's only).
-    private var credentialRead: Task<Void, Never>?
+    private let work: BackgroundWork
+    /// Where a saved sign-in's read answers on main.
+    private let mainWork: MainWorkScheduler
+    /// The newest saved sign-in read: an answer from an older read, or one after `stop` or `close`, is dropped.
+    private var credentialRead = 0
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
 
-    /// `demoHost`: the reserved host name served by the loopback demo desktop; `lanes`: the app's lanes
-    /// (the Keychain reads and writes of the sign-in).
-    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String, lanes: any MayBlockRunner) {
+    /// `demoHost`: the reserved host name served by the loopback demo desktop; `work` and `mainWork`: the app's
+    /// lanes and main-thread scheduler (the Keychain reads and writes of the sign-in, and their answers).
+    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String, work: BackgroundWork, mainWork: MainWorkScheduler) {
         self.record = record
-        self.lanes = lanes
+        self.work = work
+        self.mainWork = mainWork
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
@@ -42,7 +45,6 @@ public final class RemoteVNCSession {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            credentialRead?.cancel()
             demoStart?.cancel()
             demo?.stop()
         }
@@ -53,11 +55,8 @@ public final class RemoteVNCSession {
         guard !closed else { return }
         guard let demo else {
             // The saved sign-in comes from the Keychain on the system lane; the connect follows it.
-            let store = store, endpoint = endpoint, lanes = lanes
-            credentialRead?.cancel()
-            credentialRead = Task { [weak self] in
-                let saved = (try? await lanes.runSystem(.userBlocking) { store.credentials(for: endpoint) }) ?? nil
-                guard let self, !closed, !Task.isCancelled else { return }
+            readSavedSignIn { [weak self] saved in
+                guard let self else { return }
                 source.connect(to: endpoint, credentials: saved ?? VNCCredentials())
             }
             return
@@ -83,14 +82,14 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
-        credentialRead?.cancel()
+        credentialRead += 1
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
-        credentialRead?.cancel()
+        credentialRead += 1
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -111,17 +110,22 @@ public final class RemoteVNCSession {
         guard !prompting else { return }
         prompting = true
         // The saved user name fills the sheet: read on the system lane, then the sheet shows.
-        let store = store, endpoint = endpoint, lanes = lanes
-        credentialRead?.cancel()
-        credentialRead = Task { [weak self, weak window] in
-            let saved = (try? await lanes.runSystem(.userBlocking) { store.credentials(for: endpoint) }) ?? nil
-            guard let self else { return }
-            guard !closed, !Task.isCancelled else {
-                prompting = false
-                return
-            }
-            presentSignIn(saved: saved, in: window)
+        readSavedSignIn(dropped: { [weak self] in self?.prompting = false }) { [weak self, weak window] saved in
+            self?.presentSignIn(saved: saved, in: window)
         }
+    }
+
+    /// Reads the saved sign-in on the system lane (a person waits for it) and gives it to `then` on main, unless
+    /// a newer read, `stop` or `close` came first; then `dropped` runs instead.
+    private func readSavedSignIn(dropped: @escaping @MainActor @Sendable () -> Void = {},
+                                 then: @escaping @MainActor @Sendable (VNCCredentials?) -> Void) {
+        credentialRead += 1
+        let read = credentialRead, store = store, endpoint = endpoint
+        work.run(.userBlocking, mayBlock: .system) { store.credentials(for: endpoint) }
+            .reply(on: mainWork, class: .visible, owner: "remoteVNC.savedSignIn") { [weak self] saved in
+                guard let self, !closed, read == credentialRead else { return dropped() }
+                then(saved)
+            }
     }
 
     private func presentSignIn(saved: VNCCredentials?, in window: NSWindow?) {
@@ -149,10 +153,9 @@ public final class RemoteVNCSession {
             }
             // Saved only once the host accepts them, so a typo never replaces a working sign-in; the
             // Keychain write runs on the system lane.
-            let store = store, endpoint = endpoint, lanes = lanes
+            let store = store, endpoint = endpoint, work = work
             source.connect(to: endpoint, credentials: credentials) {
-                // task-owner: one Keychain write; nothing waits on it
-                Task { _ = try? await lanes.runSystem(.bestEffort) { store.save(credentials, for: endpoint) } }
+                work.post(.bestEffort, mayBlock: .system) { store.save(credentials, for: endpoint) }
             }
         }
     }
