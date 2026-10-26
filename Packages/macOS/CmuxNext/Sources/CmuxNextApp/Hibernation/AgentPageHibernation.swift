@@ -53,6 +53,8 @@ final class AgentPageHibernation {
     var displace: (String) -> Void = { _ in }
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
+    /// Reports to the discard planner's last inputs (`debug.discards`); BrowserHibernation sets it.
+    var noteDiscard: (ContentDiscardPlanner.Event) -> Void = { _ in }
     private(set) var releasedCount = 0
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
@@ -121,9 +123,13 @@ final class AgentPageHibernation {
             shown.insert(key)
             hiddenAt[key] = nil
             tabs.launchImages.drop(key)
+            noteDiscard(.shown(key, .agentPage))
+            // A released page shows again only once its tab built it anew.
+            noteDiscard(.woke(key))
         } else if tabs.existingView(key) != nil {
             shown.remove(key)
             hiddenAt[key] = now()
+            noteDiscard(.hidden(key, .agentPage))
             replan()
         }
     }
@@ -132,6 +138,7 @@ final class AgentPageHibernation {
         shown.remove(key)
         hiddenAt[key] = nil
         store()?.launchImages.drop(key)
+        noteDiscard(.removed(key))
     }
 
     /// Releases every page that is due and arms one deadline for the next.
@@ -139,13 +146,17 @@ final class AgentPageHibernation {
         guard let tabs = store() else { return }
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
+        let current = now()
         guard let threshold = HibernationPlanner.threshold(setting, pressure: pressure).map({ max($0, Self.minimumHidden) }) else {
+            for (key, at) in hiddenAt { noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, .protected(.disabled))) }
             deadline.cancel()
             return
         }
-        let current = now()
         var next: Double?
-        for (key, at) in hiddenAt where !releasing.contains(key) && keepsPage(key, onScreen: false) == nil {
+        for (key, at) in hiddenAt {
+            let kept = keepsPage(key, onScreen: false)
+            noteDiscard(.planned(key, .agentPage, hiddenFor: (current - at).seconds, kept.map(CanDiscardResult.init) ?? .eligible))
+            guard !releasing.contains(key), kept == nil else { continue }
             let remaining = threshold - (current - at).seconds
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
@@ -228,6 +239,8 @@ final class AgentPageHibernation {
             tabs.stopCustomizationWhenUnused()
             hiddenAt[key] = nil
             releasedCount += 1
+            noteDiscard(.discarding(key, .agentPage, DiscardReason(pressure: pressure, user: false)))
+            noteDiscard(.discarded(key))
             logger.info("released agent page \(key, privacy: .public)")
         }
     }

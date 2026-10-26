@@ -18,6 +18,7 @@ enum DebugHibernationControl {
                 hibernation.pressureDidChange(level)
                 return .value(.object(["pressure": .string(hibernation.pressure.rawValue)]))
             },
+            DebugDiscardsControl.method(services),
         ]
     }
 }

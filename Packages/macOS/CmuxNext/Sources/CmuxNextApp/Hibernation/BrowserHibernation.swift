@@ -91,8 +91,10 @@ final class BrowserHibernation {
     private(set) var hibernatedCount = 0
     /// Hidden agent chat pages, on the same setting and pressure.
     var agentPages: AgentPageHibernation? {
-        didSet { agentPages?.update(setting: setting, pressure: pressure) }
+        didSet { agentPages?.update(setting: setting, pressure: pressure); agentPagesDidChange() }
     }
+    /// The discard planner's last inputs for browser and agent pages (`debug.discards`).
+    var discards = ContentDiscardPlanner(tracking: .browser)
     var restoredCount = 0
     /// Each pane's tab order and shown tab, from its `PaneController`.
     private var neighbors = NeighborTabs()
@@ -241,6 +243,7 @@ final class BrowserHibernation {
     func tabDidHide(_ key: String) {
         guard cache?.browsers[key] != nil else { return }
         hiddenAt[key] = .now
+        noteDiscard(.hidden(key, .browser))
         replan()
     }
 
@@ -256,6 +259,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
         noteFocus(key, at: .now)
+        if cache?.browsers[key] != nil { noteDiscard(.shown(key, .browser)) }
     }
 
     /// Records a show of tab `key` for its ranking, dropping shows older than `focusWindow`.
@@ -306,6 +310,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
+        noteDiscard(.removed(key))
     }
 
     // MARK: Neighbors
@@ -422,6 +427,7 @@ final class BrowserHibernation {
         }
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
         exemptions.merge(plan.exemptions) { $1 }
+        notePlannedDiscards(hiddenAt, now: now)
         if !plan.due.isEmpty { refreshMemoryIfNeeded() }
         for key in plan.due { prepare(key) }
         if let next = [plan.nextCheck, graceEnds].compactMap(\.self).min() {
@@ -504,6 +510,7 @@ final class BrowserHibernation {
             return
         }
         frozen.insert(key)
+        noteDiscard(.frozen(key, true))
         cache?.trace(key, "frozen")
     }
 
@@ -511,6 +518,7 @@ final class BrowserHibernation {
     /// woken early as a neighbor or hovered tab: `prewarm`).
     private func thaw(_ key: String, prewarm: Bool = false) {
         guard frozen.remove(key) != nil else { return }
+        noteDiscard(.frozen(key, false))
         if let tab = cache?.browsers[key]?.tab { freezer(tab)?.setFrozen(false) }
         if prewarm { prewarmedCount += 1 }
         cache?.trace(key, prewarm ? "prewarmed (thaw)" : "thawed")
@@ -555,6 +563,7 @@ final class BrowserHibernation {
     private func prepare(_ key: String, user: Bool = false) {
         guard let cache, let entry = cache.browsers[key], let source = entry.tab as? any BrowserHibernationSource,
               let generation = cache.lifecycle.record(key)?.generation, probing.insert(key).inserted else { return }
+        noteDiscard(.discarding(key, .browser, DiscardReason(pressure: pressure, user: user)))
         let tab = entry.tab
         // The probe and the history capture run script: a frozen page runs none.
         thaw(key)
@@ -636,6 +645,7 @@ final class BrowserHibernation {
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1
+        noteDiscard(.discarded(key))
         logger.info("hibernated \(key, privacy: .public) \(token.description, privacy: .public)")
     }
 
@@ -666,42 +676,6 @@ final class BrowserHibernation {
         }) ?? true
         if asks { askedBeforeUnload.insert(key) }
         return asks
-    }
-
-    // MARK: Probe
-
-    /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
-    /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
-    static func probe(_ tab: any BrowserTab) async -> PageProbe {
-        do {
-            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
-            }
-            guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
-            // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
-            let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            // A video in Picture in Picture plays on in its floating window, paused or muted alike.
-            let floating = tab.state.media?.isPictureInPicture == true
-            // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
-                             unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
-                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
-        } catch {
-            return unanswered(tab)
-        }
-    }
-
-    /// A page that did not answer. It used to count as playing, so a page too busy to answer
-    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
-    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
-    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
-    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
-    static func unanswered(_ tab: any BrowserTab) -> PageProbe {
-        let media = tab.state.media
-        let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
-        return PageProbe(playingMedia: playing, answered: false)
     }
 }
 

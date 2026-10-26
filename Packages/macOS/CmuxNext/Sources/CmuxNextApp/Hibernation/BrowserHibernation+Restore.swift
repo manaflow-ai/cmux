@@ -2,6 +2,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CoreGraphics
 import Foundation
 import Observation
@@ -85,6 +86,7 @@ extension BrowserHibernation {
         snapshots.remove(key)
         cache.previews.remove(key)
         restoredCount += 1
+        noteDiscard(.woke(key))
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible)
         timeLoad(key, page: page)
