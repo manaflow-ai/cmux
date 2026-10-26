@@ -74,9 +74,10 @@ public final class BackgroundWork: Sendable {
     let lanes: [LaneScheduler]
     let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
-    /// False after ``stopReportingRuns()``: items submitted later skip `onRan` and the clock.
+    /// False after ``stopReportingRuns()``: items submitted later skip `onRan`.
     private let reportsRuns = Atomic<Bool>(true)
-    /// The clock a block-shutdown item's run time is measured with (``blockShutdownLimit``).
+    /// The clock a block-shutdown task's run time is measured with (``blockShutdownLimit``); the lanes stamp their
+    /// items with it too.
     let uptimeNanos: @Sendable () -> UInt64
     // concurrency-allow: id counter, the shutdown count and the registered tasks, read and written synchronously by submitters, lane threads and finishing tasks (lock carve-out: counters and a dictionary, no I/O under it).
     let state = Mutex(DrainState())
@@ -122,10 +123,11 @@ public final class BackgroundWork: Sendable {
     ///   - hangs: watches each item's run on its lane thread for a hang, with the lane's
     ///     ``hangDeadline(_:)``; the wait for a slot is not watched. nil (the default) watches nothing.
     ///   - onRan: called on the lane thread after each item ran, with its lane, its priority and its start
-    ///     and end in `uptimeNanos` nanoseconds; default none, and then no item reads the clock for it. The
-    ///     startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it closes
-    ///     (``stopReportingRuns()``).
-    ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
+    ///     and end in `uptimeNanos` nanoseconds (the stamps the lane takes for its stats: no extra clock read);
+    ///     default none. The startup trace (CmuxNextLaunch's StartupTrace) records lane jobs with it until it
+    ///     closes (``stopReportingRuns()``).
+    ///   - uptimeNanos: the clock every item's queue wait and run time (``laneTimes(resetting:)``, `onRan`, a
+    ///     block-shutdown item's run) are measured with, in nanoseconds: three reads per lane item; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, filesWidths: FilesLaneWidths = .standard,
                             label: String = "com.cmuxterm.next.work",
@@ -151,7 +153,8 @@ public final class BackgroundWork: Sendable {
         self.label = label
         self.onQueued = onQueued
         self.onRan = onRan
-        self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+        let clock: @Sendable () -> UInt64 = uptimeNanos ?? { LaneStats.uptimeNanos() }
+        self.uptimeNanos = clock
         lanes = BlockingLane.allCases.map { lane in
             let traits: (policy: LaneScheduler.Policy, mayBlock: Bool, caps: [LaneCap: Int]) = switch lane {
             case .files: (.perPriority(widths: WorkPriority.allCases.map(filesWidths.width)), true, [:])
@@ -165,8 +168,31 @@ public final class BackgroundWork: Sendable {
             let compensation = lane == .system
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 compensation: compensation, hangWatching: watching, qosOverride: qosOverride)
+                                 compensation: compensation, hangWatching: watching, qosOverride: qosOverride,
+                                 clock: clock)
         }
+    }
+
+    /// Every lane's queue wait and run time per priority since launch or the last reset, lane by lane and highest
+    /// priority first (`debug.work`). Present in every build.
+    ///
+    /// - Parameter resetting: also zero them, in the same read: each counter is taken with one atomic exchange, so
+    ///   an item that ran during the read counts in this read or in the next, never in neither.
+    public func laneTimes(resetting: Bool = false) -> [LaneTimes] {
+        BlockingLane.allCases.flatMap { lanes[$0.rawValue].stats.snapshot(lane: $0, resetting: resetting) }
+    }
+
+    /// The longest queue-wait p99 of ``WorkPriority/userBlocking`` items over the lanes, in nanoseconds: how long the
+    /// work a person waits for sat behind other work (RUN-13 wants at most 2 ms). 0 before any such item ran. A hang
+    /// report's coarse counts carry it (CmuxNextApp's `WatchdogReporting.counts`).
+    public var userBlockingQueueWaitP99Nanos: UInt64 {
+        Self.userBlockingQueueWaitP99Nanos(in: laneTimes())
+    }
+
+    /// ``userBlockingQueueWaitP99Nanos`` of one ``laneTimes(resetting:)`` read, so a report that shows the lanes
+    /// shows a p99 from the same read.
+    public static func userBlockingQueueWaitP99Nanos(in times: [LaneTimes]) -> UInt64 {
+        times.filter { $0.priority == .userBlocking }.map { $0.wait.percentileNanos(0.99) }.max() ?? 0
     }
 
     /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
@@ -388,21 +414,17 @@ public final class BackgroundWork: Sendable {
         state.withLock { $0.takeID() }
     }
 
-    /// Items submitted from now on no longer call `onRan` or read the clock for it (one relaxed load per
-    /// item); items already queued still report. The startup trace calls it when it closes.
+    /// Items submitted from now on no longer call `onRan` (one relaxed load per item); items already queued still
+    /// report. The startup trace calls it when it closes.
     public func stopReportingRuns() {
         reportsRuns.store(false, ordering: .relaxed)
     }
 
-    /// The item's work, wrapped to report its run to `onRan` while runs are reported, at the level the lane ran it at.
-    private func reporting(_ work: @escaping @Sendable () -> Void, lane: BlockingLane) -> @Sendable (WorkPriority) -> Void {
-        guard let onRan, reportsRuns.load(ordering: .relaxed) else { return { _ in work() } }
-        let uptimeNanos = uptimeNanos
-        return { priority in
-            let start = uptimeNanos()
-            work()
-            onRan(lane, priority, start, uptimeNanos())
-        }
+    /// The item's run report to `onRan` while runs are reported, at the level the lane ran it at, with the start and
+    /// end stamps the lane took for its stats (no clock read of its own); nil otherwise.
+    private func runReport(lane: BlockingLane) -> (@Sendable (WorkPriority, UInt64, UInt64) -> Void)? {
+        guard let onRan, reportsRuns.load(ordering: .relaxed) else { return nil }
+        return { priority, start, end in onRan(lane, priority, start, end) }
     }
 
     /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
@@ -410,12 +432,13 @@ public final class BackgroundWork: Sendable {
     /// `finished` runs once the item ran or was abandoned, after its shutdown count dropped (a ``WorkSequence``
     /// starts its next item then).
     func makeJob(id: UInt64, lane: BlockingLane, shutdown: ShutdownBehavior,
-                 site: CallSite, work unreported: @escaping @Sendable () -> Void,
+                 site: CallSite, work body: @escaping @Sendable () -> Void,
                  abandoned: @escaping @Sendable () -> Void,
                  finished: @escaping @Sendable () -> Void = {}) -> LaneJob? {
-        let work = reporting(unreported, lane: lane)
+        let work: @Sendable (WorkPriority) -> Void = { _ in body() }
+        let report = runReport(lane: lane)
         guard shutdown == .blockShutdown else {
-            return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: finished)
+            return LaneJob(id: id, shutdown: shutdown, work: work, ran: report, abandoned: abandoned, done: finished)
         }
         let taken = state.withLock { state -> Bool in
             guard !state.drained else { return false }
@@ -426,11 +449,8 @@ public final class BackgroundWork: Sendable {
             blockShutdownRefused(site)
             return nil
         }
-        return LaneJob(id: id, shutdown: shutdown, work: { [self] priority in
-            let start = blockShutdownStarted()
-            work(priority)
-            blockShutdownEnded(site, since: start)
-        }, abandoned: abandoned, done: { [self] in
+        return LaneJob(id: id, shutdown: shutdown, work: work, ran: blockShutdownRan(site, then: report),
+                       abandoned: abandoned, done: { [self] in
             blockItemFinished()
             finished()
         })
