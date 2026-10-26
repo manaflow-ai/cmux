@@ -20,22 +20,80 @@ const SANDBOX_LATE_CREATE_MS = 60_000;
  * can never separate a secret from the prefix or header that redaction recognizes it by. A line
  * longer than the window is dropped, with the rest of it as it arrives.
  */
-const KEY_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY/g;
-const KEY_END = /-----END [A-Z0-9 ]*PRIVATE KEY/g;
-/** How much of a dropped line (escapes removed) is kept to find a key marker split across chunks. */
+// A marker is BEGIN or END, then anything on that line, then PRIVATE KEY: whatever sits between
+// (escape remnants, junk) can't hide one.
+const KEY_BEGIN = /-----BEGIN[^\n]*?PRIVATE KEY/g;
+const KEY_END = /-----END[^\n]*?PRIVATE KEY/g;
+/** How much of a dropped line is kept to find a key marker split across chunks. */
 const KEY_MARKER_WINDOW = 256;
-/** A terminal escape sequence, whole, at the start of the text. */
-const WHOLE_ESCAPE = /^(?:\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_])/;
-/** The longest unfinished escape sequence carried to the next chunk; a longer one is dropped. */
+/** A whole CSI sequence or two-character escape at the start of the text. */
+const SHORT_ESCAPE = /^(?:\u001b\[[0-?]*[ -/]*[@-~]|\u001b[@-Z\\-_])/;
+/** A CSI sequence still waiting for its final byte. */
+const UNFINISHED_CSI = /^\u001b\[[0-?]*[ -/]*$/;
+/** The longest unfinished CSI sequence carried to the next chunk; a longer one is dropped. */
 const ESCAPE_CARRY_MAX = 4_096;
+/** A line ending in a secret-named label with its value still to come (`PASSWORD:`). */
+const SECRET_LABEL_AT_END = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|_auth|\bsig)["']?\s*[:=]\s*$/i;
 
-/** `text` split before an escape sequence it ends in the middle of (carried to the next chunk). */
-function splitUnfinishedEscape(text: string): [string, string] {
-  const start = text.lastIndexOf("\u001b");
-  if (start < 0) return [text, ""];
-  const rest = text.slice(start);
-  if (WHOLE_ESCAPE.test(rest) || rest.length > ESCAPE_CARRY_MAX) return [text, ""];
-  return [text.slice(0, start), rest];
+/**
+ * Terminal output with its escape sequences removed as a terminal reads them, across chunks
+ * and lines: an OSC sequence (`ESC ]`) swallows everything, newlines included, until its BEL or
+ * ST, however long; a CSI sequence or escape a chunk ends in the middle of waits for the rest.
+ * What the filter returns is the text a person would see, so markers and labels split by an
+ * escape read whole.
+ */
+export class TerminalTextFilter {
+  private carry = "";
+  private inOsc = false;
+
+  push(chunk: string): string {
+    const text = this.carry + chunk;
+    this.carry = "";
+    let out = "";
+    let at = 0;
+    while (at < text.length) {
+      if (this.inOsc) {
+        const end = oscEnd(text, at);
+        if (end < 0) {
+          // An ESC at the very end may start the ST that ends the sequence.
+          if (text.endsWith("\u001b")) this.carry = "\u001b";
+          return out;
+        }
+        this.inOsc = false;
+        at = end;
+        continue;
+      }
+      const esc = text.indexOf("\u001b", at);
+      if (esc < 0) return out + text.slice(at);
+      out += text.slice(at, esc);
+      const rest = text.slice(esc);
+      if (rest.startsWith("\u001b]")) {
+        this.inOsc = true;
+        at = esc + 2;
+        continue;
+      }
+      const whole = SHORT_ESCAPE.exec(rest);
+      if (whole) {
+        at = esc + whole[0].length;
+        continue;
+      }
+      if (rest.length === 1 || (rest.length <= ESCAPE_CARRY_MAX && UNFINISHED_CSI.test(rest))) {
+        this.carry = rest;
+        return out;
+      }
+      // A lone ESC that starts no sequence: dropped.
+      at = esc + 1;
+    }
+    return out;
+  }
+}
+
+/** Where the OSC sequence that `text` is inside of from `from` ends (after BEL or ST), or -1. */
+function oscEnd(text: string, from: number): number {
+  const bel = text.indexOf("\u0007", from);
+  const st = text.indexOf("\u001b\\", from);
+  if (bel < 0) return st < 0 ? -1 : st + 2;
+  return st < 0 || bel < st ? bel + 1 : st + 2;
 }
 
 function lastIndexOf(pattern: RegExp, text: string): number {
@@ -48,16 +106,17 @@ export class OutputTail {
   private kept = "";
   private pending = "";
   private skippingLine = false;
-  /** The end of the text dropped so far on the line being skipped, escapes removed. */
+  /** The end of the text dropped so far on the line being skipped. */
   private skippedTail = "";
-  /** An escape sequence the last dropped chunk ended in the middle of. */
-  private escapeCarry = "";
   private inKeyBlock = false;
+  /** The last kept line ended in a secret-named label: the next non-blank line is its value. */
+  private secretNext = false;
+  private readonly terminal = new TerminalTextFilter();
 
   constructor(private readonly handles: () => readonly (string | null | undefined)[] = () => []) {}
 
   append(chunk: string): void {
-    let next = chunk;
+    let next = this.terminal.push(chunk);
     if (this.skippingLine) {
       const end = next.indexOf("\n");
       this.skip(end < 0 ? next : next.slice(0, end));
@@ -65,7 +124,6 @@ export class OutputTail {
       next = next.slice(end + 1);
       this.skippingLine = false;
       this.skippedTail = "";
-      this.escapeCarry = "";
     }
     this.pending += next;
     let newline = this.pending.indexOf("\n");
@@ -86,12 +144,8 @@ export class OutputTail {
    * whose BEGIN line was dropped must not have its body kept.
    */
   private skip(text: string): void {
-    // Markers are matched on text with escapes removed, carried across chunks in that form, so
-    // no run of escapes can push half a marker out of the window; an escape a chunk ends in the
-    // middle of waits for the rest of it.
-    const [whole, carry] = splitUnfinishedEscape(this.escapeCarry + text);
-    this.escapeCarry = carry;
-    const scan = this.skippedTail + stripTerminalEscapes(whole);
+    // The terminal filter already removed escapes, so a marker split across chunks is whole here.
+    const scan = this.skippedTail + stripTerminalEscapes(text);
     const begin = lastIndexOf(KEY_BEGIN, scan);
     const end = lastIndexOf(KEY_END, scan);
     if (begin > end) this.inKeyBlock = true;
@@ -104,7 +158,7 @@ export class OutputTail {
 
   private complete(raw: string): void {
     // A private key's lines are dropped from its BEGIN line through its END line, read with
-    // terminal escapes and control characters removed so neither can hide the markers.
+    // control characters removed (the terminal filter already took the escapes out).
     const line = stripTerminalEscapes(raw);
     if (lastIndexOf(KEY_BEGIN, line) >= 0) this.inKeyBlock = true;
     if (this.inKeyBlock) {
@@ -114,7 +168,41 @@ export class OutputTail {
       }
       return;
     }
+    // An END marker with no BEGIN seen (its header hidden): take back the body lines kept above it.
+    if (lastIndexOf(KEY_END, line) >= 0) {
+      this.dropKeyBody();
+      this.keep("[redacted private key]\n");
+      return;
+    }
+    // A value printed on the line after its label (`PASSWORD:` then the value) is redacted
+    // whole; the label is state here, so evicting its line can't separate the two.
+    if (this.secretNext && line.trim()) {
+      this.secretNext = false;
+      this.keep("[redacted]\n");
+      return;
+    }
+    if (SECRET_LABEL_AT_END.test(line.trimEnd())) this.secretNext = true;
     this.keep(redactReceiptText(line, this.handles()));
+  }
+
+  /**
+   * Remove the kept lines that end in a key body: base64 lines back to (and with) the line that
+   * holds a BEGIN, or as far as the run of base64 lines goes.
+   */
+  private dropKeyBody(): void {
+    const lines = this.kept.split("\n");
+    const last = lines.pop() ?? "";
+    let cut = lines.length;
+    while (cut > 0) {
+      const line = lines[cut - 1] ?? "";
+      if (line.includes("-----BEGIN")) {
+        cut -= 1;
+        break;
+      }
+      if (!/^[A-Za-z0-9+/=]{16,}\s*$/.test(line)) break;
+      cut -= 1;
+    }
+    this.kept = [...lines.slice(0, cut), last].join("\n");
   }
 
   private keep(line: string): void {
@@ -127,7 +215,9 @@ export class OutputTail {
 
   toString(): string {
     // The unfinished last line is redacted too; an unfinished key block shows only its marker.
-    const tail = this.inKeyBlock ? "[redacted private key]" : redactReceiptText(this.pending, this.handles());
+    const tail = this.inKeyBlock
+      ? "[redacted private key]"
+      : this.secretNext && this.pending.trim() ? "[redacted]" : redactReceiptText(this.pending, this.handles());
     return this.kept + tail;
   }
 }

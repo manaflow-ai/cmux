@@ -309,6 +309,19 @@ describe("sandbox run lifecycle", () => {
     expect(longEscapes).toBe("[redacted private key]\ndone\n");
     const halfEscape = tail([pad, pad, escapedPem.slice(0, escapeCut), escapedPem.slice(escapeCut), "done\n"]);
     expect(halfEscape).toBe("[redacted private key]\ndone\n");
+    // An OSC sequence swallows text, newlines included, until its BEL: a marker split by one
+    // across lines reads whole, and a header an OSC hid still takes the body with it.
+    const oscSplit = pem.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIV\u001b]0;title\n\u0007ATE KEY-----");
+    expect(tail(["log\n", oscSplit, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
+    const hiddenHeader = pem.replace("-----BEGIN PRIVATE KEY-----\n", "-----BEGIN \u001b]0;PRIVATE KEY-----\n\u0007");
+    const hidden = tail(["log\n", hiddenHeader, "done\n"]);
+    expect(hidden).not.toContain(body);
+    expect(hidden).toBe("log\n[redacted private key]\ndone\n");
+    // A value on the line after its label is redacted, however far the label scrolled away.
+    expect(tail(["PASSWORD:\n", "hunter2\n", "after\n"])).toBe("PASSWORD:\n[redacted]\nafter\n");
+    const scrolled = tail(["export API_KEY=\n", "\n".repeat(70_000), "hunter2\n", "after\n"]);
+    expect(scrolled).not.toContain("hunter2");
+    expect(scrolled.endsWith("[redacted]\nafter\n")).toBe(true);
   });
 
   test("a sandbox journals its states, never its raw terminal output", () => {
