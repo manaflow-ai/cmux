@@ -31,6 +31,8 @@ public final class BackdropImageStore {
     private var images: [Key: NSImage] = [:]
     private var loads: [Key: Task<Decoded?, Never>] = [:]
     private var warming: [Task<Void, Never>] = []
+    /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
+    private var desktopGeneration = 0
 
     private struct Key: Hashable {
         let id: String
@@ -93,6 +95,16 @@ public final class BackdropImageStore {
         return selection.thumbnailURL
     }
 
+    /// Drops the decoded Desktop Wallpaper once the desktop has moved on to `generation`, so the
+    /// next window to ask decodes the new picture; every later call for the same generation keeps
+    /// what that first reload decoded.
+    func forgetDesktopPicture(olderThan generation: Int) {
+        guard generation > desktopGeneration else { return }
+        desktopGeneration = generation
+        images = images.filter { $0.key.id != BackdropSelection.desktopID }
+        loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
+    }
+
     /// Starts loading `selection` so the first window that shows it finds it decoded.
     public func prewarm(_ selection: BackdropSelection?, texture: BackdropTexture = .default) {
         let dark = NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -118,6 +130,7 @@ public final class BackdropImageStore {
             if let image = images[key] { return image }
         }
         let load: Task<Decoded?, Never>
+        let generation = desktopGeneration
         if let running = loads[key] {
             load = running
         } else {
@@ -129,7 +142,11 @@ public final class BackdropImageStore {
             loads[key] = load
         }
         let decoded = await load.value
-        loads[key] = nil
+        if loads[key] == load { loads[key] = nil }
+        // The desktop moved on while this decoded: its picture is stale, so load the new one.
+        if key.id == BackdropSelection.desktopID, generation != desktopGeneration {
+            return await image(selection, texture: texture, dark: dark)
+        }
         if let image = images[key] { return image }
         guard let decoded else { return nil }
         if decoded.rendered { renderCount += 1 }
