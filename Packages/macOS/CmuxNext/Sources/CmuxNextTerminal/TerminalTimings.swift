@@ -54,8 +54,9 @@ public struct TerminalTimings {
         report(.nanoseconds(Int64(clamping: elapsed)))
     }
 
-    /// Runs `ghostty_init` in `body` inside its always-on launch interval (`launch.ghostty_init`, p08-startup-068).
-    nonisolated static func ghosttyInit<Result>(_ body: () -> Result) -> Result { LaunchSignposts().measure(.ghosttyInit, body) }
+    /// Begins and ends `ghostty_init`'s always-on launch interval (`launch.ghostty_init`, p08-startup-068).
+    nonisolated static func ghosttyInitBegan() { LaunchSignposts().begin(.ghosttyInit) }
+    nonisolated static func ghosttyInitEnded() { LaunchSignposts().end(.ghosttyInit) }
 
     /// Runs `ghostty_app_new` in `body` inside its always-on launch interval (`launch.ghostty_app_new`).
     static func ghosttyAppNew<Result>(_ body: () -> Result) -> Result { LaunchSignposts().measure(.ghosttyAppNew, body) }

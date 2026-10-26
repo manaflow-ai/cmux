@@ -72,8 +72,8 @@ public struct LaunchThreadCensus: Sendable, Equatable {
 
     /// The launch values, in a fixed order: every thread, the runtime threads, libghostty's threads.
     public var values: [(name: String, value: UInt64)] {
-        [(Self.threadsValue, UInt64(threads)), (Self.runtimeThreadsValue, UInt64(runtimeThreads)),
-         (Self.ghosttyThreadsValue, UInt64(libraries["GhosttyKit", default: 0]))]
+        [(Self.threadsValue, UInt64(clamping: threads)), (Self.runtimeThreadsValue, UInt64(clamping: runtimeThreads)),
+         (Self.ghosttyThreadsValue, UInt64(clamping: libraries["GhosttyKit", default: 0]))]
     }
 }
 #endif

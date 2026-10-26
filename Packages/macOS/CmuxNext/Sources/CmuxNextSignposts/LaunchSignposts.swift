@@ -120,9 +120,19 @@ public nonisolated struct LaunchSignposts: Sendable {
 
     /// Runs `body` inside `step`'s interval and returns its result.
     public func measure<Result>(_ step: Step, _ body: () throws -> Result) rethrows -> Result {
-        let state = signposter.beginInterval(step.name, id: step.signpostID)
-        defer { signposter.endInterval(step.name, state) }
+        begin(step)
+        defer { end(step) }
         return try body()
+    }
+
+    /// Begins `step`'s interval; ``end(_:)`` ends it (the fixed id needs no state between the two).
+    public func begin(_ step: Step) {
+        _ = signposter.beginInterval(step.name, id: step.signpostID)
+    }
+
+    /// Ends the interval ``begin(_:)`` began for `step`.
+    public func end(_ step: Step) {
+        signposter.endInterval(step.name, .beginState(id: step.signpostID))
     }
 
     /// Launch signposts under ``SignpostCategory/subsystem``, category ``SignpostCategory/launch``.

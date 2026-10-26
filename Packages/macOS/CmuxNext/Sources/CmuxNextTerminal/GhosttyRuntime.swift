@@ -193,9 +193,11 @@ public final class GhosttyRuntime {
         let environment = ProcessEnvironmentGuard.process
         if !environment.isFrozen { GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.resourcesDirectory(), environmentGuard: environment) }
         environment.freeze()
+        TerminalTimings.ghosttyInitBegan()
+        defer { TerminalTimings.ghosttyInitEnded() }
         // SAFETY: unsafeArgv is the process's argv, argc entries long and valid for the
         // process's lifetime; ghostty_init only reads it.
-        return TerminalTimings.ghosttyInit { unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0 }
+        return unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
     }()
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
