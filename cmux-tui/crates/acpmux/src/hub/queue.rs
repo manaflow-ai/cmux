@@ -755,7 +755,8 @@ impl Hub {
                         waiting.remove_turn(turn_id);
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it).
+                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
+                    // kept a person's own (`author.rs`).
                     "queue_updated" => {
                         if let Some(q) = waiting.first_of_turn(turn_id) {
                             for k in [
@@ -778,6 +779,10 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                            }
+                            if let Some(p) = e.msg.pointer("/_meta/provenance") {
+                                let kept = json!({"provenance": p});
+                                crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
                             }
                             // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {
@@ -849,7 +854,7 @@ impl Hub {
             // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
             let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
             let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
-            let supersede = e.msg.get("supersede").and_then(Value::as_str).map(str::to_owned);
+            let supersede = crate::author::restored_supersede(&e.msg).map(str::to_owned);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
