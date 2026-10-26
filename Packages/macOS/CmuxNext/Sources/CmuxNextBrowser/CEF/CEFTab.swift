@@ -6,8 +6,9 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// A Chromium tab (CEF fork, Chrome style). Its page is a child window that
-/// tracks `contentView` (`.childWindow` presentation). The Chromium browser
+/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that
+/// tracks `contentView` (`.childWindow` presentation); in host mode it is the pane's
+/// `ChromiumHostPageView` inside `contentView` (`.inView`). The Chromium browser
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
@@ -15,7 +16,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
-    public let presentation: BrowserPresentation = .childWindow
+    /// `.childWindow` in process, where the fork's page window tracks `contentView`; `.inView` in
+    /// host mode, where the page is a view in the pane (task 028 of
+    /// plans/cmux-next/chrome-parity/p01-process.md). The backend is fixed for the process.
+    public var presentation: BrowserPresentation { host.isHostMode ? .inView : .childWindow }
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?

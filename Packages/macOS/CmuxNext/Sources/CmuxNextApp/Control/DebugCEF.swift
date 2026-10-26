@@ -10,9 +10,11 @@ import Darwin
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
 /// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
 /// runtime came from (`runtime`: Chromium on demand) and the WebKit
-/// fallbacks so far, the external pump's counters (`pump`) and what the
-/// fork's page tracker read from host views (`tracker`). Helper
-/// processes are separate; measure them with `ps`.
+/// fallbacks so far, where Chromium's browser process runs (`backend`:
+/// `inProcess` or `host`) and, in process only, the external pump's counters
+/// (`pump`), what the fork's page tracker read from host views (`tracker`)
+/// and the page windows over each DevTools tab (`devtools[].child_windows`).
+/// Helper processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
     static func report(_ services: AppServices) -> JSONValue {
@@ -45,10 +47,15 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        let backend = services.chromiumRuntime.backend
+        object["backend"] = .string(backend.rawValue)
         object["runtime"] = runtime(services.chromiumRuntime)
-        object["devtools"] = .array(devTools(services))
-        if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
-        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        object["devtools"] = .array(devTools(services, pageWindows: ChildPageGeometry.hasPageWindows(backend)))
+        // In host mode the pump and the page tracker run in the Chromium Host, not here.
+        if backend == .inProcess {
+            if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+            object["tracker"] = trackerReport(services.cache.cef.trackerStats)
+        }
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -57,10 +64,11 @@ enum DebugCEF {
     }
 
     /// Per shown Chromium tab: its DevTools state, the page and docked
-    /// DevTools areas and the Chromium child windows over the tab (screen
-    /// coordinates, AppKit origin), so a check can see that the DevTools
-    /// window sits exactly over its area.
-    private static func devTools(_ services: AppServices) -> [JSONValue] {
+    /// DevTools areas and, when Chromium's pages are child windows
+    /// (`pageWindows`, in process), the Chromium child windows over the tab
+    /// (screen coordinates, AppKit origin), so a check can see that the
+    /// DevTools window sits exactly over its area.
+    private static func devTools(_ services: AppServices, pageWindows: Bool) -> [JSONValue] {
         var out: [JSONValue] = []
         for controller in services.windows.controllers {
             guard let window = controller.window else { continue }
@@ -81,12 +89,14 @@ enum DebugCEF {
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
                     object["devtools_frame"] = frames.devTools.map(rect) ?? .null
-                    let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
-                    let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
-                    object["child_windows"] = .array(children.map { child in
-                        .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
-                                 "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
-                    })
+                    if pageWindows {
+                        let content = frames.devTools.map { frames.page.union($0) } ?? frames.page
+                        let children = WindowOverlayLayer.contentChildWindows(of: window).filter { $0.frame.intersects(content) }
+                        object["child_windows"] = .array(children.map { child in
+                            .object(["frame": rect(child.frame), "devtools": .bool(tab.devToolsContains(window: child)),
+                                     "key": .bool(child.isKeyWindow), "visible": .bool(child.isVisible)])
+                        })
+                    }
                 }
                 out.append(.object(object))
             }

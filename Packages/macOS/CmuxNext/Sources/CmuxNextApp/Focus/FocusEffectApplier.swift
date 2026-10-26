@@ -118,14 +118,14 @@ final class FocusEffectApplier: FocusEffectApplying {
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
-            // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
-            if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
+            // An agent page in Chromium takes the keys like a Chromium page, in either backend.
+            if let page = TabContent.agent(view).chromiumTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
-            // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
-            if let page = TabContent.page(view).childWindowTab { return focusPage(page, in: window) }
+            // A page in Chromium takes the keys like a Chromium browser tab, in either backend.
+            if let page = TabContent.page(view).chromiumTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
             // the same rule as a conversation tab; its page view itself takes no keys.
@@ -258,7 +258,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func setPageFocus(_ page: any BrowserTab, _ focused: Bool) {
         page.setFocused(focused)
         InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
-                                                                      engine: page.presentation == .childWindow ? "chromium" : "webkit"))
+                                                                      engine: page.engineKind == .cef ? "chromium" : "webkit"))
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {
