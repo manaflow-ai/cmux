@@ -29,7 +29,7 @@ export default componentEntry<Props>({
         rows: [user("Add retries", 1)],
       });
       return (
-        <div style={{ padding: "var(--space-4)" }}>
+        <div className="acpmux-shell" style={{ display: "block", padding: "var(--space-4)" }}>
           <Composer
             handle={handle}
             snapshot={snapshot}
