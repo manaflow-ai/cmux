@@ -101,9 +101,14 @@ TOOLING_PATHS = re.compile(
     r"codebase-health|every-action|release-notes|check-release-notes)[\w.-]*$")
 
 
+# Even there, a script that builds, bundles, embeds or signs what ships is not tooling
+# (scripts/ci/cmux-remote-browser-host-build.sh, ensure-web-bundles.sh); its tests still are.
+SHIPPING_SCRIPTS = re.compile(r"^(?!.*(?:/tests?/|\.test\.))(?:webviews/)?scripts/.*(?:build|bundle|embed|sign|notar)[^/]*$", re.I)
+
+
 def tooling_only(paths):
     """True when a commit touches at least one file and every one is CI or tooling (TOOLING_PATHS)."""
-    return bool(paths) and all(TOOLING_PATHS.search(path) for path in paths)
+    return bool(paths) and all(TOOLING_PATHS.search(p) and not SHIPPING_SCRIPTS.search(p) for p in paths)
 
 
 # "area words: rest" after the conventional type: "cmux NEXT perf-split: review: …", "cmux-next strip: …".
@@ -480,11 +485,13 @@ def span_commits(since, head, limit=MAX_CHANGES):
         if sha:
             commits.append((sha, subject, author))
     paths, current = {sha: [] for sha, _, _ in commits}, None
-    # "-z --name-only": each commit's hash, then "\n" and its files, every field ended by NUL.
-    for field in git("log", "--no-merges", "-z", "--name-only", "--format=%H", span).split("\0"):
+    # "-z --name-only": each commit's marked hash, then "\n" and its files, every field ended by NUL.
+    # The marker (\x01) keeps a file named like a hash from passing for a commit.
+    for field in git("log", "--no-merges", "-z", "--name-only", "--format=%x01%H%x01", span).split("\0"):
         name = field[1:] if field.startswith("\n") else field
-        if name in paths:
-            current = name
+        marked = name[1:-1] if len(name) == 42 and name[0] == name[-1] == "\x01" else None
+        if marked in paths:
+            current = marked
         elif name and current:
             paths[current].append(name)
     return [(subject, author, paths[sha]) for sha, subject, author in commits if subject.strip()][:limit]

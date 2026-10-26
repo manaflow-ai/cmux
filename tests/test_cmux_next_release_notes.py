@@ -248,9 +248,12 @@ class ReleaseNotesTests(unittest.TestCase):
         since = self.head
         self.touch("fix: rows \x1e keep \x1f order (#9101)", "webviews/src/pages/sidebar/A B.tsx")
         self.touch("fix: tabs keep their names (#9102)", "scripts/ci/odd\nname.py", "tests/odd\tname.py")
+        # A file named like the next commit's hash cannot take that commit's files.
+        self.touch("fix: panes keep their size (#9103)", "tests/" + self.head)
         notes = self.build(since, build="11")
-        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]], [(9102, True), (9101, False)])
-        self.assertEqual(len(notes["changes"]), 2)
+        self.assertEqual([(i["pr"], i.get("internal", False)) for i in notes["items"]],
+                         [(9103, True), (9102, True), (9101, False)])
+        self.assertEqual(len(notes["changes"]), 3)
 
     def test_tooling_paths(self):
         import importlib.util
@@ -262,7 +265,8 @@ class ReleaseNotesTests(unittest.TestCase):
                       ["docs/ci/runners.md", "AGENTS.md"], ["scripts/cmux-next/perf-cron.py"],
                       ["scripts/install-git-hooks.sh"], ["scripts/cmux-next/guardrails.py"],
                       ["scripts/cmux-next/bench_launch.py"], ["webviews/scripts/check-glass-never-opaque.ts"], ["Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/A.swift"],
-                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"]):
+                      ["release-notes/next/highlights/x.md"], ["webviews/src/pages/changelog/changelog.gallery.ts"],
+                      ["scripts/ci/tests/ensure-web-bundles.test.sh"]):
             self.assertTrue(notes.tooling_only(paths), paths)
         for paths in ([], ["webviews/src/pages/changelog/UpdateSurfaces.tsx", "webviews/test/updated-card-summary.test.tsx"],
                       ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/UpdateHighlights.swift"],
@@ -271,7 +275,9 @@ class ReleaseNotesTests(unittest.TestCase):
                       ["scripts/cmux-next/build-agent-pane-web.sh"], ["scripts/build-sign-upload.sh"],
                       # The Embed CEF phase builds the browser from these.
                       ["scripts/cmux-next/fetch-ublock.sh"], ["scripts/cmux-next/merge-cef-universal.sh"],
-                      ["scripts/cmux-next/cef-manifest.json"]):
+                      ["scripts/cmux-next/cef-manifest.json"],
+                      # CI builds and bundles what ships with these.
+                      ["scripts/ci/cmux-remote-browser-host-build.sh"], ["scripts/ci/ensure-web-bundles.sh"]):
             self.assertFalse(notes.tooling_only(paths), paths)
 
     def check(self, notes_path):
