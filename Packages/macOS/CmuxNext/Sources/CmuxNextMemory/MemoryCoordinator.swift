@@ -20,13 +20,19 @@ public import CmuxNextCompat
 /// - A repeated level makes no call at all.
 /// - A consumer that registers gets the current limit before its registration's init returns, and
 ///   joins the release when that limit is under 100 %.
+/// - A slice only unlinks: consumers put what they free in ``releaseSink``, which drops it on a
+///   utility-QoS queue. Each escalation to critical asks the sink for one heap relief when that
+///   level's release pass has finished; warning, a repeated level, or a level that leaves critical
+///   before the pass ends asks for none.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or polls: the
 /// pressure events and the slicer's frames are its only inputs.
 ///
 /// ```swift
-/// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
+/// let coordinator = MemoryCoordinator(
+///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, releaseSink: MemoryReleaseSink())
+/// let cache = PreviewImageCache(sink: coordinator.releaseSink)
 /// registration = MemoryConsumerRegistration(
 ///     name: "preview-images", traits: traits, consumer: cache, registry: coordinator)
 /// ```
@@ -59,11 +65,28 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         }
     }
 
+    /// Where consumers drop what a slice unlinked; the composition root hands it to each consumer.
+    public let releaseSink: MemoryReleaseSink
+
+    /// The footprint the managed consumers report now, in bytes: the share of the app's
+    /// `phys_footprint` a critical release can take back (DC10's baseline). Volatile bytes are left
+    /// out: the kernel takes them without asking and `phys_footprint` does not count them.
+    public var managedFootprintBytes: Int {
+        consumers.reduce(0) { total, registered in
+            guard registered.entry.traits.isManaged, let usage = registered.entry.liveConsumer?.memoryUsage else {
+                return total
+            }
+            return total + usage.footprintBytes
+        }
+    }
+
     private var policy: MemoryLimitPolicy
     /// The registered consumers in release order; released entries are dropped on each add and walk.
     private var consumers: [Registered] = []
     private var nextSequence: UInt64 = 0
     private var isSliceScheduled = false
+    /// Set by an escalation to critical; the slice that finishes that pass relieves the heap once.
+    private var isHeapReliefDue = false
     private let slicer: any MemoryReleaseSlicer
     private let clock: any Clock<Duration>
     private let budget: Duration
@@ -77,12 +100,14 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     ///   - slicer: Runs release slices on later frames.
     ///   - clock: Measures each slice's budget (`ContinuousClock` in the app, a fake in tests).
     ///   - sliceBudget: The time one slice may take.
+    ///   - releaseSink: Drops what consumers unlinked and relieves the heap, off the main thread.
     public init(
         pressure: MemoryPressureEvents,
         mode: MemorySaverMode = .medium,
         slicer: any MemoryReleaseSlicer,
         clock: any Clock<Duration> = ContinuousClock(),
-        sliceBudget: Duration = MemoryCoordinator.sliceBudget
+        sliceBudget: Duration = MemoryCoordinator.sliceBudget,
+        releaseSink: MemoryReleaseSink = MemoryReleaseSink()
     ) {
         let initial = pressure.currentLevel
         level = initial
@@ -91,6 +116,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         self.slicer = slicer
         self.clock = clock
         budget = sliceBudget
+        self.releaseSink = releaseSink
         pressureObservation = pressure.observe { [weak self] level in self?.kernelLevelDidChange(level) }
     }
 
@@ -122,7 +148,10 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         let newLevel = pressureOverride ?? kernelLevel
         guard newLevel != level else { return }
         level = newLevel
+        isHeapReliefDue = newLevel == .critical
         applyLimits()
+        // The relief follows the pass, so a critical level with nothing to release still gets one.
+        if isHeapReliefDue { scheduleSlice() }
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.
@@ -165,6 +194,11 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
                 scheduleSlice()
                 return
             }
+        }
+        // A consumer that registered during this slice may have asked for another; it ends the pass.
+        if isHeapReliefDue, !isSliceScheduled {
+            isHeapReliefDue = false
+            releaseSink.relieveHeap()
         }
     }
 
