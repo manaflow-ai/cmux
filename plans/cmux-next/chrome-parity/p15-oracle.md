@@ -936,6 +936,19 @@ refuses x-oracle-decimal, x-oracle-open-keys, x-oracle-id-unpatterned and the li
 snapshot-v1 uses, so every daemon case fails at canonicalization. Change: implement them (the schema's $comment
 says what each means). Test: `normalize.py --lint-schema` clean on snapshot-v1; `normalize.py --selftest`.
 
+**243 Driver builds fixture.repo.** Files: `driver_daemon.py`, `hermetic_env.py`, `oracle.py`, `gen_daemon_ops.py`,
+`git/_tuning.json`. Before the first step of a case with `fixture.repo`, driver_daemon.py runs `make_repo.build_for_case`
+for `tests/oracle/fixtures/git/<repo>.json` under the case root, with HOME the case's own folder (git_ops/worktree.rs writes
+`~/.cmux/worktrees`), and expands `$CASE_ROOT` in step params. The daemon product then offers `git_repo` (oracle.py
+PRODUCTS) and REPO_GAP goes away, so the 8 git operations are covered. Test: VM, the 18 git family cases green twice;
+`gen_daemon_ops.py --check`.
+
+**244 A case folder the project store takes.** Files: `hermetic_env.py`, `make_repo.py`, `git/_tuning.json`. Every case
+root is under /tmp and state/projects.rs refuses every path under /tmp, /var/folders and the home folder, so project.add's
+success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
+hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
+folder left after the run.
+
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
 **204 Streams suite + I8.** Files: `gen_streams.py`, `invariants.py`, `tests/oracle/corpus/streams/`. Event log facet via
