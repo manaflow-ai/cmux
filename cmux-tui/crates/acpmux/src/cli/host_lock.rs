@@ -313,5 +313,32 @@ fn try_flock(file: &File) -> bool {
     {
         let _ = file;
         false
+
+#[cfg(all(test, unix))]
+mod umask_tests {
+    use super::*;
+
+    /// The update lock's first step on a host whose umask is 002 (`host setup`,
+    /// `host update`) makes `~/.acpmux` owner-only, never the group-writable
+    /// home a later daemon start refuses (ergo-walk2, 2026-10-25), and its lock
+    /// files too; the rest of the script keeps the host's own umask.
+    #[test]
+    fn the_lock_step_makes_an_owner_only_home_under_umask_002() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = std::env::temp_dir().join(format!("acpmux-lock-umask-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let status = std::process::Command::new("sh")
+            .args(["-c", &format!("umask 002 && {} && : > \"$HOME/after\"", open_locks())])
+            .env("HOME", &home)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let mode = |p: &str| std::fs::metadata(home.join(p)).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(".acpmux"), 0o700);
+        assert_eq!(mode(".acpmux/update.lock"), 0o600);
+        assert_eq!(mode(".acpmux/update.lease"), 0o600);
+        assert_eq!(mode("after"), 0o664, "the host's umask holds after the lock step");
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
