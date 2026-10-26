@@ -43,10 +43,17 @@ fn socketpair() -> (std::os::unix::net::UnixStream, std::os::unix::net::UnixStre
 
 /// The child alarm terminates init or its executed program after twenty seconds.
 fn spawn(args: &[&str], fd: RawFd) -> Child {
+    spawn_with_extra(args, fd, None)
+}
+
+fn spawn_with_extra(args: &[&str], fd: RawFd, extra_fd: Option<RawFd>) -> Child {
     let exe = env!("CARGO_BIN_EXE_acpmux");
     let mut command = Command::new(exe);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     command.env("NO_PROXY", "*").env("no_proxy", "*");
+    if let Some(extra_fd) = extra_fd {
+        command.env("INHERITED_FD", extra_fd.to_string());
+    }
     // SAFETY: pre_exec only calls libc, allocates nothing, and runs between
     // fork and exec. The deliberate high fd leak verifies init's fd cleanup.
     // SIGALRM bounds the helper and executed program to twenty seconds.
@@ -57,6 +64,11 @@ fn spawn(args: &[&str], fd: RawFd) -> Child {
             }
             if libc::fcntl(fd, libc::F_DUPFD, 200) < 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            if let Some(extra_fd) = extra_fd {
+                if libc::fcntl(extra_fd, libc::F_SETFD, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             libc::signal(libc::SIGALRM, libc::SIG_DFL);
             libc::alarm(20);
@@ -241,4 +253,36 @@ fn helper_rejects_relative_program_after_ack() {
     ack(&parent);
     let status = child.wait().expect("wait helper");
     assert_eq!(status.code(), Some(125));
+}
+
+#[test]
+fn helper_closes_inherited_unix_socket_before_exec() {
+    let Some(py) = python() else { return };
+    let (parent, child_end) = socketpair();
+    let (extra_peer, extra_child) = socketpair();
+    let handoff_fd = child_end.as_raw_fd();
+    let inherited_fd = extra_child.as_raw_fd();
+    let mut child = spawn_with_extra(
+        &[
+            "__remote-sandbox-init",
+            "--handoff-fd",
+            &handoff_fd.to_string(),
+            "--proxy-port",
+            "0",
+            "--",
+            "/usr/bin/env",
+            py,
+            "-c",
+            "import os; assert not os.path.exists('/proc/self/fd/' + os.environ['INHERITED_FD'])",
+        ],
+        handoff_fd,
+        Some(inherited_fd),
+    );
+    drop(child_end);
+    drop(extra_child);
+    let _ = recv_handoff(&parent);
+    ack(&parent);
+    drop(parent);
+    drop(extra_peer);
+    assert!(child.wait().expect("wait helper").success());
 }
