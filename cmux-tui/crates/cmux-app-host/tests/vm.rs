@@ -224,6 +224,32 @@ mod apps {
         );
     }
 
+    /// Spins for `ms` of VM time.
+    const SPIN: &str = "(ms) => { const t = Date.now(); while (Date.now() - t < ms) {} return ms }";
+
+    /// The per-entry deadline alone lets an app run 249 ms every 50 ms; the CPU window (2 s of VM
+    /// time in any 10 s) stops it (leo-workspace design/app-store.md, the first primitive).
+    #[test]
+    fn entries_of_200_ms_every_50_ms_are_killed_within_the_cpu_window() {
+        let mut h = Harness::new(&app(r#"return { render: () => Text("ok") }"#));
+        let started = Instant::now();
+        let mut error = None;
+        for _ in 0..20 {
+            match h.vm.eval_json(&format!("({SPIN})(200)")) {
+                Ok(result) => assert_eq!(result, Ok(json!(200))),
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let error = error.expect("killed before 20 entries of 200 ms (4 s of VM time)");
+        assert!(started.elapsed() < Duration::from_secs(10), "within the window");
+        assert!(matches!(error, VmError::Fatal { .. }), "{error:?}");
+        assert!(h.vm.dead().is_some());
+    }
+
     #[test]
     fn memory_past_the_limit_kills_only_its_vm() {
         let limits = Limits { memory_bytes: 8 * 1024 * 1024, ..Limits::default() };
