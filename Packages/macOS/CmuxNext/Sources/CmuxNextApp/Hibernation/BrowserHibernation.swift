@@ -15,9 +15,9 @@ import os
 /// `browser.hibernation`; "off" disables it completely.
 ///
 /// Triggers are events only: a page hides (a one-shot deadline for the
-/// earliest page to reach its threshold), the memory pressure dispatch
-/// source, a settings change, or the user's Hibernate Tab action. There is
-/// no polling. Before a page hibernates, a probe asks it for playing media
+/// earliest page to reach its threshold), the memory coordinator's level (a
+/// lossy consumer registration, `BrowserHibernation+Memory.swift`), a settings
+/// change, or the user's Hibernate Tab action. There is no polling. Before a page hibernates, a probe asks it for playing media
 /// and edited form fields (with a deadline) and captures its history; the
 /// hibernate event is sent only while the page is still hidden with the
 /// same generation, so a page the user selects meanwhile is never touched.
@@ -32,7 +32,7 @@ import os
 /// show a live page. A hovered tab wakes too. Memory pressure and Low Power
 /// Mode turn this off (plans/cmux-next/neighbor-tabs-DESIGN.md).
 ///
-/// Which page goes first is a ranking (`HibernationPlanner.idleness`): how long it has been
+/// Which page goes first is a ranking (`ContentDiscardPlanner.idleness`): how long it has been
 /// hidden, how often the person showed it in the last hour, and under memory pressure how much
 /// memory it holds. A few pages go per pass (`HibernationPlanner.Pace`), never all at once.
 /// A page never hibernates while it shows, plays (an element or Web Audio), captures, has DevTools
@@ -79,9 +79,10 @@ final class BrowserHibernation {
     /// answer (the freeze probes, `freezeSeconds` apart, count the misses).
     private var probeHistory = PageProbeHistory()
     private let freezeDeadline = DemandTimer(owner: "BrowserFreeze")
-    /// The memory pressure events it follows, made by `AppServices` (tests pass their own).
-    private let memoryPressure: MemoryPressureEvents
-    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// The memory coordinator it registers with, made by `AppServices` (tests pass their own).
+    private let memory: any MemoryConsumerRegistry
+    /// Its lossy consumer registration while started; the coordinator hands it each level.
+    private var memoryRegistration: MemoryConsumerRegistration?
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     /// Memory pressure changed (the App resizes the terminal warm set).
@@ -137,10 +138,10 @@ final class BrowserHibernation {
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
 
-    init(cache: TabContentCache, memoryPressure: MemoryPressureEvents, lowPower: LowPowerMode = .system) {
+    init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = .system) {
         self.cache = cache
         self.lowPower = lowPower
-        self.memoryPressure = memoryPressure
+        self.memory = memory
     }
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0
@@ -149,20 +150,20 @@ final class BrowserHibernation {
         NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: lowPower.isEnabled)
     }
 
-    /// Starts following memory pressure (`memoryPressure`; event-driven, no polling). Each level arrives
-    /// on the main actor and `stop()` cancels the registration at once, so none lands after `stop()`.
+    /// Registers with the memory coordinator as one lossy consumer (event-driven, no polling): the
+    /// coordinator hands it the current level at once, then each change on the main actor, and
+    /// `stop()` cancels the registration at once, so none lands after `stop()`.
     func start() {
-        guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] pressure in
-            self?.pressureDidChange(pressure)
-        }
+        guard memoryRegistration == nil else { return }
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
         lowPowerObservation = lowPower.observe { [weak self] _ in self?.refreshNeighbors() }
     }
 
     func stop() {
         settingsObservation?.cancel()
-        pressureObservation?.cancel()
-        pressureObservation = nil
+        memoryRegistration?.cancel()
+        memoryRegistration = nil
         lowPowerObservation?.cancel()
         lowPowerObservation = nil
         deadline.cancel()

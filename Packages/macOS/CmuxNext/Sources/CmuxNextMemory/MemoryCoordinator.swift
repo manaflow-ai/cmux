@@ -20,6 +20,8 @@ public import CmuxNextCompat
 /// - A repeated level makes no call at all.
 /// - A consumer that registers gets the current limit before its registration's init returns, and
 ///   joins the release when that limit is under 100 %.
+/// - A ``MemoryLevelConsumer`` (a lossy planner with its own pace) also gets the level: at
+///   registration and after the limits of each level change.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
@@ -137,6 +139,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         let index = consumers.firstIndex { registered.releasesBefore($0) } ?? consumers.endIndex
         consumers.insert(registered, at: index)
         entry.liveConsumer?.updateMemoryLimit(current)
+        (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(level)
         if registered.needsRelease { scheduleSlice() }
     }
 
@@ -150,6 +153,9 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         guard newLevel != level else { return }
         level = newLevel
         applyLimits()
+        for registered in consumers {
+            (registered.entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(newLevel)
+        }
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.
