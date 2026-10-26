@@ -8,7 +8,6 @@
     {"glob": "plans/cmux-next/daemon-capabilities.json", "why": "check-daemon-capabilities-fresh.py --write"},
     {"glob": "Packages/macOS/CmuxNext/ci-target-graph.json", "why": "ci-target-graph.py, base autofix"},
     {"glob": "schemas/settings/settings-schema.json", "why": "settings export, regenerate-settings-exports.sh"},
-    {"glob": "schemas/settings-export/**", "why": "settings export source stamp"},
     {"glob": "schemas/defaults/cmux-next.json", "why": "defaults_guard.py snapshot"},
     {"glob": "docs/mdm/com.manaflow.cmux.*", "why": "MDM settings exports, regenerate-settings-exports.sh"},
     {"glob": "docs/mdm/cmux-example.mobileconfig", "why": "MDM settings export, regenerate-settings-exports.sh"},
