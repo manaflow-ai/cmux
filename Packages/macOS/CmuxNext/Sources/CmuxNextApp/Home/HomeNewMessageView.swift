@@ -102,10 +102,7 @@ final class HomeNewMessageView: NSView {
     /// conversation the people already have is that conversation's draft in Home's store, which
     /// every Home view reads live; it is never copied here, so a message sent meanwhile from
     /// another view does not come back.
-    struct Saved: Equatable {
-        var recipients: HomeNewMessageDraft
-        var text: String
-    }
+    typealias Saved = HomePageViewState.NewMessage
 
     var saved: Saved { Saved(recipients: field.draft, text: existing == nil ? messageText : "") }
 

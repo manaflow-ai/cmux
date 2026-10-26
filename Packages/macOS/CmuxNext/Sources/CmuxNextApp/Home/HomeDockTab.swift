@@ -69,7 +69,7 @@ final class HomeDockTab: InternalPageProvider {
     /// A dock stays while its Channels page reports unsent composer input: that input lives only in
     /// the page (``HomeChannelsInput``; Chrome's `kFormInteractions`).
     func keepReasons(for key: String) -> [CannotDiscardReason] {
-        views[key]?.channelsInput.keepReasons ?? []
+        views[key]?.channelsInput.unsent == true ? [.formInput] : []
     }
 
     /// The tab stays: its view and Messages state wait for its next view.

@@ -96,11 +96,11 @@ extension InternalPageDiscardPolicyCoverageTests {
     @Test func aChannelsPageIsKeptOnlyWhileItReportsUnsentInput() async throws {
         let input = HomeChannelsInput()
         let context = PageCallContext(page: PageDescriptor.homeChannels.id)
-        #expect(input.keepReasons.isEmpty, "a page that has said nothing holds nothing")
+        #expect(!input.unsent, "a page that has said nothing holds nothing")
         _ = try await input.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(true)]), context: context)
-        #expect(input.keepReasons == [.formInput])
+        #expect(input.unsent)
         _ = try await input.call(HomeChannelsInput.unsentOp, params: .object(["unsent": .bool(false)]), context: context)
-        #expect(input.keepReasons.isEmpty, "a sent or cleared composer lets the page go")
+        #expect(!input.unsent, "a sent or cleared composer lets the page go")
         await #expect(throws: PageError.self) {
             try await input.call(HomeChannelsInput.unsentOp, params: .object([:]), context: context)
         }

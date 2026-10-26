@@ -41,7 +41,7 @@ final class HomeChannelsPageTab: InternalPageProvider {
 
     /// A composer's unsent text or files live only in the page: while the page reports some, it
     /// stays (Chrome's `kFormInteractions`, discard_eligibility_policy.cc).
-    func keepReasons(for key: String) -> [CannotDiscardReason] { inputs[key]?.keepReasons ?? [] }
+    func keepReasons(for key: String) -> [CannotDiscardReason] { inputs[key]?.unsent == true ? [.formInput] : [] }
 
     /// The page ends with its view; the tab's next show makes a new one.
     func viewDiscarded(_ key: String) {

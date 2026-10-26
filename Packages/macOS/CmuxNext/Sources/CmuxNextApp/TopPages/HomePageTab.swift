@@ -1,5 +1,4 @@
 import AppKit
-import CmuxHomeCore
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -99,23 +98,8 @@ final class HomePageTab: InternalPageProvider {
 // MARK: A Home tab's or dock's view state (`memoryDiscardInternalPages`)
 
 extension TopHomePageView {
-    /// What this page shows that Home's store does not keep: the shown conversation and its open
-    /// thread, the list's search and scroll, and the New Message page (each conversation's draft
-    /// and transcript stay in the store). A Home tab or dock whose view was discarded gives it to
-    /// its next view.
-    struct ViewState: Equatable {
-        var shown: ConversationID?
-        /// The message whose thread branch the transcript has open.
-        var thread: String?
-        /// The list's search text.
-        var search = ""
-        /// Where the list was scrolled to.
-        var listScroll = CGPoint.zero
-        /// The New Message page's draft, nil when there is none or it is empty.
-        var newMessage: HomeNewMessageView.Saved?
-        /// The New Message page is the one on screen.
-        var composing = false
-    }
+    /// What this page shows that Home's store does not keep (``HomePageViewState``).
+    typealias ViewState = HomePageViewState
 
     var viewState: ViewState {
         ViewState(shown: shown, thread: host.flatMap { HomePageTab.transcript(in: $0) }?.openThreadMessage, search: list.searchQuery,
