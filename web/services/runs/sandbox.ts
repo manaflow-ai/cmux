@@ -1,6 +1,7 @@
 import { sandboxHourUsd, SANDBOX_LIST_USD } from "../billing/chiefPricing";
 import { findVmImageManifestEntry } from "../vms/images/resolver";
 import type { ProviderId } from "../vms/drivers";
+import { isDeployedRuntime, type VmRuntimeEnv } from "../vms/config";
 import type { RunSnapshotRow } from "./view";
 import { isArtifactDigest, type RunStatus, type SandboxRunOutcome, type SandboxRunReceipt } from "./model";
 
@@ -278,4 +279,17 @@ function receiptTimingsAndCost(
     // Final once no VM is left: until then the VM time (and its cost) is still counting.
     cost: receiptCost(provider, imageId, vmSecondsFor(snapshot), !sandboxCleanupPending(snapshot)),
   };
+}
+
+/** Accounts that may start sandboxed Runs: comma- or space-separated Stack user ids; empty allows nobody. */
+export const RUN_SANDBOX_USERS_ENV = "CMUX_RUN_SANDBOX_USER_IDS";
+
+/**
+ * The server half of the sandbox preview gate (the app's Labs flag is the client half). Local dev
+ * allows everyone; a deployment allows only the accounts it names, `*` for all.
+ */
+export function sandboxRunsAllowed(userId: string, env: VmRuntimeEnv = process.env): boolean {
+  if (!isDeployedRuntime(env)) return true;
+  const allowed = (env[RUN_SANDBOX_USERS_ENV] ?? "").split(/[\s,]+/).filter((id) => id.length > 0);
+  return allowed.includes("*") || allowed.includes(userId);
 }

@@ -212,6 +212,11 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   return { run, attempts, artifacts, sandboxVmLive: allocationUnknown || sandboxVms.some((vm) => vm.live), sandboxVms, sandboxVmUnknown: allocationUnknown, sandboxVmHandles };
 }
 
+/** The caller's Run created under `idempotencyKey`, if any (a create retry reads it before resolving its image). */
+export async function findRunByIdempotencyKey(userId: string, idempotencyKey: string): Promise<typeof runs.$inferSelect | null> {
+  return (await cloudDb().select().from(runs).where(and(eq(runs.userId, userId), eq(runs.idempotencyKey, idempotencyKey))).limit(1))[0] ?? null;
+}
+
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
   return readSnapshot(cloudDb(), runId, userId);
 }
