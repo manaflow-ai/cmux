@@ -246,8 +246,34 @@ mod apps {
         }
         let error = error.expect("killed before 20 entries of 200 ms (4 s of VM time)");
         assert!(started.elapsed() < Duration::from_secs(10), "within the window");
-        assert!(matches!(error, VmError::Fatal { .. }), "{error:?}");
-        assert!(h.vm.dead().is_some());
+        assert!(
+            matches!(error, VmError::Fatal { reason: FatalReason::CpuBudget, .. }),
+            "{error:?}"
+        );
+        assert_eq!(h.vm.dead(), Some(FatalReason::CpuBudget));
+        assert!(h.vm.unmount("m").is_err(), "a dead VM refuses every entry");
+    }
+
+    /// 1 ms every 50 ms is 2% of a core, well under the 20% budget: a minute of it (on the VM's
+    /// clock, so the test does not sleep for one) is never stopped.
+    #[test]
+    fn entries_of_1_ms_every_50_ms_run_for_a_minute_and_are_never_killed() {
+        let mut h = Harness::new(&app(r#"return { render: () => Text("ok") }"#));
+        for entry in 0..1200 {
+            let result = h.vm.eval_json(&format!("({SPIN})(1)"));
+            assert_eq!(result, Ok(Ok(json!(1))), "entry {entry}");
+            h.vm.advance_clock(Duration::from_millis(49));
+        }
+        assert_eq!(h.vm.dead(), None);
+        assert_eq!(h.mount("m", "render", json!({})), None);
+        assert_eq!(h.texts("m"), ["ok"]);
+    }
+
+    /// The script profile has no CPU window: a script cell is the person's own code.
+    #[test]
+    fn the_script_profile_has_no_cpu_window() {
+        assert_eq!(Limits::script().cpu, None);
+        assert_eq!(Limits::default().cpu, Some(cmux_app_host::CpuBudget::default()));
     }
 
     #[test]

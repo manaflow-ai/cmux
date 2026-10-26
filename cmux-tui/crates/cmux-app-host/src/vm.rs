@@ -5,9 +5,10 @@
 //! forwards to the supervisor, which checks scopes and grants per call.
 //! Limits apply per VM: the counting allocator refuses allocations past the
 //! memory limit, the interrupt handler stops an entry point past its
-//! deadline, and the pending-call cap rejects calls beyond it. Hitting the
-//! memory or interrupt limit kills this VM only ([`AppVm::dead`]); other VMs
-//! in the same process keep running.
+//! deadline, the CPU window stops an app that keeps the VM busy across entries
+//! ([`CpuBudget`]), and the pending-call cap rejects calls beyond it. Hitting
+//! the memory, interrupt or CPU limit kills this VM only ([`AppVm::dead`]);
+//! other VMs in the same process keep running.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +44,25 @@ pub struct Limits {
     pub memory_bytes: usize,
     pub entry_deadline: Duration,
     pub max_pending_calls: usize,
+    /// VM time allowed over a sliding window; `None` for no window.
+    pub cpu: Option<CpuBudget>,
+}
+
+/// At most `budget` of VM time in any `window` (leo-workspace design/app-store.md, "CPU-over-time
+/// budget"). The per-entry deadline alone lets an app run 249 ms every 50 ms; with this, each
+/// entry's interrupt deadline is the smaller of the entry deadline and what the window has left,
+/// so the window is overrun by at most the interrupt handler's granularity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CpuBudget {
+    pub budget: Duration,
+    pub window: Duration,
+}
+
+impl Default for CpuBudget {
+    /// 2 s in any 10 s: 20% of one core.
+    fn default() -> Self {
+        Self { budget: Duration::from_secs(2), window: Duration::from_secs(10) }
+    }
 }
 
 impl Limits {
@@ -53,6 +73,8 @@ impl Limits {
             memory_bytes: crate::protocol::SCRIPT_MEMORY_BYTES,
             entry_deadline: Duration::from_millis(crate::protocol::SCRIPT_STEP_MS),
             max_pending_calls: 64,
+            // A script cell runs the person's own code; its wall time is the caller's timeout.
+            cpu: None,
         }
     }
 }
@@ -63,6 +85,7 @@ impl Default for Limits {
             memory_bytes: 32 * 1024 * 1024,
             entry_deadline: Duration::from_millis(250),
             max_pending_calls: 64,
+            cpu: Some(CpuBudget::default()),
         }
     }
 }
@@ -125,6 +148,62 @@ impl Shared {
         let message: String = message.chars().take(MAX_LOG_CHARS).collect();
         let bytes = message.len();
         self.push(FromHost::Log { level: level.to_string(), message }, bytes);
+    }
+}
+
+/// Slots a CPU window is kept in; usage is charged to slots, so the window counts at most one
+/// slot (window / SLOTS) more of the past than it must, never less.
+const CPU_SLOTS: u64 = 100;
+
+/// VM time per slot of the window, as a ring of `CPU_SLOTS + 1` slots: the current, partial slot
+/// and the `CPU_SLOTS` before it always cover at least the whole window.
+struct CpuWindow {
+    budget: u64,
+    slot: u64,
+    /// Per ring position: the absolute slot it holds and the nanoseconds charged to it.
+    ring: Vec<(u64, u64)>,
+}
+
+impl CpuWindow {
+    fn new(cpu: CpuBudget) -> Self {
+        let window = (cpu.window.as_nanos().min(u128::from(u64::MAX)) as u64).max(CPU_SLOTS);
+        Self {
+            budget: cpu.budget.as_nanos().min(u128::from(u64::MAX)) as u64,
+            slot: window / CPU_SLOTS,
+            ring: vec![(u64::MAX, 0); CPU_SLOTS as usize + 1],
+        }
+    }
+
+    /// Charges VM time from `start` to `end` (nanoseconds on the VM clock) to the slots it covers.
+    fn charge(&mut self, start: u64, end: u64) {
+        let mut at = start;
+        while at < end {
+            let slot = at / self.slot;
+            let until = end.min(slot.saturating_add(1).saturating_mul(self.slot));
+            let entry = &mut self.ring[(slot % (CPU_SLOTS + 1)) as usize];
+            if entry.0 != slot {
+                *entry = (slot, 0);
+            }
+            entry.1 = entry.1.saturating_add(until - at);
+            // An entry longer than the ring would overwrite its own start; what is left fills
+            // every slot anyway.
+            if until - start > self.slot.saturating_mul(CPU_SLOTS + 1) {
+                break;
+            }
+            at = until;
+        }
+    }
+
+    /// VM time the window has left at `now`.
+    fn remaining(&self, now: u64) -> u64 {
+        let current = now / self.slot;
+        let oldest = current.saturating_sub(CPU_SLOTS);
+        let used = self
+            .ring
+            .iter()
+            .filter(|(slot, _)| *slot != u64::MAX && *slot >= oldest && *slot <= current)
+            .fold(0u64, |sum, (_, nanos)| sum.saturating_add(*nanos));
+        self.budget.saturating_sub(used)
     }
 }
 
@@ -225,9 +304,14 @@ pub struct AppVm {
     runtime: Runtime,
     shared: Rc<RefCell<Shared>>,
     base: Instant,
-    /// Nanoseconds after `base` at which the running entry is interrupted; 0 = none.
+    /// Nanoseconds the VM clock is ahead of `base.elapsed()` ([`AppVm::advance_clock`]).
+    skipped: Arc<AtomicU64>,
+    /// VM-clock nanoseconds at which the running entry is interrupted; 0 = none.
     deadline: Arc<AtomicU64>,
     interrupted: Arc<AtomicBool>,
+    cpu: Option<CpuWindow>,
+    /// The running entry's deadline is the CPU window's remainder, not the entry deadline.
+    window_bound: bool,
     memory_exceeded: Arc<AtomicBool>,
     memory_used: Arc<AtomicUsize>,
     limits: Limits,
@@ -248,14 +332,16 @@ impl AppVm {
         })
         .map_err(|e| format!("engine: {e}"))?;
         let base = Instant::now();
+        let skipped = Arc::new(AtomicU64::new(0));
         let deadline = Arc::new(AtomicU64::new(0));
         let interrupted = Arc::new(AtomicBool::new(false));
         {
+            let skipped = skipped.clone();
             let deadline = deadline.clone();
             let interrupted = interrupted.clone();
             runtime.set_interrupt_handler(Some(Box::new(move || {
                 let due = deadline.load(Ordering::Relaxed);
-                if due != 0 && nanos_since(base) > due {
+                if due != 0 && clock(base, &skipped) > due {
                     interrupted.store(true, Ordering::Relaxed);
                     return true;
                 }
@@ -274,8 +360,11 @@ impl AppVm {
             runtime,
             shared,
             base,
+            skipped,
             deadline,
             interrupted,
+            cpu: limits.cpu.map(CpuWindow::new),
+            window_bound: false,
             memory_exceeded,
             memory_used,
             limits,
@@ -437,6 +526,12 @@ impl AppVm {
         self.limits
     }
 
+    /// Moves the VM clock forward by `by`, as if the VM had idled that long (tests drive the CPU
+    /// window with it instead of sleeping). Never rewinds; entry deadlines move with the clock.
+    pub fn advance_clock(&mut self, by: Duration) {
+        self.skipped.fetch_add(by.as_nanos().min(u128::from(u64::MAX)) as u64, Ordering::Relaxed);
+    }
+
     /// Why the VM died, if it did. A dead VM refuses every entry.
     pub fn dead(&self) -> Option<FatalReason> {
         self.dead
@@ -461,8 +556,11 @@ impl AppVm {
     }
 
     /// Runs one entry point under the deadline, drains the job queue, answers
-    /// calls refused by the pending cap, flushes the runtime, and checks the
-    /// limits. The outer error is fatal; the inner one is a script error.
+    /// calls refused by the pending cap, flushes the runtime, charges its time
+    /// to the CPU window, and checks the limits. The deadline is the entry
+    /// deadline or, when sooner, what the CPU window has left; an entry with
+    /// nothing left does not run. The outer error is fatal; the inner one is a
+    /// script error.
     fn enter<R, F>(&mut self, name: &str, f: F) -> Result<Result<R, String>, VmError>
     where
         F: for<'js> FnOnce(&Ctx<'js>) -> rquickjs::Result<R>,
@@ -470,15 +568,31 @@ impl AppVm {
         if let Some(reason) = self.dead {
             return Err(VmError::Fatal { reason, entry: name.to_string() });
         }
-        let due = nanos_since(self.base)
-            .saturating_add(self.limits.entry_deadline.as_nanos() as u64)
-            .max(1);
-        self.deadline.store(due, Ordering::Relaxed);
+        let start = self.now();
+        let mut allowed = self.limits.entry_deadline.as_nanos().min(u128::from(u64::MAX)) as u64;
+        self.window_bound = false;
+        if let Some(left) = self.cpu.as_ref().map(|cpu| cpu.remaining(start)) {
+            if left == 0 {
+                return Err(self.die(FatalReason::CpuBudget, name));
+            }
+            if left < allowed {
+                (allowed, self.window_bound) = (left, true);
+            }
+        }
+        self.deadline.store(start.saturating_add(allowed).max(1), Ordering::Relaxed);
         let result = self.context.with(|ctx| f(&ctx).catch(&ctx).map_err(|e| e.to_string()));
         self.settle();
         self.deadline.store(0, Ordering::Relaxed);
+        let end = self.now();
+        if let Some(cpu) = self.cpu.as_mut() {
+            cpu.charge(start, end);
+        }
         self.check_limits(name)?;
         Ok(result)
+    }
+
+    fn now(&self) -> u64 {
+        clock(self.base, &self.skipped)
     }
 
     fn settle(&mut self) {
@@ -539,18 +653,24 @@ impl AppVm {
         {
             FatalReason::Memory
         } else if self.interrupted.load(Ordering::Relaxed) {
-            FatalReason::Interrupt
+            if self.window_bound { FatalReason::CpuBudget } else { FatalReason::Interrupt }
         } else {
             return Ok(());
         };
+        Err(self.die(reason, entry))
+    }
+
+    fn die(&mut self, reason: FatalReason, entry: &str) -> VmError {
         self.dead = Some(reason);
         self.shared.borrow_mut().outbox.push(FromHost::Fatal { reason, entry: entry.to_string() });
-        Err(VmError::Fatal { reason, entry: entry.to_string() })
+        VmError::Fatal { reason, entry: entry.to_string() }
     }
 }
 
-fn nanos_since(base: Instant) -> u64 {
-    base.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
+/// The VM clock: nanoseconds since `base`, plus any time skipped by [`AppVm::advance_clock`].
+fn clock(base: Instant, skipped: &AtomicU64) -> u64 {
+    (base.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64)
+        .saturating_add(skipped.load(Ordering::Relaxed))
 }
 
 fn call_global<'js, A, R>(ctx: &Ctx<'js>, name: &str, args: A) -> rquickjs::Result<R>
