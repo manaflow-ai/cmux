@@ -101,7 +101,6 @@ nonisolated final class ChromiumHostWireState: Sendable {
     }
 
     private static func write(_ fd: Int32, _ bytes: UnsafeRawBufferPointer) -> ChromiumHostInputOutbox.WriteOutcome {
-        // blocking-allow: the descriptor is O_NONBLOCK (init): a full socket returns EAGAIN, never waits
         let written = Darwin.write(fd, bytes.baseAddress, bytes.count)
         if written >= 0 { return .wrote(written) }
         switch errno {
