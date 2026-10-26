@@ -24,6 +24,10 @@ After every step it pings the app (a hang is a ping over --hang-ms) and checks
 for new crash reports. On a hang it samples the main thread; on a crash it
 copies the .ips, takes a VNC screenshot and relaunches the app.
 
+With --diag NAME (diag.py: gmalloc, scribble, probguard, mtc, coop-strict, asan, tsan, ubsan) the
+app runs under that check; summary.json's "diag" records the launch environment, the Chromium
+state, the app's malloc zones and the reports the check wrote.
+
 Example (vm.sh does this for you):
   fuzz.py --ssh admin@192.168.64.5 --vnc 127.0.0.1:5901:secret \
           --app "/Applications/cmux NIGHTLY.app" --seed 7 --steps 2000 --out out/15
@@ -44,6 +48,7 @@ import time
 from typing import Callable, Iterator
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import diag  # noqa: E402
 from rfb import RFB  # noqa: E402
 
 # Shortcuts the user named, sent as real keys whatever the action table says.
@@ -77,6 +82,8 @@ class Guest:
         self.cli = f"{app}/Contents/Resources/bin/cmux"
         self.binary = ""
         self.env = "CMUX_NEXT_SOCKET_MODE=automation"
+        # A diag's factor on launch and ping deadlines (diag.Diag.slowdown).
+        self.slowdown = 1
         self.socket = ""
         self.ctl = f"/tmp/fuzz-ssh-{os.getpid()}"
         self.base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
@@ -217,6 +224,7 @@ class Guest:
         plist = self.sh(f"/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' {shlex.quote(self.app + '/Contents/Info.plist')}")
         self.binary = f"{self.app}/Contents/MacOS/{plist.stdout.strip()}"
         before = time.time()
+        deadline *= self.slowdown
         # Not `nohup`: dyld strips DYLD_* variables from SIP-protected binaries and their
         # children, so the shell exports them and starts the app itself (ignoring SIGHUP).
         run = (f"{shlex.quote(self.binary)} >>/tmp/cmux-fuzz-app.log 2>&1 </dev/null; echo $? >{shlex.quote(exit_file)}"
@@ -227,9 +235,9 @@ class Guest:
         while time.time() - before < deadline:
             r = self.sh("ls -t /tmp/cmux-*.sock 2>/dev/null | head -1")
             self.socket = r.stdout.strip()
-            ms = self.ping_ms(3) if self.socket else None
+            ms = self.ping_ms(3 * self.slowdown) if self.socket else None
             # A ping that ran into its timeout is a hung app, not a launched one.
-            if ms is not None and ms < 3000:
+            if ms is not None and ms < 3000 * self.slowdown:
                 # Bring the window forward so VNC keys reach it.
                 self.sh(f"open -a {shlex.quote(self.app)}")
                 return True
@@ -765,9 +773,13 @@ def main() -> int:
     ap.add_argument("--minimize", action="store_true", help="with --replay: delta-debug the steps to a minimal crash")
     ap.add_argument("--shot-every", type=int, default=50, help="VNC screenshot every N steps (0: never)")
     ap.add_argument("--ssh-opt", action="append", default=[], help="extra ssh option (repeatable)")
-    ap.add_argument("--insert-dylib", help="guest path of a diagnostic dylib to load (DYLD_INSERT_LIBRARIES); "
+    ap.add_argument("--insert-dylib", action="append", default=[],
+                    help="guest path of a diagnostic dylib to load (DYLD_INSERT_LIBRARIES; repeatable); "
                     "the app must be signed without the hardened runtime")
+    ap.add_argument("--diag", choices=sorted(diag.DIAGS), help="run the app under this check (diag.py)")
+    ap.add_argument("--zones-tool", default="", help="guest path of malloc-zones (vm.sh --diag puts it there)")
     o = ap.parse_args()
+    d = diag.DIAGS.get(o.diag) if o.diag else None
 
     os.makedirs(o.out, exist_ok=True)
     if o.plan_only:
@@ -782,17 +794,30 @@ def main() -> int:
     host, port, *pw = o.vnc.split(":")
     vnc = RFB(host, int(port), pw[0] if pw else None)
     g = Guest(o.ssh, o.app, o.ssh_opt)
-    if o.insert_dylib:
-        g.env += f" DYLD_INSERT_LIBRARIES={shlex.quote(o.insert_dylib)}"
+    env = diag.launch_env(d, o.insert_dylib) if d else (
+        {"DYLD_INSERT_LIBRARIES": ":".join(o.insert_dylib)} if o.insert_dylib else {})
+    g.env += "".join(f" {k}={shlex.quote(v)}" for k, v in env.items())
+    if d:
+        g.slowdown = d.slowdown
+        o.hang_ms *= d.slowdown
     osver = g.sh("sw_vers -productVersion").stdout.strip()
     if g.sh(f"test -d {shlex.quote(o.app)}").returncode != 0:
         sys.exit(f"no app at {o.app!r} in the guest")
     g.install_helpers()
     if o.minimize:
         g.snapshot_state()
+    runtime_left: list[str] = []
+    diag_reports = diag.Reports(d, o.out) if d else None
+    snapshots: list[dict] = []
+    if d:
+        diag.prepare_guest(g, d)
+        runtime_left = diag.runtime_in_bundle(g, o.app) if d.chromium_off else []
     exit_file = f"/tmp/cmux-fuzz-exit-{os.getpid()}"
     if not g.launch(exit_file=exit_file):
         sys.exit("the app did not answer a ping within the launch deadline")
+    if d:
+        snapshots.append({"at": "launch", **diag.snapshot_after_launch(g, o.zones_tool)})
+        print("diag launch:", json.dumps(snapshots[-1]), flush=True)
     actions, excluded = load_actions(g)
     coverage = Coverage(actions, excluded)
     steps: Iterator[dict]
@@ -965,8 +990,11 @@ def main() -> int:
                                   ' OR (subsystem == "com.cmuxterm.app.next" AND category == "app.quit")')
                     + " 2>/dev/null | tail -400", timeout=120).stdout)
             finding("dead", i, step, died)
+            if diag_reports:
+                diag_reports.harvest_stderr(g, f"dead-{i}")
             g.sh(": >/tmp/cmux-fuzz-app.log", timeout=20)
-            g.launch(exit_file=exit_file)
+            if g.launch(exit_file=exit_file) and d:
+                snapshots.append({"at": f"relaunch-{i}", **diag.snapshot_after_launch(g, o.zones_tool)})
 
     if coverage_started is not None:
         coverage_seconds += time.time() - coverage_started
@@ -982,6 +1010,15 @@ def main() -> int:
     open(os.path.join(o.out, "faults.ndjson"), "w").write(faults.stdout)
     summary["faults"] = sum(1 for l in faults.stdout.splitlines() if l.startswith("{"))
     summary.update(coverage.summary())
+    if d and diag_reports:
+        if g.pid() is not None:
+            snapshots.append({"at": "end", **diag.snapshot(g, o.zones_tool)})
+        diag_reports.harvest_stderr(g, "end")
+        diag_reports.collect_files(g)
+        summary["diag"] = diag.record(d, env, runtime_left, snapshots, diag_reports)
+        summary["diag_reports"] = summary["diag"]["reports"]["count"]
+        if summary["diag"]["invalid"]:
+            summary["invalid"] = summary["diag"]["invalid"]
     json.dump(summary, open(os.path.join(o.out, "summary.json"), "w"), indent=2)
     print(json.dumps(summary))
     return 0
