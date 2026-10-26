@@ -4,37 +4,59 @@ import CmuxNextMobile
 import Foundation
 
 /// Pair requests from several phones (retries, key rotations, garbage keys, damaged lines, more phones
-/// than may wait), the person's answers, sign-outs and time passing, run through the iPhone host's
-/// pairing values as ``IPhoneHostService`` runs them (`ask`, `decide`, `revokePhone`).
+/// than may wait), the person's answers, sign-outs, Settings removals, iPhone connections turned off and
+/// on, and time passing, run through ``MobileHostPairing``: the value `IPhoneHostService` holds and asks
+/// for every pairing decision (`pairingEvent` asks or revokes, `answerPairRequest` decides, `revokePhone`
+/// revokes). The case also starts signed out, or signed in as another user than the list's, now and then.
 nonisolated struct HostPairingCase {
     nonisolated enum Step {
         case line(String, phone: String, damaged: Bool)
         case answer(phone: String, allow: Bool)
+        case remove(phone: String)
+        case allowConnections(Bool)
         case wait(TimeInterval)
     }
 
-    /// What one phone has in the pairing values: its waiting request, its paired entry and its refusals.
+    /// What one phone has in the pairing: its waiting request, its paired entry and its refusals.
     nonisolated struct PhoneState: Equatable {
         var pending: MobileHostPairRequest?
         var device: MobileHostPairedDevice?
         var denied: [MobileHostPairedDevices.Denied]
 
-        init(_ phone: String, _ prompts: MobileHostPairPrompts, _ paired: MobileHostPairedDevices) {
-            pending = prompts.request(id: phone)
-            device = paired.devices.first { $0.id == phone }
-            denied = paired.denied.filter { $0.id == phone }
+        init(_ phone: String, _ pairing: MobileHostPairing) {
+            pending = pairing.prompts.request(id: phone)
+            device = pairing.paired?.devices.first { $0.id == phone }
+            denied = pairing.paired?.denied.filter { $0.id == phone } ?? []
+        }
+
+        /// The list holds exactly these keys for the phone.
+        func trusts(_ request: MobileHostPairRequest) -> Bool {
+            device?.identityKey == request.identityKey && device?.approvalKey == request.approvalKey
+        }
+
+        /// The list refused this identity key of the phone.
+        func refuses(_ request: MobileHostPairRequest) -> Bool {
+            denied.contains { $0.identityKey == request.identityKey }
         }
     }
 
     var phones: [String]
+    /// Phones the DEBUG test seed trusts.
+    var seeded: Set<String> = []
+    var start: MobileHostPairing
+    /// The signed-in user: the list's own ("user-1") mostly.
+    var userID: String?
     var steps: [Step] = []
 
     init(_ rng: inout FuzzRNG) throws {
         phones = (0..<(2 + rng.below(5))).map { index in "phone\(index)-" + HostFuzz.id(&rng) }
+        if rng.oneIn(3), let phone = rng.element(of: phones) { seeded.insert(phone) }
+        start = MobileHostPairing(paired: rng.oneIn(8) ? nil : MobileHostPairedDevices(userID: "user-1"))
+        userID = rng.oneIn(8) ? (rng.bool() ? nil : "user-2") : "user-1"
         var keys: [String: (String, String)] = [:]
         for _ in 0..<(1 + rng.below(40)) {
             let phone = rng.element(of: phones) ?? "phone0"
-            switch rng.below(10) {
+            switch rng.below(12) {
             case 0...4:
                 // A retry keeps a key, a rotation draws a new one.
                 var identity = HostFuzz.key(&rng), approval = HostFuzz.key(&rng)
@@ -48,6 +70,10 @@ nonisolated struct HostPairingCase {
             case 7:
                 let sample = HostLineSample(&rng, kinds: [.unpaired], phone: phone)
                 steps.append(.line(try sample.line.text(), phone: phone, damaged: sample.expected == nil))
+            case 8:
+                steps.append(.remove(phone: phone))
+            case 9:
+                steps.append(.allowConnections(!rng.oneIn(4)))
             default:
                 steps.append(.wait(TimeInterval(rng.int(in: 0...1_200))))
             }
@@ -55,11 +81,11 @@ nonisolated struct HostPairingCase {
     }
 
     func check() throws {
-        var prompts = MobileHostPairPrompts()
-        var paired = MobileHostPairedDevices(userID: "user-1")
+        var pairing = start
+        var allowed = true
         var now = HostFuzz.now
         for step in steps {
-            let before = (prompts: prompts, paired: paired)
+            let before = pairing
             var subject: String?
             switch step {
             case let .line(line, phone, damaged):
@@ -70,13 +96,11 @@ nonisolated struct HostPairingCase {
                 case let .pairRequest(request)?:
                     try FuzzRun.check(request.phoneDeviceID == phone, "\(line) names \(request.phoneDeviceID)")
                     try HostFuzz.checkFingerprint(request.approvalKey)
-                    try Self.receive(request, prompts: &prompts, paired: paired, at: now)
+                    let asked = pairing.ask(request, allowed: allowed, userID: userID, at: now) { seeded.contains($0.phoneDeviceID) }
+                    try checkAsk(request, asked, allowed: allowed, before: before, after: pairing, at: now)
                 case let .unpaired(id)?:
                     try FuzzRun.check(id == phone, "\(line) names \(id)")
-                    prompts.forget(id: id)
-                    paired.remove(id)
-                    try FuzzRun.check(PhoneState(id, prompts, paired).pending == nil && PhoneState(id, prompts, paired).device == nil,
-                                      "a signed-out phone still waits or is paired")
+                    try checkRevoke(id, changed: pairing.revoke(id: id), before: before, after: pairing)
                 case nil:
                     break
                 case let other?:
@@ -84,58 +108,111 @@ nonisolated struct HostPairingCase {
                 }
             case let .answer(phone, allow):
                 subject = phone
-                if let request = prompts.answer(id: phone, allowed: allow, at: now) {
-                    if allow { paired.approve(request, at: now) } else { paired.deny(request) }
-                    try FuzzRun.check(paired.decision(for: request) == (allow ? .trusted : .denied), "an answered request decides \(paired.decision(for: request))")
-                    try FuzzRun.check(allow || prompts.isQuiet(at: now), "Don't Allow did not quiet the prompts")
+                // `answerPairRequest(id:allow:)`: only a waiting request is answered.
+                if let request = pairing.prompts.request(id: phone) {
+                    let changed = pairing.decide(request, allow: allow, userID: userID, at: now)
+                    try checkDecide(request, allow: allow, changed: changed, before: before, after: pairing, at: now)
                 }
+            case let .remove(phone):
+                subject = phone
+                try checkRevoke(phone, changed: pairing.revoke(id: phone), before: before, after: pairing)
+            case let .allowConnections(on):
+                allowed = on
             case let .wait(seconds):
                 now = now.addingTimeInterval(seconds)
             }
-            try check(prompts, paired, before: before, subject: subject)
+            try checkBounds(pairing, before: before, subject: subject)
         }
     }
 
-    /// A request the list does not decide yet: a waiting phone's request is replaced (new keys) or
-    /// repeated, a new phone waits unless prompts are quiet or full, when it is counted as blocked.
-    static func receive(_ request: MobileHostPairRequest, prompts: inout MobileHostPairPrompts, paired: MobileHostPairedDevices,
-                        at now: Date) throws {
-        guard paired.decision(for: request) == .ask else { return }
-        let waiting = prompts.request(id: request.phoneDeviceID)
-        let quiet = prompts.isQuiet(at: now), full = prompts.pending.count >= MobileHostPairPrompts.limit, blocked = prompts.blocked
-        let outcome = prompts.receive(request, at: now)
-        if let waiting {
-            try FuzzRun.check(outcome == .repeated, "a waiting phone's request gave \(outcome)")
-            let held = prompts.request(id: request.phoneDeviceID)
+    /// A request: ignored while connections are off or no one is signed in; nothing new when the list
+    /// already holds or refused its keys; paired from the seed only into the signed-in user's own list;
+    /// else a waiting phone's request is replaced (new keys) or repeated, and a new phone waits unless
+    /// prompts are quiet or full, when it is counted as blocked.
+    private func checkAsk(_ request: MobileHostPairRequest, _ asked: MobileHostPairing.Ask, allowed: Bool,
+                          before: MobileHostPairing, after: MobileHostPairing, at now: Date) throws {
+        let phone = request.phoneDeviceID
+        let was = PhoneState(phone, before), state = PhoneState(phone, after)
+        guard allowed, let list = before.paired else {
+            try FuzzRun.check(asked == .ignored && after == before, "a request with connections off or signed out gave \(asked)")
+            return
+        }
+        if was.trusts(request) || was.refuses(request) {
+            try FuzzRun.check(asked == .known && after == before, "a request the list decides gave \(asked)")
+            return
+        }
+        if seeded.contains(phone), list.userID == userID {
+            try FuzzRun.check(asked == .seeded && state.trusts(request) && after.prompts == before.prompts,
+                              "a seeded phone's request gave \(asked)")
+            return
+        }
+        try FuzzRun.check(after.paired == before.paired, "a prompted request changed the list")
+        let quiet = before.prompts.isQuiet(at: now), full = before.prompts.pending.count >= MobileHostPairPrompts.limit
+        if let waiting = was.pending {
+            try FuzzRun.check(asked == .prompted(.repeated), "a waiting phone's request gave \(asked)")
+            let held = state.pending
             try FuzzRun.check(held == (waiting.sameKeys(as: request) ? waiting : request), "the waiting request is \(String(describing: held))")
         } else if quiet || full {
-            try FuzzRun.check(outcome == .blocked && prompts.blocked == blocked + 1, "a request while quiet or full gave \(outcome)")
+            try FuzzRun.check(asked == .prompted(.blocked) && after.prompts.blocked == before.prompts.blocked + 1,
+                              "a request while quiet or full gave \(asked)")
         } else {
-            try FuzzRun.check(outcome == .ask && prompts.pending.last == request, "a new phone's request gave \(outcome)")
+            try FuzzRun.check(asked == .prompted(.ask) && after.prompts.pending.last == request, "a new phone's request gave \(asked)")
         }
+    }
+
+    /// An answer: the request stops waiting, Don't Allow quiets the prompts, and the answer is written
+    /// only to the signed-in user's own list (Allow: these keys; Don't Allow: this identity key refused).
+    private func checkDecide(_ request: MobileHostPairRequest, allow: Bool, changed: Bool,
+                             before: MobileHostPairing, after: MobileHostPairing, at now: Date) throws {
+        let phone = request.phoneDeviceID
+        let was = PhoneState(phone, before), state = PhoneState(phone, after)
+        try FuzzRun.check(state.pending == nil, "an answered request still waits")
+        try FuzzRun.check(allow || after.prompts.isQuiet(at: now), "Don't Allow did not quiet the prompts")
+        guard let list = before.paired, list.userID == userID else {
+            try FuzzRun.check(!changed && after.paired == before.paired, "an answer changed another user's list")
+            return
+        }
+        try FuzzRun.check(changed, "an answer to the user's own list changed nothing")
+        if allow {
+            try FuzzRun.check(state.trusts(request) && state.denied.isEmpty, "Allow left \(state)")
+        } else {
+            try FuzzRun.check(state.device == was.device && state.refuses(request), "Don't Allow left \(state)")
+        }
+    }
+
+    /// A sign-out or a removal: the phone neither waits nor stays paired; its refusals stay.
+    private func checkRevoke(_ phone: String, changed: Bool, before: MobileHostPairing, after: MobileHostPairing) throws {
+        let was = PhoneState(phone, before), state = PhoneState(phone, after)
+        try FuzzRun.check(state.pending == nil && state.device == nil, "a forgotten phone still waits or is paired")
+        try FuzzRun.check(state.denied == was.denied, "forgetting a phone changed its refusals")
+        try FuzzRun.check(changed == (before.paired != nil), "a revoke with a list reported \(changed)")
+        try FuzzRun.check(after.paired?.userID == before.paired?.userID, "a revoke changed the list's user")
     }
 
     /// The bounds hold, and nothing of any phone but `subject` changed.
-    private func check(_ prompts: MobileHostPairPrompts, _ paired: MobileHostPairedDevices,
-                       before: (prompts: MobileHostPairPrompts, paired: MobileHostPairedDevices), subject: String?) throws {
-        let waiting = prompts.pending.map(\.phoneDeviceID)
+    private func checkBounds(_ after: MobileHostPairing, before: MobileHostPairing, subject: String?) throws {
+        let waiting = after.prompts.pending.map(\.phoneDeviceID)
         try FuzzRun.check(waiting.count <= MobileHostPairPrompts.limit, "\(waiting.count) phones wait")
         try FuzzRun.check(Set(waiting).count == waiting.count, "a phone waits twice: \(waiting)")
-        try FuzzRun.check(Set(paired.devices.map(\.id)).count == paired.devices.count, "a phone is paired twice")
-        try FuzzRun.check(prompts.blocked >= before.prompts.blocked, "the blocked count went down")
-        let approvers = paired.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]]
-        try FuzzRun.check(approvers?.count == paired.devices.count, "acpmux would get \(String(describing: approvers?.count)) approvers")
+        try FuzzRun.check(after.prompts.blocked >= before.prompts.blocked, "the blocked count went down")
+        if let paired = after.paired {
+            try FuzzRun.check(Set(paired.devices.map(\.id)).count == paired.devices.count, "a phone is paired twice")
+            let approvers = paired.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]]
+            try FuzzRun.check(approvers?.count == paired.devices.count, "acpmux would get \(String(describing: approvers?.count)) approvers")
+        }
         guard let subject else { return }
         for phone in phones where phone != subject {
-            try FuzzRun.check(PhoneState(phone, prompts, paired) == PhoneState(phone, before.prompts, before.paired),
-                              "a step for \(subject) changed \(phone)")
+            try FuzzRun.check(PhoneState(phone, after) == PhoneState(phone, before), "a step for \(subject) changed \(phone)")
         }
         let others = { (list: [MobileHostPairRequest]) in list.filter { $0.phoneDeviceID != subject } }
-        try FuzzRun.check(others(prompts.pending) == others(before.prompts.pending), "a step for \(subject) reordered other phones")
+        try FuzzRun.check(others(after.prompts.pending) == others(before.prompts.pending), "a step for \(subject) reordered other phones")
     }
 }
 
 /// One generated shipped-iOS RPC frame (`{"id","method","params","auth"?}`) and what the request must read.
+/// Each parameter's expected string and integer is chosen with the value, never computed from it: digit
+/// strings of a known integer, whole numbers, halves (rounded away from zero), quarters (rounded to the
+/// nearer integer) and numbers past `Int`'s range (none).
 nonisolated struct HostRPCSample {
     static let seeds: [Data] = [
         #"{"id":1,"method":"workspace.list","params":{}}"#,
@@ -162,32 +239,10 @@ nonisolated struct HostRPCSample {
         var params: [String: FuzzJSON] = [:]
         for index in 0..<rng.below(5) {
             let key = "p\(index)"
-            switch rng.below(5) {
-            case 0:
-                let text = FuzzJSON.randomString(&rng)
-                params[key] = .string(text)
-                strings[key] = text.isEmpty ? nil : text
-                ints[key] = Int(text, radix: 10)
-            case 1:
-                let digits = String(rng.int(in: -1_000_000...1_000_000))
-                params[key] = .string(digits)
-                strings[key] = digits
-                ints[key] = Int(digits, radix: 10)
-            case 2:
-                let number = rng.oneIn(4) ? Int64(truncatingIfNeeded: rng.next()) : Int64(rng.int(in: -1_000...1_000))
-                params[key] = .int(number)
-                strings[key] = .some(nil)
-                ints[key] = Int(exactly: Double(number).rounded())
-            case 3:
-                let value = rng.double(in: -1e6...1e6)
-                params[key] = .double(value)
-                strings[key] = .some(nil)
-                ints[key] = Int(exactly: value.rounded())
-            default:
-                params[key] = FuzzJSON.random(&rng, of: [.null, .bool, .array, .object])
-                strings[key] = .some(nil)
-                ints[key] = .some(nil)
-            }
+            let (value, string, int) = Self.parameter(&rng)
+            params[key] = value
+            strings[key] = .some(string)
+            ints[key] = .some(int)
         }
         if rng.oneIn(10) {
             // Parameters that are not an object read as none.
@@ -200,6 +255,37 @@ nonisolated struct HostRPCSample {
         f.noise(&rng)
         frame = f.json
         method = f.complete ? name : nil
+    }
+
+    /// One parameter value with the string and the integer it reads as.
+    static func parameter(_ rng: inout FuzzRNG) -> (FuzzJSON, String?, Int?) {
+        let whole = rng.int(in: 0...1_000_000), negative = rng.bool()
+        let signed = negative ? -whole : whole, sign: Double = negative ? -1 : 1
+        switch rng.below(8) {
+        case 0:
+            // Text that is not a number: it starts with a letter.
+            let text = "a" + FuzzJSON.randomString(&rng)
+            return (.string(text), text, nil)
+        case 1:
+            return (.string(""), nil, nil)
+        case 2:
+            let digits = String(signed)
+            return (.string(digits), digits, signed)
+        case 3:
+            return (.int(Int64(signed)), nil, signed)
+        case 4:
+            // m + 0.5 rounds away from zero to m + 1.
+            return (.double(sign * (Double(whole) + 0.5)), nil, negative ? -(whole + 1) : whole + 1)
+        case 5:
+            // m + 0.25 rounds to m.
+            return (.double(sign * (Double(whole) + 0.25)), nil, signed)
+        case 6:
+            // Past Int's range in either direction, as a float or as a 64-bit unsigned integer.
+            let past: FuzzJSON = rng.bool() ? .double(sign * 1e19) : .uint(UInt64.max - UInt64(rng.below(1_000)))
+            return (past, nil, nil)
+        default:
+            return (FuzzJSON.random(&rng, of: [.null, .bool, .array, .object]), nil, nil)
+        }
     }
 
     func check() throws {
@@ -227,18 +313,37 @@ nonisolated struct HostRPCSample {
     }
 }
 
-/// The paired-phones file and the test seed file with damaged contents.
+/// The paired-phones file and the test seed file, as stored and damaged.
 nonisolated struct HostFilesCase {
-    var paired: Data
-    var seed: Data
-    var seedIsIntact: Bool
+    nonisolated enum PairedFile {
+        /// Written by `MobileHostPairedDevicesFile.save`: loads as stored for its user, empty for another.
+        case saved
+        /// A strict prefix of the saved bytes: never a JSON object, so it loads empty.
+        case truncated(Data)
+        /// Token-mutated bytes: any list of the signed-in user, never a trap.
+        case mutated(Data)
+    }
+
+    nonisolated enum SeedFile {
+        /// The seed names the phone by id (any case) or by name: it trusts the request.
+        case names(Data)
+        /// The seed names another phone, an entry with nothing in it, or the phone with another
+        /// identity key: it trusts no request of this phone.
+        case other(Data)
+        /// Token-mutated bytes: trusts or not, never a trap.
+        case mutated(Data)
+    }
+
+    var list: MobileHostPairedDevices
+    var paired: PairedFile
+    var seed: SeedFile
     var request: MobileHostPairRequest
 
     init(_ rng: inout FuzzRNG) throws {
         let phone = HostFuzz.id(&rng), name = FuzzJSON.randomString(&rng)
         let identity = HostFuzz.key(&rng), approval = HostFuzz.key(&rng)
         request = MobileHostPairRequest(phoneDeviceID: phone, name: name, identityKey: identity, approvalKey: approval)
-        var list = MobileHostPairedDevices(userID: rng.oneIn(4) ? "user-2" : "user-1")
+        list = MobileHostPairedDevices(userID: rng.oneIn(4) ? "user-2" : "user-1")
         list.approve(request, at: HostFuzz.now)
         let other = MobileHostPairRequest(phoneDeviceID: HostFuzz.id(&rng), name: "", identityKey: HostFuzz.key(&rng),
                                           approvalKey: HostFuzz.key(&rng))
@@ -248,25 +353,60 @@ nonisolated struct HostFilesCase {
         let stored = try encoder.encode(list)
         let mutator = FuzzMutator(dictionary: FuzzJSON.tokens + ["\"devices\"", "\"denied\"", "\"userID\"", "\"pairedAt\""].map { Data($0.utf8) },
                                   maximumCount: 16_384)
-        paired = rng.oneIn(4) ? stored : mutator.mutate(stored, using: &rng)
-        let intact = try FuzzJSON.object(["devices": .array([.object(["id": .string(phone)])])]).data()
-        seedIsIntact = rng.oneIn(4)
-        seed = seedIsIntact ? intact : mutator.mutate(intact, using: &rng)
+        switch rng.below(3) {
+        case 0: paired = .saved
+        case 1: paired = .truncated(stored.prefix(rng.below(stored.count)))
+        default: paired = .mutated(mutator.mutate(stored, using: &rng))
+        }
+
+        let entry: FuzzJSON
+        let names: Bool
+        switch rng.below(6) {
+        case 0: (entry, names) = (.object(["id": .string(phone)]), true)
+        case 1: (entry, names) = (.object(["id": .string(phone.uppercased())]), true)
+        case 2: (entry, names) = (.object(["name": .string(name)]), true)
+        case 3: (entry, names) = (.object(["id": .string("other-" + phone)]), false)
+        case 4: (entry, names) = (.object([:]), false)
+        default: (entry, names) = (.object(["id": .string(phone), "identityKey": .string(identity.lowercased() + "0")]), false)
+        }
+        let seedBytes = try FuzzJSON.object(["devices": .array([entry])]).data()
+        if rng.oneIn(4) {
+            seed = .mutated(mutator.mutate(seedBytes, using: &rng))
+        } else {
+            seed = names ? .names(seedBytes) : .other(seedBytes)
+        }
     }
 
     func check(in directory: URL) throws {
         let file = MobileHostPairedDevicesFile(directory: directory)
-        try paired.write(to: file.file)
-        let loaded = file.load(userID: "user-1")
-        var want = MobileHostPairedDevices(userID: "user-1")
-        if let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: paired), stored.userID == "user-1" { want = stored }
-        try FuzzRun.check(loaded == want, "the paired file loaded as \(loaded), not \(want)")
+        let empty = MobileHostPairedDevices(userID: "user-1")
+        switch paired {
+        case .saved:
+            try file.save(list)
+            let loaded = file.load(userID: "user-1")
+            try FuzzRun.check(loaded == (list.userID == "user-1" ? list : empty), "the saved list of \(list.userID) loaded as \(loaded)")
+            try FuzzRun.check(file.load(userID: "user-3") == MobileHostPairedDevices(userID: "user-3"), "another user loaded the list")
+        case let .truncated(bytes):
+            try bytes.write(to: file.file)
+            let loaded = file.load(userID: "user-1")
+            try FuzzRun.check(loaded == empty, "a cut-off file loaded as \(loaded)")
+        case let .mutated(bytes):
+            try bytes.write(to: file.file)
+            let loaded = file.load(userID: "user-1")
+            try FuzzRun.check(loaded.userID == "user-1", "a damaged file loaded the list of \(loaded.userID)")
+        }
 
         let seedFile = directory.appendingPathComponent("seed.json")
-        try seed.write(to: seedFile)
-        let trusts = IPhonePairingSeed(file: seedFile).trusts(request)
-        let parses = (try? JSONDecoder().decode(IPhonePairingSeed.File.self, from: seed)) != nil
-        try FuzzRun.check(parses || !trusts, "a seed that does not parse trusted a phone")
-        try FuzzRun.check(!seedIsIntact || trusts, "the seed naming the phone did not trust it")
+        switch seed {
+        case let .names(bytes):
+            try bytes.write(to: seedFile)
+            try FuzzRun.check(IPhonePairingSeed(file: seedFile).trusts(request), "a seed naming the phone did not trust it")
+        case let .other(bytes):
+            try bytes.write(to: seedFile)
+            try FuzzRun.check(!IPhonePairingSeed(file: seedFile).trusts(request), "a seed naming another phone trusted this one")
+        case let .mutated(bytes):
+            try bytes.write(to: seedFile)
+            _ = IPhonePairingSeed(file: seedFile).trusts(request)
+        }
     }
 }

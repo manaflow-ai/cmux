@@ -175,8 +175,8 @@ nonisolated struct HubHTTPCase {
         }
     }
 
-    func check(on stub: StubHub) throws {
-        let before = stub.requests.count
+    func check(on stub: StubHub) async throws {
+        _ = stub.drainRequests()
         let exchangeWire = exchangeWire, answerWire = answerWire
         stub.setHandler { request in
             Self.encodedPath(request.url).hasSuffix("/v1/auth/stack") ? exchangeWire : answerWire
@@ -191,17 +191,15 @@ nonisolated struct HubHTTPCase {
             tokens = DeviceHubAccountToken({ "stack-token" })
         }
         let client = DeviceHubClient(baseURL: base, identity: identity, tokens: tokens, session: StubHub.session, now: fixedNow)
-        let perform = call.perform
-        let outcome: Result<Void, any Error> = try HubFuzzThread.wait {
-            do {
-                try await perform(client)
-                return .success(())
-            } catch {
-                return .failure(error)
-            }
+        let outcome: Result<Void, any Error>
+        do {
+            try await call.perform(client)
+            outcome = .success(())
+        } catch {
+            outcome = .failure(error)
         }
         try check(outcome)
-        try check(requests: Array(stub.requests.dropFirst(before)))
+        try check(requests: stub.drainRequests())
     }
 
     private func check(_ outcome: Result<Void, any Error>) throws {

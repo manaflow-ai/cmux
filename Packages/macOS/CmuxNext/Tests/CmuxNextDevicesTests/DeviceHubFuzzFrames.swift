@@ -234,12 +234,12 @@ nonisolated struct HubSocketCase {
         }
     }
 
-    func check() throws {
+    func check() async throws {
         let connection = ScriptedHubConnection(frames)
         let connector = OneHubConnector(connection: connection)
         let socket = DeviceHubSocket(connector: connector, pingInterval: .seconds(3600))
         let log = Locked<[DeviceHubSocket.Event]>([])
-        try HubFuzzThread.wait { await socket.run { event in log.set(log.value + [event]) } }
+        await socket.run { event in log.set(log.value + [event]) }
         let want: [DeviceHubSocket.Event] = [.state(.connecting), .state(.connected)] + expected.map(DeviceHubSocket.Event.push)
             + [.state(.removed)]
         try FuzzRun.check(log.value == want, "the socket gave \(log.value), not \(want), for \(frames)")
@@ -282,11 +282,12 @@ nonisolated struct OneHubConnector: DeviceHubSocketConnector {
     }
 }
 
-/// Session frames for several sessions, some damaged, through ``DeviceHub`` as its socket hands them over.
+/// Session frames for several sessions, some damaged, read by a real ``DeviceHubSocket`` and handed to
+/// ``DeviceHub`` as the app hands them (`DeviceHub.start`: `socket.run { hub.handle($0) }`).
 nonisolated struct HubSessionsCase: Sendable {
     var frames: [String] = []
-    /// Whether the generator damaged frame `i` (it must decode to nothing).
-    var damaged: [Bool] = []
+    /// What the generator made frame `i` decode to; nil for a damaged frame, which the socket must drop.
+    var expected: [DeviceHubPush?] = []
 
     init(_ rng: inout FuzzRNG) throws {
         let sessions = (0..<(2 + rng.below(3))).map { index in "s\(index)-" + HubFuzz.id(&rng) }
@@ -294,45 +295,82 @@ nonisolated struct HubSessionsCase: Sendable {
             let session = rng.element(of: sessions) ?? "s0"
             let sample = HubPushSample(&rng, kinds: HubPushSample.sessionKinds, sessionID: session)
             frames.append(try sample.frame.text())
-            damaged.append(sample.expected == nil)
+            expected.append(sample.expected)
         }
     }
 
-    /// The hub's session state after each frame equals the contract's: a request waits until its
-    /// session gets a ticket or ends; a ticket stays until its session is denied, revoked or ends.
+    /// The hub's session state after each push equals the contract's, folded from the generator's own
+    /// pushes: a request waits until its session gets a ticket or ends; a ticket stays until its session
+    /// is denied, revoked or ends. A damaged frame gives no push, so it changes nothing.
     @MainActor func play(on stub: StubHub) async throws {
         let hub = DeviceHub(client: makeClient(stub), secrets: MemoryRelaySecretStore(), deviceName: "Studio", now: fixedNow)
         let seen = Locked<[DeviceHubPush]>([])
         hub.onSessionPush = { seen.set(seen.value + [$0]) }
-        var pending: [SessionRequest] = []
-        var tickets: [String: SessionTicket] = [:]
-        var sessionPushes: [DeviceHubPush] = []
-        var counted = 0
-        for (index, frame) in frames.enumerated() {
-            let push = DeviceHubPush(text: frame)
-            if damaged[index] { try FuzzRun.check(push == nil, "the damaged frame \(frame) decoded to \(String(describing: push))") }
-            guard let push else { continue }
-            if push != .pong { counted += 1 }
-            switch push {
-            case let .sessionRequest(request):
-                if !pending.contains(where: { $0.id == request.id }) { pending.append(request) }
-                sessionPushes.append(push)
-            case let .sessionTicket(ticket):
-                pending.removeAll { $0.id == ticket.sessionId }
-                tickets[ticket.sessionId] = ticket
-                sessionPushes.append(push)
-            case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
-                pending.removeAll { $0.id == id }
-                tickets[id] = nil
-                sessionPushes.append(push)
-            default:
-                break
-            }
-            await hub.handle(.push(push))
-            try FuzzRun.check(hub.pendingRequests == pending, "after \(frame): requests \(hub.pendingRequests), not \(pending)")
-            try FuzzRun.check(hub.tickets == tickets, "after \(frame): tickets \(hub.tickets.keys.sorted()), not \(tickets.keys.sorted())")
-            try FuzzRun.check(hub.pushCount == counted, "after \(frame): \(hub.pushCount) pushes counted, not \(counted)")
-            try FuzzRun.check(seen.value == sessionPushes, "after \(frame): the session layer saw \(seen.value)")
+        let socket = DeviceHubSocket(connector: OneHubConnector(connection: ScriptedHubConnection(frames)),
+                                     pingInterval: .seconds(3600))
+        let observed = Locked<[HubSessionState]>([])
+        await socket.run { event in
+            await hub.handle(event)
+            guard case .push = event else { return }
+            let state = await HubSessionState(hub, seen: seen.value)
+            observed.set(observed.value + [state])
         }
+
+        // The socket's `.connected` counts as one push (the hub reads everything again on it).
+        var want = HubSessionState(pushCount: 1)
+        var states: [HubSessionState] = []
+        for push in expected.compactMap({ $0 }) {
+            want.fold(push)
+            states.append(want)
+        }
+        let got = observed.value
+        try FuzzRun.check(got.count == states.count, "the hub got \(got.count) pushes, not \(states.count), for \(frames)")
+        for (index, (state, wanted)) in zip(got, states).enumerated() {
+            try FuzzRun.check(state == wanted, "after push \(index) of \(frames): \(state), not \(wanted)")
+        }
+        try FuzzRun.check(hub.connection == .removed, "the socket ended as \(hub.connection), not removed")
+    }
+}
+
+/// The session part of ``DeviceHub``: its waiting requests, tickets, push count and what its session layer saw.
+nonisolated struct HubSessionState: Sendable, Equatable, CustomStringConvertible {
+    var pending: [SessionRequest] = []
+    var tickets: [String: SessionTicket] = [:]
+    var pushCount = 0
+    var sessionPushes: [DeviceHubPush] = []
+
+    init(pushCount: Int) {
+        self.pushCount = pushCount
+    }
+
+    @MainActor init(_ hub: DeviceHub, seen: [DeviceHubPush]) {
+        pending = hub.pendingRequests
+        tickets = hub.tickets
+        pushCount = hub.pushCount
+        sessionPushes = seen
+    }
+
+    /// The contract of each session push (PROTOCOL.md), stated per case.
+    mutating func fold(_ push: DeviceHubPush) {
+        if push != .pong { pushCount += 1 }
+        switch push {
+        case let .sessionRequest(request):
+            if !pending.contains(where: { $0.id == request.id }) { pending.append(request) }
+            sessionPushes.append(push)
+        case let .sessionTicket(ticket):
+            pending.removeAll { $0.id == ticket.sessionId }
+            tickets[ticket.sessionId] = ticket
+            sessionPushes.append(push)
+        case let .sessionDenied(id), let .sessionRevoked(id, _), let .sessionEnded(id, _):
+            pending.removeAll { $0.id == id }
+            tickets[id] = nil
+            sessionPushes.append(push)
+        default:
+            break
+        }
+    }
+
+    var description: String {
+        "requests \(pending.map(\.id)), tickets \(tickets.keys.sorted()), \(pushCount) pushes, the session layer saw \(sessionPushes.count)"
     }
 }

@@ -5,17 +5,21 @@ import Foundation
 import Testing
 
 /// Seeded fuzz of what phones send this Mac (plans/cmux-next/chrome-parity/p10-stability.md, task 027): the
-/// status lines `cmux-mobile-host` passes on from them (``MobileHostEvent``: links, paths, pair requests with
-/// the phone's own name and keys), the iPhone host's per-phone state built from those lines
-/// (``MobileHostState``, ``MobileHostPairPrompts``, ``MobileHostPairedDevices``), the shipped-iOS RPC frames
-/// (``MobileRPCRequest``) and the files a phone's pairing leaves (the paired list, the test seed). Chrome
-/// treats every renderer the same way: mojo/core/channel_fuzzer.cc and ipc/ipc_message_fuzzer feed any bytes
-/// to the browser's side of the pipe, and a bad message ends only that renderer
+/// shipped-iOS RPC frames on each phone's control stream (``MobileSyncFrameCodec`` frames read by
+/// `MobileControlStream`, the loop `MobileIrxConnectionServer` runs per admitted phone, each answered by
+/// that phone's ``MobileCompatSession``), the status lines `cmux-mobile-host` passes on from phones
+/// (``MobileHostEvent``: links, paths, pair requests with the phone's own name and keys), the per-phone
+/// state built from those lines (``MobileHostState``, and ``MobileHostPairing``, which `IPhoneHostService`
+/// asks for every pairing decision) and the files a phone's pairing leaves (the paired list, the test
+/// seed). Chrome treats every renderer the same way: mojo/core/channel_fuzzer.cc and ipc/ipc_message_fuzzer
+/// feed any bytes to the browser's side of the pipe, and a bad message ends only that renderer
 /// (content/browser/bad_message.cc, ReceivedBadMessage).
 ///
-/// The properties: any line or frame gives an event or nothing, never a trap; a line that does not decode
-/// changes nothing; a line about one phone changes only that phone's link, prompt and pairing (a bad frame
-/// closes only that peer); a pairing flood stays bounded.
+/// The properties: any frame gets one well-formed answer with its request's id; a frame past the codec's
+/// limit ends that phone's stream and closes its session, while another phone's stream answers every
+/// request in order and keeps its events (a bad frame closes only that peer); any line gives an event or
+/// nothing, never a trap; a line about one phone changes only that phone's link, prompt and pairing; a
+/// pairing flood stays bounded.
 ///
 /// It runs only with `CMUX_MOBILE_HOST_FUZZ=1`; agents run it on the fleet, CI does not (Lawrence 2026-10-23):
 ///
@@ -40,8 +44,8 @@ nonisolated struct MobileHostFuzzTests {
         return 2 + Int((budget / 60).rounded(.up))
     }()
 
-    /// The suite's runs (one per `@Test`, two in the RPC one), which share a `CMUX_FUZZ_DEADLINE`.
-    static let runCount = 8
+    /// The suite's runs (one per `@Test`, two in the RPC and session-frame ones), which share a `CMUX_FUZZ_DEADLINE`.
+    static let runCount = 11
 
     /// Each run's share of `CMUX_FUZZ_DEADLINE`, fixed when the first run asks; nil without a deadline or in a replay.
     static let deadlineShare: TimeInterval? = {
@@ -57,7 +61,7 @@ nonisolated struct MobileHostFuzzTests {
     }
 
     /// One input, its choices read from `data` (the libFuzzer entry, p10-stability-182). The stored-file
-    /// run writes files, so it is not part of it.
+    /// run writes files and the session and stream runs await actors, so they are not part of it.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(5) {
@@ -106,9 +110,10 @@ nonisolated struct MobileHostFuzzTests {
         }
     }
 
-    /// Pair requests from several phones (good, damaged, flooding, with any keys and names) and the
-    /// person's answers: at most ``MobileHostPairPrompts/limit`` wait, one each, and a request or an
-    /// answer for one phone changes only that phone's prompt and pairing.
+    /// Pair requests from several phones (good, damaged, flooding, with any keys and names, seeded), the
+    /// person's answers, sign-outs, removals and connections turned off, through ``MobileHostPairing``:
+    /// each step does what its contract says, at most ``MobileHostPairPrompts/limit`` wait, one each, and a
+    /// step for one phone changes only that phone's prompt and pairing.
     @Test(.timeLimit(.minutes(MobileHostFuzzTests.timeLimitMinutes)))
     func pairRequestsChangeOnlyTheirPhone() throws {
         try Self.run("MobileHost.pairing", seed: 0x40B1_0027_0005, iterations: 3_000).forEach { rng in
@@ -129,8 +134,36 @@ nonisolated struct MobileHostFuzzTests {
         }
     }
 
-    /// The paired-phones file and the test seed file, damaged on disk: the list loads as stored or empty
-    /// for the signed-in user, and a seed that does not parse trusts no phone.
+    /// Phone frames straight to a phone's session: a generated request gets the answer its contract names,
+    /// with its id; any other bytes (mutated requests, garbage) get one well-formed answer, never a trap.
+    @Test(.timeLimit(.minutes(MobileHostFuzzTests.timeLimitMinutes)))
+    func sessionFramesGetOneWellFormedAnswer() async throws {
+        let run = try Self.run("MobileHost.sessionFrame", seed: 0x40B1_0027_0009, iterations: 5_000)
+        try await run.forEachAwaiting { rng in
+            let request = try HostPhoneRequest(&rng)
+            try await HostSessionFrame.check(request.payload, expected: request)
+        }
+        let mutatedRun = try Self.run("MobileHost.sessionFrameRaw", seed: 0x40B1_0027_000A, iterations: 5_000)
+        let corpus = try mutatedRun.corpus(seeds: HostRPCSample.seeds)
+        try await mutatedRun.forEachInputAwaiting(corpus, mutator: HostSessionFrame.mutator) { frame in
+            try await HostSessionFrame.check(frame)
+        }
+    }
+
+    /// Two phones' control streams at once, cut at random read boundaries: the fuzzed phone's good and
+    /// mutated frames each get one answer in order, and a frame past the codec's limit ends only its stream
+    /// and closes only its session; the other phone's requests all get their answers in order, and its
+    /// session keeps its event stream.
+    @Test(.timeLimit(.minutes(MobileHostFuzzTests.timeLimitMinutes)))
+    func aBadFrameClosesOnlyThatPhone() async throws {
+        try await Self.run("MobileHost.streams", seed: 0x40B1_0027_000B, iterations: 1_000).forEachAwaiting { rng in
+            try await HostPhoneStreamsCase(&rng).check()
+        }
+    }
+
+    /// The paired-phones file and the test seed file, saved, cut off and damaged on disk: a saved list loads
+    /// as stored for its user and empty for any other, a cut-off one loads empty, a damaged one never loads
+    /// another user's list; a seed that names the phone trusts it and one that names another phone does not.
     @Test(.timeLimit(.minutes(MobileHostFuzzTests.timeLimitMinutes)))
     func damagedPairingFilesLoadAsStoredOrEmpty() throws {
         let run = try Self.run("MobileHost.files", seed: 0x40B1_0027_0008, iterations: 1_000)

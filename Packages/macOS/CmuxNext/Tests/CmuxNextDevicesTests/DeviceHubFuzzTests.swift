@@ -13,8 +13,9 @@ import Testing
 /// components/cbor/reader_fuzzer.cc and crypto's signature_verifier fuzzers take any bytes.
 ///
 /// The properties: any input gives a value or a typed error, never a trap; a frame that does not decode
-/// changes nothing and does not end the socket; a push about one session changes only that session (a
-/// bad frame closes only that peer); every request is signed over exactly the route it goes to.
+/// changes nothing and does not end the socket (the hub is this device's only peer on it, so a bad frame
+/// is dropped, not the connection); a push about one session, read through the socket into ``DeviceHub``,
+/// changes only that session; every request is signed over exactly the route it goes to.
 ///
 /// It runs only with `CMUX_DEVICE_HUB_FUZZ=1`; agents run it on the fleet, CI does not (Lawrence 2026-10-23):
 ///
@@ -108,23 +109,21 @@ struct DeviceHubFuzzTests {
     @Test(.timeLimit(.minutes(DeviceHubFuzzTests.timeLimitMinutes)))
     func theSocketSkipsBadFramesAndKeepsItsConnection() async throws {
         let run = try Self.run("DeviceHub.socket", seed: 0xDE71_0027_0005, iterations: 500)
-        try await HubFuzzThread.run("DeviceHubFuzz socket run") {
-            try run.forEach { rng in try HubSocketCase(&rng).check() }
-        }
+        try await run.forEachAwaiting { rng in try await HubSocketCase(&rng).check() }
     }
 
-    /// Session pushes for several sessions, with damaged frames naming them: ``DeviceHub`` keeps each
-    /// session's request and ticket as its own pushes say, so ending one session (or a frame that does
+    /// Session pushes for several sessions, with damaged frames naming them, read by a real
+    /// ``DeviceHubSocket`` and handed to ``DeviceHub`` as the app hands them: the hub keeps each session's
+    /// request and ticket as that session's own pushes say, so ending one session (or a frame that does
     /// not decode) leaves every other session as it was.
     @Test(.timeLimit(.minutes(DeviceHubFuzzTests.timeLimitMinutes)))
     func sessionPushesChangeOnlyTheirSession() async throws {
         let run = try Self.run("DeviceHub.sessions", seed: 0xDE71_0027_0006, iterations: 500)
         let stub = StubHub.routes([:])
-        try await HubFuzzThread.run("DeviceHubFuzz sessions run") {
-            try run.forEach { rng in
-                let script = try HubSessionsCase(&rng)
-                try HubFuzzThread.wait { try await script.play(on: stub) }
-            }
+        try await run.forEachAwaiting { rng in
+            let script = try HubSessionsCase(&rng)
+            try await script.play(on: stub)
+            _ = stub.drainRequests()
         }
     }
 
@@ -137,44 +136,6 @@ struct DeviceHubFuzzTests {
         let run = try Self.run("DeviceHub.http", seed: 0xDE71_0027_0007, iterations: 300)
         let identity = DeviceIdentity.software()
         let stub = StubHub { _ in (500, "") }
-        try await HubFuzzThread.run("DeviceHubFuzz http run") {
-            try run.forEach { rng in try HubHTTPCase(&rng, identity: identity).check(on: stub) }
-        }
-    }
-}
-
-/// The fuzz runs that drive async code: each run on a thread of its own (never one of the Swift concurrency
-/// pool), each case awaited from it to its end.
-nonisolated enum HubFuzzThread {
-    static func run(_ name: String, _ body: @escaping @Sendable () throws -> Void) async throws {
-        let result: Result<Void, any Error> = await withCheckedContinuation { continuation in
-            let thread = Thread {
-                do {
-                    try body()
-                    continuation.resume(returning: .success(()))
-                } catch {
-                    continuation.resume(returning: .failure(error))
-                }
-            }
-            thread.name = name
-            thread.qualityOfService = .utility
-            thread.start()
-        }
-        try result.get()
-    }
-
-    /// Runs `body` to its end and returns what it gave. Only from a ``run(_:_:)`` thread: it waits.
-    static func wait<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
-        let result = Locked<Result<T, any Error>?>(nil)
-        let done = DispatchSemaphore(value: 0)
-        Task {
-            do { result.set(.success(try await body())) } catch { result.set(.failure(error)) }
-            done.signal()
-        }
-        done.wait()
-        guard let outcome = result.value else {
-            throw FuzzError.property("the awaited case gave no result", location: "HubFuzzThread.wait")
-        }
-        return try outcome.get()
+        try await run.forEachAwaiting { rng in try await HubHTTPCase(&rng, identity: identity).check(on: stub) }
     }
 }
