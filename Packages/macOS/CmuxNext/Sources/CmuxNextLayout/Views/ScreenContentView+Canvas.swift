@@ -110,9 +110,9 @@ extension ScreenContentView {
         let reach = hypot(rest.width, rest.height) / 2
         // Every call names all three key paths, so the newest call's landing waits for every camera spring.
         var moves = [
-            RenderSpring.Move(layer, "bounds.origin.x", from: rest.origin.x + added.centerOffset.x, to: rest.origin.x,
+            RenderSpring.Move(layer, .boundsOriginX, from: rest.origin.x + added.centerOffset.x, to: rest.origin.x,
                               velocity: added.centerVelocity.x),
-            RenderSpring.Move(layer, "bounds.origin.y", from: rest.origin.y + added.centerOffset.y, to: rest.origin.y,
+            RenderSpring.Move(layer, .boundsOriginY, from: rest.origin.y + added.centerOffset.y, to: rest.origin.y,
                               velocity: added.centerVelocity.y),
         ]
         // Each zoom spring carries its share of the zoom's speed as a progress velocity (`CanvasCameraRenderSpring.Zoom`);
@@ -120,7 +120,7 @@ extension ScreenContentView {
         let zooms: [(ratio: Double, progress: Double)] = added.zooms.map { ($0.ratio, -$0.velocity) }
         for zoom in zooms.isEmpty ? [(ratio: 1.0, progress: 0.0)] : zooms {
             let from = CanvasZoomTransform(scale: CGFloat(zoom.ratio), pivot: pivot, reach: reach)
-            moves.append(RenderSpring.Move(layer, "sublayerTransform", from: from, to: .springZero, progressVelocity: CGFloat(zoom.progress)))
+            moves.append(RenderSpring.Move(layer, .canvasZoom, from: from, to: .springZero, progressVelocity: CGFloat(zoom.progress)))
         }
         renderSpringsInFlight += 1
         userMotionActive = true
