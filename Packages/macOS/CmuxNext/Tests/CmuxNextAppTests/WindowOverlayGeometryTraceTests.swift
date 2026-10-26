@@ -42,8 +42,11 @@ import Testing
             log.clear()
         }
 
+        /// A real resize (wider, same origin, so no move): AppKit posts the window's didResize itself.
         func resize() {
-            NotificationCenter.default.post(name: NSWindow.didResizeNotification, object: window)
+            var frame = window.frame
+            frame.size.width += 40
+            window.setFrame(frame, display: false)
         }
 
         func close() {
