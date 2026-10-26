@@ -62,9 +62,10 @@ Usage:
   perf-signposts.py --from FILE.ndjson [--json]     summarize a saved stream
   perf-signposts.py --save FILE.ndjson ...           also keep the raw stream (with its timebase)
   perf-signposts.py --allow-loss ...                 report instead of failing on lost messages
-  perf-signposts.py --app APP --out DIR [--story NAME] [--session S] [--engine E] ...
+  perf-signposts.py --pid PID --app APP --out DIR [--story NAME] [--session S] [--engine E] ...
                                                      also write result-v1 per signpost name (APP: the
-                                                     running tagged bundle the stream reads)
+                                                     running tagged bundle PID runs; a live stream only,
+                                                     never --from)
   perf-signposts.py --self-test                      check the parser on a built-in sample
 
 Without --seconds or a COMMAND it streams until Ctrl-C.
@@ -73,11 +74,11 @@ Without --seconds or a COMMAND it streams until Ctrl-C.
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -85,26 +86,10 @@ import time
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-PERF_LAB = os.path.join(os.path.dirname(HERE), "perf-lab")
-
-
-def load_by_path(name: str, path: str):
-    """The module at `path`, imported as `name` once per process (as bench_launch.load_by_path: a bench runs under
-    `python3 -I`, so the perf-lab modules are loaded by file path)."""
-    if name in sys.modules:
-        return sys.modules[name]
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None:
-        raise ImportError(f"perf-signposts: no module at {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
-    try:
-        spec.loader.exec_module(module)
-    except BaseException:
-        del sys.modules[name]
-        raise
-    return module
-
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)  # bench_launch (PERF_LAB, load_by_path, BenchApp) under `python3 -I` too
+import bench_launch  # noqa: E402
+from bench_launch import PERF_LAB, load_by_path  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 
@@ -241,7 +226,6 @@ def series(intervals: list[dict]) -> dict[str, list[float]]:
 def record(app, intervals: list[dict], story: str, engine: str = "none") -> dict[str, str]:
     """Writes one result-v1 per signpost name through `app.record` (a BenchApp holding its launch's features
     snapshot); returns {name: path or "not recorded: <reason>"}. A name it cannot record is reported, not raised."""
-    bench_launch = load_bench_launch()
     perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
     written = {}
     for name, samples in series(intervals).items():
@@ -252,20 +236,14 @@ def record(app, intervals: list[dict], story: str, engine: str = "none") -> dict
     return written
 
 
-def load_bench_launch():
-    """scripts/cmux-next/bench_launch.py (BenchApp, RecordError), imported only when results are written."""
-    if HERE not in sys.path:
-        sys.path.insert(0, HERE)
-    import bench_launch
-    return bench_launch
-
-
-def bench_app(path: str, out: str, session: str):
-    """The running tagged app at `path` as a BenchApp that only records (no launch, no teardown), with the
-    features snapshot its socket answers now (BenchApp.read_features; None when it gives none)."""
-    app = load_bench_launch().BenchApp(path, out=out, teardown=False, perf_session=session)
-    app.features = app.read_features()
-    return app
+def bench_app(path: str, out: str, session: str, pid: int):
+    """The running tagged app at `path` as a BenchApp that only records (no launch, no teardown), attached to the
+    socket that answers its features.list now (BenchApp.attach). Raises RecordError when `pid`, the process the
+    stream read, is not a process of that bundle: its build and features would label another process's samples."""
+    app = bench_launch.BenchApp(path, out=out, teardown=False, perf_session=session)
+    if pid not in app.running_pids():
+        raise bench_launch.RecordError(f"pid {pid} is not a process of {app.app}")
+    return app.attach()
 
 
 class Recording:
@@ -400,6 +378,7 @@ def self_test() -> int:
     assert abs(rows[("key.scroll_input_to_frame", "content")]["p50_ms"] - 2.0) < 1e-6, rows
     check_percentiles()
     check_results(parsed["intervals"])
+    check_cli()
     print("self-test ok")
     return 0
 
@@ -450,13 +429,108 @@ def check_results(intervals: list[dict]) -> None:
 
     class Refuses:
         def record(self, *args, **kwargs):
-            raise load_bench_launch().RecordError("no features.list snapshot")
+            raise bench_launch.RecordError("no features.list snapshot")
 
     refused = record(Refuses(), intervals, "signposts")
     assert all(v == "not recorded: no features.list snapshot" for v in refused.values()), refused
 
 
-def main() -> int:
+def check_cli() -> None:
+    """The command line's recording path: --app pairs with --out and a live --pid stream only; run() puts one
+    result-v1 path per name in the JSON report and the text report; a stream that lost messages, or a pid that is
+    not a process of --app, writes nothing; bench_app attaches to whichever socket candidate answers."""
+    import contextlib
+    import io
+    import tempfile
+    for argv in (["--app", "cmux DEV x.app", "--pid", "1"], ["--out", "/tmp/x", "--pid", "1"],
+                 ["--app", "cmux DEV x.app", "--out", "/tmp/x", "--from", "saved.ndjson"], ["--json"]):
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                parse_args(argv)
+            except SystemExit as error:
+                assert error.code == 2, (argv, error.code)
+            else:
+                raise AssertionError(f"parse_args accepted {argv}")
+    lossless = [line for line in SAMPLE.splitlines() if "lossEvent" not in line]
+    assert parse(lossless, None)["lost"] == 0
+    names = set(series(parse(lossless, None)["intervals"]))
+    with tempfile.TemporaryDirectory() as out:
+        args = parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1", "--json", "--allow-loss"])
+        made = []
+
+        def factory(given):
+            assert (given.app, given.out, given.pid) == ("cmux DEV x.app", out, 1), given
+            made.append(FakeRecorder(out))
+            return made[-1]
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            assert run(args, lossless, None, factory, printed) == 0
+        results = json.loads(printed.getvalue())["results"]
+        assert set(results) == names and all(os.path.isfile(path) for path in results.values()), results
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            run(parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1"]), lossless, None, factory, printed)
+        text = printed.getvalue().splitlines()
+        assert all(any(line.startswith(f"perf-signposts: result-v1 {name}: {out}") for line in text) for name in names), text
+
+    with tempfile.TemporaryDirectory() as out:
+        def never(_):
+            raise AssertionError("a lost stream must not reach the app")
+
+        printed = io.StringIO()
+        with contextlib.redirect_stderr(io.StringIO()):
+            status = run(parse_args(["--app", "cmux DEV x.app", "--out", out, "--pid", "1", "--json", "--allow-loss"]),
+                         SAMPLE.splitlines(), None, never, printed)
+        results = json.loads(printed.getvalue())["results"]
+        assert status == 0 and results and all(v == "not recorded: log stream lost messages 1 time(s)"
+                                               for v in results.values()), results
+        assert not os.listdir(out), os.listdir(out)
+    check_bench_app()
+
+
+def check_bench_app() -> None:
+    """bench_app refuses a pid that is not a process of the bundle, and attach() finds a socket that answers on a
+    later candidate (/tmp here, not the state folder)."""
+    import tempfile
+    tag = f"perf-signposts-selftest-{os.getpid()}"
+    with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as out:
+        bundle = os.path.join(root, f"cmux DEV {tag}.app")
+        os.makedirs(bundle)
+        try:
+            bench_app(bundle, out, "light", os.getpid())
+        except bench_launch.RecordError as error:
+            assert str(error) == f"pid {os.getpid()} is not a process of {os.path.realpath(bundle)}", error
+        else:
+            raise AssertionError("bench_app accepted a pid outside the bundle")
+
+        path = f"/tmp/cmux-debug-{tag}.sock"
+        assert path in bench_launch.socket_candidates(tag)[1:], bench_launch.socket_candidates(tag)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(path)
+        try:
+            server.listen(1)
+
+            def answer() -> None:
+                conn, _ = server.accept()
+                with conn:
+                    conn.makefile().readline()
+                    reply = {"ok": True, "result": {"features": [{"name": "a", "state": "on", "source": "default"}],
+                                                    "features_hash": "h", "safe_mode": False}}
+                    conn.sendall((json.dumps(reply) + "\n").encode())
+
+            threading.Thread(target=answer, daemon=True).start()
+            app = bench_launch.BenchApp(bundle, out=out, teardown=False).attach()
+            assert app.socket == path, app.socket
+            assert app.features == ({"a": {"state": "on", "source": "default"}}, "h", False), app.features
+        finally:
+            server.close()
+            os.unlink(path)
+
+
+def parse_args(argv: list[str] | None = None):
+    """The command line, checked (parser.error, exit 2, on a bad combination)."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--pid", type=int)
     parser.add_argument("--from", dest="source")
@@ -475,47 +549,62 @@ def main() -> int:
                         help="result-v1 engine (default none)")
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command and args.command[0] == "--":
         args.command = args.command[1:]
     if args.self_test:
-        return self_test()
+        return args
     if bool(args.app) != bool(args.out):
         parser.error("--app and --out go together")
-    timebase = local_timebase()
-    if args.source:
-        with open(args.source) as handle:
-            lines = handle.read().splitlines()
-    elif args.pid:
-        lines = stream(args)  # the timebase header first (Recording.stop)
-    else:
+    if args.app and args.source:
+        # A saved stream carries no build or features: --app would label it with the bundle and process of now.
+        parser.error("--app records only a live stream (--pid), never a saved one (--from)")
+    if not args.source and not args.pid:
         parser.error("--pid or --from is required")
-    if args.save:
-        with open(args.save, "w") as handle:
-            handle.write("\n".join(lines) + "\n")
+    return args
+
+
+def live_app(args):
+    """The BenchApp a live stream's results go through: the bundle --app names, checked to run --pid."""
+    return bench_app(args.app, args.out, args.session, args.pid)
+
+
+def results_of(args, parsed: dict, app_factory) -> dict[str, str] | None:
+    """{name: result-v1 path or "not recorded: <reason>"} with --app, else None."""
+    if not args.app:
+        return None
+    names = series(parsed["intervals"])
+    if parsed["lost"]:
+        # A stream that lost messages is not a fair sample (even with --allow-loss): it goes to no series.
+        return {name: f"not recorded: log stream lost messages {parsed['lost']} time(s)" for name in names}
+    try:
+        app = app_factory(args)
+    except bench_launch.RecordError as error:
+        return {name: f"not recorded: {error}" for name in names}
+    return record(app, parsed["intervals"], args.story, args.engine)
+
+
+def run(args, lines: list[str], timebase, app_factory=live_app, out=None) -> int:
+    """Summarizes `lines` (and with --app writes result-v1 through `app_factory(args)`); prints the report to `out`
+    (stdout) and returns the exit status."""
+    out = out or sys.stdout
     parsed = parse(lines, timebase)
     rows = summarize(parsed["intervals"])
     status = 2 if parsed["lost"] and not args.allow_loss else 0
-    results = None
-    if args.app:
-        # A stream that lost messages is not a fair sample (even with --allow-loss): it goes to no series.
-        results = ({name: f"not recorded: log stream lost messages {parsed['lost']} time(s)"
-                    for name in series(parsed["intervals"])} if parsed["lost"]
-                   else record(bench_app(args.app, args.out, args.session), parsed["intervals"], args.story,
-                               args.engine))
+    results = results_of(args, parsed, app_factory)
     if args.json:
         report = {"rows": rows, "lost": parsed["lost"], "unpaired": parsed["unpaired"]}
         if results is not None:
             report["results"] = results
-        print(json.dumps(report))
+        print(json.dumps(report), file=out)
     else:
-        print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}")
-        print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}")
+        print(f"lost-message reports: {parsed['lost']}  unpaired begins: {parsed['unpaired']}", file=out)
+        print(f"{'name':28} {'detail':36} {'n':>5} {'p50':>9} {'p95':>9} {'p99':>9} {'max':>9}", file=out)
         for row in rows:
             print(f"{row['name']:28} {row['detail'][:36]:36} {row['count']:5} {row['p50_ms']:9.3f} "
-                  f"{row['p95_ms']:9.3f} {row['p99_ms']:9.3f} {row['max_ms']:9.3f}")
+                  f"{row['p95_ms']:9.3f} {row['p99_ms']:9.3f} {row['max_ms']:9.3f}", file=out)
         for name, where in (results or {}).items():
-            print(f"perf-signposts: result-v1 {name}: {where}")
+            print(f"perf-signposts: result-v1 {name}: {where}", file=out)
     if missing_input_age(parsed["intervals"]):
         print("perf-signposts: WARNING: user action runs carry no input age (input_age_ms -1 on every one): "
               "input to commit is empty; the App's dispatchingInputEvent wiring or the scenario is wrong", file=sys.stderr)
@@ -525,6 +614,22 @@ def main() -> int:
         print(f"perf-signposts: log stream lost messages {parsed['lost']} time(s); the sample is not complete "
               "(rerun, or pass --allow-loss to keep it)", file=sys.stderr)
     return status
+
+
+def main() -> int:
+    args = parse_args()
+    if args.self_test:
+        return self_test()
+    timebase = local_timebase()
+    if args.source:
+        with open(args.source) as handle:
+            lines = handle.read().splitlines()
+    else:
+        lines = stream(args)  # the timebase header first (Recording.stop)
+    if args.save:
+        with open(args.save, "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+    return run(args, lines, timebase)
 
 
 if __name__ == "__main__":
