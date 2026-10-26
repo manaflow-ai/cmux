@@ -8,8 +8,10 @@ import Testing
 struct PointerCoalescingTests {
     @Test func movesKeepTheLatestTheOldestTimeAndTheCount() throws {
         var input = try #require(PointerCoalescedInput(Self.record(.mouseMoved, x: 1, at: 10)))
-        #expect(input.merge(Self.record(.mouseMoved, x: 2, at: 11)))
-        #expect(input.merge(Self.record(.mouseMoved, x: 3, at: 12)))
+        let second = input.merge(Self.record(.mouseMoved, x: 2, at: 11))
+        let third = input.merge(Self.record(.mouseMoved, x: 3, at: 12))
+        #expect(second)
+        #expect(third)
         #expect(input.kind == .move)
         #expect(input.latest.location == InputPoint(x: 3, y: 0))
         #expect(input.oldestTimestamp == 10)
@@ -21,7 +23,8 @@ struct PointerCoalescingTests {
     @Test func dragsKeepTheNewestSixteenPointsOldestFirst() throws {
         var input = try #require(PointerCoalescedInput(Self.record(.leftMouseDragged, x: 0, at: 0)))
         for index in 1..<20 {
-            #expect(input.merge(Self.record(.leftMouseDragged, x: Double(index), at: Double(index))))
+            let merged = input.merge(Self.record(.leftMouseDragged, x: Double(index), at: Double(index)))
+            #expect(merged)
         }
         #expect(input.coalescedCount == 20)
         #expect(input.oldestTimestamp == 0, "the oldest time survives the dropped samples")
@@ -33,14 +36,19 @@ struct PointerCoalescingTests {
 
     @Test func scrollsSumWithinOnePhase() throws {
         var input = try #require(PointerCoalescedInput(Self.scroll(.changed, dy: 2, at: 1)))
-        #expect(input.merge(Self.scroll(.changed, dy: 3, at: 2)))
-        #expect(input.merge(Self.scroll(.changed, dy: -1, at: 3)))
+        let second = input.merge(Self.scroll(.changed, dy: 3, at: 2))
+        let third = input.merge(Self.scroll(.changed, dy: -1, at: 3))
+        #expect(second)
+        #expect(third)
         #expect(input.scrollDelta == InputPoint(x: 0, y: 4))
         #expect(input.coalescedCount == 3)
         #expect(input.oldestTimestamp == 1)
-        #expect(!input.merge(Self.scroll(.ended, dy: 0, at: 4)), "a phase change starts a new delivery")
-        #expect(!input.merge(Self.scroll(.momentum, dy: 5, at: 4)), "momentum is its own phase")
-        #expect(!input.merge(Self.scroll(.changed, dy: 1, at: 4, precise: false)), "line deltas do not add to points")
+        let ended = input.merge(Self.scroll(.ended, dy: 0, at: 4))
+        #expect(!ended, "a phase change starts a new delivery")
+        let momentum = input.merge(Self.scroll(.momentum, dy: 5, at: 4))
+        #expect(!momentum, "momentum is its own phase")
+        let lines = input.merge(Self.scroll(.changed, dy: 1, at: 4, precise: false))
+        #expect(!lines, "line deltas do not add to points")
         #expect(input.scrollDelta == InputPoint(x: 0, y: 4), "a refused merge changes nothing")
     }
 
