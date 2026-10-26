@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "build": "4031371403702",
+  "notes": "notes/4031371403702.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25404,
+      "title": "ci(nightly): a newer nightly builds and signs alongside a waiting one, never replacing it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25413,
+      "title": "cmux-next: Tint with Desktop Wallpaper setting, on by default (wallpaper tint part 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25421,
+      "title": "ci(cmux-next): a feat-cmux-next push's Release compile takes the cascade's slot first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25410,
+      "title": "docs: remote agents setup fixes from a fresh-account walk",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23921,
+      "title": "acpmux: a turn a daemon restart cut off resumes by itself, before the queue behind it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25308,
+      "title": "cmux-next: the window follows the desktop picture (wallpaper tint part 1)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25308/e88b980f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "e88b980f",
+      "tour": "core"
+    },
+    {
+      "pr": 25419,
+      "title": "cmux-next: promote the dev Cloud image to sh-305c4f86 (bake run 40270232246)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
