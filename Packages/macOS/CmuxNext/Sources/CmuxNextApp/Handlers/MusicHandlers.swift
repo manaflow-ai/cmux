@@ -18,18 +18,23 @@ enum MusicHandlers {
             guard let services, let registry else { return }
             let anchor = services.windows.active?.window
             let given = [invocation["url"], invocation["path"]].lazy.compactMap { $0?.stringValue.flatMap(url(for:)) }.first
-            registry.track(Task { @MainActor in
+            let work = services.work, priority = invocation.completionPriority
+            // The pick (a sheet), then the folder walk on the files lane; the play or the refusal is one task on main.
+            registry.trackWork(invocation.completionClass, owner: "MusicHandlers.play", on: services.mainWork) { () -> [URL]? in
                 var urls = given.map { [$0] }
                 if urls == nil { urls = await choose(anchor: anchor) }
                 guard let urls else { return nil }
-                let tracks = await Task.detached { MusicPlayer.tracks(from: urls) }.value
+                return try await work.run(priority, mayBlock: .files) { MusicPlayer.tracks(from: urls) }
+            } then: { [weak services, weak registry] result in
+                // A cancelled pick plays nothing and is not a failure.
+                guard case .success(let picked) = result, let tracks = picked else { return nil }
                 guard !tracks.isEmpty else {
-                    registry.refuse(MusicStrings.noSongs)
+                    registry?.refuse(MusicStrings.noSongs)
                     return ActionWorkFailure(MusicStrings.noSongs)
                 }
-                services.cache.pageRequests.music.play(tracks)
+                services?.cache.pageRequests.music.play(tracks)
                 return nil
-            })
+            }
         })
         registry.bind("music.stop", unavailable: preview, invoke: { [weak services, weak registry] _ in
             guard let music = services?.cache.pageRequests.music, music.nowPlaying != nil else {

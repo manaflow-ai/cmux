@@ -19,6 +19,7 @@ enum TabGroupHandlers {
             registry.bind(id, unavailable: gate, invoke: invoke)
         }
         bindMembership(bind, ctx)
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
         bindLifecycle(bind, ctx)
@@ -60,9 +61,12 @@ enum TabGroupHandlers {
         // The pane's own machine, not the active window's daemon.
         let daemon = pane.map { ctx.services.daemon(for: $0) } ?? ctx.services.activeDaemon
         guard daemon.connection ?? ctx.refuse(MiscHandlerStrings.daemonOffline) != nil else { return }
-        Task {
+        let services = ctx.services, mainWork = services.mainWork
+        // The command is awaited off main; a rejection re-pushes the strip in one visible task.
+        services.work.task(.userBlocking) {
             let ok = await daemon.runGroupCommand(label, intent: intent, body)
-            if !ok, let pane { ctx.services.paneController(for: pane)?.resyncStrip() }
+            guard !ok, let pane else { return }
+            mainWork.postFromAnyThread(.visible, owner: "TabGroupHandlers.resync") { services.paneController(for: pane)?.resyncStrip() }
         }
     }
 
@@ -110,14 +114,17 @@ enum TabGroupHandlers {
             let controller = ctx.services.paneController(for: pane)
             let workspace = ctx.services.workspaceKey(of: pane)
             guard let connection = connection(for: pane, ctx) else { return }
-            let logger = ctx.services.daemon(for: pane).logger
-            Task {
+            let logger = ctx.services.daemon(for: pane).logger, mainWork = ctx.services.mainWork
+            let options = SpawnOptions(cwd: cwd, workspace: workspace)
+            // The create and the join are awaited off main; selecting the new tab is one visible task.
+            ctx.services.work.task(invocation.completionPriority) {
                 do {
-                    let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace))
-                    _ = try await connection.addTabs([created.surface], toGroup: group)
-                    if let controller {
-                        controller.selectWhenReported(surface: created.surface)
-                        controller.workspace?.expectFocus(on: created.surface)
+                    let surface = try await connection.newTab(in: handle, options: options).surface
+                    _ = try await connection.addTabs([surface], toGroup: group)
+                    guard let controller else { return }
+                    mainWork.postFromAnyThread(.visible, owner: "TabGroupHandlers.newTab") {
+                        controller.selectWhenReported(surface: surface)
+                        controller.workspace?.expectFocus(on: surface)
                     }
                 } catch {
                     logger.error("new-tab-in-group failed: \(String(describing: error), privacy: .public)")

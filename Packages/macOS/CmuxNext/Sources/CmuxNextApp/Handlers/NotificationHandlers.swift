@@ -14,7 +14,7 @@ enum NotificationHandlers {
     static let ack = DaemonCapability.notificationAck.rawValue
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let services = context.services
+        let services = context.services, mainWork = services.mainWork
         let panel = NotificationsPanelController(context: context)
         registry.bind("showNotifications", run: { _ in panel.toggle() })
         let feedPanel = FeedPanelController(context: context)
@@ -24,7 +24,7 @@ enum NotificationHandlers {
             _ = try context.requireConnection()
             context.daemon.send("notification.clear") { connection in
                 try await connection.clearNotifications()
-                await MainActor.run { panel.reload() }
+                await mainWork.apply(.visible, owner: "NotificationHandlers.reload") { panel.reload() }
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
@@ -93,7 +93,7 @@ enum NotificationHandlers {
                     throw ActionFailure.invalidTarget(none)
                 }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
-                await MainActor.run { context.copy(text) }
+                await mainWork.apply(.visible, owner: "NotificationHandlers.copy") { context.copy(text) }
             }
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
@@ -116,9 +116,10 @@ enum NotificationHandlers {
             guard let surface = row.surface else { throw ActionFailure(message: NotificationsPanelStrings.sourceClosed) }
             return try acknowledge([surface], context)
         }
+        let mainWork = context.services.mainWork
         context.daemon.send("notification.clear") { connection in
             try await connection.clearNotifications(terminal: terminal)
-            await MainActor.run { panel.reload() }
+            await mainWork.apply(.visible, owner: "NotificationHandlers.reload") { panel.reload() }
         }
     }
 
