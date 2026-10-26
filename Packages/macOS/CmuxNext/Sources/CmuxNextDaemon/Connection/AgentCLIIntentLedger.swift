@@ -44,10 +44,10 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         }
     }
 
-    private struct Rows: Decodable, Sendable { let intents: [AgentCLIStoredIntent] }
-    private struct Attached: Decodable, Sendable { let intent: AgentCLIStoredIntent }
+    struct Rows: Decodable, Sendable { let intents: [AgentCLIStoredIntent] }
+    struct Attached: Decodable, Sendable { let intent: AgentCLIStoredIntent }
 
-    private struct Record: DaemonRequest {
+    struct Record: DaemonRequest {
         typealias Response = Rows
         static let commandName: DaemonCommandName = "agent-cli-intents-record"
         let expectedMachineID: ResourceID
@@ -55,14 +55,14 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         let intents: [AgentCLIUpdateIntent]
     }
 
-    private struct List: DaemonRequest {
+    struct List: DaemonRequest {
         typealias Response = Rows
         static let commandName: DaemonCommandName = "agent-cli-intents-list"
         let expectedMachineID: ResourceID
         let expectedSessionID: ResourceID
     }
 
-    private struct Settle: DaemonRequest {
+    struct Settle: DaemonRequest {
         typealias Response = Rows
         static let commandName: DaemonCommandName = "agent-cli-intents-settle"
         let expectedMachineID: ResourceID
@@ -70,7 +70,7 @@ public nonisolated struct AgentCLIIntentLedger: Sendable {
         let keys: [String]
     }
 
-    private struct Attach: DaemonRequest {
+    struct Attach: DaemonRequest {
         typealias Response = Attached
         static let commandName: DaemonCommandName = "agent-cli-intents-attach"
         let expectedMachineID: ResourceID

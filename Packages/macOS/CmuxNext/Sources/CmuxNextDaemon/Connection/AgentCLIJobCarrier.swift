@@ -31,7 +31,7 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
     /// The v2 operation ``observe(_:)`` sends.
     private static let waitExit: DaemonCommandName = "terminal.wait_exit"
 
-    private struct Resolve: DaemonRequest {
+    struct Resolve: DaemonRequest {
         typealias Response = AgentCLIJobResolution
         static let commandName: DaemonCommandName = "agent-cli-update-job-resolve"
         static let requiredCapability: String? = "agent-cli-update-job-resolve-v1"
