@@ -7,6 +7,14 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 `A/` = `Packages/macOS/CmuxNext/Sources/CmuxNextApp/`, `shim/` = `Packages/macOS/CmuxNext/CEFShim/src/`,
 `fork:` = `~/fun/cef-cmux-worktrees/layer-host` (branch `cmux/8037-cmux34-hosted-switch`).
 
+Since 2026-10-25 the work runs as the Chrome-parity program p01-process
+([chrome-parity/p01-process.md](chrome-parity/p01-process.md), Chromium Host tasks 001-104 and 220-234), which
+replaces section 7's slices: the wire is a shm input ring with a Mach-port doorbell plus a control socket (not two
+socket pairs and XPC), the shim is a generated remote shim, and host mode (`browserHost.helper`) goes on in DEV with
+task 100, in NIGHTLY only with task 104. Threads in host mode: section 3.8. Status 2026-10-26: no p01-process task
+has merged into perf/chrome-parity (e36c36dc11e); task 001 is merged on cp/p01-process-001 (8542512bff2) and waits
+for the integration merge. Numbers: perf-lead.md F2 and section 5.
+
 ## 1. Goal
 
 1. A Chromium CHECK, NOTREACHED, out-of-memory abort or memory fault in the browser process ends only that process.
@@ -154,6 +162,28 @@ With `cmux_browser_set_embedder_active(id, bool)` (fork API 30) page focus becom
 an active flag: no page window is ever key, so neither the key-state walk nor the input method activation of a key
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
+
+### 3.8 Threads in host mode (p01-process)
+
+In host mode cmux's main thread is **not** Chromium's UI thread. The app does not map the CEF framework, runs no
+`CefDoMessageLoopWork` pump and has no `CefAppProtocol` work (p01-process tasks 101, 102; done check 3: 0 framework
+mappings, 0 pump samples). Chromium's browser UI thread is the host's main thread (`CrBrowserMain`, in
+`CefRunMessageLoop`), as in Chrome, where the browser process's main thread is the UI thread and takes that name
+(`content/browser/browser_main_runner_impl.cc`). The in-process backend keeps the old model until Release parity.
+
+| Thread | Process | QoS | Task | Blocks on |
+|---|---|---|---|---|
+| main (Chromium UI thread, `CrBrowserMain`) | host | user-interactive (spawn attribute, never a clamp) | 222 | Chromium's run loop only |
+| `chromium-host.input` | host | user-interactive | 041 | kevent workloop on the doorbell port |
+| `chromium-host.control` | host | user-initiated | 012 | blocking `read` on the control socket |
+| `chromium-host.hang-watch` | host | default (as Chromium's `HangWatcher`) | 084 | one-shot deadline; parked with no scope open |
+| `chromium-host.provider-link` | host | utility | 233 | its socket to the daemon |
+| `com.cmuxterm.chromium-host.control` | cmux | user-initiated | 012 | blocking `read`; events reach main once per frame |
+| `chromium-host.supervisor` | cmux | utility | 080 | kqueue `NOTE_EXIT`, `waitid(WNOWAIT)` |
+| main (input ring writer) | cmux | main | 041 | nothing: one release-store and a non-blocking send |
+
+Every label is registered with its QoS in [threading-model.md](threading-model.md) ("Registered threads and
+queues"); `process-model-census.py --check-thread-doc` compares the live threads and their QoS with that list.
 
 ## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
 
