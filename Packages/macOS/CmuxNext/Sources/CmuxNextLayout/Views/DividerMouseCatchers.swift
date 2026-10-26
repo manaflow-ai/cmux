@@ -171,6 +171,7 @@ final class DividerMouseCatcherView: NSView {
     override func otherMouseUp(with event: NSEvent) { forward(event) }
 
     // The event's own screen point (`screenLocation`): the panel moves while a divider drags.
+    // input-coalesce: native (a forward; the view under it coalesces its own scroll)
     override func scrollWheel(with event: NSEvent) {
         guard let parent = window?.parent, let content = parent.contentView else { return }
         let point = content.convert(parent.convertPoint(fromScreen: event.screenLocation), from: nil)
