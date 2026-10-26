@@ -92,6 +92,38 @@ struct ControlSnapshotSequenceTests {
         rig.work.frameDidFire()
         #expect(rig.publisher.builds - builds == 1, "the publisher queued another build after publishing (a re-arm)")
     }
+
+    /// A tab title is read by the workspace's cache entry, whose tracking the build's own tracking merged when it
+    /// built the entry: both see the change, and it costs one build, not one per tracking (p04-input-026).
+    @Test func aCachedWorkspaceChangeBuildsOnce() async {
+        let rig = await Self.rig()
+        defer { rig.stop() }
+        for title in ["first", "second"] {
+            let builds = rig.publisher.builds
+            rig.store.apply(.titleChanged(surface: 1, title: title))
+            await Self.settle(rig)
+            #expect(rig.router.snapshots.current.topology.workspaces.first?.panes.first?.tabs.first?.title == title,
+                    "the title change was not published")
+            #expect(rig.publisher.builds - builds == 1, "\(rig.publisher.builds - builds) builds for one title change (want 1)")
+        }
+    }
+
+    /// A sequence that moves in the batch of a topology change rides on the topology publish: a sequence-only publish
+    /// would show the new sequence beside the old topology (p04-input-026).
+    @Test func aSequenceBeforeATopologyChangeIsNotPublishedBesideTheOldTopology() async {
+        let rig = await Self.rig()
+        defer { rig.stop() }
+        let target = rig.store.appliedSequence + 3
+        rig.store.advanceAppliedSequence(to: target)
+        rig.store.apply(.disconnected(reason: "after"))
+        let sequencePublishes = rig.publisher.sequencePublishes
+        await Self.settle(rig)
+        let topology = rig.router.snapshots.current.topology
+        #expect(topology.daemonState == "disconnected")
+        #expect(topology.daemonSequence == target, "the topology publish missed the sequence")
+        #expect(rig.publisher.sequencePublishes == sequencePublishes,
+                "a sequence-only publish ran while a topology change was pending (new sequence beside the old topology)")
+    }
 }
 
 @MainActor

@@ -59,7 +59,11 @@ final class ControlSnapshotPublisher {
     }
 
     func start() {
-        workspaceInfos.onStale = { [weak self] in self?.invalidate() }
+        // The entry's hop runs a turn after its change: a publish since rebuilt the entry and left nothing to do.
+        workspaceInfos.onStale = { [weak self] in
+            guard let self, self.workspaceInfos.hasStaleEntries else { return }
+            self.invalidate()
+        }
         // Read-your-writes for local state: a CLI mutation's effect on focus or selection is in the snapshot before
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
@@ -134,10 +138,11 @@ final class ControlSnapshotPublisher {
     }
 
     /// Publishes what changed since the last publish: the topology (with the sequences), or the sequences alone.
-    /// A task that finds nothing pending (a higher-class one published first) does nothing.
+    /// A task that finds nothing pending (a higher-class one published first) does nothing. A cached entry stale
+    /// before its `onStale` hop ran is a pending topology change too: sequences alone would go out beside it.
     private func flush() {
         guard !isStopped else { return }
-        if router.snapshots.isStale || topologyTracking.isDirty {
+        if router.snapshots.isStale || topologyTracking.isDirty || workspaceInfos.hasStaleEntries {
             publishNow()
         } else if sequenceTracking.isDirty {
             publishSequences()

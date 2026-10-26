@@ -131,7 +131,8 @@ extension ScreenContentView {
         let docks = growingDocks
         let stripFrom = docks.isEmpty ? nil : stripRange(in: geometry, beside: docks)
         let stripVelocity = PaneArrival.stripClipVelocity(geometry, docks: docks)
-        let strip = stripShift, scale = self.scale
+        // Where the views are laid out: a pan on the strip container shows them moved by its translation.
+        let strip = geometry.viewShift(offset: layoutOffset), scale = self.scale
         let panes = SplitMotion.renderMoves(paneFrames.filter { entry in context.hosts[entry.key].map { holds($0) } ?? false }) { pane, rect in
             shownRect(rect, of: pane, strip: strip, scale: scale)
         }

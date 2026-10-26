@@ -134,7 +134,13 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
+    /// AppKit's cursor rect and tracking area rebuilds of this handle, cumulative (StripPanContainerTests:
+    /// a strip pan on the motion container makes none).
+    private(set) var cursorRectResets = 0
+    private(set) var trackingAreaUpdates = 0
+
     override func resetCursorRects() {
+        cursorRectResets += 1
         let rect = cursorRectInBounds
         guard !rect.isEmpty else { return }
         if #available(macOS 15, *) {
@@ -146,6 +152,7 @@ final class DividerHandleView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        trackingAreaUpdates += 1
         if let trackingArea { removeTrackingArea(trackingArea) }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
         addTrackingArea(area)
