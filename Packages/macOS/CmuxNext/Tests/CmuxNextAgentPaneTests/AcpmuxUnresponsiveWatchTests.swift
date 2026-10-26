@@ -25,15 +25,15 @@ struct AcpmuxUnresponsiveWatchTests {
     }
 
     /// A daemon that wedges again after every start is left for a person after `perLaunch`.
-    @Test func eachHomeRestartsAtMostPerLaunchTimes() {
+    @Test func eachHomeRestartsAtMostPerLaunchTimes() throws {
         let watch = AcpmuxUnresponsiveWatch(clock: clock, misses: 1, window: .zero, perLaunch: 2)
-        #expect(watch.missed(home: "/h", pid: 7))
-        #expect(watch.claim(home: "/h", pid: 7))
-        #expect(!watch.claim(home: "/h", pid: 7), "one restart per pid")
-        #expect(watch.missed(home: "/h", pid: 8))
-        #expect(watch.claim(home: "/h", pid: 8))
+        let first = try #require(watch.miss(home: "/h", pid: 7))
+        #expect(watch.claim(home: "/h", streak: first, pid: 7))
+        #expect(!watch.claim(home: "/h", streak: first, pid: 7), "one restart per streak")
+        #expect(!watch.missed(home: "/h", pid: 7), "one restart per pid")
+        let second = try #require(watch.miss(home: "/h", pid: 8))
+        #expect(watch.claim(home: "/h", streak: second, pid: 8))
         #expect(!watch.missed(home: "/h", pid: 9), "two restarts of /h in this launch")
-        #expect(!watch.claim(home: "/h", pid: 9))
         #expect(watch.missed(home: "/other", pid: 9), "another home has its own")
     }
 
@@ -54,14 +54,26 @@ struct AcpmuxUnresponsiveWatchTests {
     /// Review of #25379: while one lookup waits on its confirming status call, another lookup's
     /// call is answered. The streak that made the restart due is gone, so the claim says no and
     /// the daemon, which answers again, is kept.
-    @Test func aDaemonThatAnsweredMeanwhileIsNotClaimed() {
-        let watch = AcpmuxUnresponsiveWatch(clock: clock, misses: 1, window: .zero)
-        #expect(watch.missed(home: "/h", pid: 7))
+    @Test func aDaemonThatAnsweredMeanwhileIsNotClaimed() throws {
+        let watch = watch()
+        #expect(!watch.missed(home: "/h", pid: 7))
+        clock.advance(by: .seconds(10))
+        #expect(!watch.missed(home: "/h", pid: 7))
+        clock.advance(by: .seconds(11))
+        let due = try #require(watch.miss(home: "/h", pid: 7))
+        // While that lookup confirms: another lookup is answered, then three more miss, within
+        // a few seconds (a new streak, its window not passed).
         watch.answered(home: "/h")
-        #expect(!watch.claim(home: "/h", pid: 7), "a daemon that answered again was claimed for a restart")
-        // The next streak can still restart it.
-        #expect(watch.missed(home: "/h", pid: 7))
-        #expect(watch.claim(home: "/h", pid: 7))
+        #expect(!watch.claim(home: "/h", streak: due, pid: 7), "a daemon that answered again was claimed for a restart")
+        for _ in 0..<3 {
+            clock.advance(by: .seconds(1))
+            #expect(!watch.missed(home: "/h", pid: 7))
+        }
+        #expect(!watch.claim(home: "/h", streak: due, pid: 7), "the old confirm claimed the new streak before its window")
+        // The new streak was left as it was: once its window passed, it restarts the daemon.
+        clock.advance(by: .seconds(18))
+        let next = try #require(watch.miss(home: "/h", pid: 7))
+        #expect(watch.claim(home: "/h", streak: next, pid: 7))
     }
 
     @Test func anotherPidOrAnotherHomeHasItsOwnStreak() {

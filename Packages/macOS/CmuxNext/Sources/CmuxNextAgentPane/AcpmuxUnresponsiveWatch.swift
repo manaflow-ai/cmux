@@ -58,6 +58,8 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
     private let process: @Sendable (Int32) -> Daemon?
 
     private struct Streak {
+        /// Which streak this is: a claim names the one that made it due.
+        var id: UInt64
         var pid: Int32
         var count: Int
         var first: Duration
@@ -66,6 +68,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
 
     private struct State {
         var streaks: [String: Streak] = [:]
+        var lastStreak: UInt64 = 0
         var restarted: Set<String> = []
         var restartsPerHome: [String: Int] = [:]
     }
@@ -91,30 +94,39 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
         _ = state.withLock { $0.streaks.removeValue(forKey: home) }
     }
 
-    /// A status call to daemon `pid` of `home` missed its deadline. True when this miss makes
-    /// `misses` in a row spanning at least `window`, `pid` was never restarted and `home` has
-    /// restarts left in this launch.
-    func missed(home: String, pid: Int32) -> Bool {
+    /// A status call to daemon `pid` of `home` missed its deadline. The streak's id when this
+    /// miss makes `misses` in a row spanning at least `window`, `pid` was never restarted and
+    /// `home` has restarts left in this launch; nil when not.
+    func miss(home: String, pid: Int32) -> UInt64? {
         let now = elapsed()
         return state.withLock { state in
-            var streak = state.streaks[home] ?? Streak(pid: pid, count: 0, first: now, last: now)
-            if streak.pid != pid || now - streak.last > streakGap {
-                streak = Streak(pid: pid, count: 0, first: now, last: now)
+            var streak: Streak
+            if let current = state.streaks[home], current.pid == pid, now - current.last <= streakGap {
+                streak = current
+            } else {
+                state.lastStreak &+= 1
+                streak = Streak(id: state.lastStreak, pid: pid, count: 0, first: now, last: now)
             }
             streak.count += 1
             streak.last = now
             state.streaks[home] = streak
-            return streak.count >= misses && now - streak.first >= window && !state.restarted.contains("\(home)|\(pid)")
+            let due = streak.count >= misses && now - streak.first >= window && !state.restarted.contains("\(home)|\(pid)")
                 && state.restartsPerHome[home, default: 0] < perLaunch
+            return due ? streak.id : nil
         }
     }
 
-    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when the streak that
-    /// made it due is gone (the daemon answered meanwhile, or another caller took it) or `home`
-    /// has none left.
-    func claim(home: String, pid: Int32) -> Bool {
+    /// Whether ``miss(home:pid:)`` made a restart due.
+    func missed(home: String, pid: Int32) -> Bool { miss(home: home, pid: pid) != nil }
+
+    /// Takes `pid`'s one restart and one of `home`'s for this launch; false when `streak`, the one
+    /// that made it due, is no longer `home`'s (the daemon answered meanwhile, even when misses
+    /// after that began another streak, or another caller took it) or `home` has none left. A
+    /// claim that says no leaves `home`'s current streak as it is.
+    func claim(home: String, streak id: UInt64, pid: Int32) -> Bool {
         state.withLock { state in
-            guard let streak = state.streaks.removeValue(forKey: home), streak.pid == pid, streak.count >= misses else { return false }
+            guard let streak = state.streaks[home], streak.id == id, streak.pid == pid else { return false }
+            state.streaks.removeValue(forKey: home)
             guard state.restartsPerHome[home, default: 0] < perLaunch, state.restarted.insert("\(home)|\(pid)").inserted else { return false }
             state.restartsPerHome[home, default: 0] += 1
             return true
@@ -131,7 +143,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
             answered(home: home)
             return false
         }
-        guard let daemon = await daemon(environment), missed(home: home, pid: daemon.pid) else { return false }
+        guard let daemon = await daemon(environment), let streak = miss(home: home, pid: daemon.pid) else { return false }
         let pid = daemon.pid
         do {
             _ = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: confirm)
@@ -146,7 +158,7 @@ nonisolated final class AcpmuxUnresponsiveWatch: Sendable {
             answered(home: home)
             return false
         }
-        guard claim(home: home, pid: pid) else { return false }
+        guard claim(home: home, streak: streak, pid: pid) else { return false }
         AcpmuxFailureLog(logPath: environment.logPath).record(.unresponsive, detail: "pid \(pid)")
         Self.logger.error("acpmux \(pid) of home=\(home, privacy: .public) missed \(self.misses + 1, privacy: .public) status calls; restarting it")
         return await stop(daemon, grace: termGrace)
