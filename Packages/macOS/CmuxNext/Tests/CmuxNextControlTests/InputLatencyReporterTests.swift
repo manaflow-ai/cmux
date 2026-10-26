@@ -44,4 +44,21 @@ import Testing
         #expect(snapshot.slotsReceived == 3, "only the newest batch reached the ledger")
         #expect(snapshot.slotsDropped == 4 + 2 + 5, "the pushed-out batch, the producer drops the kept batch carries, and the batch after the end")
     }
+
+    @Test func aResetStartsTheReportOverAndKeepsTheDropBaseline() async {
+        let reporter = InputLatencyReporter()
+        let reader = Task.detached(priority: .utility) { await reporter.run() }
+        reporter.submit(Self.batch(3, droppedTotal: 2))
+        await reporter.reset()
+        let empty = await reporter.snapshot()
+        #expect(empty.slotsReceived == 0, "the batch accepted before the reset was folded, then cleared")
+        #expect(empty.slotsDropped == 0)
+        #expect(empty.rows.isEmpty)
+        reporter.submit(Self.batch(1, droppedTotal: 3))
+        let after = await reporter.snapshot()
+        #expect(after.slotsReceived == 1)
+        #expect(after.slotsDropped == 1, "only the slot lost after the reset: the producer's total is cumulative")
+        reporter.finish()
+        await reader.value
+    }
 }
