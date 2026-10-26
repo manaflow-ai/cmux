@@ -29,7 +29,7 @@ export const automationTrigger = (
   p: Principal,
   target: Automation
 ): { trigger: Run["trigger"]; trees: Record<string, number>; charged_user?: string } | ({ ok: false } & Reject) => {
-  if (target.body.type === "agent_prompt") return { ok: false, code: "auth.forbidden", message: "an automation cannot start an agent_prompt automation" }
+  if (target.body.type === "agent_prompt" || target.body.type === "chief") return { ok: false, code: "auth.forbidden", message: `an automation cannot start an ${target.body.type} automation` }
   const parent = runRowOf(rows, p.run!)
   // The caller is running, so its record exists; an unknown caller is refused (fail closed).
   if (!parent || parent.automation !== p.agent) return { ok: false, code: "auth.forbidden", message: "the calling run is unknown" }

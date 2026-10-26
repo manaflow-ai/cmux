@@ -540,14 +540,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
-                    let plan = crate::cli::host_enroll::Plan {
-                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                    let plan = crate::cli::host_enroll::Plan::enroll(
                         host,
-                        port: crate::peer::SSH_PEER_PORT,
+                        name,
                         harnesses,
                         remote_binary,
                         reverse,
-                    };
+                    );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
                 PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {

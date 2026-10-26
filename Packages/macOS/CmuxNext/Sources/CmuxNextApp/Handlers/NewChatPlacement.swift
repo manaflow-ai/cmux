@@ -104,15 +104,13 @@ extension PaneController {
     /// The tab ids `pendingDock` hides: a provisional id also hides the tab
     /// the store replaced it with, from the store's first snapshot on.
     var dockBound: Set<String> {
-        let aliases = services.agentTabs.aliases
-        return pendingDock.union(pendingDock.compactMap { aliases[$0] })
+        pendingDock.hidden(aliases: services.agentTabs.aliases)
     }
 
     /// Chat `key` reached its dock (or the move failed): the strip may list
     /// it again. Other chats still on their way stay hidden.
     func dockFinished(_ key: String) {
-        let aliases = services.agentTabs.aliases
-        pendingDock = pendingDock.filter { $0 != key && aliases[$0] != key }
+        pendingDock.finished(key, aliases: services.agentTabs.aliases)
         apply(snapshot())
     }
 }
