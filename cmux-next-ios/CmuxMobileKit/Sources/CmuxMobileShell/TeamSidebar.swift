@@ -9,7 +9,9 @@ private let theme = CmuxMobileTheme.standard
 
 /// The drawer's content (SPEC 3.3, with the product override): a "cmux" header
 /// with a `+` menu (Create team, Join with invite link), the team list with
-/// avatars and Mac presence dots, and "Invite to team". Team switching only.
+/// avatars, your role and Mac presence dots, and "Invite to team". A row's
+/// long-press menu opens the team's page (Settings → team) for details,
+/// rename and delete.
 struct TeamSidebar: View {
     let store: AppStore
     let shell: ShellModel
@@ -119,13 +121,15 @@ struct TeamSidebar: View {
                 dots: presence.dots,
                 overflow: presence.overflow,
                 onlineCount: team.listedMacs.filter(\.isOnline).count,
-                isSelected: selected
+                isSelected: selected,
+                role: team.role?.title
             )
             .animation(theme.motion.snap.animation, value: selected)
         }
         .buttonStyle(SidebarRowStyle())
         .padding(.horizontal, theme.metrics.selectedRowInset)
         .contextMenu {
+            Button("Team details", systemImage: "info.circle") { shell.openTeamDetails(team) }
             Button("Change color and icon", systemImage: "paintpalette") { shell.editingTeam = team }
             if !team.isPersonalSpace {
                 Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }

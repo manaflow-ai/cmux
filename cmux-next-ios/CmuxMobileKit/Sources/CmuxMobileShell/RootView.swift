@@ -633,7 +633,9 @@ struct ShellTabs: View {
                     sizing: shell.sizingService,
                     callChief: { shell.callChief() },
                     inviteToTeam: { shell.invite(to: $0) },
-                    saveAppearance: { shell.saveAppearance($0, for: $1) }
+                    saveAppearance: { shell.saveAppearance($0, for: $1) },
+                    teamRenamed: { shell.teamRenamed($0, to: $1) },
+                    teamDeleted: { shell.teamDeleted($0) }
                 ) {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                 }

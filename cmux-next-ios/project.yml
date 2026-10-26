@@ -41,6 +41,13 @@ settings:
     # builds fall back to the dev Worker when it is empty; a non-DEBUG build
     # with no value has no live data, so every shipping config sets it.
     CMUX_MOBILE_API_BASE: ""
+    # The cmux web backend for teams (`web/` team API, CmuxMobileWebBase): the
+    # same backend the Mac app uses to list, create, rename and delete teams.
+    # Empty follows the build's sign-in project (CmuxAuthRuntime AuthConfig):
+    # production is https://cmux.com; development is the local dev server, so
+    # Debug and Demo runs pass a tag's dev backend with CMUX_MOBILE_WEB_BASE
+    # (launch environment) or set this.
+    CMUX_MOBILE_WEB_BASE: ""
     # The production Worker (backend/wrangler.jsonc env "prod"). Shipping
     # configs (Release, TestFlight) use it. scripts/testflight-build.sh checks
     # its /v1/health before archiving; override with CMUX_MOBILE_PROD_API_BASE=... when
@@ -228,6 +235,7 @@ targets:
         LSRequiresIPhoneOS: true
         CmuxMobileTag: $(CMUX_MOBILE_TAG)
         CmuxMobileAPIBase: $(CMUX_MOBILE_API_BASE)
+        CmuxMobileWebBase: $(CMUX_MOBILE_WEB_BASE)
         CmuxMobileCloudAPIBase: $(CMUX_MOBILE_CLOUD_API_BASE)
         CmuxMobileStackEnvironment: $(CMUX_MOBILE_STACK_ENVIRONMENT)
         # The commit an archive was built from (testflight-build.sh sets it;

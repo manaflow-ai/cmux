@@ -31,9 +31,14 @@ public struct TeamListState: Equatable, Sendable {
 
     /// The auth coordinator published its list. An empty list is its
     /// initial value, not an answer, so only a non-empty one counts.
+    /// The coordinator's list has no roles: a team it shares with the fetched
+    /// list keeps the role the fetch reported.
     public mutating func published(_ teams: [AppStore.AccountTeam]) {
         guard !teams.isEmpty else { return }
-        self.teams = teams
+        let roles = Dictionary(self.teams.compactMap { team in team.role.map { (team.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        self.teams = teams.map { team in
+            team.role == nil ? AppStore.AccountTeam(id: team.id, name: team.name, role: roles[team.id]) : team
+        }
         phase = .loaded
     }
 

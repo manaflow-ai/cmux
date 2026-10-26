@@ -481,7 +481,9 @@ private struct CreateTeamPage: View {
                 theme.haptics.success()
                 next()
             } catch {
-                self.error = CmuxMobileAuthModel.message(for: error) ?? "Couldn't create the team."
+                self.error = error is TeamServiceError
+                    ? TeamServiceError.message(for: error, action: .create)
+                    : CmuxMobileAuthModel.message(for: error) ?? "Couldn't create the team."
                 theme.haptics.error()
             }
         }

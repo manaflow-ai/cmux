@@ -6,16 +6,20 @@ public struct Team: Identifiable, Hashable, Sendable {
     public var name: String
     public var appearance: TeamAppearance
     public var macs: [MacDevice]
+    /// Your role in the team (nil when not known: the personal space, or a
+    /// list read while the cmux service was unreachable).
+    public var role: TeamRole?
 
     /// The account's personal space (PROTOCOL.md "Personal space"): just you,
     /// so it has no invites.
     public var isPersonalSpace: Bool { id.hasPrefix("personal-") }
 
-    public init(id: String, name: String, appearance: TeamAppearance? = nil, macs: [MacDevice] = []) {
+    public init(id: String, name: String, appearance: TeamAppearance? = nil, macs: [MacDevice] = [], role: TeamRole? = nil) {
         self.id = id
         self.name = name
         self.appearance = appearance ?? TeamAppearance(defaultFor: id)
         self.macs = macs
+        self.role = role
     }
 
     /// Up to `limit` dots for the sidebar row, online Macs first, then the overflow count.

@@ -21,6 +21,11 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
+#   teams   build, plus the team management demo in mock mode (DemoDriver
+#           `teams` and `teams-blocked`): a
+#           recording and a screenshot of each step (drawer with roles, admin
+#           page, rename, member page, delete confirmation, after delete, and a
+#           delete refused for an active subscription).
 #
 # Isolation: the step makes its own simulator device set under its checkout
 # (`simctl --set`), so it never lists, boots or deletes another simulator, and
@@ -36,7 +41,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench or all, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|test|bench|all|teams) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all or teams, got '$mode'" >&2; exit 2 ;; esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -161,6 +166,46 @@ for root in json.load(sys.stdin).get("testNodes", []):
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
+fi
+
+# --- Team management demo ---------------------------------------------------
+if [[ "$mode" == teams ]]; then
+  mkdir -p "$out/teams"
+  # Mock sign-in with setup done: the shell opens on the sample teams.
+  teams_run() { # name, demo, screenshot step names..., [-- extra launch args]
+    local name=$1 demo=$2; shift 2
+    local shots=() extra=()
+    while [[ $# -gt 0 && "$1" != "--" ]]; do shots+=("$1"); shift; done
+    [[ "${1:-}" == "--" ]] && { shift; extra=("$@"); }
+    simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+    local data marker
+    data="$(simctl get_app_container "$udid" "$bundle_id" data)"
+    marker="$data/Documents/demo-step.txt"
+    rm -f "$marker"
+    simctl io "$udid" recordVideo --codec h264 --force "$out/teams/$name.mp4" >/dev/null 2>&1 &
+    local rec=$!
+    SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 simctl launch "$udid" "$bundle_id" -cmuxMobile.setupComplete YES -cmux-mobile-no-restore \
+      -cmux-mobile-demo "$demo" ${extra[@]+"${extra[@]}"} >/dev/null
+    # The demo marks each step in its Documents and holds it 3 s: each
+    # screenshot waits for its step's mark (60 s at most), then 1.2 s for the
+    # step's transition to settle.
+    local shot deadline
+    for shot in "${shots[@]}"; do
+      deadline=$((SECONDS + 60))
+      until [[ "$(cat "$marker" 2>/dev/null)" == "$shot" ]] || (( SECONDS > deadline )); do sleep 0.2; done
+      if [[ "$(cat "$marker" 2>/dev/null)" != "$shot" ]]; then note "- teams: step $shot never came (last: $(cat "$marker" 2>/dev/null))"; break; fi
+      sleep 1.2
+      simctl io "$udid" screenshot "$out/teams/$name-$shot.png" >/dev/null
+    done
+    deadline=$((SECONDS + 30))
+    until [[ "$(cat "$marker" 2>/dev/null)" == done ]] || (( SECONDS > deadline )); do sleep 0.2; done
+    kill -INT "$rec" 2>/dev/null || true
+    wait "$rec" 2>/dev/null || true
+    simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  }
+  teams_run teams teams 1-sidebar-roles 2-admin-page 3-rename-dialog 4-renamed 5-member-page 6-delete-dialog 7-deleted 8-sidebar-after-delete
+  teams_run teams-blocked teams-blocked 1-admin-page 2-delete-dialog 3-refused -- -cmux-mobile-mock-team-subscribed
+  note "- team management demo: teams/*.png, teams/teams.mp4, teams/teams-blocked.mp4"
 fi
 
 # --- Benchmarks -------------------------------------------------------------

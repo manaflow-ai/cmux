@@ -15,8 +15,12 @@ public struct SidebarTeamRow: View {
     let overflow: Int
     let onlineCount: Int
     let isSelected: Bool
+    /// Your role in the team ("Admin", "Member"), before the Mac dots; nil hides it.
+    let role: String?
 
-    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
+    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool,
+                role: String? = nil) {
+        self.role = role
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
@@ -43,7 +47,17 @@ public struct SidebarTeamRow: View {
                     .font(theme.type.rowTitle.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(theme.colors.label)
                     .lineLimit(1)
-                MacPresenceDots(dots: dots, overflow: overflow)
+                HStack(spacing: 6) {
+                    if let role {
+                        Text(role)
+                            .font(theme.type.meta)
+                            .foregroundStyle(theme.colors.label2)
+                            .lineLimit(1)
+                            .fixedSize()
+                        Text(verbatim: "·").font(theme.type.meta).foregroundStyle(theme.colors.label3)
+                    }
+                    MacPresenceDots(dots: dots, overflow: overflow)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -57,8 +71,17 @@ public struct SidebarTeamRow: View {
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(name))
-        .accessibilityValue(Text(dots.isEmpty ? "No Macs yet" : "\(onlineCount) of \(dots.count + overflow) Macs online"))
+        .accessibilityValue(Text(accessibilityValue))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+extension SidebarTeamRow {
+    /// The role (when known), then the Macs online.
+    var accessibilityValue: String {
+        let macs = dots.isEmpty ? String(localized: "No Macs yet") : String(localized: "\(onlineCount) of \(dots.count + overflow) Macs online")
+        guard let role else { return macs }
+        return "\(role), \(macs)"
     }
 }
 

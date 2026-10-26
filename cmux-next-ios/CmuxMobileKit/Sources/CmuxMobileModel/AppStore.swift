@@ -121,7 +121,8 @@ public final class AppStore {
                 id: team.id,
                 name: team.name,
                 appearance: Self.storedAppearance(team.id),
-                macs: sampleMacs.isEmpty ? [] : sampleMacs[index % sampleMacs.count]
+                macs: sampleMacs.isEmpty ? [] : sampleMacs[index % sampleMacs.count],
+                role: team.role
             )
         }
         let remembered = UserDefaults.standard.string(forKey: Self.lastTeamKey)
@@ -135,7 +136,7 @@ public final class AppStore {
         let known = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         teams = accountTeams.map { team in
             Team(id: team.id, name: team.name, appearance: known[team.id]?.appearance ?? Self.storedAppearance(team.id),
-                 macs: known[team.id]?.macs ?? [])
+                 macs: known[team.id]?.macs ?? [], role: team.role ?? known[team.id]?.role)
         }
         let remembered = UserDefaults.standard.string(forKey: Self.lastTeamKey)
         let candidates = [selectedID, remembered, teams.first?.id].compactMap { $0 }
@@ -180,14 +181,17 @@ public final class AppStore {
         return result
     }
 
-    /// A Stack Auth team as the account reports it.
+    /// A team as the account reports it. `role` comes from the cmux team API
+    /// (`GET /api/teams`); nil when the list came from the sign-in service.
     public struct AccountTeam: Hashable, Sendable {
         public let id: String
         public let name: String
+        public let role: TeamRole?
 
-        public init(id: String, name: String) {
+        public init(id: String, name: String, role: TeamRole? = nil) {
             self.id = id
             self.name = name
+            self.role = role
         }
     }
 

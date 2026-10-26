@@ -51,6 +51,13 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored let stack: StackClientApp?
     /// The `cmux-mobile-api` base URL (`CMUX_MOBILE_API_BASE`), when configured.
     @ObservationIgnored let apiBase: URL?
+    /// The cmux web backend's team API (`CMUX_MOBILE_WEB_BASE`, the Mac app's
+    /// team backend): nil in mock mode and with no web base.
+    @ObservationIgnored let webTeams: WebTeamClient?
+    #if DEBUG
+    /// Mock mode's team API (sample admin and member teams).
+    @ObservationIgnored private let mockTeams = MockTeamService()
+    #endif
     /// Mock mode (DEBUG `CMUX_MOBILE_MOCK_AUTH=1`): signed in as a local user, no network.
     public let isMock: Bool
     private var mockSignedIn: Bool
@@ -60,12 +67,20 @@ public final class CmuxMobileAuthModel {
     /// A display-safe error for the welcome screen, `nil` on cancel.
     public var errorMessage: String?
 
-    init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil, isMock: Bool) {
+    init(coordinator: AuthCoordinator?, stack: StackClientApp? = nil, apiBase: URL? = nil, webBase: URL? = nil, isMock: Bool) {
         self.coordinator = coordinator
         self.stack = stack
         self.apiBase = apiBase
         self.isMock = isMock
         self.mockSignedIn = isMock
+        if let webBase, let coordinator, !isMock {
+            webTeams = WebTeamClient(base: webBase) { [coordinator] in
+                let tokens = try await coordinator.currentTokens()
+                return (tokens.accessToken, tokens.refreshToken)
+            }
+        } else {
+            webTeams = nil
+        }
     }
 
     /// Builds the live model for this process. Non-DEBUG builds (Release,
@@ -144,18 +159,33 @@ public final class CmuxMobileAuthModel {
         var serviceEnvironment = isDebug ? environment : [:]
         #if DEBUG && targetEnvironment(simulator)
         // A launch the system makes (a notification action wakes the app) carries no launch
-        // variables: a rig's service override stays until a launch names another one.
-        let storedOverride = "cmuxMobile.dev.apiBase"
-        if let override = serviceEnvironment["CMUX_MOBILE_API_BASE"] {
-            UserDefaults.standard.set(override.isEmpty ? nil : override, forKey: storedOverride)
-        } else if let stored = UserDefaults.standard.string(forKey: storedOverride) {
-            serviceEnvironment["CMUX_MOBILE_API_BASE"] = stored
+        // variables: a rig's service overrides stay until a launch names others.
+        for (variable, storedOverride) in [("CMUX_MOBILE_API_BASE", "cmuxMobile.dev.apiBase"), ("CMUX_MOBILE_WEB_BASE", "cmuxMobile.dev.webBase")] {
+            if let override = serviceEnvironment[variable] {
+                UserDefaults.standard.set(override.isEmpty ? nil : override, forKey: storedOverride)
+            } else if let stored = UserDefaults.standard.string(forKey: storedOverride) {
+                serviceEnvironment[variable] = stored
+            }
         }
         #endif
         let apiBase = Self.apiBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileAPIBase") as? String, isDebug: isDebug)
+        let webBase = Self.webBase(environment: serviceEnvironment, infoValue: Bundle.main.object(forInfoDictionaryKey: "CmuxMobileWebBase") as? String,
+                                   signInDefault: config.apiBaseURL)
         // Which backend this build talks to (public ids only, no tokens).
-        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
-        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug || stagingStack ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public), teams \(webBase?.host() ?? "none", privacy: .public)")
+        return CmuxMobileAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, webBase: webBase, isMock: false)
+    }
+
+    /// The cmux web backend for teams: the `CMUX_MOBILE_WEB_BASE` launch override
+    /// (DEBUG only; the caller passes no environment otherwise), else the build's
+    /// `CmuxMobileWebBase` Info.plist value, else the sign-in project's web origin
+    /// (`AuthConfig.apiBaseURL`: https://cmux.com for production), so the team API
+    /// always accepts this build's sign-in tokens.
+    static func webBase(environment: [String: String], infoValue: String?, signInDefault: String) -> URL? {
+        for candidate in [environment["CMUX_MOBILE_WEB_BASE"], infoValue, signInDefault] {
+            if let candidate, !candidate.isEmpty, let url = URL(string: candidate), url.scheme != nil { return url }
+        }
+        return nil
     }
 
     /// The `cmux-mobile-api` base URL: the `CMUX_MOBILE_API_BASE` launch override (DEBUG
@@ -211,9 +241,13 @@ public final class CmuxMobileAuthModel {
     @ObservationIgnored private var teamsUserID: String?
 
     /// Loads the signed-in account's teams (once per account; again after a
-    /// failure). DEBUG mock mode takes `CMUX_MOBILE_MOCK_TEAMS_DELAY` seconds, to
-    /// record the loading state.
-    public func loadTeams() async {
+    /// failure, or with `force` after a team changed). DEBUG mock mode takes
+    /// `CMUX_MOBILE_MOCK_TEAMS_DELAY` seconds, to record the loading state.
+    ///
+    /// The list comes from the cmux team API (`GET /api/teams`, with your role
+    /// in each team); while that is unreachable, from the sign-in service,
+    /// without roles.
+    public func loadTeams(force: Bool = false) async {
         guard let user else {
             teamsUserID = nil
             fetchedTeams.reset()
@@ -222,7 +256,7 @@ public final class CmuxMobileAuthModel {
         if teamsUserID != user.id {
             teamsUserID = user.id
             fetchedTeams.reset()
-        } else if fetchedTeams.isLoaded {
+        } else if fetchedTeams.isLoaded, !force {
             return
         }
         fetchedTeams.retry()
@@ -232,12 +266,24 @@ public final class CmuxMobileAuthModel {
                 // Recording pace, not synchronization: a slow team list.
                 try? await Task.sleep(for: .seconds(delay))
             }
-            fetchedTeams.fetched(AppStore.mock().teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) })
+            fetchedTeams.fetched(AppStore.mock().teams.map(\.accountTeam))
             #else
             // Mock auth exists only in DEBUG builds.
             fetchedTeams.fetched([])
             #endif
             return
+        }
+        if let webTeams {
+            do {
+                let directory = try await webTeams.listTeams()
+                guard teamsUserID == user.id else { return }
+                fetchedTeams.fetched(directory.teams.map(\.accountTeam))
+                return
+            } catch is CancellationError {
+                return
+            } catch {
+                authModelLog.error("team list from the team API failed, reading the sign-in service: \(String(describing: error), privacy: .public)")
+            }
         }
         guard let stack else { return }
         do {
@@ -351,22 +397,45 @@ public final class CmuxMobileAuthModel {
         try? await coordinator?.selectTeam(id: id)
     }
 
-    /// Creates a team and selects it. Stack refuses team creation from the
-    /// client (`client_team_creation_enabled` is off in both projects), so it
-    /// goes through the cmux service (`POST /v1/teams`), which creates it with
-    /// the project's server key; then the team list is read again from Stack.
+    /// Creates a team with you as its admin and selects it, through the cmux
+    /// team API (`POST /api/teams`), as the Mac app does (Stack refuses team
+    /// creation from the client); then the team list is read again.
     public func createTeam(named name: String) async throws -> AppStore.AccountTeam {
-        if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name) }
+        if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name, role: .admin) }
         guard let coordinator else { throw AuthError.unauthorized }
-        guard let apiBase else { throw ServiceTeamCreation.Failure.unavailable }
-        let creation = ServiceTeamCreation(apiBase: apiBase)
-        let tokens = try await coordinator.currentTokens()
-        let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
-        let team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
-        // The new membership, then the selection (best effort, as in Stack's own flow).
+        guard let webTeams else { throw TeamServiceError.unreachable }
+        let team = try await webTeams.createTeam(named: name)
+        // The server selected it; the sign-in session's list and selection follow.
         await coordinator.refreshTeams()
         try? await coordinator.selectTeam(id: team.id)
+        await loadTeams(force: true)
         return team
+    }
+
+    /// A team changed on the server (renamed, deleted): the sign-in session's
+    /// list and this model's list are read again. Event driven, no polling.
+    public func teamsChanged() async {
+        await coordinator?.refreshTeams()
+        await loadTeams(force: true)
+    }
+
+    /// The team page's service: the cmux team API, falling back to the
+    /// sign-in service's member list (no roles, no admin actions) while it is
+    /// unreachable; sample teams in DEBUG mock mode.
+    public var teamService: any TeamManaging {
+        #if DEBUG
+        if isMock { return mockTeams }
+        #endif
+        return AccountTeamService(web: webTeams) { [weak self] id in
+            guard let self else { throw AuthError.unauthorized }
+            return try await self.teamWithoutRoles(id: id)
+        }
+    }
+
+    /// A team from the sign-in service: its name and members, no roles.
+    private func teamWithoutRoles(id: String) async throws -> TeamDetail {
+        let name = teams.first { $0.id == id }?.name ?? (id.hasPrefix("personal-") ? "Personal" : "")
+        return TeamDetail.withoutRoles(id: id, name: name, members: try await teamMembers(teamID: id))
     }
 
     /// Joins a team from a Stack invitation link (`...?code=...`) and refreshes
@@ -542,6 +611,35 @@ public final class CmuxMobileAuthModel {
         }
         if error is CancellationError { return nil }
         return "Something went wrong. Try again."
+    }
+}
+#endif
+
+#if os(iOS)
+/// The team page's service in the app: the cmux team API, and the sign-in
+/// service's members (no roles) for the personal space and while the team
+/// API is unreachable. Rename and delete go to the team API only.
+struct AccountTeamService: TeamManaging {
+    let web: WebTeamClient?
+    let withoutRoles: @MainActor @Sendable (String) async throws -> TeamDetail
+
+    func team(id: String) async throws -> TeamDetail {
+        guard let web, !id.hasPrefix("personal-") else { return try await withoutRoles(id) }
+        do {
+            return try await web.team(id: id)
+        } catch TeamServiceError.unreachable {
+            return try await withoutRoles(id)
+        }
+    }
+
+    func renameTeam(id: String, to name: String) async throws -> String {
+        guard let web else { throw TeamServiceError.unreachable }
+        return try await web.renameTeam(id: id, to: name)
+    }
+
+    func deleteTeam(id: String) async throws {
+        guard let web else { throw TeamServiceError.unreachable }
+        try await web.deleteTeam(id: id)
     }
 }
 #endif

@@ -7,10 +7,11 @@ extension AppStore {
     public static func mock(now: Date = Date(), tabMemory: TabMemory = .standard) -> AppStore {
         let teams = [
             // Two Macs, one asleep: the Workspaces list's realistic mix.
+            // Your role differs per team, so both team pages show (admin, member).
             Team(id: "team-manaflow", name: "Manaflow", macs: [
                 MacDevice(id: "mac-studio", name: "Aziz's Mac Studio", isOnline: true),
                 MacDevice(id: "mbp", name: "MacBook Pro", isOnline: false, lastSeenAt: now.addingTimeInterval(-2 * 3600)),
-            ]),
+            ], role: .admin),
             Team(id: "personal-mock", name: "Personal", appearance: TeamAppearance(colorHex: "#30D158", emoji: "🌵"), macs: [
                 MacDevice(id: "mbp-home", name: "Home MacBook", isOnline: false),
                 // Two Macs that share a name (a reinstall, or two laptops):
@@ -20,7 +21,7 @@ extension AppStore {
             ]),
             Team(id: "team-fleet", name: "Build Fleet", macs: (1...8).map {
                 MacDevice(id: "mini-\($0)", name: "mini \($0)", isOnline: $0 % 3 != 0)
-            }),
+            }, role: .member),
         ]
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
         // Needs you (2), working (2), done (1), idle, then the asleep MacBook Pro's.

@@ -381,7 +381,7 @@ public final class LiveCoordinator {
     /// joins the list if it wasn't there and becomes the active space.
     public func selectPersonal() {
         if !store.teams.contains(where: { $0.id == personal.id }) {
-            let list = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) } + [personal]
+            let list = store.teams.map(\.accountTeam) + [personal]
             store.applyLiveTeams(list, selectedID: personal.id)
         }
         store.selectTeam(personal.id)

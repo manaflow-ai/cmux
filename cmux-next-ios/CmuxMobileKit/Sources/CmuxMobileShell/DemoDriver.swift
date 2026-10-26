@@ -7,6 +7,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileSettings
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import QuartzCore
@@ -26,7 +27,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "teams", "teams-blocked"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -88,8 +89,66 @@ struct DemoDriver {
             }
         case "kbd-feed":
             shell.tab = .feed
+        case "teams": await teams()
+        case "teams-blocked": await teamsBlocked()
         default: break
         }
+    }
+
+    /// Team management (scripts/ci/cmux-next-ios-sim.sh teams): the drawer with your role
+    /// per team, an admin's team page, rename, a member's read-only page, the
+    /// delete confirmation, then the delete and the team it moves to. Each
+    /// step is marked (`teamsStep`) and then held 3 s for its screenshot.
+    private func teams() async {
+        let script = TeamPageScript.shared
+        func team(_ id: String) -> Team? { shell.store.teams.first { $0.id == id } }
+        guard let admin = team("team-manaflow"), let member = team("team-fleet") else { return }
+        shell.sidebar.open()
+        await teamsStep("1-sidebar-roles")
+        shell.openTeamDetails(admin)
+        await teamsStep("2-admin-page")
+        script.play(.showRename("Manaflow Labs"))
+        await teamsStep("3-rename-dialog")
+        script.play(.commitRename)
+        await teamsStep("4-renamed")
+        shell.settingsPath = []
+        await pause(0.6)
+        shell.openTeamDetails(member)
+        await teamsStep("5-member-page")
+        shell.settingsPath = []
+        await pause(0.6)
+        if let admin = team("team-manaflow") { shell.openTeamDetails(admin) }
+        await pause(1.5)
+        script.play(.showDelete)
+        await teamsStep("6-delete-dialog")
+        script.play(.commitDelete)
+        await teamsStep("7-deleted")
+        shell.sidebar.open()
+        await teamsStep("8-sidebar-after-delete")
+        await teamsStep("done", hold: 0)
+    }
+
+    /// `-cmux-mobile-mock-team-subscribed`: deleting a team with a paid plan is
+    /// refused, and the page says why.
+    private func teamsBlocked() async {
+        guard let admin = shell.store.teams.first(where: { $0.id == "team-manaflow" }) else { return }
+        shell.openTeamDetails(admin)
+        await teamsStep("1-admin-page")
+        TeamPageScript.shared.play(.showDelete)
+        await teamsStep("2-delete-dialog")
+        TeamPageScript.shared.play(.commitDelete)
+        await teamsStep("3-refused")
+        await teamsStep("done", hold: 0)
+    }
+
+    /// Marks a demo step for the recording script (Documents/demo-step.txt,
+    /// read by scripts/ci/cmux-next-ios-sim.sh `teams`), then holds it.
+    private func teamsStep(_ name: String, hold: Double = 3) async {
+        demoLog.info("demo step \(name, privacy: .public)")
+        if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            try? Data(name.utf8).write(to: documents.appending(component: "demo-step.txt"), options: .atomic)
+        }
+        await pause(hold)
     }
 
     private func pause(_ seconds: Double) async {

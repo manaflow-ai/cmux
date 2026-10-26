@@ -479,7 +479,7 @@ final class ShellModel {
         Task {
             do {
                 let team = try await auth.createTeam(named: trimmed)
-                var teams = store.teams.map { AppStore.AccountTeam(id: $0.id, name: $0.name) }
+                var teams = store.teams.map(\.accountTeam)
                 if !teams.contains(where: { $0.id == team.id }) { teams.append(team) }
                 if let live {
                     live.applyAccountTeams(teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: team.id)
@@ -488,14 +488,52 @@ final class ShellModel {
                 }
                 theme.haptics.success()
                 switchTeam(to: team.id)
-            } catch ServiceTeamCreation.Failure.unavailable {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Creating teams isn't available for this account yet")
-                theme.haptics.error()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: TeamServiceError.message(for: error, action: .create))
                 theme.haptics.error()
             }
         }
+    }
+
+    /// The sidebar's "Team details": Settings → the team's page, pushed (back
+    /// and swipe-back return to Settings). Another team is switched to first,
+    /// as the page shows the active team.
+    func openTeamDetails(_ team: Team) {
+        if team.id != store.activeTeamID { switchTeam(to: team.id) } else { sidebar.close() }
+        tab = .settings
+        settingsPath = [.team]
+    }
+
+    /// The team page renamed a team: the new name shows at once, then the
+    /// account's lists are read again.
+    func teamRenamed(_ teamID: String, to name: String) {
+        store.renameTeam(teamID, to: name)
+        Task { await auth.teamsChanged() }
+    }
+
+    /// The team page deleted a team: it leaves the list, the app moves to
+    /// another team (or the personal space), the page closes, and the
+    /// account's lists are read again.
+    func teamDeleted(_ teamID: String) {
+        let name = store.teams.first { $0.id == teamID }?.name
+        let wasActive = store.activeTeamID == teamID
+        let next = store.teamsAfterDeleting(teamID)
+        if let live {
+            live.applyAccountTeams(next.teams.filter { !$0.id.hasPrefix("personal-") }, selectedID: next.selectedID)
+        } else {
+            // Keeps every other team's Macs where they are (mock mode included).
+            store.applyLiveTeams(next.teams, selectedID: next.selectedID)
+        }
+        if wasActive {
+            closeTeamScreens()
+            live?.activeTeamChanged(byUser: true)
+            let selected = store.activeTeamID
+            if !selected.isEmpty, !selected.hasPrefix("personal-") { Task { await auth.selectTeam(selected) } }
+        }
+        settingsPath.removeAll { $0 == .team }
+        toast = CmuxMobileToast(symbol: "trash", text: name.map { "Deleted \($0)" } ?? "Team deleted")
+        theme.haptics.success()
+        Task { await auth.teamsChanged() }
     }
 
     func joinTeam(inviteLink: String) {

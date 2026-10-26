@@ -20,6 +20,10 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     /// Saves a team's color and icon: the same path as the sidebar's editor
     /// (`PUT /v1/teams/:id/prefs` when live, this iPhone only otherwise).
     let saveAppearance: (TeamAppearance, Team) -> Void
+    /// The team page renamed a team (its id, the new name).
+    let teamRenamed: (String, String) -> Void
+    /// The team page deleted a team (its id).
+    let teamDeleted: (String) -> Void
     /// The live service for the device list and account deletion (nil in mock mode).
     let directory: (any SettingsDeviceDirectory)?
     /// The Macs' terminal sizing policies (nil in mock mode).
@@ -37,7 +41,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     @State private var notificationPermission: NotificationPermission?
     @Environment(\.scenePhase) private var scenePhase
 
-    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+    public init(auth: CmuxMobileAuthModel, store: AppStore, settings: SettingsStore, path: Binding<[SettingsRoute]>, scrollRequest: String? = nil, directory: (any SettingsDeviceDirectory)? = nil, sizing: (any TerminalSizingService)? = nil, callChief: (() -> Void)? = nil, inviteToTeam: @escaping (Team) -> Void, saveAppearance: @escaping (TeamAppearance, Team) -> Void, teamRenamed: @escaping (String, String) -> Void = { _, _ in }, teamDeleted: @escaping (String) -> Void = { _ in }, @ToolbarContentBuilder leading: @escaping () -> Leading) {
+        self.teamRenamed = teamRenamed
+        self.teamDeleted = teamDeleted
         self.scrollRequest = scrollRequest
         self.callChief = callChief
         self.directory = directory
@@ -216,7 +222,8 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
         case .account: AccountPage(auth: auth, directory: directory)
         case .team:
             if let team = store.activeTeam {
-                TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) })
+                TeamPage(team: team, auth: auth, edit: { editingTeam = team }, invite: { inviteToTeam(team) },
+                         renamed: teamRenamed, deleted: teamDeleted)
             }
         case .transport: TransportPage(settings: settings, relayAvailable: directory?.relayAvailable)
         case .devices: DevicesPage(store: store, directory: directory, list: deviceList)
