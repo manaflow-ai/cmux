@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CCmuxPaletteRankerFFI
 
@@ -146,7 +147,7 @@ public final class PaletteRankerBridge {
             throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
         }
         do {
-            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: body)
+            let sections = try JSONDecoder().blockingDecode([PaletteRankerBridgeSection].self, from: body)
             return sections.map { section in
                 PaletteRankedSection(
                     sectionIndex: section.sectionIndex,

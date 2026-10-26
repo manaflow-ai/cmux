@@ -215,7 +215,7 @@ final class AgentTabStore {
          openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
-           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
+           let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
             adoptions = saved
         }
         self.openPanel = openPanel

@@ -380,9 +380,7 @@ final class CEFRuntime {
     nonisolated static func primeImageIO() {
         // A 1x1 PNG header is enough for the type sniff.
         let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-        if let source = CGImageSourceCreateWithData(Data(png) as CFData, nil) {
-            _ = CGImageSourceGetType(source)
-        }
+        _ = CheckedImageSource(Data(png))?.type
     }
 
     /// The main-thread part: NSApp check, message pump, `CefInitialize`.

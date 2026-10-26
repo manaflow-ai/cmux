@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 
 extension BrowserHitHandlers {
     // MARK: Copy
@@ -16,7 +17,7 @@ extension BrowserHitHandlers {
             let board = pasteboard()
             let registry = context.services.registry
             registry.track(Task {
-                guard let data = try? await BrowserImageData.load(url), let image = NSImage(data: data) else {
+                guard let data = try? await BrowserImageData.load(url), let image = blockingNSImage(data) else {
                     registry.refuse(BrowserHitStrings.imageCopyFailed)
                     return ActionWorkFailure(BrowserHitStrings.imageCopyFailed)
                 }

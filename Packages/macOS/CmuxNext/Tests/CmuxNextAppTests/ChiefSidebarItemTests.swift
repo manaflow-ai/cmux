@@ -3,6 +3,7 @@ import CmuxNextAgentActivity
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// Leo 2026-10-20: an optional Chief item in the sidebar (off by default, placed like any item)
@@ -78,17 +79,23 @@ struct ChiefSidebarItemTests {
 
     /// The Chief item wears the chosen pet character (`home.chiefPetMascot`) as its picture in every
     /// look, not a generic glyph; another pick draws another picture, and an unknown id draws the orb.
-    @Test func theChiefItemWearsTheChosenPetCharacter() {
+    @Test func theChiefItemWearsTheChosenPetCharacter() async {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
+        let pictures = ChiefSidebarPicture(work: BackgroundWork(label: "test.chief-sidebar-picture"))
         func picture(_ mascot: String?) -> SidebarFavicon? {
-            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
+            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefPicture: pictures.favicon(mascot: mascot))[Self.chiefItem.id]?.favicon
         }
+        // Nothing is read on the main thread: the item keeps its plain glyph until the files lane returns the picture.
+        #expect(picture("fox") == nil)
+        await pictures.load(mascot: "fox")?.value
+        await pictures.load(mascot: "orb")?.value
         let fox = picture("fox"), orb = picture("orb")
         #expect(fox != nil)
         #expect(orb != nil)
         #expect(fox != orb)
         // The same pick is the same picture, so an unrelated sidebar change does not redraw the item.
         #expect(picture("fox") == fox)
+        #expect(pictures.load(mascot: "fox") == nil, "a loaded picture is not read again")
         #expect(picture(nil) == orb)
         #expect(picture("not-a-mascot") == orb)
     }

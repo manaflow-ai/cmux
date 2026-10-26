@@ -143,7 +143,7 @@ final class BrowserNowPlaying {
         if !music.artist.isEmpty { info[MPMediaItemPropertyArtist] = music.artist }
         if let duration = music.duration { info[MPMediaItemPropertyPlaybackDuration] = duration }
         if let position = music.position(at: Date()) { info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = position }
-        if let data = music.artwork, musicArtwork?.data != data, let image = NSImage(data: data) {
+        if let data = music.artwork, musicArtwork?.data != data, let image = blockingNSImage(data) {
             // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw.
             nonisolated(unsafe) let shown = image
             musicArtwork = (data, MPMediaItemArtwork(boundsSize: image.size) { @Sendable _ in shown })

@@ -65,7 +65,7 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
     @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
               let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
-        guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
+        guard let image = blockingNSImage(data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
         let scale = 160 / max(image.size.width, image.size.height, 160)
         image.size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         return Contents(data: data, picture: image)

@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextResources
 import CmuxNextSettings
 import ObjectiveC
@@ -175,7 +176,7 @@ enum DebugAgentPane {
             do {
                 let result = try await view.callPageScript(script)
                 guard let text = result as? String,
-                      let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                      let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                       let value = JSONValue(foundation: object) else {
                     return .object(["pane": .string(pane), "error": .string("the page returned no close_menus JSON")])
                 }
@@ -199,7 +200,7 @@ enum DebugAgentPane {
         do {
             let result = try await view.callPageScript(script, arguments: ["fn": function, "args": arguments(action, params)])
             guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object) else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no JSON")])
             }
@@ -241,7 +242,7 @@ enum DebugAgentPane {
             // The script reads `waitForAnimations` as an argument; without it every readiness call threw.
             let result = try await view.callPageScript(script, arguments: ["waitForAnimations": waitForAnimations])
             guard let text = result as? String,
-                  let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
+                  let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object),
                   case .object(var members) = value else {
                 return .object(["pane": .string(pane), "error": .string("the page returned no readiness JSON")])

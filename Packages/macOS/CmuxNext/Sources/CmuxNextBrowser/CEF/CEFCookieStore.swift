@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// Automation cookies (`browser.page.cookies.*`) in a CEF tab's profile,
@@ -12,9 +13,15 @@ struct CEFCookieStore {
     func cookies() async throws -> [BrowserCookie] {
         guard let browserID = tab.browserID, !tab.isClosed else { throw BrowserTabError.closed }
         let json = try await tab.runtime.devTools(browserID, method: "Network.getAllCookies")
-        guard let data = json.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let list = object["cookies"] as? [[String: Any]] else { throw BrowserTabError.unsupported("Network.getAllCookies") }
+        guard let cookies = await Self.parseCookies(json) else { throw BrowserTabError.unsupported("Network.getAllCookies") }
+        return cookies
+    }
+
+    /// The cookies of a `Network.getAllCookies` reply, parsed off the main actor: a profile's whole jar is often
+    /// above the main thread's JSON gate. Nil when the reply has no cookie list.
+    @concurrent nonisolated static func parseCookies(_ json: String) async -> [BrowserCookie]? {
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(json.utf8)) as? [String: Any],
+              let list = object["cookies"] as? [[String: Any]] else { return nil }
         return list.compactMap { entry in
             guard let name = entry["name"] as? String, let domain = entry["domain"] as? String else { return nil }
             let session = entry["session"] as? Bool ?? true

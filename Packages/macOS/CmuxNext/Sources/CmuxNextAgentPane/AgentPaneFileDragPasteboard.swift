@@ -42,7 +42,7 @@ nonisolated final class AgentPaneFileDragPasteboard: NSObject, NSPasteboardItemD
     /// The bytes for `type` from ``bytes``; nil before the off-main read ended (no read here).
     func data(for type: NSPasteboard.PasteboardType) -> Data? {
         guard imageTypes.contains(type), let data = bytes else { return nil }
-        if type == .tiff, imageTypes.first != .tiff { return NSImage(data: data)?.tiffRepresentation }
+        if type == .tiff, imageTypes.first != .tiff { return blockingNSImage(data)?.tiffRepresentation }
         return data
     }
 

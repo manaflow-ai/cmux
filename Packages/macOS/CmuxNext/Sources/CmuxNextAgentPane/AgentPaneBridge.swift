@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import CmuxNextPages
 import CmuxNextSettings
@@ -48,7 +49,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             return replyHandler(AgentPaneTailCache.reply(to: method, params: body["params"] as? [String: Any]), nil)
         }
         let request = AgentPaneRequest(body: message.body)
-        if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.jsonObject(with: Data(text.utf8)),
+        if case .uiPointerReport(let text) = request, let value = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8)),
            let json = JSONValue(foundation: value), let view {
             view.uiPointerReport?(json)
             return replyHandler(["ok": true], nil)

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 
@@ -31,7 +32,7 @@ nonisolated public struct WebUpdateStore: Sendable {
 
     public func readState() -> WebUpdateState {
         guard let data = try? Data(contentsOf: stateFile),
-              let state = try? JSONDecoder().decode(WebUpdateState.self, from: data)
+              let state = try? JSONDecoder().blockingDecode(WebUpdateState.self, from: data)
         else { return WebUpdateState() }
         return state
     }

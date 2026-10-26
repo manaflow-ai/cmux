@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
 import CmuxNextRemoteFetch
 
@@ -95,7 +96,7 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
     /// Decodes an icon file (PNG, ICO, SVG, ...) and redraws its best
     /// representation at most ``maximumPixels`` square.
     nonisolated static func decode(_ data: Data) -> NSImage? {
-        guard let source = NSImage(data: data), source.size.width > 0, source.size.height > 0 else { return nil }
+        guard let source = blockingNSImage(data), source.size.width > 0, source.size.height > 0 else { return nil }
         let side = CGFloat(maximumPixels)
         var proposed = CGRect(x: 0, y: 0, width: side, height: side)
         guard let best = source.cgImage(forProposedRect: &proposed, context: nil, hints: nil) else { return nil }

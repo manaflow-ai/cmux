@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// The context menu's Copy Image, Save Image As… and Quick Look on an image in an agent chat (the
@@ -36,7 +37,7 @@ extension AgentPaneImageCopies {
         item.setString(file.lastPathComponent, forType: .string)
         if let type = UTType(filenameExtension: file.pathExtension), type.conforms(to: .image), let data {
             item.setData(data, forType: NSPasteboard.PasteboardType(type.identifier))
-            if type != .tiff, let tiff = NSImage(data: data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
+            if type != .tiff, let tiff = blockingNSImage(data)?.tiffRepresentation { item.setData(tiff, forType: .tiff) }
         }
         return item
     }

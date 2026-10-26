@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
@@ -92,7 +93,7 @@ final class IconAssetImages {
     nonisolated static func decode(_ data: Data, mediaType: String) -> CGImage? {
         let pixels = Int(side * scale)
         if mediaType == "image/svg+xml" {
-            guard IconAssetDecode.isSVGText(data), let svg = NSImage(data: data),
+            guard IconAssetDecode.isSVGText(data), let svg = blockingNSImage(data),
                   svg.size.width > 0, svg.size.height > 0 else { return nil }
             return draw(pixels: pixels, size: svg.size) { rect in
                 svg.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)

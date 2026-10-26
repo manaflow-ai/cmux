@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextWakeups
 
@@ -280,7 +281,7 @@ nonisolated enum FeedWireFrame: Sendable {
     case ignored
 
     static func decode(_ data: Data) -> FeedWireFrame {
-        guard let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let t = o["t"] as? String else { return .ignored }
+        guard let o = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any], let t = o["t"] as? String else { return .ignored }
         let seq = (o["seq"] as? Int).flatMap { UInt64(exactly: $0) } ?? 0
         switch t {
         case "welcome":

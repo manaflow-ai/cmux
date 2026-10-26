@@ -533,7 +533,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextOnboarding",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -689,7 +689,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -742,7 +742,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -754,7 +754,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // resolver and the layer host.
         .target(
             name: "CmuxNextAgentCursor",
-            dependencies: ["CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             swiftSettings: uiSwiftSettings
         ),
         // Agent cursor visibility (agent-cursor.md section 3, decisions
@@ -989,7 +989,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextFiles"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1005,7 +1005,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // over its daemon connection); model and SwiftUI view, no daemon or AppKit types.
         .target(
             name: "CmuxNextChiefMemory",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1092,7 +1092,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // confirmed mirror + intent log; the App supplies the source.
         .target(
             name: "CmuxNextTasks",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace"],
             resources: [
                 .process("Resources"),
             ],
@@ -1103,7 +1103,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1184,7 +1184,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -1580,7 +1580,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
             // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1771,7 +1771,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
         .target(
             name: "CmuxNextBrowserAutomation",
-            dependencies: ["CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace"],
+            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

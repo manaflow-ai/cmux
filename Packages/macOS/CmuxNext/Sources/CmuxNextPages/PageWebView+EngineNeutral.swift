@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -26,9 +27,8 @@ extension PageWebView {
     public func snapshot() async -> NSImage? {
         guard let page = chromiumSession?.page else { return try? await webView.takeSnapshot(configuration: nil) }
         guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
-              let data = await Self.screenshotData(json), let image = NSImage(data: data) else { return nil }
-        image.size = bounds.size
-        return image
+              let image = await Self.capturedPageImage(json) else { return nil }
+        return NSImage(cgImage: image, size: bounds.size)
     }
 
     /// Whether ``snapshot()`` keeps the page's clear areas the color the pane shows under them. A
@@ -39,10 +39,12 @@ extension PageWebView {
     /// `Page.captureScreenshot` for ``snapshot()``.
     nonisolated static var snapshotParams: [String: any Sendable] { ["format": "jpeg", "quality": 85, "optimizeForSpeed": true] }
 
-    /// The image bytes of a `Page.captureScreenshot` reply, parsed off the main actor.
-    @concurrent nonisolated static func screenshotData(_ json: String) async -> Data? {
-        guard let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String else { return nil }
-        return Data(base64Encoded: base64)
+    /// The image of a `Page.captureScreenshot` reply, parsed and decoded off the main actor (a full window is
+    /// megabytes, far above the main-thread image gate), so the main actor only wraps the pixels.
+    @concurrent nonisolated static func capturedPageImage(_ json: String) async -> CGImage? {
+        guard let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,
+              let data = Data(base64Encoded: base64) else { return nil }
+        return blockingImageDecode(data)
     }
 
     /// Runs `body` once the page drew its next frame: an animation frame and a task in the page, then

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxVNC
 import Foundation
 import Security
@@ -27,7 +28,7 @@ nonisolated struct RemoteVNCCredentialStore {
               let attributes = try? FileManager.default.attributesOfItem(atPath: path),
               let mode = attributes[.posixPermissions] as? Int, mode & 0o077 == 0,
               let data = FileManager.default.contents(atPath: path),
-              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
+              let stored = try? JSONDecoder().blockingDecode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }
 
@@ -37,7 +38,7 @@ nonisolated struct RemoteVNCCredentialStore {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
-              let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return nil }
+              let stored = try? JSONDecoder().blockingDecode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }
 
