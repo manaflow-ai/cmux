@@ -1044,6 +1044,31 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
 
+// Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
+// p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not
+// generate them: the host calls them for its TRACE_START and TRACE_STOP frames. Call begin and end
+// on any thread after cmux_shim_initialize: each posts its work to the browser UI thread and
+// returns 1, then its callback runs exactly once, on the UI thread. When CEF shuts down before it
+// answers, the callback gets the failure value on the thread that drops the request. A return of 0
+// means nothing was posted (CEF is not running, or a bad argument) and the callback never runs.
+typedef void (*cmux_cef_trace_started_fn)(void* ctx, int ok);
+typedef void (*cmux_cef_trace_written_fn)(void* ctx, const char* path);
+// Starts recording in every Chromium process. categories is Chromium's category filter
+// ("toplevel,cc,viz,gpu,input,benchmark,disabled-by-default-..."); NULL or "" uses CEF's default.
+// CEF's API has no buffer size, so Chromium's record-until-full default applies.
+// started: ok = 1 when every process records, 0 when CEF refused (a recording already runs).
+CMUX_SHIM_EXPORT int cmux_cef_begin_tracing(const char* categories, cmux_cef_trace_started_fn started, void* ctx);
+// Stops recording and writes the trace to path, an absolute path that ends in ".json" (0 for any
+// other path). The file is Chromium's legacy JSON trace format: CEF's public API has only the JSON
+// file endpoint (TracingController::CreateFileEndpoint), no Perfetto protobuf output.
+// written: path when the file is complete, NULL when no recording ran; the string is valid only
+// during the call.
+CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_written_fn written, void* ctx);
+// Chromium's trace clock now, in microseconds (CefNowFromSystemTraceTime: base::TimeTicks, which
+// is mach_absolute_time on macOS, the CLOCK_UPTIME_RAW clock). Any thread, after cmux_shim_load.
+// The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
+CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
+
 #ifdef __cplusplus
 }
 #endif
