@@ -49,9 +49,10 @@ struct AppMemoryConsumers {
     let services: AppServices
 
     /// The app's one memory coordinator: it follows `pressure` and releases in background-class frame
-    /// work on the main-thread scheduler of `deadlines`. Two background-class one-shots on `deadlines`
-    /// hold lossless limits 30 s after a fall in level and release working-set entries a release kept
-    /// once they age out (p07-memory-070). AppServices holds it next to its pressure source.
+    /// work on the main-thread scheduler of `deadlines`, or on main run loop passes while the app is hidden
+    /// (``followHiddenApp()``). Two background-class one-shots on `deadlines` hold lossless limits 30 s after a
+    /// fall in level and release working-set entries a release kept once they age out (p07-memory-070).
+    /// AppServices holds it next to its pressure source.
     ///
     /// - Parameters:
     ///   - pressure: The app's one memory pressure source.
@@ -62,6 +63,7 @@ struct AppMemoryConsumers {
             pressure: pressure,
             slicer: FrameReleaseSlicer(
                 queue: FrameBatchQueue(owner: "MemoryCoordinator.release", budgeted: .background, on: deadlines.work)),
+            turns: MainRunLoopReleaseTurns(),
             limitRiseDeadline: MainDeadline(
                 owner: "MemoryCoordinator.limitRise", workClass: .background, scheduler: deadlines),
             workingSetDeadline: MainDeadline(
@@ -72,6 +74,7 @@ struct AppMemoryConsumers {
     /// consumer's owner keeps its registration token; nothing here stores one.
     func registerMemoryConsumers() {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
+        followHiddenApp()  // CmuxNextMemory (p07-memory-071)
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerAgentPaneCaches()  // CmuxNextAgentPane
@@ -88,6 +91,13 @@ struct AppMemoryConsumers {
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTabCaches()  // CmuxNextTabs
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryHiddenAppRelease` (default off): while no window shows, the coordinator releases in 8 ms slices on
+    /// main run loop passes; the person's input puts it back on 2 ms frame slices (p07-memory-071).
+    func followHiddenApp() {
+        guard services.features.isEnabled(.memoryHiddenAppRelease) else { return }
+        services.memoryCoordinator.followApp(windows: services.appVisibility.shownWindows, input: services.inputTap)
     }
 
     /// `memoryAgentAndControlCaches` (default off): the agent pane's New Tab frames, chat tails and
