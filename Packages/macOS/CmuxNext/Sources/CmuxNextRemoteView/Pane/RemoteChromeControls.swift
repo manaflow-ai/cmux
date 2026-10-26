@@ -78,6 +78,7 @@ final class RemoteChromeButton: NSButton {
         font = .systemFont(ofSize: 12, weight: .medium)
         focusRingType = .none
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = height / 2
         translatesAutoresizingMaskIntoConstraints = false
         heightAnchor.constraint(equalToConstant: height).isActive = true

@@ -31,6 +31,7 @@ final class NotificationRowView: NSView {
         self.callbacks = callbacks
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerRadius = Metrics.space2
         layer?.cornerCurve = .continuous
         translatesAutoresizingMaskIntoConstraints = false
