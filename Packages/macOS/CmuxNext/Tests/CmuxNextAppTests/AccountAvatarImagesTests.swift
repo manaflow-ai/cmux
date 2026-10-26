@@ -52,10 +52,12 @@ import Testing
         let second = "data:image/png;base64,\(try Self.png(side: 5).base64EncodedString())"
         let images = AccountAvatarImages()
         images.load(first)
+        let firstDecode = try #require(images.loading, "the first picture starts its decode")
         images.load(second)  // before the first decode lands
-        await images.loading?.value  // the newest load
+        let secondDecode = try #require(images.loading, "the newest picture starts its decode")
+        await secondDecode.value
         #expect(images.data[second] != nil, "the newest picture loads")
-        for _ in 0..<10 { await Task.yield() }
+        await firstDecode.value  // the decodes run off main, so the older one can land after the newest
         #expect(Array(images.data.keys) == [second], "the older picture's late decode is dropped")
 
         images.load(first)
