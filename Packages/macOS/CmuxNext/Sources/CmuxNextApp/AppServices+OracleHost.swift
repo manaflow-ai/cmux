@@ -32,6 +32,8 @@ extension AppServices: OracleHost {
     ///   (the app's: this Mac's watch, then the Chief home's).
     func makeOracleFacets(lanes: [AgentLaneStore]) -> OracleFacets {
         OracleFacets([
+            // Each window's focused pane and the input observation's responder, from InputObservationBuilder.
+            InputObservationBuilder.oracleFocusFacet(self),
             // The input check `debug.desync` runs and the window problems `debug.focus` reports, now.
             OracleInvariantsFacet { [weak self] in
                 guard let self, let monitor = input.monitor, let result = monitor.check() else { return nil }
