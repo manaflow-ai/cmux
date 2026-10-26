@@ -3,7 +3,6 @@ import class CmuxNextAgentPane.AgentPaneLaunchTimings
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextLaunch
-import CmuxNextMetrics
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSignposts
@@ -47,12 +46,11 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
+    /// The process start and the page-ins every launch mark reads (the system's).
+    private nonisolated static let launchClock = LaunchClock()
     /// When the kernel started this process (PROC_PIDTBSDINFO), on the wall clock and the trace clock; now
     /// when the kernel does not answer.
-    private nonisolated static let processStart: LaunchClock.Instant = {
-        let clock = LaunchClock()
-        return clock.processStart() ?? clock.now()
-    }()
+    private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
 
     /// Records a launch mark (milliseconds since process start) once per
@@ -60,27 +58,28 @@ enum DebugTimings {
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
     /// bench's pipe when one was passed; and to the startup trace when one is attached. A milestone mark
     /// ends its `launch.*` slice; ``LaunchSlices/temperatureMark`` reads the page-ins first (Chrome reads them
-    /// before its message-loop start's own work), records `launch.pageins` and writes the slices that waited.
+    /// before its message-loop start's own work), writes the slices that waited, records `launch.pageins`, and
+    /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let milestone = LaunchSlices.Milestone(mark: name)
-        let endNanos = milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date)
-        let samplesTemperature = name == LaunchSlices.temperatureMark
-        let pageins = samplesTemperature ? LaunchClock().pageins() : nil
-        let (ms, trace, slices) = launchMarks.withLock { state -> (Double?, StartupTrace?, [LaunchSlices.Slice]) in
-            guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else { return (nil, state.marks.trace, []) }
-            var slices: [LaunchSlices.Slice] = []
-            if let milestone, let slice = state.slices.reach(milestone, atUptimeNanos: endNanos) { slices.append(slice) }
-            if samplesTemperature { slices += state.slices.sample(pageins: pageins) }
-            return (ms, state.marks.trace, slices)
+        let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
+        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date)
+        let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
+            guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
+                return (nil, state.marks.trace, LaunchSlices.Step())
+            }
+            return (ms, state.marks.trace, state.slices.apply(reading, atUptimeNanos: endNanos))
         }
         guard let ms else { return }
-        for slice in slices { slice.record(into: .shared) }
-        if samplesTemperature, let pageins { Metrics().record(.launchPageins, Int64(clamping: pageins)) }
+        step.publish(into: .shared)
         LaunchMarkSink.shared.write(name: name, ms: ms)
         LaunchMarks.forward(name, at: date, to: trace)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("launch.\(name)", at: date)
         #endif
+        if let pageins = step.pageins {
+            LaunchMarkSink.shared.writeValue(name: LaunchSlices.pageinsValueMark, value: pageins)
+        }
+        if let temperatureInstant = step.temperatureInstant { markLaunch(temperatureInstant, at: date) }
     }
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).

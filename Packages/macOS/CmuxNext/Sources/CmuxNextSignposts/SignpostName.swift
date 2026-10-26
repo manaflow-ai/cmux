@@ -175,7 +175,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: launch (reserved: task 034, Performance Lead)
     // Each is an async slice from the process start (PROC_PIDTBSDINFO, on the uptime clock) to its mark.
-    // Ring: AB/AE; end arg0 the launch temperature (0 warm, 1 lukewarm, 2 cold).
+    // Ring: AB/AE; end arg0 the launch temperature, `LaunchClock.Temperature`'s raw value (0 warm, 1 lukewarm,
+    // 2 cold, 3 undetermined).
 
     /// Reserved (task 034, Performance Lead). The process start to the first line of `main`.
     case launchProcessToMain = 36

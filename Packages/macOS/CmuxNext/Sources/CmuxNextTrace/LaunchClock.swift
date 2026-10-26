@@ -54,8 +54,12 @@ public nonisolated struct LaunchClock: Sendable {
     }
 
     /// How much of a launch had to come from disk, from the page-ins at the main run loop's start. The raw
-    /// value is the code a `launch.*` slice's end record carries in `arg0` (0 warm, 1 lukewarm, 2 cold, as
-    /// `SignpostName` documents; 3 when the count could not be read).
+    /// value is the code a `launch.*` slice's end record carries in `arg0` (0 warm, 1 lukewarm, 2 cold,
+    /// 3 undetermined, as `SignpostName` documents).
+    ///
+    /// The launch's one classifier: the hang report's `LaunchTemperature` and the metrics'
+    /// `HistogramID.LaunchTemperature` are built from it (`init(_:)` in their modules), and the bench reads its
+    /// ``name`` (`launch.temperature.<name>`).
     public enum Temperature: UInt8, Sendable, CaseIterable {
         /// Fewer than ``warmPageinsBelow`` page-ins: the app's pages were in memory.
         case warm = 0
