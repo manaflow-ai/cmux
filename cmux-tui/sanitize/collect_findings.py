@@ -3,8 +3,9 @@
 
 cmux-tui/scripts/sanitize.sh calls this after each `cargo nextest run`. Inputs:
 the sanitizer runtime's per-process report files (log_path=DIR/report, so
-DIR/report.<pid>) and nextest's libtest-json-plus events, whose failed-test
-`stdout` holds the test's output (Miri prints its errors there).
+DIR/report.<pid>), the pid of each test process (written by
+cmux-tui/sanitize/test-runner.sh) and nextest's libtest-json-plus events, whose
+failed-test `stdout` holds the test's output (Miri prints its errors there).
 
 Signatures come from scripts/cmux-next/crash_signature.py: each sanitizer
 report and each Miri error gets {kind, process, exception, frames, hash12}.
@@ -32,6 +33,10 @@ TOOLS = ("address", "thread", "leak", "miri")
 REPO_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_SIGNATURE = REPO_DIR / "scripts" / "cmux-next" / "crash_signature.py"
 REPORT_SAMPLES = 5
+# `unsupported`: every red test hit an operation Miri isolation cannot run
+# (sockets, files, processes). No bug was found; the tests stay listed in
+# runs.jsonl's `unsupported_tests`.
+GREEN_RESULTS = ("pass", "unsupported")
 
 # nextest exit codes (nextest-metadata NextestExitCode).
 _EXIT_NO_TESTS = 4
@@ -56,7 +61,7 @@ _SANITIZER_TEXT = re.compile(r"(?:Address|Leak|Thread)Sanitizer")
 @dataclass
 class Finding:
     signature: dict
-    test: str | None
+    tests: list[str]
     reports: list[str]
     count: int = 1
 
@@ -67,6 +72,11 @@ class TestRun:
 
     passed: tuple[str, ...]
     failed: dict[str, str]  # test name -> its output
+
+    def full_name(self, binary_id: str, test: str) -> str:
+        """`ws::ws$tests::a` for the runner's (`ws`, `tests::a`): the event's name when one event has that test."""
+        names = [name for name in (*self.passed, *self.failed) if name.endswith("$" + test)]
+        return names[0] if len(names) == 1 else f"{binary_id}${test}"
 
 
 def load_signature_module(path: Path) -> ModuleType:
@@ -98,6 +108,19 @@ def read_events(path: Path) -> TestRun:
         elif event.get("event") in ("failed", "timeout"):
             failed[name] = str(event.get("stdout") or "")
     return TestRun(tuple(passed), failed)
+
+
+def read_test_pids(path: Path, events: TestRun) -> dict[str, str]:
+    """pid -> test, from test-runner.sh's `PID<TAB>BINARY_ID$TEST` lines."""
+    tests: dict[str, str] = {}
+    if not path.is_file():
+        return tests
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        pid, _, name = line.partition("\t")
+        binary_id, sep, test = name.partition("$")
+        if pid.isdigit() and sep:
+            tests[pid] = events.full_name(binary_id, test)
+    return tests
 
 
 def miri_exception(headline: str) -> str:
@@ -172,11 +195,13 @@ def miri_errors(output: str) -> tuple[list[tuple[str, str]], list[str]]:
 def add_finding(findings: dict[str, Finding], signature: dict, test: str | None, report: str) -> None:
     finding = findings.get(signature["hash12"])
     if finding is None:
-        findings[signature["hash12"]] = Finding(signature, test, [report])
+        findings[signature["hash12"]] = Finding(signature, [test] if test else [], [report])
         return
     finding.count += 1
     if len(finding.reports) < REPORT_SAMPLES and report not in finding.reports:
         finding.reports.append(report)
+    if test and len(finding.tests) < REPORT_SAMPLES and test not in finding.tests:
+        finding.tests.append(test)
 
 
 def collect(args: argparse.Namespace) -> int:
@@ -199,20 +224,23 @@ def collect(args: argparse.Namespace) -> int:
             if skipped and not bugs:
                 unsupported[test] = skipped
     else:
+        test_pids = read_test_pids(Path(args.tests), events) if args.tests else {}
         for path in sorted(Path(args.log_dir).glob("report.*")):
             found = signatures.signatures_from_path(path, ignore, process=process)
             if not found and _SANITIZER_TEXT.search(path.read_text(encoding="utf-8", errors="replace")):
                 unparsed.append(str(path))
+            test = test_pids.get(path.suffix.lstrip("."))
             for signature in found:
-                add_finding(findings, signature.to_json(), None, str(path))
+                add_finding(findings, signature.to_json(), test, str(path))
 
     context = {"lane": "sanitizer-rust", "tool": args.tool, "crate": args.crate, "os": args.os,
                "target": args.target, "toolchain": args.toolchain, "commit": args.commit}
     with open(args.out, "a", encoding="utf-8") as out:
         for finding in findings.values():
             record = {**finding.signature, **context, "count": finding.count, "reports": finding.reports}
-            if finding.test:
-                record["test"] = finding.test
+            if finding.tests:
+                record["test"] = finding.tests[0]
+                record["tests"] = finding.tests
             out.write(json.dumps(record, sort_keys=True) + "\n")
 
     failed_tests = sorted(test for test in events.failed if test not in unsupported)
@@ -224,12 +252,12 @@ def collect(args: argparse.Namespace) -> int:
         runs.write(json.dumps(run, sort_keys=True) + "\n")
     print(f"sanitize: {args.tool} {args.crate}: {result} ({len(findings)} findings, {len(failed_tests)} failed, "
           f"{len(unsupported)} unsupported, {len(unparsed)} unparsed, nextest exit {args.exit})", file=sys.stderr)
-    return 0 if result == "pass" else 1
+    return 0 if result in GREEN_RESULTS else 1
 
 
 def run_result(exit_code: int, findings: bool, unparsed: bool, failed_tests: list[str],
                unsupported: dict[str, list[str]]) -> str:
-    """One word for the run; only `pass` is green."""
+    """One word for the run; GREEN_RESULTS are green."""
     if findings or unparsed:
         return "findings"
     if exit_code in (_EXIT_BUILD, _EXIT_TEST_LIST, _EXIT_SETUP):
@@ -254,6 +282,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--sysroot", default="", help="the nightly's sysroot, to name Miri's std frames /rustc/")
     parser.add_argument("--exit", required=True, type=int, help="nextest's exit status")
     parser.add_argument("--log-dir", required=True, help="the sanitizer runtime's log_path directory")
+    parser.add_argument("--tests", default="", help="test-runner.sh's pid -> test lines")
     parser.add_argument("--events", required=True, help="nextest libtest-json-plus output")
     parser.add_argument("--nextest-log", required=True)
     parser.add_argument("--out", required=True, help="findings.jsonl (appended)")

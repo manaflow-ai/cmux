@@ -18,3 +18,14 @@ retries = 0
 fail-fast = false
 failure-output = "final"
 slow-timeout = { period = "300s", terminate-after = 6, grace-period = "10s" }
+# Under Miri these three cmux-layout-reducer tests take 3 min
+# (random_ops_keep_invariants) to more than 30 min each (measured 2026-10-26,
+# nightly-2026-10-20): thousands of random or exhaustive layouts through a
+# crate with no unsafe code. Every other test of the crate still runs, and the
+# stable `cargo nextest` run keeps them. `-- --ignore-default-filter` runs
+# them under Miri.
+default-filter = """
+not (test(=exhaustive_tests::exhaustive_small_layouts_keep_invariants)
+  | test(=tests::random_op_sequences_keep_invariants)
+  | test(=sidebar_layout::tests::random_ops_keep_invariants))
+"""

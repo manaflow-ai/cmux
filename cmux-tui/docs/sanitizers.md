@@ -42,22 +42,32 @@ Move the nightly date in its own commit, after one green run on the new date.
 - Sanitizers: `cargo nextest run -p CRATE -Zbuild-std --target HOST` with
   `-Zsanitizer=MODE -Cforce-frame-pointers=yes`. `-Zbuild-std` instruments std
   too; `--target` keeps build scripts and proc macros uninstrumented. rust-src
-  is remapped to `/rustc/<commit>`, so std frames read as they do in a prebuilt
-  std. Each mode has its own target directory under the work directory.
+  is remapped to `/rustc/<commit>`, so std's frames have a prebuilt std's
+  files and the signature's `file:^/rustc/` rule drops them. Each mode has its
+  own target directory under the work directory. The target runner
+  `cmux-tui/sanitize/test-runner.sh` writes each test process's pid and test
+  name to `tests.tsv`, so `report.<pid>` names its test.
 - Runtime options follow Chromium (`build/sanitizers/sanitizer_options.cc`):
   each process writes `report.<pid>` through `log_path`; TSan reports every
   race (`halt_on_error=0`), skips thread leaks and keeps two deadlock stacks.
   Linux ASan also checks leaks in the same process, as Chromium's ASan bots do;
   the same leak gets the same signature from `address` and `leak`. All three
-  print frames as `#N PC in FUNCTION FILE:LINE:COL`, without the binary's path
-  and BuildId, which change per build. Inlined frames fold into their caller
-  (`symbolize_inline_frames=0`): their DWARF names are bare (`alloc`), so std's
-  inlined helpers would be a signature's top frames; a frame's FILE:LINE is
-  then the innermost inlined line. `llvm-symbolizer` is used when found
-  (`LLVM_SYMBOLIZER`, `PATH`, `/usr/lib/llvm-*`), else addr2line on Linux and
-  atos on macOS.
+  print frames as `#N PC in FUNCTION FILE:LINE:COL`, or `(MODULE+0xOFFSET)`
+  for a frame with no source; the signature drops the BuildId, which changes
+  per build. Inlined frames stay, one line each, as ClusterFuzz keeps them:
+  std's inlined helpers are dropped by their `/rustc/` file and libtest's
+  harness (`test::`) by name, so the top frames are the code under test.
+  `llvm-symbolizer` is used when found (`LLVM_SYMBOLIZER`, `PATH`,
+  `/usr/lib/llvm-*`), else addr2line on Linux and atos on macOS. The work
+  directory and symbolizer paths are quoted in the runtime options; a path
+  with a `'` is refused.
 - Miri: `cargo miri nextest run -p CRATE`, one process per test, so one test's
-  Undefined Behavior does not hide the next test's.
+  Undefined Behavior does not hide the next test's. The `miri` profile skips
+  three cmux-layout-reducer tests that take 3 to more than 30 minutes under
+  Miri (`exhaustive_small_layouts_keep_invariants`,
+  `random_op_sequences_keep_invariants`, `sidebar_layout::tests::random_ops_keep_invariants`);
+  the crate has no unsafe code and its other tests run. `-- --ignore-default-filter`
+  runs them.
 - nextest profiles `sanitize` and `miri` come from `cmux-tui/sanitize/nextest.toml`
   (`--tool-config-file`): no retries, no fail-fast, longer hang limits for
   instrumented code.
@@ -71,8 +81,8 @@ report files, nextest's libtest-json-plus events and its log.
 `findings.jsonl` (`--out`): one line per unique signature of one crate run,
 from `scripts/cmux-next/crash_signature.py`: `kind` (`asan`, `tsan`, `lsan`,
 `miri`), `exception`, top 3 `frames`, `hash12`, with `tool`, `crate`, `os`,
-`target`, `toolchain`, `commit`, `count`, sample `reports` and, for Miri, the
-`test`. File one task per unique `hash12`.
+`target`, `toolchain`, `commit`, `count`, sample `reports`, the first `test`
+that hit it and up to five `tests`. File one task per unique `hash12`.
 
 `runs.jsonl` (`--runs`): one line per crate run with `result`:
 
@@ -81,16 +91,19 @@ from `scripts/cmux-next/crash_signature.py`: `kind` (`asan`, `tsan`, `lsan`,
 | `pass` | every test passed, no report |
 | `findings` | at least one finding, or a report no signature could be read from (`unparsed_reports`) |
 | `failed` | tests failed with no report: red at the base, or a sanitizer slowdown |
-| `unsupported` | only tests Miri cannot run (FFI, file system, processes) failed |
+| `unsupported` | only tests Miri cannot run (FFI, sockets, file system, processes) failed; green, listed in `unsupported_tests` |
 | `build-failed` | the crate did not build or list its tests under the sanitizer |
 | `no-tests` | the crate has no tests to run |
 
-The script exits 0 only when every run is `pass`.
+The script exits 0 only when every run is `pass` or `unsupported`. With the
+default crates, cmux-pane-protocol and cmux-rd-proto end `unsupported`: their
+socket, file and proptest tests need operations Miri isolation blocks.
 
 ## Known limits
 
-- A test that touches the file system, spawns a process or calls C fails under
-  Miri's isolation and is listed in `unsupported_tests`, not counted as a pass.
+- A test that touches the file system or a socket, spawns a process or calls C
+  fails under Miri's isolation. It is listed in `unsupported_tests` and is not
+  a finding; it still runs in the stable `cargo nextest` run.
 - LeakSanitizer scans memory conservatively: a stale pointer left on a stack
   can hide a leak. ASan's leak check on Linux finds more.
 - C and Zig code linked into a crate (ghostty-vt-sys) is not instrumented.
