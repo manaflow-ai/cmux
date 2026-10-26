@@ -113,12 +113,14 @@ class Tests(unittest.TestCase):
         self.assertEqual(fake.calls, [("GET", "/rate_limit")])
 
     def test_re_runs_are_capped_to_keep_the_floor(self):
-        heads = [f"{i:040x}" for i in range(1, 6)]
         floor = int(15000 * rerun.FLOOR_SHARE)
-        fake = FakeGitHub([run(i, head, number=i) for i, head in enumerate(heads, 1)], [],
-                          {i: LIMITED_LOG for i in range(1, 6)}, remaining=floor + 2 * rerun.RERUN_COST)
+        assistants = [run(i, f"{i:040x}", number=i) for i in range(1, 6)]
+        guards = [run(i, f"{i:040x}", number=i, name=GUARD) for i in range(20, 25)]
+        fake = FakeGitHub(assistants, guards, {i: LIMITED_LOG for i in range(1, 6)} | {i: GUARD_LOG for i in range(20, 25)},
+                          remaining=floor + 4 * rerun.RERUN_COST)
         self.sweep(fake)
-        self.assertEqual(len(fake.posts), 2)
+        self.assertEqual(len(fake.posts), 4)
+        self.assertEqual(len([p for p in fake.posts if int(p.split("/")[-2]) >= 20]), 2)
 
     def test_a_spent_budget_stops_after_the_free_read(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=100)
@@ -149,6 +151,22 @@ class Tests(unittest.TestCase):
         fake = FakeGitHub([other], [], {1: LIMITED_LOG}, pulls=[pull(12, head)])
         self.sweep(fake)
         self.assertEqual(fake.posts, [])
+
+    def test_a_run_from_before_a_force_push_is_stale_even_when_another_pull_request_has_its_sha(self):
+        old = "a" * 40
+        stale = run(1, old, number=12)
+        stale["pull_requests"][0]["head"]["sha"] = "b" * 40  # #12 was force-pushed since
+        fake = FakeGitHub([stale], [], {1: LIMITED_LOG}, pulls=[pull(12, "b" * 40), pull(13, old)])
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
+    def test_assistant_failures_cannot_take_the_guards_slots(self):
+        limited = [run(i, f"{i:040x}", number=i, updated="2026-10-26T04:00:00Z") for i in range(1, 11)]
+        guard = run(50, "e" * 40, number=50, name=GUARD)
+        fake = FakeGitHub(limited, [guard], {i: LIMITED_LOG for i in range(1, 11)} | {50: GUARD_LOG})
+        self.sweep(fake)
+        self.assertIn(rerun_path(50), fake.posts)
+        self.assertEqual(len(fake.posts), rerun.MAX_RERUNS - rerun.MAX_RERUNS // 2 + 1)
 
     def test_pull_requests_are_read_per_base(self):
         fake = FakeGitHub([], [], {})

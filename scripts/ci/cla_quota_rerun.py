@@ -122,11 +122,14 @@ def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, int]:
 
 def eligible(run: dict[str, Any], heads: dict[str, int]) -> bool:
     """The run's head is an open pull request's head into BASES. A same-repository run names
-    its pull requests; one into another base with the same head is not ours to re-run."""
-    if run.get("head_sha") not in heads:
+    its pull requests: one of them must be into BASES and still at the run's head (a force
+    push since leaves it stale, even when another pull request has that SHA now)."""
+    head = run.get("head_sha")
+    if head not in heads:
         return False
     prs = run.get("pull_requests") or []
-    return not prs or any((pr.get("base") or {}).get("ref") in BASES for pr in prs)
+    return not prs or any((pr.get("base") or {}).get("ref") in BASES and (pr.get("head") or {}).get("sha") == head
+                          for pr in prs)
 
 
 def when(stamp: str | None) -> dt.datetime | None:
@@ -197,6 +200,8 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
     chosen: list[dict[str, Any]] = []
     limited_at: list[dt.datetime] = []  # when a CLA Assistant job hit the installation rate limit
     seen: set[int] = set()  # CLA Assistant runs whose log was read
+    # Guards keep half the slots, so standing Assistant failures cannot starve them.
+    assistant_limit = limit - limit // 2
     reads = 0
     for run in rotated(latest_failures(assistant_runs, heads, now), now):
         if reads >= MAX_LOG_READS:
@@ -207,7 +212,7 @@ def plan(gh: GitHub, now: dt.datetime, log: Callable[[str], None], limit: int = 
         if RATE_LIMITED.search(text):
             if finished and INSTALLATION_LIMITED.search(text):
                 limited_at.append(finished)
-            if len(chosen) < limit:
+            if len(chosen) < assistant_limit:
                 chosen.append(run)
         else:
             log(f"CLA Assistant run {run['id']} for #{run['number']} failed for another reason; left alone")
