@@ -703,6 +703,30 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
       },
     },
+    // Austin (dogfood 2026-10-20): typing "1. " drew the list number with its left edge cut off.
+    // The marker hangs left of the item, and the editor scrolls, so it clips at the editor's edge.
+    "ordered-list-draft": {
+      note: "A numbered draft up to 10: every number draws whole inside the prompt, none cut at its left edge.",
+      ready: { draft: Array.from({ length: 10 }, (_, i) => `${i + 1}. Step ${i + 1}`).join("\n") },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-md ol > li").length === 10);
+        const editor = ctx.find({ selector: ".acpmux-md" });
+        const item = ctx.find({ selector: ".acpmux-md ol > li:last-child" });
+        // The widest marker ("10.", in the tabular digits markers use) plus WebKit's gap before the
+        // text must fit between the editor's clipping edge and the item's text.
+        const probe = ctx.document.createElement("span");
+        probe.textContent = "10.";
+        probe.style.position = "absolute";
+        probe.style.fontVariantNumeric = "tabular-nums";
+        editor.parentElement!.append(probe);
+        const fontSize = parseFloat(ctx.document.defaultView!.getComputedStyle(editor).fontSize);
+        const marker = probe.getBoundingClientRect().width + 1.2 * fontSize;
+        probe.remove();
+        const room = item.getBoundingClientRect().left - editor.getBoundingClientRect().left;
+        if (room < marker) throw new Error(`the list number needs ${marker}px but the prompt leaves ${room}px`);
+      },
+    },
     // Leo (dogfood 2026-10-08, 22-composer-image-chip.png): a pasted image draws as a cropped
     // thumbnail above the prompt, with a small × that shows on hover; a click opens the viewer.
     "image-attached": {
