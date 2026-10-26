@@ -84,7 +84,7 @@ IDLE_SEEDS = (
     {"seed": "component updater",
      "paths": ("components/component_updater/", "components/update_client/", "chrome/browser/component_updater/"),
      "source": "chrome/browser/chrome_browser_main.cc (RegisterComponentsForUpdate)",
-     # disable-component-update would also drop the CRLSet (CEFSwitches.securityUpdateSwitches).
+     # disable-component-update would also drop the CRLSet (registration.cc, RegisterCRLSetComponent).
      "switch": None},
     {"seed": "GCM", "paths": ("google_apis/gcm/", "components/gcm_driver/"),
      "source": "google_apis/gcm/engine/heartbeat_manager.cc", "switch": None},
