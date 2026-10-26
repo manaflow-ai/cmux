@@ -196,7 +196,11 @@ final class ChromiumHostWidgetHost {
         let wire = wire
         let widget = entry.context.widget
         #if DEBUG || CMUX_BENCH_HOOKS
-        entry.view.sink = { frame in wire.widget(widget, input: frame) }
+        // A widget's wire stamps no input seq: no key comes back as KEY_UNHANDLED.
+        entry.view.sink = { frame in
+            wire.widget(widget, input: frame)
+            return nil
+        }
         #endif
         if entry.context.kind.placement.reportsGeometry {
             entry.view.onGeometry = { geometry in wire.widget(widget, movedTo: geometry) }
