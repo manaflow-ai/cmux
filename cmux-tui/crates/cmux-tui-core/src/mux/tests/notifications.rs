@@ -204,8 +204,31 @@ fn a_turn_that_ends_while_its_subagents_run_finishes_when_the_last_one_ends() {
     apply("UserPromptSubmit", session.clone(), 8);
     apply("SubagentStart", child("agent-c"), 9);
     apply("SubagentStop", child("agent-c"), 10);
-    apply("Stop", session, 11);
+    apply("Stop", session.clone(), 11);
     assert_eq!(mux.resource_notifications(16).len(), 2);
+
+    // A start that arrives after its own end counts nothing.
+    apply("SubagentStop", child("agent-d"), 12);
+    apply("SubagentStart", child("agent-d"), 13);
+    apply("UserPromptSubmit", session.clone(), 14);
+    apply("Stop", session.clone(), 15);
+    assert_eq!(mux.resource_notifications(16).len(), 3);
+
+    // A foreground subagent of an interrupted turn whose end never came
+    // does not hold the next turn's finish.
+    apply("UserPromptSubmit", session.clone(), 16);
+    apply("SubagentStart", child("agent-e"), 17);
+    apply("UserPromptSubmit", session.clone(), 18);
+    apply("Stop", session.clone(), 19);
+    assert_eq!(mux.resource_notifications(16).len(), 4);
+
+    // A session that ends posts the finish it held.
+    apply("UserPromptSubmit", session.clone(), 20);
+    apply("SubagentStart", child("agent-f"), 21);
+    apply("Stop", session.clone(), 22);
+    assert_eq!(mux.resource_notifications(16).len(), 4, "agent-f still runs");
+    apply("SessionEnd", session, 23);
+    assert_eq!(mux.resource_notifications(16).len(), 5);
 }
 
 #[test]

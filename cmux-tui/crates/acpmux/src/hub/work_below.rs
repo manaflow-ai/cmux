@@ -10,7 +10,8 @@
 //!
 //! The unread dot waits for it too (manaflow-ai/cmux#25563): a turn that ends unseen while
 //! such work runs leaves the chat read, and the chat turns unread when the last of the work
-//! ends, unless a client shows it then or a new turn runs.
+//! ends, unless a client shows it then or a new turn started. The note is memory only: a
+//! daemon restart in between forgets it.
 
 use super::*;
 
@@ -38,10 +39,9 @@ impl Hub {
             }
             *mark = if works { now_ms().max(1) } else { 0 };
             // The turn that ended while the work ran is done now: unread, set before the record
-            // so its summary already says so.
+            // so its summary already says so. A turn that starts drops the note (`turns.rs`).
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && session.status() != SessionStatus::Running
                 && !self.shown(session)
                 && !std::mem::replace(&mut session.meta.lock().unwrap().unread, true);
             // Recorded under the mark, so the records keep the order of the changes.

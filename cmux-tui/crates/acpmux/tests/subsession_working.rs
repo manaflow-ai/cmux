@@ -174,7 +174,10 @@ async fn a_session_works_while_its_sub_session_runs() {
     // The child's turn ends: the whole task is done and nobody saw it end.
     let g = gate.clone();
     tokio::task::spawn_blocking(move || std::fs::write(g, b"go")).await.unwrap().unwrap();
-    let s = c.until(&parent, "stopped", |s| s["subagentsWorkingSince"].is_null()).await;
-    assert_eq!(s["unread"], true, "the dot fires when its last child ends: {s}");
+    // A summary read while the change lands may see the work ended before the dot: wait for both.
+    c.until(&parent, "turned unread", |s| {
+        s["subagentsWorkingSince"].is_null() && s["unread"] == true
+    })
+    .await;
     let _ = std::fs::remove_dir_all(root);
 }
