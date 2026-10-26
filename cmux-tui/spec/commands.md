@@ -9410,15 +9410,19 @@ Every later `agent-session-*` frame on a bound connection carries
 and, except `agent-session-detach`, `_host_session`: the chat the owner shared.
 The frame is refused as `agent_session.not_shared` unless the surface shows
 that chat now, so a tab rebound to another chat is not shared. An unbound
-connection sending either field is `agent_session.not_trusted`. A bound
+connection sending either field, or any connection sending another `_host_`
+field, is `agent_session.not_trusted`. A bound
 attachment stamps the author on every acpmux call (`_meta.acpmux.author`),
 pages and streams only the `transcript` kinds, never gets a `composer` record
 (a draft), a `presence` set or event, a descendant's change, or the session
 summary's folder, parent, children, tags, tools, rules, MCP servers, peer or
 pull requests (the change keeps `sessionId`, `kind`, `recordKind`, `seq` and
-the cut summary). It cannot send `agent-session-permission`,
-`agent-session-typing`, `agent-session-view` or `agent-session-children`
-(`agent_session.not_trusted`).
+the cut summary). A bound connection may send only `agent-session-attach`,
+`-observe`, `-events`, `-prompt`, `-cancel` and `-detach`; any other frame
+(`agent-session-start`, `-trust`, `-media`, `-children`, `-permission`,
+`-typing`, `-view`, `-of`, or any other daemon command, resource or page
+line) is `agent_session.not_trusted`. A page acpmux answers after the tab was
+rebound to another chat is refused as `agent_session.not_shared`.
 
 `{id, cmd:"agent-session-of", surface}` answers `{surface, session}`, the
 agent session the tab shows, so `cmux host share` can pin it; only the owner's

@@ -193,9 +193,16 @@ impl Attachment {
         params
     }
 
-    /// A page as this attachment may see it: a proxied teammate gets no `composer` records.
-    fn private(&self, page: Value) -> Value {
-        if self.author.is_some() { stream::without_drafts(page) } else { page }
+    /// A page as this attachment may see it: a proxied teammate gets no `composer` records, and
+    /// nothing once the tab shows another chat than the shared one (a rebind while acpmux answered).
+    fn private(&self, page: Value) -> Result<Value, Refusal> {
+        if self.author.is_none() {
+            return Ok(page);
+        }
+        if !self.tab_current() {
+            return Err(Refusal::NotShared);
+        }
+        Ok(stream::without_drafts(page))
     }
 
     fn note_permission(&self, id: &str) {
@@ -512,6 +519,23 @@ pub(super) fn try_handle(
         Ok(author) => author,
         Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
     };
+    // A teammate's link reaches the shared chat's own verbs only: never start, trust, media,
+    // children, permission, typing or view, whatever the proxy forwards.
+    if author.is_some()
+        && !matches!(
+            object.get("cmd").and_then(Value::as_str),
+            Some(
+                "agent-session-attach"
+                    | "agent-session-observe"
+                    | "agent-session-events"
+                    | "agent-session-prompt"
+                    | "agent-session-cancel"
+                    | "agent-session-detach"
+            )
+        )
+    {
+        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
+    }
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-of") {
         return Some(proxy::session_of(mux, client, object, author.is_some(), writer));
     }
@@ -628,6 +652,26 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
 
 /// The tab's bound acpmux session, if `surface` is an agent tab of this
 /// store with one.
+/// True when `client` is a host proxy's link for a teammate (`agent-session-proxy-bind`).
+pub(super) fn proxy_bound(mux: &Mux, client: u64) -> bool {
+    proxy::author(mux, client).is_some()
+}
+
+/// A frame of a teammate's link: the agent-session verbs [`try_handle`] allows it, and a refusal
+/// for anything else the daemon serves (pages, resources, workspaces, terminals).
+pub(super) fn handle_bound(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> bool {
+    try_handle(mux, client, message, writer).unwrap_or_else(|| {
+        let id =
+            serde_json::from_str::<Value>(message).ok().and_then(|frame| frame.get("id").cloned());
+        refuse(writer, id, Refusal::NotTrusted)
+    })
+}
+
 fn tab_session(mux: &Mux, surface: SurfaceId) -> Option<String> {
     let runtime = mux.surface(surface)?;
     match mux.conversation_tab_of(&runtime)? {
@@ -882,7 +926,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let page =
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
-            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
+            page.map_err(Refusal::of)
+                .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
@@ -892,7 +937,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let page =
                 attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
-            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
+            page.map_err(Refusal::of)
+                .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)

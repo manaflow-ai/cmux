@@ -81,6 +81,13 @@ pub(super) fn connect_and_attach(
     }
     let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
     let page = if author.is_some() { without_drafts(page) } else { page };
+    // A teammate's page is the shared chat's: a rebind while acpmux answered ends it unseen.
+    if author.is_some() && tab_session(&mux, surface).as_deref() != Some(record_session.as_str()) {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotShared);
+        return;
+    }
     let attachment = Arc::new(Attachment {
         author,
         client,
