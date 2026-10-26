@@ -358,13 +358,16 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var closeMotion: WindowCloseMotion?
 
     /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
-    /// Motion, not on screen, or a second close while it fades).
+    /// Motion, not on screen, a second close while it fades, or the launch restore still runs).
     private func fadeOutThenClose(_ window: NSWindow) -> Bool {
         if let closeMotion {
             closeMotion.finish()
             return true
         }
-        guard WindowCloseMotion.fades(window) else { return false }
+        // Before the restore finished the close lands at once: a fade could outlive the restore,
+        // which would then not know the window was closed and open it again.
+        let windows = services.windows
+        guard windows.restored, !windows.restoring, WindowCloseMotion.fades(window) else { return false }
         let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
         closeMotion = motion
         let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
