@@ -425,15 +425,17 @@ cache alone, in memory (`GeneratedCodeCacheContext::InitializeInMemory`: a `MEMO
 Chrome's own hot-script rule still applies: Blink stores only a timestamp on a script's first load, the code cache on
 its second load within 72 h (`v8_code_cache.cc` `kHotHours`, `ProduceCacheOptions::kSetTimeStamp`), and uses it from
 the third. The cache keys a script file by its URL: inline scripts get none (Chrome's `InlineScriptCache` is http(s)
-only). The pages built today are one index.html with inline JS, so the spike can gain nothing until the split build
-(049) and the shared chunks of `cmux-page://cmux.shared/` (050) land; both are on their task branches, not on
-perf/chrome-parity yet. The expected gain is a renderer that loads page scripts another renderer of the same lock
+only). The split build (049, on perf/chrome-parity) has no inline script: each page loads its entry and the chunks
+under its own `_shared/` copy as files, so each page's scripts are cached under its own URLs. Until the shared origin
+`cmux-page://cmux.shared/` (050, not on perf/chrome-parity yet) serves one copy, two pages that run the same chunk
+compile it once each. The expected gain is a renderer that loads page scripts another renderer of the same lock
 already ran twice: a cold Settings open after its renderer ended.
 
 The measurement (`bench-webui.py open --page-code-cache`, task 052's arm; refused when a Chromium renderer lacks the
 switch):
 
-0. 049 and 050 are on perf/chrome-parity (`page-bundle-report.mjs`, task 051, shows separate .js files).
+0. A build that has 049 (`page-bundle-report.mjs`, task 051, shows the page's .js files). With 050 too, the
+   chunks of two pages share one cache entry.
 1. `cmux-ci build cef --arch arm64 --ref c6af944a --tag cef-stage-c6af944a-arm64`, staged with
    `scripts/cmux-next/cef-pin-staging.sh pin` on a test-only branch (never landed), then a Debug tagged build of that
    branch.
