@@ -37,22 +37,9 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 8220,
             "T2": 900
           },
           "stories": {
-            "T1": [
-              "chat-anim",
-              "home-idle",
-              "motion",
-              "new-surfaces-matrix",
-              "omnibar",
-              "pane-stress",
-              "perf-gate",
-              "sidebar",
-              "switch",
-              "tab-switch"
-            ],
             "T2": [
               "new-surfaces-stress"
             ]
@@ -60,7 +47,6 @@
         }
       ],
       "tiers": [
-        "T1",
         "T2"
       ]
     },
