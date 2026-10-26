@@ -37,13 +37,10 @@ struct SidebarSelectionBatchCloseTests {
         return ids
     }
 
-    /// Waits until every terminal of `ids` sits at its shell prompt (OSC 133): a close of idle shells cannot ask.
-    private static func atPrompt(_ ids: [String], _ services: AppServices) async throws {
-        @MainActor func busy() -> Int {
-            ids.compactMap { services.workspace(id: $0) }.flatMap { $0.screens.flatMap(\.panes).flatMap(\.tabs) }
-                .filter(WorkspaceBulkClose.mayRunProgram).count
-        }
-        try await PinnedPageTests.until({ busy() == 0 }, within: .seconds(60), report: { "\(busy()) terminals not at a prompt" })
+    /// Whether a close of `ids` keeps its rows until the question is answered (`WorkspaceBulkClose.mayAsk`),
+    /// read from the store as the press reads it.
+    private static func keepsRows(_ ids: [String], _ services: AppServices) -> Bool {
+        WorkspaceBulkClose.mayAsk(ids.compactMap { services.machines.workspace(id: $0) }, warn: true)
     }
 
     /// Whether `id`'s row is listed in `sidebar` and not closing (it has not started to animate out).
@@ -61,7 +58,6 @@ struct SidebarSelectionBatchCloseTests {
             let controller = try #require(services.windows.active)
             let window = try #require(controller.window)
             let ids = try await Self.make(50, prefix: "bulk", services, in: controller)
-            try await Self.atPrompt(ids, services)
             let notices = Notices()
             let shows = services.registry.refusalObserver
             services.registry.refusalObserver = { reason, quiet in
@@ -73,6 +69,9 @@ struct SidebarSelectionBatchCloseTests {
             // The sidebar's Delete key on the selection (Cmd-W and the row menu's Close send the same intent).
             let sidebar = controller.sidebar.model
             sidebar.selection = Set(ids.map { CmuxNextSidebar.WorkspaceID($0) })
+            // Shells at their prompt (OSC 133) leave at the press; a host whose shells report none keeps the
+            // rows for the terminals' process-info answer (WorkspaceCloseFlow).
+            let instant = !Self.keepsRows(ids, services)
             let pressed = ContinuousClock.now
             sidebar.send(.close(sidebar.orderedSelection))
             let pressHeld = ContinuousClock.now - pressed
@@ -86,7 +85,7 @@ struct SidebarSelectionBatchCloseTests {
             print("SidebarSelectionBatchClose: 50 rows, press held the main actor \(pressHeld), all closed after \(closed), "
                 + "missed \(missed.count), toasts \(toasts.map(\.message)), notices \(notices.shown)")
 
-            #expect(leftAtPress.isEmpty, "rows still shown right after the press: \(leftAtPress.count)")
+            if instant { #expect(leftAtPress.isEmpty, "rows still shown right after the press: \(leftAtPress.count)") }
             #expect(missed.isEmpty, "not closed: \(missed.count) of 50")
             #expect(notices.shown.isEmpty, "notices: \(notices.shown)")
             // One toast for the whole close, on one line of its own: no refusal beside it.
@@ -111,6 +110,7 @@ struct SidebarSelectionBatchCloseTests {
             let idle = try await Self.make(6, prefix: "idle", services, in: controller)
             let busy = try await Self.make(3, prefix: "busy", command: "sleep 600", services, in: controller)
             let ids = idle + busy
+            try await PinnedPageTests.until({ Self.keepsRows(busy, services) }, within: .seconds(30))
             let sidebar = controller.sidebar.model
             sidebar.selection = Set(ids.map { CmuxNextSidebar.WorkspaceID($0) })
             let opened = Notices()
@@ -146,6 +146,12 @@ struct SidebarSelectionBatchCloseTests {
             _ = try await Self.make(1, prefix: "keep", services, in: controller)
             let id = try #require(try await Self.make(1, prefix: "running", command: "sleep 600", services, in: controller).first)
             let sidebar = controller.sidebar.model
+            // Its terminal is in the store (the row can list before its tab): the press reads it there.
+            try await PinnedPageTests.until({ Self.keepsRows([id], services) }, within: .seconds(30), report: {
+                let member = services.machines.workspace(id: id)
+                let tabs = member?.0.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
+                return "live \(member?.1.isLive == true), tabs \(tabs.map { "\($0.kind) dead=\($0.dead) prompt=\(String(describing: $0.promptSinceMs)) command=\(String(describing: $0.commandSinceMs))" })"
+            })
             let dialogs = CmuxDialogCenter.shared
             @MainActor func question() -> CmuxDialogCenter.Record? { dialogs.records.first { $0.spec.identifier == "cmux.dialog.confirmation" } }
 
