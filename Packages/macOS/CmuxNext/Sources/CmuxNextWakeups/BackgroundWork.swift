@@ -31,7 +31,9 @@ import Dispatch
 ///
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
-/// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
+/// An awaited item is never held: someone waits for it, so it runs at once at its own priority. The app
+/// raises it once, through ``raiseLaunchFence(cap:clock:)``, and lowers it at startup complete or after
+/// ``LaunchFence/cap`` (``LaunchFence``).
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
@@ -103,6 +105,8 @@ public final class BackgroundWork: Sendable {
         /// Sites that posted a block-shutdown item after ``shutdown()`` returned, oldest first, at most
         /// ``overrunLimit``.
         var latePosts: [String] = []
+        /// The cap timer of each raised ``LaunchFence``, by fence; ``beginShutdown()`` cancels them.
+        var launchCaps: [ObjectIdentifier: DemandTimer] = [:]
 
         mutating func takeID() -> UInt64 {
             defer { nextID += 1 }
@@ -365,15 +369,18 @@ public final class BackgroundWork: Sendable {
     /// new items other than block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws
     /// `CancellationError`, and so does a continue-on-shutdown task that had not started), lifts the
     /// best-effort fence so held block-shutdown items run, and raises block-shutdown lane items to
-    /// `.userInitiated` (queued ones start at it, running ones get one override each).
-    /// Started continue-on-shutdown items run on. A second
+    /// `.userInitiated` (queued ones start at it, running ones get one override each). A ``LaunchFence``'s cap
+    /// timer is cancelled. Started continue-on-shutdown items run on. A second
     /// call does nothing more. Quit calls it before the engines stop, so the lanes drain alongside them
     /// (QuitCompletion).
     public func beginShutdown() {
-        let cancels = state.withLock { state in
+        let (cancels, launchCaps) = state.withLock { state -> ([@Sendable () -> Void], [DemandTimer]) in
             state.closed = true
-            return state.skipTaskCancels()
+            defer { state.launchCaps = [:] }
+            return (state.skipTaskCancels(), Array(state.launchCaps.values))
         }
+        // The lanes lift every fence below, so no launch fence cap stays armed.
+        for cap in launchCaps { cap.cancel() }
         for cancel in cancels { cancel() }
         for lane in lanes {
             for job in lane.close() { job.abandon() }
