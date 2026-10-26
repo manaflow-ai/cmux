@@ -171,23 +171,20 @@ class GitHub:
     def jobs(self, run: dict) -> list[dict]:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
-    def active_runs(self, workflow: str, branch: str | None = None) -> list[dict]:
-        """The live runs of one workflow, asked for by status.
+    def recent_runs(self, workflow: str, branch: str | None = None) -> list[dict]:
+        """The newest page of one workflow's runs, for the active-run test.
 
-        Listing every run and filtering locally walked up to ten pages per
-        workflow, which for the four workflows the NEXT guard watches was 40
-        calls and, on 2026-10-26, longer than the socket timeout. Asking for
-        each active status is three bounded calls and cannot miss a live run
-        that sits past page ten.
+        Walking up to ten pages to find the handful of live runs cost 40 calls
+        for the four workflows the NEXT guard watches and, on 2026-10-26, more
+        than the socket timeout. One page is enough: runs come back newest
+        first, a queued run is new by definition, and a running one started
+        within its timeout. Filtering by status instead would be narrower but
+        would miss `requested` and `pending`, which ACTIVE counts.
         """
-        seen: dict[int, dict] = {}
-        for status in ("queued", "in_progress", "waiting"):
-            query = {"per_page": 100, "status": status}
-            if branch:
-                query["branch"] = branch
-            for run in self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]:
-                seen[run["id"]] = run
-        return list(seen.values())
+        query = {"per_page": 100}
+        if branch:
+            query["branch"] = branch
+        return self.call("GET", f"/actions/workflows/{workflow}/runs?{urllib.parse.urlencode(query)}")["workflow_runs"]
 
     def ref_sha(self, branch: str) -> str:
         return self.call("GET", f"/git/ref/heads/{branch}")["object"]["sha"]
@@ -292,7 +289,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     if not tip or tip == published_sha:
         return "unchanged"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
-              for run in gh.active_runs(name, run_branch)
+              for run in gh.recent_runs(name, run_branch)
               if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)]
     if active:
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
@@ -359,11 +356,15 @@ def heal(label: str, guard) -> None:
     scheduled run from 01:35Z to 04:52Z hit a 403 on the installation's REST
     budget inside the alarm path and returned before reaching the guards, so
     the feed sat four hours stale while the schedule stayed green.
+
+    Every exception is caught, not just OSError: the guards run before the
+    alarm now, so a malformed response (a KeyError or a JSONDecodeError, not
+    only a transport error) must not take the alarm down with it.
     """
     try:
         print(f"{label} starvation: {guard()}")
-    except OSError as error:
-        print(f"::warning::{label} starvation guard skipped: {error}")
+    except Exception as error:  # noqa: BLE001 - a guard never takes the check down
+        print(f"::warning::{label} starvation guard skipped: {error!r}")
 
 
 def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:

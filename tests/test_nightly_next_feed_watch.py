@@ -267,7 +267,7 @@ class StarvationGuardTests(unittest.TestCase):
         def ref_sha(self, branch):
             return self._tip
 
-        def active_runs(self, workflow, branch=None):
+        def recent_runs(self, workflow, branch=None):
             return list(self._runs)
 
         def dispatch(self, workflow, ref, inputs=None):
@@ -319,6 +319,15 @@ class StarvationGuardTests(unittest.TestCase):
         gh = self.Gh(self, [self.active(6, 9.0)], landed=None)
         self.assertEqual(self.guard(gh), "running https://github.com/o/r/actions/runs/6")
         self.assertEqual(gh.dispatched, [])
+
+    def test_every_active_status_still_blocks(self):
+        """One unfiltered page keeps ACTIVE's `pending` and `requested`, which a
+        status-filtered read would have dropped."""
+        for status in sorted(watch.ACTIVE):
+            with self.subTest(status=status):
+                live = dict(self.active(8, 0.05), status=status)
+                self.assertEqual(self.guard(self.Gh(self, [live])),
+                                 "running https://github.com/o/r/actions/runs/8")
 
     def test_a_completed_run_never_blocks(self):
         done = dict(self.active(7, 0.05), status="completed")
@@ -391,10 +400,14 @@ class HealBeforeAlarmTests(unittest.TestCase):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         self.assertEqual(calls, ["feat-cmux-next", "main"])
 
-    def test_heal_reports_a_failure_without_raising(self):
-        def boom():
-            raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
-        watch.heal("next", boom)  # must not raise
+    def test_heal_reports_any_failure_without_raising(self):
+        """A guard runs before the alarm, so nothing it raises may stop the check."""
+        for error in (urllib.error.HTTPError("u", 403, "Forbidden", {}, None),
+                      KeyError("workflow_runs"), ValueError("not json"), TypeError("none")):
+            with self.subTest(error=type(error).__name__):
+                def boom(err=error):
+                    raise err
+                watch.heal("next", boom)  # must not raise
         self.assertIsNone(watch.heal("next", lambda: "dispatched"))
 
 
