@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextSignposts
 import CmuxNextWakeups
 
 /// Waits, in every build, for a terminal session's surface to hold its first frame: the first IOSurface Ghostty
@@ -50,5 +51,20 @@ public final class TerminalFirstFrameWatch {
         (self.shown, self.closed) = (nil, nil)
         shown()
         return true
+    }
+}
+
+extension TerminalSession {
+    /// This terminal's first frame as a new tab's `create.tab` end (``TerminalFirstFrameWatch``); `content` is its
+    /// identity in the pane.
+    public func createTabFirstFrame(content: ObjectIdentifier) -> CreateTabTimings.FirstFrame {
+        .init(content: content) { [weak self] done in
+            guard let self else {
+                done(.closed)
+                return nil
+            }
+            let watch = TerminalFirstFrameWatch(session: self, shown: { done(.shown) }, closed: { done(.closed) })
+            return { watch.cancel() }
+        }
     }
 }

@@ -1,3 +1,5 @@
+public import CmuxNextSignposts
+
 /// A page that says when its document first shows content: the main frame's first contentful paint (Blink's
 /// and WebKit's own "the person can see page content now"), or the end of its load when the document paints
 /// nothing (an empty body). A new tab's `create.tab` interval ends there (p09-observability task 030).
@@ -10,6 +12,22 @@ public protocol BrowserFirstContentFrameReporting: AnyObject {
     /// Runs `body` once: with true at the first content frame (at once when it came already), with false when
     /// the page closes first.
     func whenFirstContentFrame(_ body: @escaping @MainActor (_ shown: Bool) -> Void)
+}
+
+extension BrowserFirstContentFrameReporting {
+    /// This page's first content frame as a new tab's `create.tab` end; `content` is its identity in the pane. A
+    /// page that loads nothing shows at the commit that shows it.
+    public func createTabFirstFrame(content: ObjectIdentifier) -> CreateTabTimings.FirstFrame {
+        guard loadsDocument else { return .atCommit(content) }
+        return .init(content: content) { [weak self] done in
+            guard let self else {
+                done(.closed)
+                return nil
+            }
+            whenFirstContentFrame { done($0 ? .shown : .closed) }
+            return nil
+        }
+    }
 }
 
 /// The waiters of one page's first content frame (``BrowserFirstContentFrameReporting``): each runs exactly once,

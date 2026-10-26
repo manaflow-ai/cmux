@@ -108,7 +108,7 @@ struct PaneBrowserTabOpener {
             // create.tab: a foreground tab this window shows once the daemon made it.
             let createTabs = services.cache.createTabs
             let timing = background || beside || controller.view.window == nil || !ActionRunScope.viewChangeAllowed()
-                ? nil : createTabs.begin(CreateTabInterval.Kind(engine: choice.engine))
+                ? nil : createTabs.begin(choice.engine == .cef ? .chromium : .webkit)
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -200,7 +200,7 @@ extension PaneBrowserTabOpener {
                              then: (@MainActor (SurfaceID) -> Void)?) {
         let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
         // create.tab: from this turn to the page's first contentful paint; the stand-in shows in this turn.
-        let timing = cache.createTabs.begin(CreateTabInterval.Kind(engine: choice.engine))
+        let timing = cache.createTabs.begin(choice.engine == .cef ? .chromium : .webkit)
         let command = NewBrowserTabCommand(pane: model.handle, url: address, engine: choice.engine.rawValue,
                                            profile: cache.browserTabs.resolveProfile(model, profile))
         let intent = controller.workspace?.beginFocusIntent(), window = controller.view.window

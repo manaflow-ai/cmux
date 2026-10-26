@@ -7,6 +7,7 @@ import CmuxNextHibernation
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextRemote
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation

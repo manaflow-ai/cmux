@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextPages
+import CmuxNextSignposts
 import CmuxNextTerminal
 
 /// What a pane shows for its selected tab.
@@ -55,6 +56,20 @@ enum TabContent {
         case .placeholder: "placeholder"
         case .notice: "notice"
         case .conversation: "conversation"
+        }
+    }
+
+    /// How this content reports its first themed frame for a new tab's `create.tab` (``CreateTabTimings``).
+    @MainActor var createTabFirstFrame: CreateTabTimings.FirstFrame {
+        let identity = ObjectIdentifier(view)
+        switch self {
+        case .terminal(let entry): return entry.session.createTabFirstFrame(content: identity)
+        case .browser(let entry):
+            guard let page = entry.tab as? any BrowserFirstContentFrameReporting else { return .atCommit(identity) }
+            return page.createTabFirstFrame(content: identity)
+        case .agent(let view): return view.createTabFirstFrame(content: identity)
+        case .page(let view): return view.createTabFirstFrame(content: identity)
+        case .placeholder, .notice, .conversation: return .atCommit(identity)
         }
     }
 
