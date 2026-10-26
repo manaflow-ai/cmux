@@ -205,20 +205,18 @@ final class CEFRuntime {
     private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
+    /// Chromium's Energy Saver from the start (``CEFEnergySaver/following(_:)``); nil before it and on an older fork.
+    private(set) var energySaver: CEFEnergySaver?
 
     private init() {
-        makePumpTimer = Self.wakeUpQueueTimer
+        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
     }
 
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
     /// `makePumpTimer` makes the in-process pump's timer; nil: one on ``wakeUps``.
     init(storage: CEFProfileStorage, makePumpTimer: CEFInProcessPump.MakeTimer? = nil) {
         self.storage = storage
-        self.makePumpTimer = makePumpTimer ?? Self.wakeUpQueueTimer
-    }
-
-    private static func wakeUpQueueTimer(_ queue: MainWakeUpQueue) -> any CEFPumpTimer {
-        CEFWakeUpQueuePumpTimer(queue: queue)
+        self.makePumpTimer = makePumpTimer ?? CEFInProcessPump.wakeUpQueueTimer
     }
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
@@ -250,7 +248,7 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
-        makePumpTimer = Self.wakeUpQueueTimer
+        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
         state = .ready
     }
 
@@ -424,6 +422,7 @@ final class CEFRuntime {
             CEFStartSteps.shared.timed("ready_hooks") {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()
+                if energySaver == nil { energySaver = CEFEnergySaver.following(self) }
                 if case .inProcess = library {
                     startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                     ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }

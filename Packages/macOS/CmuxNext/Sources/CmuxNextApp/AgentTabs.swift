@@ -123,10 +123,10 @@ final class AgentTabStore {
     /// Chats outside any pane (onboarding's first task), weakly held, so
     /// they get customization changes too.
     let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
-    /// Takes back a closed, untouched new tab page as the pool's spare
-    /// (NewTabSparePool.recycle); false when the pool already has one.
+    /// Takes back a closed, untouched new tab page for the preload slot
+    /// (NewTabPreload.recycle); false when a page waits already.
     var recycle: ((AgentPaneView) -> Bool)?
-    /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
+    /// The preloaded New Tab page, for a first page that has no view yet (NewTabPreload).
     var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
@@ -410,7 +410,7 @@ final class AgentTabStore {
         return view
     }
 
-    /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
+    /// A preloaded new tab page (NewTabPreload): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
         guard let view = makeView(AgentPaneModel(host: host, newTab: page), shown: false) else { return nil }

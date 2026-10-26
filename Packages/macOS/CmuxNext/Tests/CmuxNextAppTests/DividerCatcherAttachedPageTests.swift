@@ -20,7 +20,7 @@ import Testing
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
 
-    private nonisolated final class RecordLog: Sendable {
+    nonisolated final class RecordLog: Sendable {
         private let state = Mutex<[TraceRuntime.StubRecord]>([])
 
         /// Begin records of `cef.geometry` slices, by source code.
