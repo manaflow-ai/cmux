@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentActivity
 import CmuxNextCompat
-import CmuxSafeConcurrency
+import struct CmuxSafeConcurrency.OnceContinuationFault
+import struct CmuxSafeConcurrency.OnceContinuationFaultReporter
 import Darwin
 import Foundation
 import Testing
@@ -13,27 +14,42 @@ struct AgentActivityOneShotAnswerTests {
     @Test func theFirstLineAnswersAndNothingResumesAgain() async throws {
         let server = try AnsweringServer(reply: Data("{\"a\":1}\n{\"b\":2}\n".utf8))
         defer { server.close() }
-        let faults = Mutex<[OnceContinuationFault]>([])
-        let reporter = OnceContinuationFaultReporter { fault in faults.withLock { $0.append(fault) } }
+        let faults = FaultLog()
         let line = try await AgentActivityLineConnection.oneShot(path: server.path, send: Data("{}\n".utf8),
                                                                  deadline: .seconds(20), acceptsServer: nil,
-                                                                 faults: reporter)
+                                                                 faults: faults.reporter)
         #expect(String(decoding: line, as: UTF8.self) == "{\"a\":1}")
         // The server closes after its reply; the connection already ended, so the close calls nothing.
         await server.closed()
-        #expect(faults.withLock { $0 }.isEmpty)
+        #expect(faults.recorded.isEmpty)
     }
 
     @Test func aServerThatClosesWithoutAReplyAnswersClosed() async throws {
         let server = try AnsweringServer(reply: Data())
         defer { server.close() }
-        let faults = Mutex<[OnceContinuationFault]>([])
-        let reporter = OnceContinuationFaultReporter { fault in faults.withLock { $0.append(fault) } }
+        let faults = FaultLog()
         await #expect(throws: AgentActivitySourceError.closed) {
             try await AgentActivityLineConnection.oneShot(path: server.path, send: Data("{}\n".utf8),
-                                                          deadline: .seconds(20), acceptsServer: nil, faults: reporter)
+                                                          deadline: .seconds(20), acceptsServer: nil, faults: faults.reporter)
         }
-        #expect(faults.withLock { $0 }.isEmpty)
+        #expect(faults.recorded.isEmpty)
+    }
+}
+
+/// The faults the call under test reports, in order. Nonisolated: the reporter runs on the connection's queue.
+private nonisolated final class FaultLog: Sendable {
+    private let faults = Mutex<[OnceContinuationFault]>([])
+
+    var reporter: OnceContinuationFaultReporter {
+        OnceContinuationFaultReporter { fault in self.record(fault) }
+    }
+
+    func record(_ fault: OnceContinuationFault) {
+        faults.withLock { $0.append(fault) }
+    }
+
+    var recorded: [OnceContinuationFault] {
+        faults.withLock { $0 }
     }
 }
 
@@ -46,8 +62,8 @@ private nonisolated final class AnsweringServer: Sendable {
     private let done: AsyncStream<Void>
 
     init(reply: Data) throws {
-        path = NSTemporaryDirectory() + "oneshot-answer-\(UUID().uuidString.prefix(8)).sock"
-        descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        let path = NSTemporaryDirectory() + "oneshot-answer-\(UUID().uuidString.prefix(8)).sock"
+        let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
@@ -80,6 +96,8 @@ private nonisolated final class AnsweringServer: Sendable {
             finish.yield()
             finish.finish()
         }
+        self.path = path
+        self.descriptor = descriptor
         self.done = done
         self.reader = reader
         reader.resume()
