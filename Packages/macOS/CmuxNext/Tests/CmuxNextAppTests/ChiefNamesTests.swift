@@ -38,6 +38,10 @@ import Testing
         #expect("gpt-5-2025-08-07".chiefModelName == "GPT 5")
         // Three numbers that are no date (month 13) stay.
         #expect("foo-2024-13-01".chiefModelName == "Foo 2024 13.01")
+        // Nor eight digits with no real month or day.
+        #expect("foo-20241301".chiefModelName == "Foo 20241301")
+        #expect("foo-20240132".chiefModelName == "Foo 20240132")
+        #expect("foo-20240131".chiefModelName == "Foo")
         #expect("opus".chiefModelName == "Opus")
         #expect("".chiefModelName == "")
     }
@@ -52,6 +56,15 @@ import Testing
         #expect(HomeChiefModelMenu.name(of: "claude-opus-3-7", in: models) == "Claude Opus 3.7")
         // acpmux named it by its id: still a name.
         #expect(HomeChiefModelMenu.name(of: "kimi-k2", in: [.init(id: "kimi-k2", name: "kimi-k2")]) == "Kimi K2")
+    }
+
+    /// A plan model acpmux named by its id reads by a name too; Claude Code's `opusplan` keeps its title.
+    @Test func aPlanNamedByItsIdShowsByName() throws {
+        let models = [ChiefEngineReport.Model(id: "foo-plan", name: "foo-plan"), ChiefEngineReport.Model(id: "opusplan", name: "opusplan")]
+        let items = HomeChiefModelMenu(models: models, chosen: nil, recents: []).items
+        #expect(try #require(items.first { $0.value == "foo-plan" }).title == "Foo Plan")
+        #expect(try #require(items.first { $0.value == "opusplan" }).title == HomeEngineStrings.opusPlanTitle)
+        #expect(!items.map(\.title).contains("foo-plan"))
     }
 
     /// A chosen model the harness does not offer (set from the CLI) shows by a name, with its id

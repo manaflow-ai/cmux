@@ -205,7 +205,8 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     }
 
     /// Claude Code's `opusplan`: Opus plans, Sonnet carries the plan out.
+    /// Another plan reads by its own name, or by its id made readable (``readable(_:)``).
     private static func planTitle(_ model: ChiefEngineReport.Model) -> String {
-        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : model.name
+        model.id == "opusplan" ? HomeEngineStrings.opusPlanTitle : readable(model)
     }
 }
