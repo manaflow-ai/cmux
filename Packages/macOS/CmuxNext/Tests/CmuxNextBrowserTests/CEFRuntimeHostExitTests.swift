@@ -2,6 +2,7 @@
 import CmuxNextCompat
 import CmuxNextMetrics
 @testable import CmuxNextTrace
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -74,6 +75,28 @@ import Testing
         #expect(HostWire.state.withLock { $0.deadWireOps } == 0, "an op went to the dead host's wire")
         #expect(tab.state.processExit == nil, "the page did not start loading again")
         #expect(tab.pendingURL == Self.page, "the page waits for its new browser with the wrong URL")
+    }
+
+    /// p14-energy-045: an Energy Saver edge while no host runs reaches nobody, so the next host's ready sends the
+    /// app's current state again (a host starts with the saver off and the remote shim keeps only the last
+    /// state it was given), and `debug.energy`'s `applied` is that host's answer.
+    @Test func theNextHostGetsTheSaverStateOfAnEdgeWhileNoHostRan() async throws {
+        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFForkFeatures.energySaverForkAPI)
+        defer { wire.close() }
+        let energy = runtime.wakeUps.energy
+        energy.update(EnergyPolicy(saverReason: .setting))
+        #expect(HostWire.state.withLock { $0.energySaver } == [0, 1])
+        #expect(CEFEnergySaver.applied(by: runtime))
+        supervisor.onHostEnded?(Self.killed)
+
+        energy.update(.normal)
+        #expect(HostWire.state.withLock { $0.energySaver } == [0, 1], "an edge reached the shim while no host ran")
+        #expect(!CEFEnergySaver.applied(by: runtime))
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "tab")
+
+        #expect(HostWire.state.withLock { $0.energySaver } == [0, 1, 0], "the next host did not get the app's saver state")
+        #expect(CEFEnergySaver.applied(by: runtime), "applied stayed the answer of the host that ended")
     }
 
     /// The disk reads before `cmux_shim_initialize` (profile root, last run's log, built-in extensions) run off
@@ -162,9 +185,11 @@ import Testing
     /// A runtime started in host mode over the spy remote shim, following `supervisor`'s host ends. It
     /// outlives the test: a pane's scheduled work reads it through an unowned reference.
     private static func startedRuntime(
+        forkAPI: Int32 = 0,
         prepareInputs: (@Sendable (CEFStartInputs.Request) -> CEFStartInputs)? = nil
     ) async throws -> (CEFRuntime, ReportingHost, HostWire.Pipe) {
         HostWire.reset()
+        HostWire.state.withLock { $0.forkAPI = forkAPI }
         let wire = try HostWire.Pipe()
         let supervisor = ReportingHost(controlFD: wire.fd)
         let runtime = CEFRuntime(storage: CEFProfileStorage(root: scratch()))
@@ -240,8 +265,9 @@ private nonisolated final class PreparingThreads: Sendable {
 }
 
 /// The remote dylib: the ABI id; attach (records the wire, says hello at once); detach; the reply token;
-/// initialize (succeeds); `reload`, `load_url`, `close` and `create_window`, which count the ops sent while no
-/// wire is attached. Every other export does nothing and returns 0.
+/// initialize (succeeds); the fork API version and `set_energy_saver` (recorded); `reload`, `load_url`,
+/// `close` and `create_window`, which count the ops sent while no wire is attached. Every other export
+/// does nothing and returns 0.
 private nonisolated enum HostWire {
     private static let abiCString: StaticString = "host-exit-spy-abi"
     static let abi = "\(abiCString)"
@@ -252,6 +278,10 @@ private nonisolated enum HostWire {
         var live = false
         var deadWireOps = 0
         var token: UInt32 = 0
+        /// What `cmux_shim_fork_api_version` returns.
+        var forkAPI: Int32 = 0
+        /// Each `cmux_shim_set_energy_saver` call's `enabled`.
+        var energySaver: [Int32] = []
     }
 
     static let state = Mutex(State())
@@ -295,8 +325,15 @@ private nonisolated enum HostWire {
             HostWire.op()
             return 0
         }
+        let forkAPIVersion: @convention(c) () -> Int32 = { HostWire.state.withLock { $0.forkAPI } }
+        let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { enabled, _ in
+            HostWire.state.withLock { $0.energySaver.append(enabled) }
+            return 1
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
+        case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_set_energy_saver": unsafeBitCast(setEnergySaver, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)

@@ -446,7 +446,8 @@ final class CEFRuntime {
             CEFStartSteps.shared.timed("ready_hooks") {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()
-                if energySaver == nil { energySaver = CEFEnergySaver.following(self) }
+                // A restarted host starts with the saver off and missed the edges while none ran.
+                if let energySaver { energySaver.resync() } else { energySaver = CEFEnergySaver.following(self) }
                 memoryPressureVote.chromiumDidStart()
                 if case .inProcess = library {
                     startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
