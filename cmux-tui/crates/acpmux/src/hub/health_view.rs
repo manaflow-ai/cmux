@@ -4,6 +4,13 @@
 use super::*;
 
 use crate::harness_health::{REFRESH_EVERY, Subject};
+use crate::maintenance::JobSpec;
+
+/// The periodic health check on the maintenance clock (`maintenance.rs`).
+/// Energy Saver may stretch it: it reports versions and runs opted-in
+/// auto-updates, and `_acpmux/harness/health {refresh}` still checks at once.
+pub const HEALTH_JOB: JobSpec =
+    JobSpec { name: "harness_health.check", period: REFRESH_EVERY, skippable_in_saver: true };
 
 impl Hub {
     /// Every configured harness as the health check sees it.
@@ -152,7 +159,8 @@ impl Hub {
     /// `ACPMUX_REGISTRY_FETCH=0` keeps the cached copy.
     ///
     /// Agent CLI health: checked once startup has read the login environment
-    /// (call after `begin_startup`), then every `REFRESH_EVERY`.
+    /// (call after `begin_startup`), then every `REFRESH_EVERY` on the
+    /// maintenance clock ([`HEALTH_JOB`]; start it first).
     /// `ACPMUX_HEALTH_FETCH=0` or `ACPMUX_CATALOG_FETCH=0` keeps newest-version
     /// lookups off (the local checks still run).
     pub fn start_harness_checks(self: &Arc<Self>) {
@@ -185,19 +193,17 @@ impl Hub {
             auto_update: Some(crate::config::home().join("harness-auto-update.json")),
             home: dirs::home_dir().unwrap_or_default(),
         });
-        tokio::spawn(self.clone().run_health());
+        let start = crate::maintenance::Start::Now;
+        if let Err(e) = self.maintenance.register_for(HEALTH_JOB, self, start, Self::health_pass) {
+            tracing::warn!("the periodic harness health check is off: {e}");
+        }
     }
 
-    /// The health check: after startup, then every `REFRESH_EVERY`. Before
-    /// the login environment is read, PATH may miss the harnesses.
-    async fn run_health(self: Arc<Self>) {
+    /// One health check and the auto-updates it allows. Before the login
+    /// environment is read, PATH may miss the harnesses: it waits for startup.
+    async fn health_pass(self: Arc<Self>) {
         self.wait_startup().await;
-        let mut every = tokio::time::interval(REFRESH_EVERY);
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            every.tick().await;
-            self.health.check(self.health_subjects().await, false).await;
-            self.auto_update_harnesses().await;
-        }
+        self.health.check(self.health_subjects().await, false).await;
+        self.auto_update_harnesses().await;
     }
 }
