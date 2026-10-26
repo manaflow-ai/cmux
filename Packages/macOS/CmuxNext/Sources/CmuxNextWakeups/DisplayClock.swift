@@ -65,6 +65,15 @@ public final class DisplayClock {
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
 
+    /// Each display's link runs at the highest ``FrameClient/rate`` armed on it (feature
+    /// `frameRateClasses`); false: every link runs at ``FrameRate/motion``, whatever its clients ask.
+    public var followsClientRates: Bool {
+        didSet {
+            guard followsClientRates != oldValue else { return }
+            for display in displays.values { applyRate(display) }
+        }
+    }
+
     /// - Parameters:
     ///   - makeLink: Makes a display's link; nil: a `CADisplayLink` of the `NSScreen` with that number
     ///     on the main run loop.
@@ -74,9 +83,12 @@ public final class DisplayClock {
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
+    ///   - followsClientRates: The links run at their clients' rates (``followsClientRates``).
     public init(makeLink: LinkFactory? = nil, displayOf: DisplayResolver? = nil, isVisible: VisibilityResolver? = nil,
                 clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
-                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() }) {
+                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                followsClientRates: Bool = false) {
+        self.followsClientRates = followsClientRates
         self.makeLink = makeLink ?? { display, clock in DisplayClock.systemLink(display, clock) }
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
@@ -110,6 +122,9 @@ public final class DisplayClock {
     /// The last frame stall `display` saw.
     public func lastStall(on display: CGDirectDisplayID) -> FrameStall? { displays[display]?.lastStall }
 
+    /// The rate `display`'s link was last asked for; nil while the display has no link.
+    public func frameRate(on display: CGDirectDisplayID) -> FrameRate? { displays[display]?.rate }
+
     // MARK: Subscribers
 
     /// Subscribes `scheduler` to the display of its window (the main display for a screen host;
@@ -138,6 +153,7 @@ public final class DisplayClock {
             // task-owner: one hop; the subscribers leave or keep ticking on the stall deadline
             Task { @MainActor [weak self] in self?.linklessTick(id) }
         }
+        applyRate(display)
         arm(display)
     }
 
@@ -149,7 +165,7 @@ public final class DisplayClock {
         old.subscribers.removeAll { $0 === scheduler }
         join(scheduler, record(now))
         scheduler.displayDidChange(to: now, hasLink: hasLink(now))
-        if old.subscribers.isEmpty { idle(old) }
+        if old.subscribers.isEmpty { idle(old) } else { applyRate(old) }
     }
 
     /// Every subscriber of `display` resolves its display again and moves to it.
@@ -171,7 +187,39 @@ public final class DisplayClock {
     func unsubscribe(_ scheduler: FrameScheduler, from id: CGDirectDisplayID) {
         guard let display = displays[id] else { return }
         display.subscribers.removeAll { $0 === scheduler }
-        if display.subscribers.isEmpty { idle(display) }
+        if display.subscribers.isEmpty { idle(display) } else { applyRate(display) }
+    }
+
+    /// A subscriber of `id` armed or dropped a client of another ``FrameRate``.
+    func frameRateDidChange(on id: CGDirectDisplayID) {
+        guard let display = displays[id] else { return }
+        applyRate(display)
+    }
+
+    // MARK: Frame rate
+
+    /// Asks `display`'s link for the rate its subscribers need now (``FrameRate/motion`` unless
+    /// ``followsClientRates``): the highest ``FrameScheduler/frameRate`` of the subscribers a person
+    /// can see, or of all of them while nobody can see any. Chrome's `FrameRateDecider` counts only
+    /// the frame sinks that drew (components/viz/service/display/frame_rate_decider.cc); a window
+    /// nobody can see ticks on the stall deadline, not the link.
+    private func applyRate(_ display: Display) {
+        guard let link = display.link else { return }
+        let rate = followsClientRates ? decidedRate(display) : .motion
+        guard rate != display.rate else { return }
+        display.rate = rate
+        link.requestFrameRate(rate.range)
+    }
+
+    private func decidedRate(_ display: Display) -> FrameRate {
+        var seen: FrameRate?, all: FrameRate?
+        for scheduler in display.subscribers {
+            guard let rate = scheduler.frameRate else { continue }
+            if all.map({ rate.hertz > $0.hertz }) ?? true { all = rate }
+            let visible = scheduler.hostWindow.map { isVisible($0) } ?? true
+            if visible, seen.map({ rate.hertz > $0.hertz }) ?? true { seen = rate }
+        }
+        return seen ?? all ?? .motion
     }
 
     // MARK: Frames
@@ -189,6 +237,8 @@ public final class DisplayClock {
         guard !display.subscribers.isEmpty else { return idle(display) }
         // Only windows nobody can see are left: the link stops, they tick on the stall deadline.
         if allHidden(display) { display.link?.isPaused = true }
+        // A window that became visible or hidden changes which clients count.
+        if followsClientRates { applyRate(display) }
         arm(display)
     }
 
@@ -247,6 +297,7 @@ public final class DisplayClock {
     /// Sets `display`'s link and tells its subscribers whether a link ticks them now.
     private func setLink(_ display: Display, _ link: (any FrameLink)?) {
         display.link = link
+        display.rate = nil
         for scheduler in display.subscribers { scheduler.displayLinkDidChange(exists: link != nil) }
     }
 
@@ -311,15 +362,13 @@ public final class DisplayClock {
 
     // MARK: System links
 
-    /// Springs step every display frame: 120 Hz on ProMotion (never below 80), the display's rate elsewhere.
-    private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
-
     private static func systemLink(_ id: CGDirectDisplayID, _ clock: DisplayClock) -> (any FrameLink)? {
         guard let screen = NSScreen.screens.first(where: { number(of: $0) == id }) else { return nil }
         let target = LinkTarget(clock: clock, display: id)
         // The one sanctioned display link: one per display, shared by every scheduler on it.
         let link = screen.displayLink(target: target, selector: #selector(LinkTarget.tick(_:)))
-        link.preferredFrameRateRange = motionRange
+        // Springs step every display frame until the clients ask for less (applyRate).
+        link.preferredFrameRateRange = FrameRate.motion.range
         link.add(to: .main, forMode: .common)
         return link
     }
@@ -352,6 +401,8 @@ public final class DisplayClock {
         var lastFrame: CFTimeInterval = 0
         var stallTimerArms = 0
         var lastStall: FrameStall?
+        /// The rate its link was last asked for; nil while it has no link or a new one.
+        var rate: FrameRate?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false
 
