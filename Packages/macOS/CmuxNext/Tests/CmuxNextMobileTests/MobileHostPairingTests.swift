@@ -228,7 +228,7 @@ import Testing
         let copy = try Data(contentsOf: file.file)
         seal.refuseRecords()
         devices.remove(Self.request.phoneDeviceID)
-        try file.save(devices)
+        #expect(throws: MobileHostPairingSealError.keychainRefused) { try file.save(devices) }
         try copy.write(to: file.file)
         let relaunched = Self.relaunched(directory, seal: seal)
         #expect(relaunched.approvers.isEmpty, "the removed phone came back as an approver: \(relaunched.approvers)")
