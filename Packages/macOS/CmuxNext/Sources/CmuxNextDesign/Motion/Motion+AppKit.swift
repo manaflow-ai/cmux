@@ -357,6 +357,11 @@ extension MotionGate {
 
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce
     /// Motion, Energy Saver, the category or speed off). Clockwise only: every spinner turns the same way.
+    ///
+    /// Every infinite loop made here runs through ``LoopVisibility/attach(_:key:make:)`` (or a
+    /// host that gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare
+    /// `layer.add`: a loop in a hidden view or an occluded window costs the render server frames
+    /// nobody sees (plans/cmux-next/chrome-parity/p03-rendering.md, R6).
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
