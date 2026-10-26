@@ -5,7 +5,7 @@
 //! behavior comes from backing layers or dataset properties outside this fd.
 #![allow(dead_code)]
 
-use libc::{self, c_long, c_ulong, c_void};
+use libc::{self, c_long, c_void};
 use std::io;
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 
@@ -18,17 +18,9 @@ const OVERLAY_MAGIC: u64 = 0x794c_7630;
 const ZFS_MAGIC: u64 = 0x2fc1_2fc1;
 const BCACHEFS_MAGIC: u64 = 0xca45_1a4e;
 const FS_CASEFOLD_FL: c_long = 0x4000_0000;
-const XFS_FSOP_GEOM_FLAGS_DIRV2CI: u32 = 0x1000;
 
-// _IOR('X', 100, struct xfs_fsop_geom_v1); the v1 layout is defined below.
-// The request is cast at the call site because ioctl's request type differs
-// between glibc and musl.
-fn xfs_geometry_request() -> c_ulong {
-    // _IOR('X', 100, struct xfs_fsop_geom_v1); calculate the request from the
-    // Rust layout so no glibc-sized integer is baked into the ABI constant.
-    (2u64 << 30 | (std::mem::size_of::<XfsFsopGeomV1>() as u64) << 16 | (b'X' as u64) << 8 | 100)
-        as c_ulong
-}
+const XFS_IOC_FSGEOMETRY_V1: u32 = 0x8070_5864;
+const XFS_FSOP_GEOM_FLAGS_DIRV2CI: u32 = 0x1000;
 
 #[repr(C)]
 #[derive(Default)]
@@ -45,22 +37,19 @@ struct XfsFsopGeomV1 {
     rtblocks: u64,
     rtextents: u64,
     logstart: u64,
-    rootino: u64,
-    rbmino: u64,
-    rsumino: u64,
-    rextsize: u32,
-    agsize: u32,
-    logsectsize: u32,
-    version: u32,
+    uuid: [u8; 16],
+    sunit: u32,
+    swidth: u32,
+    version: i32,
     flags: u32,
-    logsectlog: u32,
-    sectlog: u32,
-    inodelog: u32,
-    inopblog: u32,
-    agblklog: u32,
-    rextslog: u32,
-    inprogress: u32,
+    logsectsize: u32,
+    rtsectsize: u32,
+    dirblocksize: u32,
+    logsunit: u32,
 }
+
+const _: () = assert!(std::mem::size_of::<XfsFsopGeomV1>() == 112);
+const _: () = assert!(std::mem::offset_of!(XfsFsopGeomV1, flags) == 0x5c);
 
 fn errno() -> i32 {
     io::Error::last_os_error().raw_os_error().unwrap_or(libc::EACCES)
@@ -129,7 +118,7 @@ pub(crate) fn verify_dir(fd: BorrowedFd<'_>) -> Result<(), String> {
         if unsafe {
             libc::ioctl(
                 readable_fd,
-                xfs_geometry_request() as _,
+                XFS_IOC_FSGEOMETRY_V1 as _,
                 (&mut geom as *mut XfsFsopGeomV1).cast::<c_void>(),
             )
         } < 0
@@ -181,6 +170,14 @@ mod tests {
             }
         }
         assert!(classify(BTRFS_MAGIC, Err(ENOTTY), Err(ENOTTY)).is_ok());
+    }
+
+    #[test]
+    fn xfs_geometry_request_matches_uapi_encoding() {
+        assert_eq!(
+            XFS_IOC_FSGEOMETRY_V1,
+            ((2u32 << 30) | (112u32 << 16) | ((b'X' as u32) << 8) | 100)
+        );
     }
 
     #[test]
