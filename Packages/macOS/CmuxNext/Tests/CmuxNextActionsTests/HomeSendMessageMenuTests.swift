@@ -3,7 +3,7 @@ import AppKit
 import Testing
 
 /// u5402 (Oct 20): "Make sure we can send messages in the iMessage UI via right clicking." The
-/// right-click on a workspace, a tab and an agent chat offers Send Message… (the Chief's chat,
+/// right-click on a workspace and an agent chat offers Send Message… (the Chief's chat,
 /// about it); selected text in a terminal or a page offers Send to Chief and Send To…; the
 /// palette and `cmux chat send` (and so MCP) offer Send Message To…. Each row runs its catalog
 /// action through the registry, with the right-clicked object as its target.
@@ -26,11 +26,15 @@ struct HomeSendMessageMenuTests {
     }
 
     @Test(arguments: [(ActionMenuContext.workspaceRow, ActionTargetKind.workspace, "ws_1"),
-                      (.tab, .tab, "tab_1"), (.agentChat, .tab, "tab_agent")])
+                      (.agentChat, .tab, "tab_agent")])
     func anObjectsMenuOffersSendMessage(context: ActionMenuContext, kind: ActionTargetKind, id: String) throws {
         let target = ActionTargetRef(kind: kind, id: id)
         let run = try #require(allActions(menu(context, target)).first { $0.id == "home.messageAbout" }, "\(context) has no Send Message…")
         #expect(run.target == target)
+    }
+
+    @Test func theCompactTabMenuLeavesMessagingToThePalette() {
+        #expect(!allActions(menu(.tab, ActionTargetRef(kind: .tab, id: "tab_1"))).contains { $0.id == "home.messageAbout" })
     }
 
     /// The workspace menu keeps it at the top level, not under More (it is a frequent row).
