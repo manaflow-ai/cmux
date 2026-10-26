@@ -135,6 +135,33 @@
         "maxMs": 5000
       },
       "settleMaxMs": 5000
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "column.update",
+        "params": {
+          "column": "$step:read-layout#/layout/root/columns/1/column_id",
+          "dock": true,
+          "edge": "right"
+        },
+        "idempotencyKey": "column-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

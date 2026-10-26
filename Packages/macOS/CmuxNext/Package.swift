@@ -60,8 +60,9 @@ import Foundation
 //     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C);
 //     InputLatencyTracker, Chrome's EventLatency over CommitBoundary and PresentationClock, the input.latency signpost,
 //     and its sendEvent wiring, (I))
-//   CmuxNextIPC -> CmuxNextWireDigest (the app-daemon wire; its bindings are built from cmux-tui/spec by
-//     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen, which shares that digest; p05-ipc.md section 3.3)
+//   CmuxNextIPC -> CmuxNextWireDigest, Compat (the app-daemon wire; its bindings are built from cmux-tui/spec by
+//     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen, which shares that digest; p05-ipc.md section 3.3;
+//     Compat's Mutex guards FrameWriter's priority FIFOs, task 055)
 //   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
@@ -1463,7 +1464,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037). Metrics: the key.echo_frame tests (054).
+            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037).
+            // Metrics: the key.echo_frame tests (054) and the frame sequences' histograms (057).
             dependencies: ["CmuxNextCompat", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1592,13 +1594,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextIPC",
-            dependencies: ["CmuxNextWireDigest"],
+            // CmuxNextCompat: the Mutex of FrameWriter's priority FIFOs (p05-ipc-055)
+            // and of StreamDemux's sinks (p05-ipc-056).
+            dependencies: ["CmuxNextCompat", "CmuxNextWireDigest"],
             swiftSettings: daemonSwiftSettings,
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
         ),
         .testTarget(
             name: "CmuxNextIPCTests",
             dependencies: [
+                // FrameWriterTests' recording sink keeps its bytes in a Mutex.
+                "CmuxNextCompat",
                 "CmuxNextIPC",
                 "CmuxNextWireDigest",
                 // MethodTableTests counts allocations through a malloc_logger hook.

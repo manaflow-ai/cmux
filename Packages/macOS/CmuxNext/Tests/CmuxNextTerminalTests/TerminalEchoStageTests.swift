@@ -396,6 +396,7 @@ struct TerminalEchoStageTests {
     /// echo through the session's output lane, the frame through the hook on Ghostty's own layer class.
     @Test func aScriptedTerminalsKeyEchoAndFrameGiveContentSubmittedAfterDispatchEnd() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let sink = RecordingSink()
         // The process's gate: Ghostty's layer class may already have its hook from another suite's sessions.
         let stages = TerminalEchoStages(contentsGate: GhosttyRuntime.shared.echoStages.contentsGate)

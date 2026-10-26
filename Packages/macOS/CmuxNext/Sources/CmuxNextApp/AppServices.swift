@@ -316,12 +316,14 @@ final class AppServices {
     var features: FeatureList
 
     /// Every declared feature's value for this launch: this build's channel, the launch
-    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the Labs page's local choices
-    /// when their launch read has ended. The composition root builds it once, before anything that reads a feature.
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local choices (the Labs page's, then
+    /// the Debug tunables features replace: ``FeatureLaunchLocalOverrides``) whose launch reads have ended.
+    /// The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
-                    local: environment.featureLocalOverrides?.value)
+                    local: FeatureLaunchLocalOverrides(labs: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(),
+                                                       tunables: environment.featureTunableOverrides?.value ?? [:]))
     }
     /// The Feature Flags card's local choices (feature `featureFlagsCard`): this launch's, and the next one's it writes.
     private(set) lazy var featureLocalOverrides = FeatureLocalOverrideStore(registry: features.registry, channel: features.channel,
@@ -843,11 +845,13 @@ final class AppServices {
     func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: KeepAwake's battery rule, the video wallpaper, and the saver itself to the
-    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself. Only
+    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself; the local daemon
+    /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
