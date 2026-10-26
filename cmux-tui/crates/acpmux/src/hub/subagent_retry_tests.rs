@@ -207,3 +207,72 @@ async fn a_raw_failure_while_the_chat_closes_leaves_it_not_retryable() {
     let got = outcomes(&hub, &session);
     assert_eq!(got, ["scheduled", "skipped:resumed"], "nothing scheduled after close began");
 }
+
+/// A person's retry, under the local caller's rules.
+fn by_person() -> crate::hub::auto_resume::retry_turn::RetryBy {
+    crate::hub::auto_resume::retry_turn::RetryBy {
+        control: crate::hub::Control::Local,
+        trust_gate: false,
+        full_access_device: None,
+        from: None,
+    }
+}
+
+/// A person's retry says why a subagent can't be retried: replaced by a new one of its name (by
+/// its id or its agent id), running, or its chat closing.
+#[tokio::test]
+async fn a_person_retry_says_why_a_subagent_cannot_be_retried() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let running = json!({"id": "s/t2", "parent": null, "state": "running", "task": "Push relay"});
+    hub.observe_subagents(&session, &[running]);
+    let why = |e: RpcError| {
+        let data = e.data.unwrap();
+        assert_eq!(data["reason"], "retry.nothing_failed", "{data}");
+        data["why"].as_str().unwrap().to_owned()
+    };
+    for named in ["s/t1", "agent-s/t1"] {
+        let refused = hub.retry_subagent(&session, named, by_person()).await.unwrap_err();
+        assert_eq!(why(refused), "replaced", "{named}");
+    }
+    let refused = hub.retry_subagent(&session, "s/t2", by_person()).await.unwrap_err();
+    assert_eq!(why(refused), "running");
+    let refused = hub.retry_subagent(&session, "s/t9", by_person()).await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.unknown_subagent");
+    session.closing.store(true, Ordering::SeqCst);
+    let refused = hub.retry_subagent(&session, "s/t2", by_person()).await.unwrap_err();
+    assert_eq!(why(refused), "closed");
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "skipped:replaced"]);
+}
+
+/// A stopped subagent a person retries, whose turn ends with it still failed, gets no automatic
+/// attempts after it: it stays stopped, and a person can retry it again.
+#[tokio::test]
+async fn a_stopped_subagent_a_person_retried_stays_stopped() {
+    // `[0]`: an automatic attempt would fire at once.
+    let (hub, session, _conn) = chat(vec![0]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    hub.stop_subagent_retries(&session, false);
+    settle().await;
+    let v = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_eq!(v["kind"], "subagent", "{v}");
+    let idle = || {
+        let all = hub.subagent_retries.lock();
+        let failed = all.subs[&session.id]["s/t1"].failed.clone().unwrap();
+        failed.idle && failed.wait.is_none()
+    };
+    for _ in 0..100 {
+        if idle() {
+            break;
+        }
+        settle().await;
+    }
+    assert!(idle(), "its turn ended and it is stopped again");
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), ["fired"]);
+    let entry = last_entry(&hub, &session, "s/t1").unwrap();
+    assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(true)));
+    let again = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
+    assert_ne!(again["promptId"], v["promptId"]);
+}

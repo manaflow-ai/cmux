@@ -499,8 +499,8 @@ export interface RetryParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /**
-   * One of the chat's failed subagents to resume instead. Refused for now
-   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   * One of the chat's failed subagents to resume instead, by its id or agent id
+   * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
    */
   subagentId?: (string | null);
 }

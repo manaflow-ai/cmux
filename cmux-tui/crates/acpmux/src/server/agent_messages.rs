@@ -52,7 +52,7 @@ pub(super) async fn handle(
 }
 
 /// `_acpmux/retry`: under the caller's rules, as a prompt it sent (its control, the trust gate
-/// and a paired machine's Full access). With `subagentId`, refused until subagents retry.
+/// and a paired machine's Full access). With `subagentId`, that failed subagent is resumed.
 async fn retry(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     let s = hub.resolve(session_key(params)?)?;
     // A retry reads the failed turn's log, and its held prompts come back with the logs.

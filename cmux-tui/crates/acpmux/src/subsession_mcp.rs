@@ -134,7 +134,7 @@ fn tools() -> Value {
                 "type": "object",
                 "properties": {
                     "session": {"type": "string", "description": "The sub-session's sessionId."},
-                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Not supported yet: refused with retry.subagent_unsupported."}
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
                 },
                 "required": ["session"]
             }
