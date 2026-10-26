@@ -82,10 +82,14 @@ final class MainActorWorkItem: Sendable {
     }
 
     /// Counts the item on `board` as a person's pending input until it runs or expires, so every
-    /// budgeted batch yields while it waits. Call before the item can be claimed (while queuing it).
+    /// budgeted batch yields while it waits. No effect once it was claimed (it expired meanwhile):
+    /// the check and the count are one critical section, so the claim always takes the count back.
     func countAsPendingInput(on board: MainTaskBoard) {
-        board.inputQueued()
-        state.withLock { $0.pendingInput = board }
+        state.withLock { state in
+            guard state.phase == .pending, state.pendingInput == nil else { return }
+            board.inputQueued()
+            state.pendingInput = board
+        }
     }
 
     /// Keeps the deadline timer so running the item cancels it. Cancels it

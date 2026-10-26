@@ -38,6 +38,12 @@ public final class PageRouter {
     private var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Whether the page's view is hidden, as its ``PageWebView`` tells the engine (`debug.webui`).
+    public internal(set) var debugPageHidden = false
+    /// Events delivered while ``debugPageHidden``: one integer add per delivery (`debug.webui`).
+    public internal(set) var debugDeliveriesWhileHidden = 0
+    #endif
 
     public init(descriptor: PageDescriptor, routes: [PageRoute]) {
         self.descriptor = descriptor
@@ -233,6 +239,9 @@ public final class PageRouter {
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugPageHidden { debugDeliveriesWhileHidden &+= 1 }
+        #endif
         let envelope: JSONValue = ["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data]
         let stream = streamProviders[sub]
         let dropped = { @MainActor in

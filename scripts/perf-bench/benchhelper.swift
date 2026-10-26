@@ -5,6 +5,7 @@
 //                                                   prints "<epoch ms> <pid> <w>x<h>", exit 1 on timeout
 //   benchhelper windows PID                         the pid's on-screen windows as JSON lines
 //   benchhelper hide PID | unhide PID               NSRunningApplication hide/unhide (no TCC needed)
+//   benchhelper ishidden PID                        exit 0 when the app is hidden, 1 when it is not
 //   benchhelper terminate PID                       NSRunningApplication terminate (a clean Quit)
 //   benchhelper frontmost                           the frontmost app's pid
 //   benchhelper displays                            active displays as JSON (count, size, refresh)
@@ -42,7 +43,7 @@ private func fail(_ message: String) -> Never {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|frontmost|displays ...") }
+guard arguments.count >= 2 else { fail("usage: benchhelper wait-window|windows|hide|unhide|ishidden|frontmost|displays ...") }
 
 switch arguments[1] {
 case "wait-window":
@@ -74,6 +75,10 @@ case "windows":
         let layer = window[kCGWindowLayer as String] as? Int ?? -1
         print("{\"w\": \(width), \"h\": \(height), \"layer\": \(layer)}")
     }
+case "ishidden":
+    guard arguments.count == 3, let pid = Int32(arguments[2]),
+          let app = NSRunningApplication(processIdentifier: pid) else { fail("no running app for that pid") }
+    exit(app.isHidden ? 0 : 1)
 case "hide", "unhide", "terminate":
     guard arguments.count == 3, let pid = Int32(arguments[2]),
           let app = NSRunningApplication(processIdentifier: pid) else { fail("no running app for that pid") }

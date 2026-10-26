@@ -2,7 +2,7 @@ public import CoreGraphics
 internal import Darwin
 
 /// Lists windows, like `CGWindowListCopyWindowInfo`, as a checked blocking call
-/// (``assertBlockingAllowed(_:fileID:line:)``): it waits for the window server's reply. List windows off
+/// (``blockingCall(_:fileID:line:_:)``): it waits for the window server's reply. List windows off
 /// the main thread.
 ///
 /// - Parameters:
@@ -14,8 +14,7 @@ internal import Darwin
 @inlinable
 public func blockingWindowListCopyWindowInfo(_ option: CGWindowListOption, _ relativeToWindow: CGWindowID,
                                              fileID: StaticString = #fileID, line: UInt = #line) -> CFArray? {
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    return CGWindowListCopyWindowInfo(option, relativeToWindow)
+    return blockingCall(.systemCall, fileID: fileID, line: line) { CGWindowListCopyWindowInfo(option, relativeToWindow) }
 }
 
 /// Captures windows, like `CGWindowListCreateImage`, as a checked blocking call: the window server
@@ -36,11 +35,12 @@ public func blockingWindowListCreateImage(_ screenBounds: CGRect, _ listOption: 
                                           _ imageOption: CGWindowImageOption,
                                           fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
-    let create = unsafeBitCast(symbol, to: CreateImage.self)
-    return create(screenBounds, listOption.rawValue, windowID, imageOption.rawValue)?.takeRetainedValue()
+    return blockingCall(.systemCall, fileID: fileID, line: line) { () -> CGImage? in
+        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        return create(screenBounds, listOption.rawValue, windowID, imageOption.rawValue)?.takeRetainedValue()
+    }
 }
 
 /// Captures the windows `windowIDs` together, like `CGWindowListCreateImageFromArray`, as a checked
@@ -57,12 +57,13 @@ public func blockingWindowListCreateImage(_ screenBounds: CGRect, _ listOption: 
 public func blockingWindowListCreateImageFromArray(_ screenBounds: CGRect, _ windowIDs: [CGWindowID], _ imageOption: CGWindowImageOption,
                                                    fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
-    assertBlockingAllowed(.systemCall, fileID: fileID, line: line)
-    // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
-    guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
-    let create = unsafeBitCast(symbol, to: CreateImage.self)
-    // The array holds CGWindowID values, not CFNumbers.
-    var ids: [UnsafeRawPointer?] = windowIDs.map { UnsafeRawPointer(bitPattern: UInt($0)) }
-    guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
-    return create(screenBounds, array, imageOption.rawValue)?.takeRetainedValue()
+    return blockingCall(.systemCall, fileID: fileID, line: line) { () -> CGImage? in
+        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
+        let create = unsafeBitCast(symbol, to: CreateImage.self)
+        // The array holds CGWindowID values, not CFNumbers.
+        var ids: [UnsafeRawPointer?] = windowIDs.map { UnsafeRawPointer(bitPattern: UInt($0)) }
+        guard let array = CFArrayCreate(nil, &ids, ids.count, nil) else { return nil }
+        return create(screenBounds, array, imageOption.rawValue)?.takeRetainedValue()
+    }
 }
