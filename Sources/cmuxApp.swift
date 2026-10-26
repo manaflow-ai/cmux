@@ -138,7 +138,6 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
         }
-
         Self.removeInheritedClaudeNodeOptionsPreload()
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
