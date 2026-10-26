@@ -25,8 +25,6 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
     private(set) var watch: FrameObservation<Shown>?
     /// The submit action the button shows.
     private var shownAction: TextBoxSubmitAction?
-    /// The fitting height the host last heard of (``refreshHeight()``).
-    private var reportedHeight: CGFloat?
 
     /// What the strip shows of its model.
     struct Shown: Equatable {
@@ -136,17 +134,17 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         refreshHeight()
     }
 
-    /// A typed character lays nothing out unless it changes the strip's line count: the host frames
-    /// the strip at its fitting height (`TerminalHostView.bottomAccessory`), and its new frame lays
-    /// the strip out.
+    /// A typed character lays nothing out unless the strip's height must change: the host frames the
+    /// strip at its fitting height (`TerminalHostView.bottomAccessory`), so a fitting height that
+    /// differs from the height the host gave asks the host to frame it again, and its new frame lays
+    /// the strip out. A hidden strip takes no room; showing it lays the host out (``show(_:)``).
     private func refreshHeight() {
         let empty = textView.string.isEmpty
         if placeholder.isHidden != !empty { placeholder.isHidden = !empty }
-        guard let superview else { return } // the host frames a strip it installs (`bottomAccessory`)
-        let height = fittingSize.height
-        guard height != reportedHeight else { return }
-        reportedHeight = height
-        superview.needsLayout = true // invalidate: a new fitting height (the guard above)
+        guard let superview, !isHidden else { return } // the host frames a strip it installs (`bottomAccessory`)
+        let height = min(superview.bounds.height, ceil(fittingSize.height)) // the host's accessoryHeight
+        guard height != bounds.height else { return }
+        superview.needsLayout = true // invalidate: the strip's height differs from its frame (the guard above)
     }
 
     private var lineHeight: CGFloat {
@@ -179,8 +177,11 @@ package final class TextBoxView: NSView, NSTextViewDelegate {
         if scroll.frame != editor { scroll.frame = editor }
         textView.minSize = NSSize(width: 0, height: editor.height)
         textView.maxSize = NSSize(width: editor.width, height: .greatestFiniteMagnitude)
-        if textView.frame.width != editor.width { textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height))) }
         placeholder.frame = CGRect(x: editor.minX, y: editor.maxY - lineHeight, width: editor.width, height: lineHeight)
+        if textView.frame.width != editor.width {
+            textView.setFrameSize(NSSize(width: editor.width, height: max(editor.height, textView.frame.height)))
+            refreshHeight() // a new width wraps the text into another line count
+        }
     }
 
     package override func updateLayer() {

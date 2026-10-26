@@ -47,6 +47,45 @@ struct OmniboxInvalidationTests {
         }
     }
 
+    /// The look's corner changes while the card is closed (the rows stay across opens): the next
+    /// placement gives each kept row the new concentric corner, though no row moved or changed text.
+    @Test func aNewCornerRadiusReachesTheKeptRowsAtTheNextPlacement() throws {
+        _ = NSApplication.shared
+        let appearance = OmnibarGlassAppearance.shared
+        let before = appearance.look
+        defer {
+            appearance.apply(glass: before.material.rawValue, tint: before.tint.rawValue, tintStrength: before.tintStrength,
+                             cornerRadius: before.cornerRadius, shadow: before.shadow, backgroundOpacity: before.backgroundOpacity)
+        }
+        let bar = AddressBarView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
+        // `close()` would release a window the test still holds (a segfault on the fleet).
+        window.isReleasedWhenClosed = false
+        defer {
+            bar.panel.dismiss()
+            window.close()
+        }
+        bar.frame = NSRect(x: 10, y: 340, width: 600, height: 34)
+        let pane = try #require(window.contentView)
+        pane.addSubview(bar)
+        let url = try #require(URL(string: "https://example.com/"))
+        let suggestions = (1..<5).map { BrowserSuggestion(kind: .search, title: "query \($0)", detail: "", url: url, score: 1) }
+        appearance.apply(glass: "off", tint: "background", tintStrength: 0.35, cornerRadius: 4, shadow: false)
+        bar.panel.show(suggestions, highlighted: 0, at: bar, pane: pane, in: window)
+        bar.panel.cardView.layoutSubtreeIfNeeded()
+        let oldCorner = OmnibarStyle.rowCornerRadius
+        for row in bar.panel.rowViews { #expect(row.layer?.cornerRadius == oldCorner) }
+
+        appearance.apply(glass: "off", tint: "background", tintStrength: 0.35, cornerRadius: 12, shadow: false)
+        let newCorner = OmnibarStyle.rowCornerRadius
+        try #require(newCorner != oldCorner, "the look's radius moves the rows' corner")
+        bar.panel.show(suggestions, highlighted: 0, at: bar, pane: pane, in: window)
+        bar.panel.cardView.layoutSubtreeIfNeeded()
+        for (index, row) in bar.panel.rowViews.enumerated() {
+            #expect(row.layer?.cornerRadius == newCorner, "row \(index) kept the old corner: not concentric with the card")
+        }
+    }
+
     @Test func theSameProfileBadgePaintsNothing() {
         let badge = ProfileBadgeView(frame: .zero)
         let work = BrowserProfileBadge(monogram: "W", color: .blue, name: "Work")

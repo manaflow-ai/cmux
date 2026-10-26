@@ -125,33 +125,40 @@ struct PaletteInvalidationTests {
     }
 
     /// RenderStats' count of the search bar's `layout()` calls from the renders of three typed
-    /// characters: 0. Before this change each render laid the bar out once.
+    /// characters: 0. Before this change each render laid the bar out once. RenderStats counts
+    /// `layout()` through the layout pass guard, wired as the app wires it (`AppControl`).
     @Test func renderStatsCountsNoTypingLayouts() async {
-        let stats = RenderStats()
+        let layoutGuard = LayoutPassGuard.shared
+        layoutGuard.install() // hooks `-[NSView layout]`; idempotent
+        let stats = RenderStats(layoutGuard: layoutGuard)
         guard stats.arm() else { return } // a build without the hooks
-        guard await stats.ready() else {
-            stats.disarm()
-            _ = await stats.ready()
-            return
-        }
-        let bar = PaletteSearchBar(frame: .zero)
-        let window = hosted(bar, size: NSSize(width: 640, height: 52))
-        updateBar(bar, query: "")
-        settle(bar)
-        func layouts() -> Int {
-            stats.owners().first { $0.key == RenderStats.classKey(PaletteSearchBar.self) }?.totals[.layouts] ?? 0
-        }
-        var rendered = 0
-        for query in ["t", "ta", "tab"] {
-            bar.field.stringValue = query
+        let counting = await stats.ready()
+        #expect(counting, "RenderStats did not start counting")
+        if counting {
+            let bar = PaletteSearchBar(frame: .zero)
+            let window = hosted(bar, size: NSSize(width: 640, height: 52))
+            updateBar(bar, query: "")
             settle(bar)
-            let before = layouts()
-            updateBar(bar, query: query)
-            settle(bar)
-            rendered += layouts() - before
+            func layouts() -> Int {
+                stats.owners().first { $0.key == RenderStats.classKey(PaletteSearchBar.self) }?.totals[.layouts] ?? 0
+            }
+            // A layout the bar must do is counted, so the 0 below is the renders' own.
+            let forced = layouts()
+            bar.needsLayout = true
+            bar.layoutSubtreeIfNeeded()
+            #expect(layouts() == forced + 1, "RenderStats did not count the search bar's layout")
+            var rendered = 0
+            for query in ["t", "ta", "tab"] {
+                bar.field.stringValue = query
+                settle(bar)
+                let before = layouts()
+                updateBar(bar, query: query)
+                settle(bar)
+                rendered += layouts() - before
+            }
+            #expect(rendered == 0, "the renders of typed characters laid the search bar out \(rendered) times")
+            window.close()
         }
-        #expect(rendered == 0, "the renders of typed characters laid the search bar out \(rendered) times")
-        window.close()
         stats.disarm()
         _ = await stats.ready()
     }

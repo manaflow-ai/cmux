@@ -24,6 +24,9 @@ final class SuggestionRowView: NSView {
     }
     var leadingIconCenter: CGFloat = 16 { didSet { if leadingIconCenter != oldValue { needsLayout = true } } }
     var textLeading: CGFloat = 33 { didSet { if textLeading != oldValue { needsLayout = true } } }
+    /// The highlight's corner, concentric with the card's (`OmnibarStyle.rowCornerRadius`, which follows
+    /// the look live), set at each placement like the card's: a new radius reshapes the layer, no layout.
+    var cornerRadius: CGFloat = 0 { didSet { if cornerRadius != oldValue { layer?.cornerRadius = cornerRadius } } }
     /// The label height the last layout framed: new text of the same height needs no layout, the
     /// label repaints itself.
     private var laidOutLabelHeight: CGFloat?
@@ -131,7 +134,6 @@ final class SuggestionRowView: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = OmnibarStyle.rowCornerRadius
         let side: CGFloat = 16
         icon.frame = NSRect(x: (leadingIconCenter - side / 2).rounded(), y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
         let height = label.intrinsicContentSize.height

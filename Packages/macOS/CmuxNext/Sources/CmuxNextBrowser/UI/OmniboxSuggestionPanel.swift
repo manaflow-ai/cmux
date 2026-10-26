@@ -117,6 +117,7 @@ final class OmniboxSuggestionPanel {
             // Icon and text line up with the bar's chip and text.
             row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
             row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
+            row.cornerRadius = OmnibarStyle.rowCornerRadius
         }
         // The card takes the omnibar's theme scope (its room or workspace). Rooting repaints every
         // view under the card (`ThemeRepaint`), so only a new scope roots it; the scope repaints
