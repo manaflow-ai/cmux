@@ -139,6 +139,7 @@ async fn a_two_gigabyte_file_of_any_type_reaches_a_busy_chat_by_path() {
     c.until(|v| v.pointer("/params/update/content/text").is_some()).await;
 
     let reference = json!({"type": "resource_link", "name": "data.bin",
+        "uri": format!("acpmux-upload:{upload}"),
         "_meta": {"acpmux": {"upload": {"uploadId": upload, "fileName": "data.bin"}}}});
     let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": "read it"}, reference],
         "_meta": {"acpmux": {"promptId": "big"}}});

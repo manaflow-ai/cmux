@@ -11,8 +11,8 @@
 //! inline in one `session/prompt` cannot pass. Uploaded first, in chunks, they go in a prompt of a
 //! few hundred bytes.
 //!
-//! The reference is `_meta.acpmux.upload {uploadId, fileName}` on any file block (`image`,
-//! `resource`, `resource_link`). There is no size or count cap (Leo, 2026-10-26: "I ALREADY
+//! The reference is `_meta.acpmux.upload {uploadId, fileName}` on an `image` block, or on a
+//! `resource_link` whose `uri` is `acpmux-upload:<uploadId>` (valid ACP before it is resolved). There is no size or count cap (Leo, 2026-10-26: "I ALREADY
 //! SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE"): a file of any type and size stays where
 //! it was uploaded, and the agent gets its path. An image goes inline as well, so the model sees
 //! it, while it fits the model's input ([`INLINE_IMAGE_BYTES`]) and the prompt's inline room
@@ -34,6 +34,8 @@ use std::path::Path;
 
 /// The `initialize` feature of a daemon that resolves upload references in a prompt.
 pub const FEATURE: &str = "promptUploads";
+/// The `uri` of a `resource_link` that names an upload: `acpmux-upload:<uploadId>`.
+pub const URI_SCHEME: &str = "acpmux-upload:";
 /// The largest image put inline for the model: Claude's API refuses an image whose base64 is
 /// over 5 MiB, which this is the decoded size of. A larger one goes by its path.
 pub const INLINE_IMAGE_BYTES: usize = (5 << 20) / 4 * 3;
@@ -74,6 +76,21 @@ pub fn resolve(session: &str, web: bool, blocks: &mut Vec<Value>) -> Result<(), 
             let message = "an upload reference names its uploadId and fileName".to_owned();
             return Err(refused("upload.invalid", message));
         };
+        // An `image`, or a `resource_link` whose `uri` is [`URI_SCHEME`] and the same upload id, so
+        // the block is valid ACP before it is resolved (`docs/prompt-uploads.md` section 5).
+        let uri = block.get("uri").and_then(Value::as_str);
+        let valid = match block.get("type").and_then(Value::as_str) {
+            Some("image") => uri.is_none(),
+            Some("resource_link") => uri.and_then(|u| u.strip_prefix(URI_SCHEME)) == Some(id),
+            _ => false,
+        };
+        if !valid {
+            let message = format!(
+                "an upload reference is an image block, or a resource_link with uri \
+                 {URI_SCHEME}{id}"
+            );
+            return Err(refused("upload.invalid", message));
+        }
         let missing =
             || refused("upload.missing", format!("no finished upload {name} in this chat"));
         let path =

@@ -6,30 +6,49 @@ client is the cmux app's native upload worker.
 Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE".
 
 - No size or count cap: no limit per file, per prompt, or on the number of files.
-- No base64 in the page binding: file bytes travel as binary frames on a connection the host owns.
+- No base64 in the page binding: file bytes go from the app's native side to the daemon, never
+  through the page.
 - The prompt names the uploads and stays a few hundred bytes.
 - The only failure about size is a full disk on the receiving host, and that error names the host
   and path.
 
-Capability flags, in `initialize` result `_meta.acpmux.features`:
+Who owns what: the daemon owns this API (upload calls, the reference resolver, peer forwarding,
+feature flags). The native app owns its own host-authenticated endpoint, origin and gesture
+binding, and calls this API over its daemon connection.
+
+## 0. What exists at which head
+
+| part | status |
+|---|---|
+| `file_put_begin` / `_chunk` (base64, at most 512 KiB a chunk) / `_finish` / `_cancel`, no size cap | on #25730 |
+| upload-ref blocks in `session/prompt` (section 5), what the agent gets (section 6), dedupe (section 7) | on #25730 |
+| `promptUploads` feature flag | on #25730 |
+| binary data frames `_acpmux/file_put_data`, `_acpmux/file_put_status`, finish `sha256`, `upload.*` error reasons | follow-up PR, flag `uploadFrames`; not built yet |
+
+Until `uploadFrames` lands, a native caller sends data with `_acpmux/file_put_chunk`. The base64
+travels only on the native-to-daemon socket, never on the page binding. Against #25730's head it
+can test begin/chunk/finish, references, inline images, large files by path, and dedupe.
+
+## Capability flags
+
+These are listed in the `initialize` result, `_meta.acpmux.features`.
 
 | flag | means |
 |---|---|
-| `promptUploads` | the daemon resolves upload-ref blocks in `session/prompt` (#25730) |
-| `uploadFrames` | the daemon takes binary data frames and `_acpmux/file_put_status`, and has no upload size cap |
+| `promptUploads` | the daemon resolves upload-ref blocks in `session/prompt`, and resumable uploads have no size cap |
+| `uploadFrames` | the daemon takes binary data frames and `_acpmux/file_put_status` (section 1) |
 
-A client sends by reference only to a daemon that lists both flags. Without them, it keeps the old
-inline path.
+A client sends by reference only to a daemon that lists `promptUploads`. Without it, the client
+keeps the old inline path.
 
-## 1. Transport and endpoint
+## 1. Transport
 
-Use the same WebSocket the app already holds to its local daemon: the app's `AcpmuxPaneSocket`,
-the local listener, `Origin::LocalApp`. Nothing new is opened.
+The native side uses the WebSocket it already holds to its local daemon (the local listener,
+`Origin::LocalApp`), or the unix socket.
 
-- **Control calls** are ordinary JSON-RPC text frames and carry no file bytes: begin, status,
-  finish, cancel (section 3).
-- **Data** goes in WebSocket **binary** frames. Each binary frame is one JSON-RPC request with a
-  raw payload:
+- **Control calls** are JSON-RPC text frames: begin, status, finish, cancel (section 3).
+- **Data, with `uploadFrames`:** each WebSocket **binary** frame is one JSON-RPC request with a raw
+  payload:
 
   ```
   bytes 0..4    ASCII "AMUP"
@@ -40,154 +59,218 @@ the local listener, `Origin::LocalApp`. Nothing new is opened.
   bytes 8+H..   the file's bytes [offset, offset+len), raw
   ```
 
-  The daemon answers with an ordinary JSON-RPC text response that has the same `id` (section 3).
+  The daemon answers with an ordinary JSON-RPC text response that has the same `id`.
 
-- **Frame size:** 1 MiB of payload is recommended. Any length up to the connection's 64 MiB frame
-  is taken. This is a frame size, not a file cap.
-- **Pipelining:** a client may have several frames in flight, at increasing offsets on one upload.
-  The daemon writes them in order. A frame whose `offset` is not the upload's current end is
-  refused with `upload.offset` (section 4), and its bytes are dropped.
-- **Other transports:**
-  - **Unix socket (CLI):** a text-only stream. It keeps `_acpmux/file_put_chunk`
-    `{sessionId, uploadId, offset, data: base64}` (at most 512 KiB decoded per chunk), with the
-    same answers.
-  - **Chat on a peer:** the client sends to its own daemon as for a local chat, naming the chat as
-    it does in `session/prompt`. The daemon forwards each frame to the daemon that owns the chat.
-    Progress and resume work end to end.
+  - Frame size: 1 MiB of payload is recommended, and any length up to the connection's 64 MiB
+    frame is taken. This limits a frame, not a file.
+  - Frames may be pipelined at increasing offsets. A frame whose `offset` is not the upload's
+    current end is refused with `upload.offset`.
+- **Data, before `uploadFrames` and on the unix socket:**
+  `_acpmux/file_put_chunk {sessionId, uploadId, offset, data}`, where `data` is base64 of at most
+  512 KiB of bytes. It returns `{offset}`.
+- **Chat on a peer:** send to your own daemon as for a local chat, naming the chat as in
+  `session/prompt`. The daemon forwards begin, data, finish and cancel to the daemon that owns
+  the chat, and that daemon writes the file. A peer without `promptUploads` refuses the reference
+  with `upload.unsupported`, before anything is sent.
 
-## 2. Auth and the owner and chat binding
+## 1b. Bytes held by a page
 
-- **Who may send data:** binary frames and the `file_put_*` calls are taken from:
-  - the local app connection (LocalApp token, the person's connection);
+This is page-to-native traffic, not a daemon method. Native pulls the bytes from the page. The
+page never pushes them, and no byte travels on the page binding.
+
+### The page
+
+- It keeps each attachment's Blob or File (from a paste, a browser drop or `<input type=file>`)
+  in `window.__cmuxUploadBlobs: Map<token, Blob>`. The token is a random string of at least 128
+  bits.
+- Over the binding it sends one control call per file:
+
+  ```json
+  {"op": "uploads.begin",
+   "params": {"token": "<random>", "name": "shot.png", "type": "image/png",
+              "size": 812345, "sessionId": "<chat>"}}
+  ```
+
+  Native answers `{uploadId}` once `file_put_begin` returns it, then pushes progress
+  `{token, uploadId, offset, size}` to the page as frames are acknowledged.
+- A retry keeps the token. The page keeps the Blob until the prompt is accepted or the person
+  removes the attachment.
+- The prompt names the file by its `uploadId` (section 5).
+
+### Native
+
+Native reads the Blob over its own DevTools channel, inside the execution context the binding
+call came from (main frame, PageHostTrust, as today). The steps:
+
+1. Find the Blob: `Runtime.evaluate` of `window.__cmuxUploadBlobs.get(<token>)` with
+   `returnByValue: false`. It refuses the call when the result is missing or not a Blob.
+2. Read it in 1 MiB chunks:
+   - Preferred: `IO.resolveBlob` gives a uuid, then `IO.read {handle: "blob:"+uuid, size: 1048576}`
+     until `eof`, then `IO.close`.
+   - Fallback: `Runtime.callFunctionOn` with `this.slice(o, o+n).arrayBuffer()`, returning the
+     chunk as base64.
+3. Send each chunk as one AMUP binary frame (section 1) at the next offset. Read the next chunk
+   only after the daemon acknowledges the previous frame, or keep a fixed window of at most 4
+   frames in flight. Memory then stays at a few chunks whatever the file's size.
+4. Finish with `file_put_finish`, then `Runtime.releaseObject`.
+
+A file dropped on a native view, or picked with the native picker, is streamed by native straight
+from its path. The page only gets `{token, name, type, size}` for its preview row.
+
+### Security
+
+- A token resolves only in the calling context's own registry. Native never reads by an objectId,
+  a URL or a host path that the page names.
+- A page can send only bytes it already holds.
+
+### What the daemon guarantees for this pacing
+
+- Every data frame is written in order and answered after its bytes are on disk.
+- Up to 4 frames in flight on one upload are taken in order.
+- A frame that arrives out of order is refused with `upload.offset {offset}` and its bytes are
+  dropped. The sender resumes at that offset.
+
+## 2. What the daemon checks of the caller
+
+- **Connection kind.** The daemon takes the `file_put_*` calls, data frames and references from:
+  - the local app connection (LocalApp);
   - the unix socket;
   - a peer link forwarding for one of those.
-- **Who is refused:** a Web connection, or a peer forwarding for a Web client, gets `filePut.remote`.
-- **Binding:** `file_put_begin` binds the upload to its `sessionId` and to the class of connection
-  that began it. Data, status, finish and cancel must name the same `sessionId`. The upload lives
-  in `<ACPMUX_HOME>/uploads/<session>/<uploadId>/`, owner-only (0700 folders, 0600 files), and a
-  reference resolves only inside its own chat's folder.
-- **Upload ids** are UUIDv7 values made by the daemon. They are not guessable, and they cannot
-  name a path.
 
-## 3. Calls and fields
+  It refuses a Web-controlled connection (a remote web client, or a peer forwarding for one) with
+  `filePut.remote` for uploads and `upload.remote` for references.
+- **Chat binding.** An upload belongs to the chat whose `sessionId` began it. It lives in
+  `<ACPMUX_HOME>/uploads/<session>/<uploadId>/<fileName>` (owner-only: 0700 folders, 0600 files).
+  Every later call, and every reference to it, must name that same chat; another chat's upload
+  is `upload.missing`.
+- **Upload ids** are UUIDv7 values the daemon makes. They are unguessable and never name a path.
+- **What the daemon does not check:** which window or gesture began an upload, and which person.
+  The native endpoint binds those before it calls the daemon.
+
+## 3. Calls
 
 ### Begin
 
-`_acpmux/file_put_begin {sessionId, fileName, size}` returns
-`{uploadId, fileName, size, offset: 0}`.
+`_acpmux/file_put_begin {sessionId, fileName, size}` returns `{uploadId, fileName, size}`.
 
 - `fileName` must be a plain file name: no `/`, no leading `.`, no control or bidi characters.
-- `size` is the file's exact byte count, any u64.
-- The daemon checks free space on its disk. Less than `size` free is refused with
-  `upload.diskFull` (section 4).
+  Otherwise it is refused with `filePut.name`.
+- `size` is the exact byte count, any u64.
 
 ### Data
 
-`_acpmux/file_put_data` (a binary frame) returns `{uploadId, offset, size}`.
+Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploadFrames` exists.
 
-- `offset` is the new end of the bytes received so far. It is the progress value: draw
-  `offset / size`.
-- The bytes are written to disk before the answer. A frame the daemon has answered survives a
-  daemon restart.
+- The answer's `offset` is the end of the bytes received so far. Use it for progress
+  (`offset / size`) and to resume.
+- The bytes are on disk before the answer comes.
 
-### Status (resume)
+### Status (with `uploadFrames`)
 
 `_acpmux/file_put_status {sessionId, uploadId}` returns
 `{uploadId, fileName, size, offset, finished, path?}`.
 
-- After a disconnect, a daemon restart or any error, call status and resume data at the returned
-  `offset`.
-- `finished: true` comes with `path`: the upload was finished already.
+- After a disconnect or a daemon restart, call status and resume at `offset`.
 
 ### Finish
 
-`_acpmux/file_put_finish {sessionId, uploadId, fileName, size, sha256?}` returns
-`{uploadId, path, size}`.
+`_acpmux/file_put_finish {sessionId, uploadId, fileName, size}` returns `{path}`.
 
-- Finish is allowed only once `offset == size`.
-- With `sha256` (lowercase hex), the daemon hashes the file and refuses a mismatch with
-  `upload.corrupt`. It then keeps the bytes, so status shows `offset == size` and the client
-  re-sends from 0 after a cancel.
-- Finish is idempotent: a second finish of a finished upload returns the same `path`.
+- Allowed only once all `size` bytes have arrived.
+- With `uploadFrames`, an optional `sha256` (lowercase hex) is checked, and a mismatch is
+  `upload.corrupt`.
 
 ### Cancel
 
 `_acpmux/file_put_cancel {sessionId, uploadId}` returns `{}`.
 
-- It removes the partial file. It is idempotent.
+- It removes the partial file, and it is idempotent.
 
-### Cleanup
+### How long uploads stay
 
-- Finished uploads stay until the chat is deleted or the age sweep runs (`uploadsMaxAgeDays`,
-  default 30 days).
-- A send does not consume them, so a retried send never needs to upload again.
+- Finished uploads stay until the chat is deleted or the age sweep removes them
+  (`uploadsMaxAgeDays`, default 30).
+- Sending a prompt does not consume them, so a retried send never uploads again.
 
 ## 4. Errors
 
-Every error is a JSON-RPC error with `data.reason`:
+| reason | when |
+|---|---|
+| `upload.diskFull` (with `uploadFrames`) | the receiving disk is full; `data: {host, path, needed?, free?, offset?}` |
+| `upload.offset` (with `uploadFrames`) | a frame's offset is not the upload's end; `data: {offset}`, resume there |
+| `filePut.pastSize` | bytes past the size given at begin; `data: {size}` |
+| `filePut.name` | not a plain file name |
+| `filePut.remote` | the call came from a Web-controlled connection |
+| `filePut.unsupported` | the chat's peer runs a build without uploads |
+| `upload.corrupt` (with `uploadFrames`) | finish `sha256` mismatch |
 
-| reason | when | data |
-|---|---|---|
-| `upload.diskFull` | the receiving disk has no room (at begin, from free space; or on a write, from ENOSPC) | `{host, path, needed?, free?, offset?}` |
-| `upload.offset` | a frame's offset is not the upload's end | `{offset}`: resume there |
-| `upload.unknown` | no such upload in this chat (cancelled, swept, another chat's) | |
-| `upload.pastSize` | bytes past the size given at begin | `{size}` |
-| `upload.incomplete` | finish before `offset == size` | `{offset, size}` |
-| `upload.corrupt` | finish with a `sha256` that does not match | `{sha256}`: the daemon's |
-| `filePut.name` | not a plain file name | |
-| `filePut.remote` | from a Web connection | |
-| `upload.unsupported` | a peer on an older build | |
+Today, an unknown upload, a wrong offset, or a finish before all bytes arrived returns a plain
+`invalid_params` error with no `reason`. `uploadFrames` gives these `upload.unknown`,
+`upload.offset` and `upload.incomplete`.
 
-A client retries every error except `upload.diskFull`, `filePut.name` and `filePut.remote`, after
-`file_put_status`.
+A client retries every error except `filePut.name`, `filePut.remote` and disk-full. Before it
+retries, it reads the upload's state (status, or its last acknowledged offset).
 
 ## 5. The upload-ref block in `session/prompt`
 
-Each file is one prompt block with no bytes, in the place the person put it:
+Each file is one block with no bytes, in the place the person put it. There are exactly two
+shapes.
+
+An image:
 
 ```json
 {"type": "image", "name": "shot.png",
- "_meta": {"acpmux": {"upload": {"uploadId": "<uuidv7>", "fileName": "shot.png"}}}}
+ "_meta": {"acpmux": {"upload": {"uploadId": "01a17a85-0041-7613-a731-292de6bd467a",
+                                 "fileName": "shot.png"}}}}
 ```
 
-Use `"type": "image"` for an image and `"type": "resource_link"` for any other file. The daemon
-also takes `resource`. The `fileName` must be the one given to `file_put_begin`. Other `_meta`
-keys of the block are ignored, and `inlineParts` work as before.
+Any other file, with a `uri` that is exactly `acpmux-upload:<uploadId>` so the block is valid ACP
+before it is resolved:
 
-Refusals of a reference:
+```json
+{"type": "resource_link", "uri": "acpmux-upload:01a17a85-0041-7613-a731-292de6bd467a",
+ "name": "data.bin",
+ "_meta": {"acpmux": {"upload": {"uploadId": "01a17a85-0041-7613-a731-292de6bd467a",
+                                 "fileName": "data.bin"}}}}
+```
+
+- `fileName` must be the one given to `file_put_begin`.
+- An image block has no `data` and no `uri`.
+- The daemon sets `mimeType` from the file's bytes, so a sent `mimeType` is ignored.
+- `inlineParts` display metadata works as before. Point its `blockIndex` at the reference block.
+
+These are refused before anything is recorded:
 
 | reason | when |
 |---|---|
+| `upload.invalid` | `uploadId` or `fileName` is missing; a `resource_link` whose `uri` is not `acpmux-upload:<the same uploadId>`; an image with a `uri`; any other block type |
 | `upload.missing` | not a finished upload of this chat |
-| `upload.invalid` | `uploadId` or `fileName` missing |
 | `upload.remote` | the prompt came from a Web client |
 | `upload.unsupported` | the chat is on a peer without `promptUploads` |
 
-A queue edit (`_acpmux/queue_edit`) cannot carry a reference (`attach.edit`).
+A queue edit (`_acpmux/queue_edit`) cannot carry a reference; it is refused with `attach.edit`.
 
 ## 6. What the agent and the transcript get
 
 The daemon that runs the chat replaces each reference before anything reads the prompt:
 
-- **An image that fits the model's input** (and the prompt's inline room, so the prompt stays one
-  message on every hop) goes inline as an `image` block. Its `mimeType` comes from the bytes.
-  - The transcript's `user_message.images` names it, as for any sent image.
-  - #25730 sizes: at most 3.75 MiB an image (Claude's 5 MiB base64 limit) and 10 MiB of inline
-    images a prompt.
-- **A model-sized copy (follow-up PR):** an image past those limits gets a model-sized copy,
-  downscaled to the harness's limit (one table per harness), inline instead. The original's path
-  is in the note. Until that lands, such an image goes as a link.
-- **Any other file, of any size:** a `resource_link`
-  `{uri: "file:///…/uploads/<chat>/<uploadId>/<name>", name, mimeType, size}`. It is never
-  base64, so a 2 GB file costs the prompt a few hundred bytes.
-- **A context note**, a text block marked `_meta.acpmux.context`, lists every file's path, type
-  and size. It also says which images were not shown inline. The transcript hides it.
+- **An image that fits the model's input** goes inline as an `image` block with its bytes. The
+  limits are 3.75 MiB an image (Claude's 5 MiB base64 limit) and 10 MiB of inline images per
+  prompt, so the prompt stays one message on every hop. The transcript's `user_message.images`
+  names it, as for any sent image.
+- **Any other file, of any size, and any image past those limits** becomes
+  `{"type": "resource_link", "uri": "file:///…/uploads/<chat>/<uploadId>/<name>", "name",
+  "mimeType", "size"}`. It is never base64, so a 2 GB file adds a few hundred bytes to the prompt.
+  A follow-up PR adds a model-sized copy of a large image (downscaled to the harness's limit, from
+  one table per harness) inline, next to the link to the original.
+- **A context note** lists every file's path, type and size, and says which images are not shown
+  inline. It is a text block marked `_meta.acpmux.context`, which the transcript hides.
 
 ## 7. Idempotency
 
-- A `promptId` runs once. Send the same `promptId` with the same references again, with
-  `_meta.acpmux.resend: true` after a reconnect or a daemon restart.
-- The daemon answers a duplicate from its ledger or its log, with
-  `_acpmux/prompt_accepted {duplicate: true}` and the first run's outcome. This holds even after
-  the uploads are swept.
-- Treat a slow acceptance as still sending: never fail it, and retry with the same `promptId`.
+- A `promptId` runs once. After a reconnect or a daemon restart, send the same `promptId` with the
+  same references again, with `_meta.acpmux.resend: true`.
+- The daemon answers a duplicate from its ledger or its log with
+  `_acpmux/prompt_accepted {duplicate: true}` and the first run's outcome. This works even after
+  its uploads were swept.
+- Treat a slow acceptance as "still sending": never fail it, and retry with the same `promptId`.

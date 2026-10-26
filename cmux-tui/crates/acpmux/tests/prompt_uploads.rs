@@ -249,7 +249,8 @@ async fn a_large_image_and_any_other_file_go_by_path() {
     let (big, data) = (png(6 << 20, 3), b"\x00\x01 not any known type".to_vec());
     let big_id = c.upload(&session, "big.png", &big).await;
     let data_id = c.upload(&session, "blob.bin", &data).await;
-    let blob = json!({"type": "resource", "resource": {"uri": "attachment://blob.bin"},
+    let blob = json!({"type": "resource_link", "uri": format!("acpmux-upload:{data_id}"),
+        "name": "blob.bin",
         "_meta": {"acpmux": {"upload": {"uploadId": data_id, "fileName": "blob.bin"}}}});
     let p = prompt(&session, &v7(), "see", vec![image_ref(&big_id, "big.png"), blob]);
     let reply = c.call(method::SESSION_PROMPT, p).await;
@@ -283,6 +284,16 @@ async fn a_reference_outside_the_chats_finished_uploads_is_refused() {
         (image_ref("not-an-id", "mine.png"), "upload.missing"),
         (
             json!({"type": "image", "_meta": {"acpmux": {"upload": {"uploadId": mine}}}}),
+            "upload.invalid",
+        ),
+        (
+            json!({"type": "resource_link", "uri": "acpmux-upload:other", "name": "mine.png",
+                "_meta": {"acpmux": {"upload": {"uploadId": mine, "fileName": "mine.png"}}}}),
+            "upload.invalid",
+        ),
+        (
+            json!({"type": "resource", "resource": {"uri": "x"},
+                "_meta": {"acpmux": {"upload": {"uploadId": mine, "fileName": "mine.png"}}}}),
             "upload.invalid",
         ),
     ];
