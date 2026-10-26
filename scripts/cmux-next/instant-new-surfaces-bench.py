@@ -14,13 +14,38 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 `--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
-Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
-       [--workspaces 10,100] [--out DIR] [--json FILE]
-"""
-import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+The close leg (Cmd-W): every Cmd-T run is undone by Cmd-W through `debug.key`, stamped with its send time
+(CLOCK_UPTIME_RAW, the NSEvent clock). Its key to committed frame is the `closeTab` run's `action.commit`
+(`debug.action_budget`: the key event's age at the run's start plus the run's start to the end of the Core
+Animation commit that showed it, the `input_to_commit` of ChromeOS/Chrome's EventLatency); its frames are
+`debug.frames` intervals over `--close-window-ms` after the key, with no socket request inside the window (a
+request is main-thread work). Dropped = intervals over 1.5 refresh periods (`debug.frames` `missed`, the same
+rule as the create runs' `frames.missed`). The report keeps every key it had (`summary`, `runs`; perf-budgets.py
+reads `summary`) and adds `close` (per phase) and `results_v1`.
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import BenchApp, bundle_id  # noqa: E402
+`--session light` (default) measures the bench's own terminal workspace; `--session stress` builds STRESS first
+(perf-stress-session.py: 60 workspaces, the measured one with 14 panes of 6 tabs, 10 busy terminals) and measures
+in its measured workspace. Every series is also written as one cmux-perf-result/v1 file into `--out` through
+BenchApp.record (percentiles: scripts/perf-lab/perf_stats.py), named `<key>.<session>.<metric>` for the idle phase
+at the launched workspace count (`cmd_t.light.dropped`, `cmd_w.stress.key_to_frame`) and
+`<key>.<session>.<phase>.<metric>` for the others (`cmd_t.light.load.dropped`, `cmd_t.light.idle_10ws.dropped`).
+Keys: cmd_n, cmd_t, ctrl_backtick, cmd_d, cmd_shift_d, cmd_shift_l (new_browser) and cmd_w; metrics key_to_frame
+(ms, key to the frame that showed it), dropped (count per run), key_ms and confirmed (create runs), commit and frame
+(Cmd-W: perform to commit, and every frame interval of the close window). Lab stories:
+scripts/perf-lab/stories.d/new-surfaces.json and new-surfaces-stress.json.
+
+Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
+       [--workspaces 10,100] [--session light|stress] [--out DIR] [--json FILE]
+"""
+import argparse, collections, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from bench_launch import PERF_LAB, BenchApp, RecordError, bundle_id, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+pct = perf_stats.pct
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -35,9 +60,19 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--session", choices=["light", "stress"], default="light",
+                    help="light: the bench's own terminal workspace; stress: build STRESS (perf-stress-session.py) first")
+parser.add_argument("--story", help="result-v1 story (default new-surfaces, or new-surfaces-stress with --session stress)")
+parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+parser.add_argument("--close-window-ms", type=float, default=600,
+                    help="how long the Cmd-W leg records frames after its key (the close and its motion)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
 opts = parser.parse_args()
+if opts.session == "stress" and opts.workspaces:
+    parser.error("--session stress has its own 60 workspaces: drop --workspaces")
+STORY = opts.story or ("new-surfaces" if opts.session == "light" else "new-surfaces-stress")
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -98,11 +133,9 @@ def window_key():
     return ((rpc("debug.windows") or {}).get("windows") or [{}])[0].get("id")
 
 
-def pct(values, q):
-    values = sorted(v for v in values if v is not None)
-    if not values:
-        return None
-    return values[min(len(values) - 1, int(round(q * (len(values) - 1))))]
+def uptime():
+    """CLOCK_UPTIME_RAW seconds: the clock of NSEvent timestamps, so the app ages a stamped key from its send."""
+    return time.clock_gettime(time.CLOCK_UPTIME_RAW) if hasattr(time, "CLOCK_UPTIME_RAW") else None
 
 
 def start_load():
@@ -124,13 +157,64 @@ def stop_load():
 
 
 def undo(command, window, before_panes):
-    """Back to one terminal pane in the bench workspace."""
+    """Back to one terminal pane in the bench workspace. After Cmd-T it is the measured Cmd-W (`close_leg`)."""
     if command == "new_workspace":
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
-        return
+        return None
+    if command == "new_tab":
+        return close_leg(window, before_panes)
     rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
     wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+    return None
+
+
+CLOSE_ACTION = "closeTab"  # Cmd-W's action (TabActionCatalog)
+
+
+def newest_action_sequence():
+    """The sequence of the newest action run the app recorded (-1 for none): the Cmd-W's run is the first
+    `closeTab` after it."""
+    recent = (rpc("debug.action_budget", {"limit": 1}) or {}).get("recent") or []
+    return recent[0].get("sequence", -1) if recent else -1
+
+
+def close_run(after):
+    """The first `closeTab` run after sequence `after` (debug.action_budget's newest runs, newest first)."""
+    reply = rpc("debug.action_budget", {"limit": 32}) or {}
+    runs = [r for r in reply.get("recent") or [] if r.get("sequence", -1) > after]
+    closes = sorted((r for r in runs if r.get("id") == CLOSE_ACTION), key=lambda r: r["sequence"])
+    return (closes[0] if closes else None), [r.get("id") for r in runs], reply.get("error")
+
+
+def close_leg(window, before_panes):
+    """Cmd-W on the tab Cmd-T made, through the real key path: key to the committed frame of its `closeTab`
+    run (the key's age at the run's start plus the run to its Core Animation commit) and the frame intervals
+    of the close and its motion. No socket request runs inside the frame window: a request is main-thread work."""
+    mark = newest_action_sequence()
+    rpc("debug.frames", {"action": "start"})
+    key = {"key": "w", "modifiers": ["command"], "window": window}
+    stamp = uptime()
+    if stamp is not None:
+        key["timestamp"] = stamp
+    sent = rpc("debug.key", key)
+    time.sleep(opts.close_window_ms / 1000)  # test harness: the frame window, with no request in it
+    frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
+    run, seen, error = close_run(mark)
+    committed = bool(run) and run.get("outcome") == "committed"
+    age, commit = (run or {}).get("input_age_ms"), (run or {}).get("commit_ms")
+    out = {
+        "key_error": sent.get("error") if isinstance(sent, dict) else None,
+        "action": run, "actions_seen": seen if not run else None, "action_budget_error": error,
+        "commit_ms": commit if committed else None,
+        # The key's age is -1 when the run did not answer an input event: then there is no key-to-frame time.
+        "key_to_frame_ms": round(age + commit, 3) if committed and age is not None and age >= 0 else None,
+        "dropped": frames.get("missed") if not frames.get("error") else None,
+        "refresh_ms": frames.get("refresh_ms"), "frames_error": frames.get("error"),
+        "intervals_ms": frames.get("intervals_ms") or [],
+    }
+    wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+    return out
 
 
 def focused():
@@ -174,7 +258,14 @@ def bench(phase, window):
                 print(f"  stalls={result['hangs'].get('count')} longest={stall.get('ms')} cpu={stall.get('cpu_ms')}", flush=True)
                 for frame in stall.get("frames") or []:
                     print("    " + frame, flush=True)
-            undo(command, window, before)
+            close = undo(command, window, before)
+            if close is not None:
+                result["close"] = close
+                print(f"  cmd_w: key_to_frame={close['key_to_frame_ms']} commit={close['commit_ms']} "
+                      f"dropped={close['dropped']} refresh={close['refresh_ms']} "
+                      f"err={close['key_error'] or close['frames_error'] or close['action_budget_error']}"
+                      + (f" no {CLOSE_ACTION} run (saw {close['actions_seen']})" if close["action"] is None else ""),
+                      flush=True)
             time.sleep(0.3)
     return rows
 
@@ -232,16 +323,101 @@ def summary(rows):
             vis = [r.get("visible_ms") for r in sel]
             out[f"{phase}/{command}"] = {
                 "n": len(sel), "missed": sum(v is None for v in vis),
-                "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_max": pct([r.get("key_ms") for r in sel], 1),
-                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_max": pct(vis, 1),
+                "key_p50": pct([r.get("key_ms") for r in sel], .5), "key_p95": pct([r.get("key_ms") for r in sel], .95),
+                "key_p99": pct([r.get("key_ms") for r in sel], .99), "key_max": pct([r.get("key_ms") for r in sel], 1),
+                "visible_p50": pct(vis, .5), "visible_p95": pct(vis, .95), "visible_p99": pct(vis, .99),
+                "visible_max": pct(vis, 1),
                 "frames_p50": pct([frame_of(r) for r in sel], .5),
                 "frames_p95": pct([frame_of(r) for r in sel], .95),
+                "frames_p99": pct([frame_of(r) for r in sel], .99),
                 "frames_max": pct([frame_of(r) for r in sel], 1),
+                "dropped_max": pct([dropped(r) for r in sel], 1),
+                "dropped_total": sum(d for d in (dropped(r) for r in sel) if d is not None),
                 "first_frame_ms_p50": pct([(r.get("frames") or {}).get("first_tick_ms") for r in sel], .5),
                 "confirmed_p50": pct([r.get("confirmed_ms") for r in sel], .5),
                 "confirmed_p95": pct([r.get("confirmed_ms") for r in sel], .95),
+                "confirmed_p99": pct([r.get("confirmed_ms") for r in sel], .99),
             }
     return out
+
+
+def dropped(row):
+    """A create run's dropped frames: its frame intervals over 1.5 refresh periods (BenchFrames `missed`)."""
+    return (row.get("frames") or {}).get("missed")
+
+
+def close_summary(rows):
+    """Per phase, the Cmd-W leg after each Cmd-T (`close_leg`)."""
+    out = {}
+    for phase in sorted({r["phase"] for r in rows if r.get("close")}):
+        legs = [r["close"] for r in rows if r["phase"] == phase and r.get("close")]
+        keyed = [c["key_to_frame_ms"] for c in legs]
+        intervals = [i for c in legs for i in c["intervals_ms"]]
+        out[f"{phase}/cmd_w"] = {
+            "n": len(legs), "missed": sum(v is None for v in keyed),
+            **{f"key_to_frame_{k}": v for k, v in perf_stats.summary(keyed).items() if k != "n"},
+            **{f"commit_{k}": v for k, v in perf_stats.summary([c["commit_ms"] for c in legs]).items() if k != "n"},
+            "dropped_max": pct([c["dropped"] for c in legs], 1),
+            "dropped_total": sum(c["dropped"] for c in legs if c["dropped"] is not None),
+            **{f"frame_{k}": v for k, v in perf_stats.summary(intervals).items()},
+        }
+    return out
+
+
+# The result-v1 key of each command: the perf-budgets.json row prefix (perf-budgets.py rows_new_surfaces).
+SERIES_KEYS = {"new_workspace": "cmd_n", "new_tab": "cmd_t", "new_terminal": "ctrl_backtick",
+               "split_right": "cmd_d", "split_down": "cmd_shift_d", "new_browser": "cmd_shift_l"}
+ENGINES = {"cef": "chromium", "webkit": "webkit"}
+
+
+def series_name(key, phase):
+    """`<key>.<session>` for the idle phase at the launched workspace count, else `<key>.<session>.<phase>`
+    (`idle@10ws` -> `idle_10ws`): the lab stories claim only the first form."""
+    base = f"{key}.{opts.session}"
+    return base if phase == "idle" else f"{base}.{phase.replace('@', '_')}"
+
+
+def result_series(rows):
+    """{metric: (unit, engine, samples)} of every measured series, raw samples in run order."""
+    out = {}
+    for phase in sorted({r["phase"] for r in rows}):
+        for command in COMMANDS:
+            sel = [r for r in rows if r["phase"] == phase and r.get("command") == command]
+            if not sel:
+                continue
+            name = series_name(SERIES_KEYS.get(command, command), phase)
+            engines = collections.Counter(ENGINES.get(r.get("engine"), "none") for r in sel)
+            engine = engines.most_common(1)[0][0] if command == "new_browser" else "none"
+            out[f"{name}.key_to_frame"] = ("ms", engine, [r.get("visible_ms") for r in sel])
+            out[f"{name}.dropped"] = ("count", engine, [dropped(r) for r in sel])
+            out[f"{name}.key_ms"] = ("ms", engine, [r.get("key_ms") for r in sel])
+            out[f"{name}.confirmed"] = ("ms", engine, [r.get("confirmed_ms") for r in sel])
+        legs = [r["close"] for r in rows if r["phase"] == phase and r.get("close")]
+        if legs:
+            name = series_name("cmd_w", phase)
+            out[f"{name}.key_to_frame"] = ("ms", "none", [c["key_to_frame_ms"] for c in legs])
+            out[f"{name}.dropped"] = ("count", "none", [c["dropped"] for c in legs])
+            out[f"{name}.commit"] = ("ms", "none", [c["commit_ms"] for c in legs])
+            out[f"{name}.frame"] = ("ms", "none", [i for c in legs for i in c["intervals_ms"]])
+    return out
+
+
+def record_results(launcher, rows):
+    """One cmux-perf-result/v1 file per series (BenchApp.record). A series with no sample, or one the bench cannot
+    describe truthfully (no build sha, no features snapshot), is not written; its reason is returned instead."""
+    written = {}
+    for metric, (unit, engine, samples) in result_series(rows).items():
+        samples = [s for s in samples if isinstance(s, (int, float))]
+        if not samples:
+            written[metric] = "not recorded: no samples"
+            continue
+        try:
+            written[metric] = str(launcher.record(STORY, metric, unit, samples, better="lower", engine=engine))
+        except (RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+        if written[metric].startswith("not recorded"):
+            print(f"result-v1 {STORY}/{metric}: {written[metric]}", flush=True)
+    return written
 
 
 app = None
@@ -282,7 +458,8 @@ def main():
     if opts.hang_stacks:
         env.update({"CMUX_NEXT_HANG_THRESHOLD_MS": "8", "CMUX_NEXT_AGENT_PANE_MOCK": "1", "ACPMUX_AGENT_LAUNCH": "deny"})
     # One launch path (bench_launch.py): socket in the state folder, bench env, a clear reason when it does not come up.
-    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env)
+    launcher = BenchApp(APP, out=opts.out, log_name=f"app-{TAG}.log", window=None, screen=None, teardown=False, env=env,
+                        perf_session=opts.session, build_config=opts.build_config)
     try:
         launcher.launch(timeout=120, on_start=lambda process: LAUNCHED.append(process.pid))
     finally:
@@ -290,6 +467,12 @@ def main():
     SOCKET = launcher.socket
     CLI_ENV["CMUX_SOCKET_PATH"] = SOCKET
     time.sleep(2)  # test harness: shell prompt
+    stress = None
+    if opts.session == "stress":
+        # STRESS's measured workspace ends shown and focused, its selected tabs terminals (perf-stress-session.py).
+        module = load_by_path("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+        stress = module.Stress(rpc).build()
+        print("STRESS-SESSION " + json.dumps(stress), flush=True)
     window = window_key()
     rows = []
     counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
@@ -305,8 +488,13 @@ def main():
                 rows += bench(phase + suffix, window)
             finally:
                 stop_load()
-    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
+    result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows,
+              "session": opts.session, "story": STORY, "close": close_summary(rows)}
+    if stress is not None:
+        result["stress_session"] = stress
+    result["results_v1"] = record_results(launcher, rows)
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
+    print("CLOSE", json.dumps(result["close"], indent=1), flush=True)
     if opts.json:
         open(opts.json, "w").write(json.dumps(result, indent=1))
     if opts.budget_frames:

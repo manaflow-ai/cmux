@@ -5,14 +5,15 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 7920,
-            "T2": 0
+            "T1": 8220,
+            "T2": 900
           },
           "stories": {
             "T1": [
               "chat-anim",
               "home-idle",
               "motion",
+              "new-surfaces",
               "omnibar",
               "pane-stress",
               "perf-gate",
@@ -20,7 +21,9 @@
               "switch",
               "tab-switch"
             ],
-            "T2": []
+            "T2": [
+              "new-surfaces-stress"
+            ]
           }
         }
       ],
@@ -34,14 +37,15 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 7920,
-            "T2": 0
+            "T1": 8220,
+            "T2": 900
           },
           "stories": {
             "T1": [
               "chat-anim",
               "home-idle",
               "motion",
+              "new-surfaces",
               "omnibar",
               "pane-stress",
               "perf-gate",
@@ -49,7 +53,9 @@
               "switch",
               "tab-switch"
             ],
-            "T2": []
+            "T2": [
+              "new-surfaces-stress"
+            ]
           }
         }
       ],
@@ -82,12 +88,13 @@
           "index": 1,
           "seconds": {
             "T0": 0,
-            "T1": 3720
+            "T1": 4020
           },
           "stories": {
             "T0": [],
             "T1": [
               "home-idle",
+              "new-surfaces",
               "omnibar",
               "perf-gate",
               "sidebar",
