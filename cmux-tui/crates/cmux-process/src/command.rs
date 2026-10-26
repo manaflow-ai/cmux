@@ -316,13 +316,17 @@ impl Command {
         self
     }
 
-    /// The QoS class the child's first thread starts at (macOS:
-    /// `posix_spawnattr_set_qos_class_np`), instead of the spawning thread's
-    /// class, which a child otherwise keeps across its exec: a shell spawned
+    /// The QoS class the child runs at instead of the spawning thread's,
+    /// which a macOS child otherwise keeps across its exec: a shell spawned
     /// from a UserInteractive echo thread would run at UserInteractive for
-    /// its life. The spawning thread's own class is not touched. Callers name
-    /// `cmux_threads::USER_CHILD` or `cmux_threads::HELPER_CHILD`. Linux and
-    /// Windows: no effect; the child keeps its creator's nice value.
+    /// its life. Callers name `cmux_threads::USER_CHILD` or
+    /// `cmux_threads::HELPER_CHILD`. macOS: Utility and Background are a
+    /// ceiling for every thread of the child
+    /// (`posix_spawnattr_set_qos_class_np`, which takes only those), and the
+    /// spawning thread is untouched; a higher class is the first thread's
+    /// starting class, which the spawning thread holds for the one
+    /// `posix_spawn` call (`cmux_threads::with_qos`). Linux and Windows: no
+    /// effect; the child keeps its creator's nice value.
     pub fn qos(&mut self, qos: ThreadQos) -> &mut Self {
         #[cfg(target_vendor = "apple")]
         {

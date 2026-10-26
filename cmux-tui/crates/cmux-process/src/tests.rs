@@ -152,10 +152,10 @@ fn wait_timeout_without_pidfd_open_waits_for_the_exit() {
 const QOS_REPORT: &str = "CMUX_PROCESS_QOS_REPORT";
 
 /// The child run of [`qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone`]:
-/// this test binary started again, printing the class it runs at. Its test
-/// thread has the class of the process's first thread, which the spawn set
-/// (a pthread created without a QoS attribute takes its creator's class,
-/// sys/qos.h). Without the variable it does nothing.
+/// this test binary started again, printing the class its test thread
+/// requests, which is the first thread's (a pthread created without a QoS
+/// attribute takes its creator's class, sys/qos.h). Without the variable it
+/// does nothing.
 #[cfg(target_vendor = "apple")]
 #[test]
 fn qos_report_child() {
@@ -164,26 +164,30 @@ fn qos_report_child() {
     }
 }
 
-/// macOS: a child spawned from a UserInteractive thread with
-/// `qos(USER_CHILD)` runs at Default and one with `qos(HELPER_CHILD)` at
-/// Utility, while the spawning thread stays UserInteractive (the class goes
-/// in the spawn attributes). One spawned without `qos` inherits
-/// UserInteractive: the bug `qos` fixes (p02-threads 223). The child reports
-/// its own class: a base priority does not tell Utility from Default on
-/// every host.
+/// macOS, from a UserInteractive thread (p02-threads 223): a child spawned
+/// with `qos(USER_CHILD)` starts at Default, one with `qos(HELPER_CHILD)` runs
+/// below it (a Utility ceiling), and one without `qos` inherits
+/// UserInteractive (the bug). The spawning thread is UserInteractive after
+/// each spawn. A user child reports its own class; a ceiling leaves the
+/// requested class alone, so the helper is compared by its first thread's
+/// priority with a user child's and an unset child's.
 #[cfg(target_vendor = "apple")]
 #[test]
 fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
+    use cmux_threads::process::probe;
     use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, USER_CHILD, current};
 
+    fn with_qos(command: &mut Command, qos: Option<ThreadQos>) {
+        if let Some(qos) = qos {
+            command.qos(qos);
+        }
+    }
     let class_of_child = |qos: Option<ThreadQos>| {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--exact", "tests::qos_report_child", "--nocapture", "--test-threads=1"])
             .env(QOS_REPORT, "1");
-        if let Some(qos) = qos {
-            command.qos(qos);
-        }
+        with_qos(&mut command, qos);
         let output = command.output().unwrap();
         assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
         assert!(output.status.success(), "{output:?}");
@@ -194,17 +198,32 @@ fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
             .unwrap_or_else(|| panic!("no class report: {stdout}"))
             .to_owned()
     };
-    let (user, helper, unset) = std::thread::spawn(move || {
+    let priority_of_child = |qos: Option<ThreadQos>| {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        with_qos(&mut command, qos);
+        let mut child = command.spawn().unwrap();
+        assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+        let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
+        let _ = child.kill();
+        let _ = child.wait();
+        priority.unwrap()
+    };
+    let (classes, priorities) = std::thread::spawn(move || {
         assert_eq!(cmux_threads::set_current(ThreadQos::UserInteractive), QosChange::Applied);
-        (class_of_child(Some(USER_CHILD)), class_of_child(Some(HELPER_CHILD)), class_of_child(None))
+        (
+            (class_of_child(Some(USER_CHILD)), class_of_child(None)),
+            [Some(HELPER_CHILD), Some(USER_CHILD), None].map(priority_of_child),
+        )
     })
     .join()
     .unwrap();
-    assert_eq!(user, format!("{:?}", LiveQos::Class(ThreadQos::Default)));
-    assert_eq!(helper, format!("{:?}", LiveQos::Class(ThreadQos::Utility)));
+    assert_eq!(classes.0, format!("{:?}", LiveQos::Class(ThreadQos::Default)));
     assert_eq!(
-        unset,
+        classes.1,
         format!("{:?}", LiveQos::Class(ThreadQos::UserInteractive)),
         "a child without qos inherits the thread's class"
     );
+    let [helper, user, unset] = priorities;
+    assert!(helper < user && user < unset, "helper {helper}, user {user}, unset {unset}");
 }

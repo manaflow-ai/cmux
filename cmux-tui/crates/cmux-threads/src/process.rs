@@ -13,11 +13,13 @@
 //! | A user shell or agent ([`USER_CHILD`])    | Default |
 //! | git, ss/netstat, hooks ([`HELPER_CHILD`]) | Utility |
 //!
-//! A `posix_spawn` names the class in its attributes
-//! (`posix_spawnattr_set_qos_class_np`, through `cmux_process::Command::qos`),
-//! so the spawning thread's own class never changes. A single-threaded
-//! process that forks (cmux-holder) has no attributes: it sets the class in
-//! the child before `execve` with `pthread_set_qos_class_self_np`.
+//! A `posix_spawn` states the class through `cmux_process::Command::qos`: a
+//! helper's Utility is a ceiling in the spawn attributes
+//! (`posix_spawnattr_set_qos_class_np`, which takes Utility and Background
+//! only), so the spawning thread is untouched; a user child's Default is the
+//! class the spawning thread holds for the one `posix_spawn` call. A
+//! single-threaded process that forks (cmux-holder) sets the class in the
+//! child before `execve` with `pthread_set_qos_class_self_np`.
 //!
 //! Linux does not apply these classes: a child keeps its creator's nice
 //! value, so a helper started from a nice-0 request thread runs at nice 0,

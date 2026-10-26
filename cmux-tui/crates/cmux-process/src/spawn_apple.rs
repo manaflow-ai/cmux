@@ -12,6 +12,8 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::process::{ChildStderr, ChildStdin, ChildStdout};
 
+use cmux_threads::ThreadQos;
+
 use crate::child::Child;
 use crate::command::Command;
 use crate::fd::dup_above;
@@ -148,6 +150,11 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
     // descriptors without close-on-exec pass, ignored signals stay ignored.
     let like_std = command.inherit_like_std || how == Start::ReplaceThisProcess;
     let mut setup = Setup::new()?;
+    // `Command::qos`: the spawn attribute takes Utility and Background only,
+    // as a ceiling for the whole child; a higher class is the one the
+    // spawning thread holds for the `posix_spawn` call alone.
+    let clamp = command.qos.filter(|qos| *qos <= ThreadQos::Utility);
+    let start_class = command.qos.filter(|_| clamp.is_none());
     let mut flags = libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
         | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short;
     if !like_std {
@@ -180,8 +187,7 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
-        // The child's class, not the spawning thread's (`Command::qos`).
-        if let Some(qos) = command.qos {
+        if let Some(qos) = clamp {
             check(libc::posix_spawnattr_set_qos_class_np(&mut setup.attr, qos.qos_class()))?;
         }
         // The directory first: a later dup2 may reuse the number of the
@@ -229,18 +235,24 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
         envp.iter().map(|pair| pair.as_ptr().cast_mut()).collect();
     envp_ptrs.push(std::ptr::null_mut());
     let mut pid: libc::pid_t = 0;
-    // SAFETY: path, argv and envp are NUL-terminated and live for the call;
-    // attr and actions are initialized.
-    check(unsafe {
-        libc::posix_spawn(
-            &mut pid,
-            path.as_ptr(),
-            &setup.actions,
-            &setup.attr,
-            argv_ptrs.as_ptr(),
-            envp_ptrs.as_ptr(),
-        )
-    })?;
+    let mut spawn = || {
+        // SAFETY: path, argv and envp are NUL-terminated and live for the
+        // call; attr and actions are initialized.
+        check(unsafe {
+            libc::posix_spawn(
+                &mut pid,
+                path.as_ptr(),
+                &setup.actions,
+                &setup.attr,
+                argv_ptrs.as_ptr(),
+                envp_ptrs.as_ptr(),
+            )
+        })
+    };
+    match start_class {
+        Some(qos) => cmux_threads::with_qos(qos, spawn),
+        None => spawn(),
+    }?;
     drop(plan);
     drop(cwd_fd);
     let [stdin, stdout, stderr] = parents;

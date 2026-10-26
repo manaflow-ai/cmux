@@ -358,32 +358,44 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 }
 
 /// macOS: a read git started from a UserInteractive thread (an echo or
-/// request thread) runs at Utility, and the thread keeps its class.
+/// request thread) runs at the helper class, below a child that inherits the
+/// thread's class, and the thread keeps its class.
 #[cfg(all(test, target_vendor = "apple"))]
 mod qos_tests {
+    use cmux_process::Command;
     use cmux_threads::process::probe;
-    use cmux_threads::{LiveQos, QosChange, ThreadQos, current, set_current};
+    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, current, set_current};
 
     use super::{read_command, stop};
 
     #[test]
     fn a_read_git_of_a_user_interactive_thread_runs_at_utility() {
-        let utility = probe::base_priority_at(ThreadQos::Utility).unwrap();
-        let interactive = probe::base_priority_at(ThreadQos::UserInteractive).unwrap();
-        assert_ne!(utility, interactive);
-        // A shell alias keeps git running (waiting for its `sleep`) while its
-        // own first thread is read.
-        let alias = ["-c", "alias.cmux-qos-probe=!sleep 30", "cmux-qos-probe"];
-        let git = std::thread::spawn(move || {
-            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
-            let mut child = read_command(&std::env::temp_dir(), &[], &alias).spawn().unwrap();
+        let first_thread_priority = |mut command: Command| {
+            let mut child = command.spawn().unwrap();
             assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
             let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
             stop(&mut child);
             priority.unwrap()
+        };
+        let sleep = |helper: bool| {
+            let mut command = Command::new("/bin/sleep");
+            command.arg("30").process_group(0);
+            if helper {
+                command.qos(HELPER_CHILD);
+            }
+            command
+        };
+        // A shell alias keeps git running (waiting for its `sleep`) while its
+        // own first thread is read.
+        let alias = ["-c", "alias.cmux-qos-probe=!sleep 30", "cmux-qos-probe"];
+        let [git, helper, inherited] = std::thread::spawn(move || {
+            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
+            [read_command(&std::env::temp_dir(), &[], &alias), sleep(true), sleep(false)]
+                .map(first_thread_priority)
         })
         .join()
         .unwrap();
-        assert_eq!(git, utility, "git {git}: utility {utility}, ui {interactive}");
+        assert_eq!(git, helper, "git {git}: a helper {helper}, inherited {inherited}");
+        assert!(git < inherited, "git {git}: inherited {inherited}");
     }
 }
