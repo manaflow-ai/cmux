@@ -154,8 +154,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
 
-    /// Reserved (task 032, PL-cef-tab). One Chromium message pump pass on the main thread (or in the
-    /// Chromium host). Ring: B/E; begin arg0 the armed reason, end arg0 1 for a long run, arg1 elapsed us.
+    /// One Chromium message pump pass (task 032, ``Signposter/beginCEFPump(reasonCode:)``): `CefDoMessageLoopWork`
+    /// on the app's main thread while the pump is in the app; with the Chromium host on, the host emits it (task 104).
+    /// Ring: B/E; begin arg0 the armed reason (1 now, 2 delayed, 3 kept, 4 reentered; 0 a pass no timer armed),
+    /// end arg0 1 for a long run (CEF's whole time slice), arg1 the elapsed us.
     case cefPump = 14
     /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
     /// host's create to its reply. Ring: AB/AE; begin arg0 1 for a spare, arg1 the profile index.
