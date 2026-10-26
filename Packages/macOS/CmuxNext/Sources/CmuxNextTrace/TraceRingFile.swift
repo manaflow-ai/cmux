@@ -45,15 +45,17 @@ public final class TraceRingFile: Sendable {
     ///
     /// - Returns: The mapping, or nil after removing whatever the call created.
     static func mapRecording(path: String, byteCount: Int) -> UnsafeMutableRawPointer? {
-        if unlink(path) != 0, errno != ENOENT { return nil }
-        let descriptor = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else { return nil }
-        defer { close(descriptor) }
-        guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
-            unlink(path)
-            return nil
+        blockingCall(.fileIO) {
+            if unlink(path) != 0, errno != ENOENT { return nil }
+            let descriptor = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { return nil }
+            defer { close(descriptor) }
+            guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
+                unlink(path)
+                return nil
+            }
+            return mapping
         }
-        return mapping
     }
 
     /// Moves `ring` from the heap into its black-box file in `directory` (trace.md "Heap, then file"). It

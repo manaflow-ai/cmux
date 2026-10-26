@@ -58,15 +58,13 @@ extension TraceRing {
     func endRecording() -> Bool {
         guard recordingPhase.compareExchange(expected: RecordingPhase.recording.rawValue, desired: RecordingPhase.changing.rawValue,
                                              ordering: .acquiringAndReleasing).exchanged else { return false }
-        // An adoption that swaps the black box to its file meanwhile leaves the writers on the recording, so
-        // the writers go to the black box read last.
-        var target = blackBoxCell.load(ordering: .acquiring)
-        while true {
-            activeCell.store(target, ordering: .releasing)
-            let now = blackBoxCell.load(ordering: .acquiring)
-            if now == target { break }
-            target = now
-        }
+        // An adoption that swaps the black box to its file meanwhile leaves the writers on the recording
+        // (``activateFile(_:)`` moves them only from the heap), so read the black box again after the store:
+        // adoption is one-shot, so the second read is final.
+        let blackBox = blackBoxCell.load(ordering: .acquiring)
+        activeCell.store(blackBox, ordering: .releasing)
+        let adopted = blackBoxCell.load(ordering: .acquiring)
+        if adopted != blackBox { activeCell.store(adopted, ordering: .releasing) }
         recordingPhase.store(RecordingPhase.idle.rawValue, ordering: .releasing)
         return true
     }

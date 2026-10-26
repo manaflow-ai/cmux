@@ -14,7 +14,7 @@ public protocol TraceKeyFlows: Sendable {
     func setKeyFlows(_ on: Bool)
 }
 
-/// Secure keyboard entry (task 128's gate).
+/// Secure keyboard entry (the task 128 gate).
 public protocol TraceSecureInput: Sendable {
     /// Whether secure keyboard entry (a password prompt) is on now.
     var isSecureInputActive: Bool { get }

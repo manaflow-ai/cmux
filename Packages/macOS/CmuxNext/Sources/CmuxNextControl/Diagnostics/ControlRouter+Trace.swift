@@ -305,7 +305,7 @@ extension TraceControl {
 
         /// The app ring's request: the added categories' bits, the app role's ring and `keys`.
         func request(keys: Bool) -> TraceRuntime.RecordingRequest {
-            let mask = added.reduce(UInt64(0)) { $0 | 1 << UInt64($1.traceBit) }
+            let mask = TraceCategories(added.map { TraceCategories(bit: $0.traceBit) }).rawValue
             let sizes = TraceRuntime.Role.app.recordingSizes
             return TraceRuntime.RecordingRequest(categoryMask: mask, recordCapacity: sizes.chunkCount * TraceRing.recordsPerChunk, keys: keys)
         }
