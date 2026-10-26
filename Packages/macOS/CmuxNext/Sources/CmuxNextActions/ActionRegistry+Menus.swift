@@ -62,6 +62,7 @@ public struct ContextMenuHighlightSample: Sendable {
 }
 
 final class ActionContextMenuTrace: NSObject, NSMenuDelegate {
+    private let capacity = 4096
     private var highlights: [ContextMenuHighlightSample] = []
     private var validations = 0
 
@@ -70,7 +71,10 @@ final class ActionContextMenuTrace: NSObject, NSMenuDelegate {
         let actionID = (item.representedObject as? ActionMenuPayload)?.id.rawValue
         highlights.append(ContextMenuHighlightSample(menuTitle: menu.title, itemTitle: item.title,
                                                      actionID: actionID, uptime: ProcessInfo.processInfo.systemUptime))
+        if highlights.count > capacity { highlights.removeFirst(highlights.count - capacity) }
     }
+
+    func record(menu: NSMenu, item: NSMenuItem?) { self.menu(menu, willHighlight: item) }
 
     func noteValidation() { validations += 1 }
 
