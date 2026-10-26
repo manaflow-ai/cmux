@@ -20,8 +20,10 @@ use std::sync::Arc;
 pub(crate) struct Plan {
     pub name: String,
     pub host: String,
-    /// The remote daemon's WebSocket port (the peer url's).
-    pub port: u16,
+    /// The remote daemon's WebSocket port (the peer url's): a known peer's,
+    /// else None, the port the host's daemon already listens on (default
+    /// [`crate::peer::SSH_PEER_PORT`] when it has no listener yet).
+    pub port: Option<u16>,
     pub harnesses: Vec<String>,
     /// The remote binary `install` checks and pushes; when it is not
     /// [`DAEMON_BIN`], that path becomes a link to it.
@@ -42,7 +44,7 @@ impl Plan {
         Self {
             name: name.unwrap_or_else(|| hosts::short_name(&host)),
             host,
-            port: crate::peer::SSH_PEER_PORT,
+            port: None,
             harnesses,
             remote_binary,
             reverse,
@@ -88,12 +90,12 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     };
     let mut emit = |r: &StepResult| print_step(r, json_out);
     let remote = SshRemote(&plan.host);
-    let mut done = machine_steps(&remote, &plan, &local, fix, &mut emit);
+    let (mut done, port) = machine_steps(&remote, &plan, &local, fix, &mut emit);
     let local_name = hosts::short_name(&crate::hand::pair::hostname());
     let t = PeerTarget {
         name: &plan.name,
         host: &plan.host,
-        port: plan.port,
+        port,
         local_name: &local_name,
         local_dest: None,
     };
@@ -137,12 +139,13 @@ pub(crate) fn peer_back_off() -> StepResult {
 }
 
 /// The name, host and port `doctor NAME|HOST` works on: a peer with that
-/// name, else the peer at that ssh host, else the host itself.
-pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, u16) {
+/// name, else the peer at that ssh host, else the host itself (its port:
+/// the one its daemon listens on).
+pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, Option<u16>) {
     let ssh_peers = peers.iter().filter_map(|p| {
         let name = p.get("name").and_then(Value::as_str)?;
         let t = crate::peer::ssh_target(p.get("url").and_then(Value::as_str)?).ok()?;
-        Some((name.to_owned(), t.destination, t.port))
+        Some((name.to_owned(), t.destination, Some(t.port)))
     });
     let ssh_peers: Vec<_> = ssh_peers.collect();
     ssh_peers
@@ -150,31 +153,35 @@ pub(crate) fn pick_target(peers: &[Value], target: &str) -> (String, String, u16
         .find(|(name, _, _)| name == target)
         .or_else(|| ssh_peers.iter().find(|(_, host, _)| host == target))
         .cloned()
-        .unwrap_or_else(|| {
-            (hosts::short_name(target), target.to_owned(), crate::peer::SSH_PEER_PORT)
-        })
+        .unwrap_or_else(|| (hosts::short_name(target), target.to_owned(), None))
 }
 
-/// reach, install, daemon and harness: the steps on the machine itself.
+/// reach, install, daemon and harness: the steps on the machine itself,
+/// and the port the peer link uses (the daemon step's).
 fn machine_steps(
     r: &dyn Remote,
     plan: &Plan,
     local: &Local,
     fix: bool,
     emit: &mut dyn FnMut(&StepResult),
-) -> Vec<StepResult> {
+) -> (Vec<StepResult>, u16) {
     let mut done = Vec::new();
+    let mut port = plan.port.unwrap_or(crate::peer::SSH_PEER_PORT);
     for step in [Step::Reach, Step::Install, Step::Daemon, Step::Harness] {
         let result = gate(step, &done).unwrap_or_else(|| match step {
             Step::Reach => reach(r),
             Step::Install => install(r, &plan.name, &plan.remote_binary, fix),
-            Step::Daemon => daemon(r, &plan.name, plan.port, fix),
+            Step::Daemon => {
+                let (result, listening) = daemon(r, &plan.name, plan.port, fix);
+                port = listening;
+                result
+            }
             _ => harness(r, &plan.harnesses, local, fix),
         });
         emit(&result);
         done.push(result);
     }
-    done
+    (done, port)
 }
 
 /// The steps that must have passed before this one runs. A skipped step
@@ -372,6 +379,9 @@ struct Running {
     /// It runs as `cmux-tui acp …`, as its `daemon status` says
     /// (`runsAsCmuxTuiAcp`); None from a daemon too old to say who it is.
     cmux_tui_acp: Option<bool>,
+    /// The address its WebSocket listener is bound to (`listen`), when it
+    /// has one.
+    listen: Option<String>,
 }
 
 /// The acpmux the host uses: the running daemon's, else the first binary.
@@ -408,6 +418,7 @@ fn parse_probe(stdout: &str) -> Probe {
                         build: v.get("build").and_then(Value::as_str).map(str::to_owned),
                         person_key: v.get("personKey").and_then(Value::as_bool) == Some(true),
                         cmux_tui_acp: v.get("runsAsCmuxTuiAcp").and_then(Value::as_bool),
+                        listen: v.get("listen").and_then(Value::as_str).map(str::to_owned),
                     });
                     // The daemon names its own executable; an older one does not.
                     probe.exe = v
@@ -716,20 +727,41 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     }
 }
 
-/// Why the config gives the peer link no WebSocket listener on `port`.
-fn listener_problem(config: &str, port: u16) -> Option<String> {
-    let cfg: Value = serde_json::from_str(config).unwrap_or(Value::Null);
-    let listen = cfg.pointer("/websocket/listen").and_then(Value::as_str);
+/// The port the daemon serves the peer link on: the running daemon's own
+/// listener (its `daemon status`), else the config's. Err(why) when the
+/// config gives the link no listener or no token, which the link reads.
+fn listener_port(probe: &Probe) -> Result<u16, String> {
+    let cfg: Value = serde_json::from_str(&probe.config).unwrap_or(Value::Null);
+    let configured = cfg.pointer("/websocket/listen").and_then(Value::as_str);
     let has_token =
         cfg.pointer("/websocket/token").and_then(Value::as_str).is_some_and(|t| !t.is_empty());
-    match listen {
-        None => Some("no WebSocket listener is configured".into()),
-        Some(_) if !has_token => Some("the WebSocket listener has no token".into()),
-        Some(l) if !l.ends_with(&format!(":{port}")) => {
-            Some(format!("the daemon listens on {l}, the peer uses port {port}"))
-        }
-        Some(_) => None,
+    let running = probe.running.as_ref().and_then(|run| run.listen.as_deref());
+    match running.or(configured) {
+        None => Err("no WebSocket listener is configured".into()),
+        Some(_) if !has_token => Err("the WebSocket listener has no token".into()),
+        Some(l) => port_of(l).ok_or_else(|| format!("the WebSocket listener {l} names no port")),
     }
+}
+
+/// The port of a `host:port` listen address.
+fn port_of(listen: &str) -> Option<u16> {
+    listen.rsplit_once(':').and_then(|(_, p)| p.parse::<u16>().ok()).filter(|p| *p > 0)
+}
+
+/// A daemon that listens on `listening` while the peer link uses `port`:
+/// never moved from here (another peer or person may use that port, and
+/// the port may be another daemon's), so the step fails before it changes
+/// anything, naming both ways to line them up.
+fn port_mismatch(host: &str, name: &str, whose: &str, listening: u16, port: u16) -> StepResult {
+    let url = hosts::ssh_peer_url(host, listening);
+    fail(
+        Step::Daemon,
+        format!("{whose} listens on port {listening}, the peer uses port {port}"),
+        format!(
+            "Point the peer at the daemon with `acpmux host add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
+            hosts::REMOTE_HOME
+        ),
+    )
 }
 
 /// The daemon of the acpmux the host uses, judged.
@@ -743,90 +775,116 @@ enum Verdict {
     Repair(String),
 }
 
-fn judge_daemon(host: &str, name: &str, probe: &Probe, port: u16) -> Verdict {
-    let want = crate::hub::BUILD;
+/// The daemon judged, and the port the peer link uses: `want` (a known
+/// peer's), else the one the daemon listens on, else the default.
+fn judge_daemon(host: &str, name: &str, probe: &Probe, want: Option<u16>) -> (Verdict, u16) {
+    let build = crate::hub::BUILD;
+    let listening = listener_port(probe);
+    // A daemon bound without a usable config (`--listen`, no token) keeps
+    // its port when the config is written.
+    let bound = probe.running.as_ref().and_then(|run| run.listen.as_deref()).and_then(port_of);
+    let port =
+        want.or(listening.as_ref().ok().copied()).or(bound).unwrap_or(crate::peer::SSH_PEER_PORT);
     let used = probe.in_use();
     if let Some(used) = used.as_ref().filter(|u| u.app) {
         // cmux owns this daemon: never start, configure or restart it here.
         let Some(pid) = used.pid else {
-            return Verdict::Done(fail(
+            let result = fail(
                 Step::Daemon,
                 format!("cmux is installed on {host} but its acpmux daemon is not running"),
                 format!("Open cmux on {host}, then check again."),
-            ));
+            );
+            return (Verdict::Done(result), port);
         };
-        if let Some(why) = listener_problem(&probe.config, port) {
-            return Verdict::Done(fail(
+        let result = match listening {
+            Err(why) => fail(
                 Step::Daemon,
                 format!("cmux's own daemon runs on {host}, but {why}"),
                 format!(
                     "Give the daemon a WebSocket listener on 127.0.0.1:{port} with a token in {}/config.json on {host}, then restart cmux there.",
                     hosts::REMOTE_HOME
                 ),
-            ));
-        }
-        let ok = format!("cmux's own daemon runs, pid {pid}, build {want}");
-        return Verdict::Done(app_build(Step::Daemon, host, used, &ok));
+            ),
+            Ok(l) if l != port => port_mismatch(host, name, "cmux's own daemon", l, port),
+            Ok(_) => {
+                let ok =
+                    format!("cmux's own daemon runs, pid {pid}, build {build}, on port {port}");
+                app_build(Step::Daemon, host, used, &ok)
+            }
+        };
+        return (Verdict::Done(result), port);
     }
-    if let Some(why) = listener_problem(&probe.config, port) {
-        return Verdict::Repair(why);
-    }
-    let Some(pid) = used.as_ref().and_then(|u| u.pid) else {
-        return Verdict::Repair("the daemon is not running".into());
-    };
-    match used.and_then(|u| u.build) {
-        Some(b) if b != want => Verdict::OtherBuild(
-            StepResult::new(
+    let verdict = match listening {
+        Err(why) => Verdict::Repair(why),
+        // Configured or running on another port than the peer's: refused
+        // before any change (a stopped daemon's listener is kept too).
+        Ok(l) if l != port => Verdict::Done(port_mismatch(host, name, "the daemon", l, port)),
+        Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
+            None => Verdict::Repair("the daemon is not running".into()),
+            Some((_, Some(b))) if b != build => Verdict::OtherBuild(
+                StepResult::new(
+                    Step::Daemon,
+                    StepState::Warn,
+                    format!("the daemon runs build {b}, this is {build}"),
+                )
+                .with_fix(format!("Run `acpmux host update {name}`.")),
+            ),
+            Some((pid, _)) => Verdict::Done(StepResult::new(
                 Step::Daemon,
-                StepState::Warn,
-                format!("the daemon runs build {b}, this is {want}"),
-            )
-            .with_fix(format!("Run `acpmux host update {name}`.")),
-        ),
-        _ => Verdict::Done(StepResult::new(
-            Step::Daemon,
-            StepState::Ok,
-            format!("running, pid {pid}, build {want}"),
-        )),
-    }
+                StepState::Ok,
+                format!("running, pid {pid}, build {build}, on port {port}"),
+            )),
+        },
+    };
+    (verdict, port)
 }
 
-fn daemon(r: &dyn Remote, name: &str, port: u16, fix: bool) -> StepResult {
+/// The daemon step, and the port the peer link uses. With `fix`, a daemon
+/// missing its listener, stopped or of another build is configured on that
+/// port (an existing listener and token kept) and restarted; one listening
+/// on another port than a known peer's is left alone.
+fn daemon(r: &dyn Remote, name: &str, want: Option<u16>, fix: bool) -> (StepResult, u16) {
     let host = r.host();
     let judge = |r: &dyn Remote| match probe(r) {
-        Ok(p) => judge_daemon(host, name, &p, port),
-        Err(e) => Verdict::Repair(format!("{e:#}")),
+        Ok(p) => judge_daemon(host, name, &p, want),
+        Err(e) => (Verdict::Repair(format!("{e:#}")), want.unwrap_or(crate::peer::SSH_PEER_PORT)),
     };
-    let why = match judge(r) {
-        Verdict::Done(result) => return result,
-        Verdict::OtherBuild(result) if !fix => return result,
+    let (verdict, port) = judge(r);
+    let why = match verdict {
+        Verdict::Done(result) => return (result, port),
+        Verdict::OtherBuild(result) if !fix => return (result, port),
         Verdict::OtherBuild(result) => result.detail,
         Verdict::Repair(why) => why,
     };
     let look = format!("Run `{DAEMON_BIN} daemon start` on {host} to see why it does not start.");
     if !fix {
-        return fail(
-            Step::Daemon,
-            why,
-            format!("Run the check with --fix to configure and start the daemon on {host}."),
-        );
+        let next = format!("Run the check with --fix to configure and start the daemon on {host}.");
+        return (fail(Step::Daemon, why, next), port);
     }
     let started = hosts::lock_to_install(r)
         .and_then(|lock| hosts::install_daemon(&lock.fence(r), port, true));
     if let Err(e) = started {
-        return fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look);
+        return (fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look), port);
     }
-    match judge(r) {
+    // Where it listens now: a port another daemon holds moved it to a free
+    // one (`daemon.rs`), which the peer then uses unless it is a known one.
+    let (after, port) = judge(r);
+    let result = match after {
         Verdict::Done(after) if after.state == StepState::Ok => {
             StepResult::new(Step::Daemon, StepState::Fixed, format!("{why}; now {}", after.detail))
         }
-        Verdict::Done(after) | Verdict::OtherBuild(after) => {
+        Verdict::Done(after) => {
+            let next = after.fix.unwrap_or(look);
+            fail(Step::Daemon, format!("{why}; after a restart, {}", after.detail), next)
+        }
+        Verdict::OtherBuild(after) => {
             fail(Step::Daemon, format!("{why}; after a restart, {}", after.detail), look)
         }
         Verdict::Repair(after) => {
             fail(Step::Daemon, format!("{why}; after a restart, {after}"), look)
         }
-    }
+    };
+    (result, port)
 }
 
 /// `text` with the local home `from` rewritten to the remote `to` wherever

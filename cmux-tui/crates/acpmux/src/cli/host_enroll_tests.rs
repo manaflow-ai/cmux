@@ -80,7 +80,7 @@ fn plan(harnesses: &[&str]) -> Plan {
     Plan {
         name: "box".into(),
         host: "leo@box.tail".into(),
-        port: 47811,
+        port: Some(47811),
         harnesses: harnesses.iter().map(|s| s.to_string()).collect(),
         remote_binary: DAEMON_BIN.into(),
         reverse: false,
@@ -196,13 +196,13 @@ fn a_name_defaults_to_the_short_host_and_doctor_finds_peers() {
         json!({"name": "hb", "url": "ssh://leo@huge-blue.tail:47900"}),
         json!({"name": "web", "url": "ws://10.0.0.2:47811"}),
     ];
-    assert_eq!(pick_target(&peers, "hb"), ("hb".into(), "leo@huge-blue.tail".into(), 47900));
+    assert_eq!(pick_target(&peers, "hb"), ("hb".into(), "leo@huge-blue.tail".into(), Some(47900)));
     assert_eq!(
         pick_target(&peers, "leo@huge-blue.tail"),
-        ("hb".into(), "leo@huge-blue.tail".into(), 47900)
+        ("hb".into(), "leo@huge-blue.tail".into(), Some(47900))
     );
-    assert_eq!(pick_target(&peers, "web"), ("web".into(), "web".into(), 47811));
-    assert_eq!(pick_target(&peers, "box.lan"), ("box".into(), "box.lan".into(), 47811));
+    assert_eq!(pick_target(&peers, "web"), ("web".into(), "web".into(), None));
+    assert_eq!(pick_target(&peers, "box.lan"), ("box".into(), "box.lan".into(), None));
 }
 
 #[test]
@@ -398,7 +398,8 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
             &Local { harness_dir: None, home: None },
             fix,
             &mut |_| {},
-        );
+        )
+        .0;
         assert_eq!(
             states(&results)[1..3],
             [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Ok)]
@@ -416,7 +417,8 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
             &Local { harness_dir: None, home: None },
             fix,
             &mut |_| {},
-        );
+        )
+        .0;
         assert_eq!(
             states(&results)[1..3],
             [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
@@ -443,7 +445,8 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
             &Local { harness_dir: None, home: None },
             fix,
             &mut |_| {},
-        );
+        )
+        .0;
         assert_eq!(
             states(&results)[1..3],
             [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Fail)]
@@ -460,7 +463,8 @@ fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
         &Local { harness_dir: None, home: None },
         true,
         &mut |_| {},
-    );
+    )
+    .0;
     assert_eq!(results[2].state, StepState::Warn);
     assert_read_only(&fake);
 }
@@ -483,13 +487,14 @@ fn doctor_without_fix_changes_nothing() {
         let fake = host_with(bins, daemon, LOCAL_BIN, profile);
         let mut lines = Vec::new();
         let results =
-            machine_steps(&fake, &plan(&["pi"]), &local, false, &mut |r| lines.push(step_line(r)));
+            machine_steps(&fake, &plan(&["pi"]), &local, false, &mut |r| lines.push(step_line(r)))
+                .0;
         assert_eq!(lines.len(), 4);
         assert!(results.iter().any(|r| r.state == worst), "{results:?}");
         assert_read_only(&fake);
     }
     let fake = host_with(old, Some(("old", false)), LOCAL_BIN, build);
-    let results = machine_steps(&fake, &plan(&[]), &local, false, &mut |_| {});
+    let results = machine_steps(&fake, &plan(&[]), &local, false, &mut |_| {}).0;
     assert_eq!(
         states(&results)[1..3],
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
@@ -528,7 +533,7 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
             panic!("unexpected script: {script}")
         }
     });
-    let results = machine_steps(&fake, &plan(&["pi"]), &local, true, &mut |_| {});
+    let results = machine_steps(&fake, &plan(&["pi"]), &local, true, &mut |_| {}).0;
     assert_eq!(
         states(&results),
         [
@@ -566,7 +571,8 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
         &Local { harness_dir: None, home: None },
         true,
         &mut |_| {},
-    );
+    )
+    .0;
     assert_eq!(results[1].state, StepState::Fail);
     assert_eq!(results[1].reason, Some(REASON_WRONG_PLATFORM), "the app installs the right build");
     assert_eq!(serde_json::to_value(&results[1]).unwrap()["reason"], "wrong-platform");
@@ -585,7 +591,8 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
         &Local { harness_dir: None, home: None },
         true,
         &mut |_| {},
-    );
+    )
+    .0;
     assert_eq!(results[0].state, StepState::Fail);
     assert!(results[0].detail.starts_with("the ssh key was rejected"));
     assert!(results[1..].iter().all(|r| r.state == StepState::Skip));
@@ -795,7 +802,8 @@ fn no_standalone_daemon_starts_beside_an_installed_app() {
             &Local { harness_dir: None, home: None },
             fix,
             &mut |_| {},
-        );
+        )
+        .0;
         assert_eq!(
             states(&results)[1..3],
             [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Fail)]
@@ -826,7 +834,7 @@ fn a_daemon_running_as_cmux_tui_acp_is_cmux_own() {
     assert!(used.app && used.pid == Some(7));
     // Never restarted, even when its listener is missing.
     p.config = "{}".into();
-    match judge_daemon("leo@box.tail", "box", &p, 47811) {
+    match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
         Verdict::Done(r) => assert_eq!(r.state, StepState::Fail, "{r:?}"),
         other => panic!("{other:?}"),
     }
@@ -906,7 +914,7 @@ fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
     let used = probe(&fake).unwrap().in_use().unwrap();
     assert!(used.app && !used.bundle, "{used:?}");
     let fake = host_reporting(tui, Some(("old", false)), "", None, "");
-    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {}).0;
     assert_eq!(
         states(&results)[1..3],
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
@@ -923,7 +931,7 @@ fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
     // ~/.local/bin: the app's, so it warns and names the app's updater.
     let app: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, build)];
     let fake = host_reporting(app, Some(("old", false)), "", None, "");
-    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {}).0;
     assert_eq!(
         states(&results)[1..3],
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
@@ -949,7 +957,8 @@ fn a_keyed_cmux_tui_daemon_on_an_ssh_host_names_remote_install() {
         &Local { harness_dir: None, home: None },
         true,
         &mut |_| {},
-    );
+    )
+    .0;
     assert_eq!(
         states(&results)[1..3],
         [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
@@ -1022,7 +1031,8 @@ fn enroll_keeps_the_listener_of_a_daemon_on_another_port() {
     // enroll peers with it there, and never rewrites or restarts it.
     let fake = two_daemon_host(Some(47921));
     let local = Local { harness_dir: None, home: None };
-    let results = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
+    let (results, port) = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
+    assert_eq!(port, 47921);
     assert_eq!(
         states(&results)[..3],
         [
@@ -1041,9 +1051,10 @@ fn enroll_never_takes_the_port_another_daemon_holds() {
     // restarted daemon moves to a free port, and enroll peers there.
     let fake = two_daemon_host(None);
     let local = Local { harness_dir: None, home: None };
-    let results = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
+    let (results, port) = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
     assert_eq!(results[2].state, StepState::Fixed, "{results:?}");
-    assert!(results[2].detail.contains("127.0.0.1:46673"), "{results:?}");
+    assert!(results[2].detail.contains("on port 46673"), "{results:?}");
+    assert_eq!(port, 46673);
 }
 
 #[test]
@@ -1052,7 +1063,7 @@ fn doctor_refuses_to_move_a_healthy_daemon_to_the_peers_port() {
     // change and no restart, even with --fix; the fix points the peer at it.
     let fake = two_daemon_host(Some(47921));
     let local = Local { harness_dir: None, home: None };
-    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {}).0;
     assert_eq!(results[2].state, StepState::Fail, "{results:?}");
     assert!(
         results[2]
