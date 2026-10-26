@@ -270,7 +270,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
             return Ok(Begun::Up(carrier));
         }
         Some(LinkState::Revoked { reason }) => {
-            return Err(CloudError::new(LINK_REVOKED, reason.clone()));
+            return Err(link_failure_for(machine, LinkFailure::Revoked(reason.clone())));
         }
         _ => {}
     }
@@ -453,6 +453,28 @@ fn rescue_open<C: ControlPlane>(
 #[cfg(test)]
 mod hint_tests {
     use super::*;
+
+    #[test]
+    fn revoked_state_keeps_recovery_context_on_later_connects() {
+        struct NoCalls;
+        impl ControlPlane for NoCalls {
+            fn call(&mut self, _: &crate::WireCall) -> Result<crate::WireReply, crate::RelayError> {
+                panic!("a revoked link must not call the backend")
+            }
+            fn session(&mut self) -> Result<crate::SessionStatus, crate::RelayError> {
+                panic!("a revoked link must not request a session")
+            }
+        }
+        let mut server = Server::new(NoCalls);
+        server.attach_mut().supervisor.revoke("vm-example", "access removed");
+        let error = match begin_connect(&mut server, "vm-example", Origin::User, None) {
+            Err(error) => error,
+            Ok(_) => panic!("revoked link connected"),
+        };
+        assert!(error.message.contains("vm-example"));
+        assert!(error.message.contains("cmux cloud diagnostics"));
+        assert!(error.message.contains("team admin"));
+    }
 
     #[test]
     fn disconnected_links_do_not_suggest_ssh_before_reconnection() {

@@ -70,16 +70,12 @@ impl CloudError {
 impl fmt::Display for CloudError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rejected { code, message, retryable } => {
+            Self::Rejected { code, message, .. } => {
                 write!(formatter, "cmux Cloud conversation request failed ({code})")?;
                 if !message.is_empty() && message != code {
                     write!(formatter, ": {message}")?;
                 }
-                if *retryable {
-                    formatter.write_str("; retry with the same idempotency key, or run `cmux cloud diagnostics`")
-                } else {
-                    formatter.write_str("; run `cmux cloud diagnostics`")
-                }
+                formatter.write_str("; run `cmux cloud diagnostics`")
             }
             Self::SignedOut => formatter.write_str(
                 "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
@@ -92,7 +88,7 @@ impl fmt::Display for CloudError {
             ),
             Self::Unavailable(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request failed: {detail}; the operation may have succeeded; retry with the same idempotency key or run `cmux cloud diagnostics`",
+                "cmux Cloud conversation request failed: {detail}; run `cmux cloud diagnostics`",
             ),
             Self::BadRequest(detail) => write!(
                 formatter,
@@ -124,10 +120,12 @@ mod tests {
             let message = error.to_string();
             assert!(message.contains("scope is missing"));
             assert!(message.contains("cmux cloud diagnostics"));
-            assert_eq!(message.contains("retry with the same idempotency key"), retryable);
+            assert!(!message.contains("retry"));
         }
         assert!(
-            CloudError::Unavailable("timeout".into()).to_string().contains("same idempotency key")
+            CloudError::Unavailable("timeout".into())
+                .to_string()
+                .contains("cmux cloud diagnostics")
         );
         assert!(CloudError::BadRequest("missing id".into()).to_string().contains("cmux --help"));
     }
