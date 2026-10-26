@@ -1,0 +1,545 @@
+{
+  "version": 1,
+  "build": "4030749448501",
+  "notes": "notes/4030749448501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25290,
+      "title": "cmux NEXT: Chief subagent chats of an older Chief home on this Mac open instead of saying 'another machine'",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25369,
+      "title": "acpmux: an owner-only home under umask 002, the Web UI token hidden, allow advice that covers shell reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25253,
+      "title": "cmux NEXT chat: shared chat faces (author, who's here, typing, answered by), render only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25386,
+      "title": "cmux NEXT: the words for updating other machines' daemons to the app's build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25221,
+      "title": "cmux NEXT Chief avatar uploads (2/3): Upload Your Own… and the upload drawn everywhere",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25276,
+      "title": "VS Code Minimap: the canvas painter (2/4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24474,
+      "title": "acpmux: an ssh-started daemon runs in the login session, so agents read the keychain",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25320,
+      "title": "test(cmux-next): exempt remote.openRemote CLI name (#25092)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25320/44fbb262/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "44fbb262",
+      "tour": "core"
+    },
+    {
+      "pr": 25312,
+      "title": "cmux NEXT: an ssh:// link from another app asks before it connects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25349,
+      "title": "ci(cmux-next): promote a smoked VM image snapshot to the dev channel from a workflow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25402,
+      "title": "acpmux: opening a long chat reuses its restored Git branch baseline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25330,
+      "title": "acpmux: cover durable watch delivery and recovery lifecycles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25399,
+      "title": "acpmux host: setup and update rows say when a host does not update itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25337,
+      "title": "cmux NEXT Chief avatar uploads (1/2): the store, kept on this Mac with size limits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25360,
+      "title": "ci(cmux-next): build-fleet compiles take the gateway only while a runner is idle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25401,
+      "title": "acpmux: watch workers take a missing pending entry without unwrap (crash ratchet after #25299)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25256,
+      "title": "cloud terminals: ssh and new-terminal-on-machine answer surface ids; --workspace adds a tab to an existing machine workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25397,
+      "title": "machine-health: dns heal restarts tailscaled only when opted in, after 3 failed passes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23902,
+      "title": "cmux-next: Cmd-clicked link opens straight into the split (one animation)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25209,
+      "title": "fix #c6143f0e48: route Toggle Session Info to chat panel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25392,
+      "title": "cmux-tui: list the cloud port actions in cloud help (#25284 added them after #25261's drift test)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25299,
+      "title": "acpmux: persist daemon wake subscriptions across restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25359,
+      "title": "ci(cmux-tui): cp/, lane/, perf/ pushes skip tree work unless an open PR has that head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25376,
+      "title": "Cover docs/remote-agents-and-cloud.md in the cmux-tui tree key",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25368,
+      "title": "cmux NEXT: shorten the empty command palette while preserving search",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25317,
+      "title": "cmux NEXT: composer menus open instantly past chat pane edges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25380,
+      "title": "ci(cmux-next): feat-cmux-next push Release compile falls back to 6vcpu Blacksmith, not 12vcpu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25353,
+      "title": "acpmux: wait --print shows a failed turn's error and its retry, never the reply before it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25374,
+      "title": "ci: retain rejected native fade proof evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25362,
+      "title": "acpmux: send --prompt-file says send reads stdin and which command takes the flag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23704,
+      "title": "Hold Home on a first launch until its conversation is in",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23704/18c5ef9b/next-chief-settings-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "18c5ef9b",
+      "tour": "chief-settings"
+    },
+    {
+      "pr": 25373,
+      "title": "acpmux: test that an ask rule asks under approve-reads and a chat allowance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24279,
+      "title": "acpmux: a full disk, a dead agent, a missing harness and a restarting daemon say what to do",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25340,
+      "title": "acpmux: Linux sandbox D1/7: the seccomp deny filter",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25275,
+      "title": "Settings: VS Code Minimap toggle (off by default), strings and exports (1/4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21784,
+      "title": "cmux-next: every Apple aerial is a background; ones not downloaded open the Wallpaper pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23876,
+      "title": "acpmux MCP tools: agents message lanes with acpmux_send, drawn as a message card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25346,
+      "title": "acpmux: new --host with no --cwd names the folder the peer picked, and an old peer's update",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25309,
+      "title": "cmux-tui: the owner's Cloud viewing presence reaches the daemon's clients (cloud-conversation-presence)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25313,
+      "title": "ci: refuse untrusted cmux-tui pin publishers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24155,
+      "title": "acpmux: approve-reads runs read-only shell commands (rg, git status/diff/rev-parse, pwd) without asking",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24256,
+      "title": "ci: point the feat-cmux-next acpmux channel at each daemon-tested tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25284,
+      "title": "cloud: open machine ports in a browser tab, and list/forward/close ports from the CLI",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25284/01d790a1/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "01d790a1",
+      "tour": "core"
+    },
+    {
+      "pr": 23673,
+      "title": "acpmux: a sub-session folder swapped after its check gets no harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25363,
+      "title": "ci: correct manual perf artifact action pin",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24232,
+      "title": "acpmux: Linux hosts keep their daemon on the newest feat-cmux-next build by themselves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25358,
+      "title": "acpmux: chat presence, part 2: viewing from _acpmux/view per author",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25234,
+      "title": "acpmux: a subagent a transient upstream error failed is resumed in its chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25355,
+      "title": "cmux NEXT: run pane fade proof on Blacksmith macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24356,
+      "title": "Send a question's chosen preview back to Claude Code (annotations)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24735,
+      "title": "Agent pane: a sent prompt or steer never comes back to the composer once acpmux took it",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25285,
+      "title": "acpmux: chat presence, part 1: _acpmux/typing and _acpmux/presence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25327,
+      "title": "acpmux: a lane started from a session is linked to it, and the link ends when either closes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25351,
+      "title": "ci(nightly): run NEXT nightly's Blacksmith macOS legs on 6vcpu, the size that gets capacity",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23945,
+      "title": "Chief engine picker: chief.engine.get offers every acpmux harness with what it supports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25348,
+      "title": "cmux NEXT: allow detached native fade measurements",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25294,
+      "title": "acpmux: Linux sandbox C/7: the port-enforcing proxy for the sandbox's network",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25306,
+      "title": "test: IconFamilyAttributeTests passes the tunables at their defaults",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25352,
+      "title": "docs(skills): cmux-cloud-vm names CLI verbs instead of GUI-only open-machine and machine-tools",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25341,
+      "title": "build: CmuxNextAppTests depends on CmuxNextChiefMemory",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25311,
+      "title": "acpmux: an enrolled peer's deny-all start on the Codex bridge settles in read-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25310,
+      "title": "acpmux: the unix socket starts the Codex bridge in read-only or ask without the person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25293,
+      "title": "package-test-lane suite: a skipped suite reads skipped, never passed; CMUX_TEST_REQUIRE_GUI=1 fails on a skip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25344,
+      "title": "acpmux: a peer's chat under a local chat's raw id never touches that chat's attachment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25291,
+      "title": "acpmux: the pending-permission hint names the app for an allow and offers only deny",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25335,
+      "title": "cmux NEXT Cloud: localize the firewall and publication action titles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25343,
+      "title": "cmux-dns-check: read only the start of tailscaled's run for its DNS mode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25334,
+      "title": "cmux NEXT Cloud: localize the tunnel, network and domain action titles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25278,
+      "title": "cmux NEXT: fade the pane overflow button in place",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25333,
+      "title": "cmux NEXT Cloud: network and firewall actions name the id they need",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25315,
+      "title": "cmux mcp: `current` is the agent's own place; new terminals and links open beside its chat",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25324,
+      "title": "fix(cmux-next): two red checks on the tip",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25332,
+      "title": "cmux NEXT Cloud: fork, restore, new-workspace, rename, kill and resize answer the CLI with ids; hints name CLI verbs",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25332/b85f8556/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "b85f8556",
+      "tour": "core"
+    },
+    {
+      "pr": 25266,
+      "title": "cmux NEXT Cloud: app hints name what failed and the next command",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22883,
+      "title": "cmux-next: retire tabs.newTabWidgets.modeSwitch (the New Tab Search | Ask switch is gone)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23680,
+      "title": "test(cmux-next): --record-launch records every launch window from its first composited frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25339,
+      "title": "acpmux: an ask rule wins over the chat allowance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25270,
+      "title": "acpmux: make remote recovery commands explicit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24293,
+      "title": "acpmux: forward a Claude Code chat's plan usage limits to clients",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25261,
+      "title": "Keep remote CLI help and docs in sync",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25296,
+      "title": "acpmux: _acpmux/retry, acpmux retry and retry_session retry a failed turn now, in the same session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25292,
+      "title": "acpmux: a held daemon.lock names its daemon's pid and acpmux daemon status",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25268,
+      "title": "acpmux: chat multiplayer A: person author, provenance, answeredBy, queue.not_author",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25297,
+      "title": "Home: viewing presence on the conversation socket (chat multiplayer)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25206,
+      "title": "cmux NEXT Session Info show-more rows fill their hit target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24105,
+      "title": "acpmux: an ssh peer that connected before the remote wrote its peer token no longer stays served as Web",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25255,
+      "title": "cmux-machine-health: restart failed cmux-tui units, severity on disk problems, host_health passes it on",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
