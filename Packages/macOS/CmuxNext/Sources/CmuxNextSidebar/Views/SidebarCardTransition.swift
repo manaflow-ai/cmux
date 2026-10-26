@@ -111,33 +111,6 @@ struct SidebarCardTransition {
         layer?.removeAnimation(forKey: Self.travelKey)
     }
 
-    // MARK: The slot's room
-
-    /// The key path a slide springs: a layer translation, so AppKit's frame writes never touch it.
-    static let slideKeyPath = "transform.translation.y"
-
-    /// Slides `views`, already at their rest frames, from `offset` points away along their
-    /// superview's y (where the slot's last height left them) to rest, on a ``RenderSpring``:
-    /// `appear` while the slot's room opens, the quicker `disappear` while it closes. The
-    /// springs are additive, so a change mid-slide stacks on the running one and the views
-    /// never jump. `view` is the view that shows them. Never call it on a card's own layer,
-    /// whose entrance and exit hold non-additive translations.
-    static func slide(_ views: [NSView], from offset: CGFloat, opening: Bool, gate: MotionGate, in view: NSView) {
-        // A layer's translation runs along its superlayer's y, which is its superview's frame y
-        // flipped or not, so the frame offset is the layer offset.
-        let moves = views.compactMap { moved -> RenderSpring.Move? in
-            guard let layer = moved.layer, !moved.isHidden else { return nil }
-            return RenderSpring.Move(layer, slideKeyPath, from: offset, to: CGFloat(0))
-        }
-        guard !moves.isEmpty else { return }
-        gate.renderSpring(opening ? .appear : .disappear).animateGroup(moves, in: view)
-    }
-
-    /// Puts `views` at rest now: a change that does not animate (no window, a live resize).
-    static func stopSlide(_ views: [NSView]) {
-        for case let layer? in views.map(\.layer) { RenderSpring.stop(layer, slideKeyPath) }
-    }
-
     /// +1 when a positive y moves `view` down on screen: its layer lives in
     /// its superview's layer, flipped when the superview is.
     static func down(in view: NSView) -> CGFloat {
