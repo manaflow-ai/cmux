@@ -23,9 +23,10 @@ struct ClosedAgentIdentityTests {
         #expect(row.json["kind"]?.stringValue == "agent")
     }
 
-    @Test func daemonHistoryEnrichmentUsesMachineAndClosedID() throws {
+    @Test(arguments: ["closed:daemon:closed_1", "closed:closed_1"])
+    func daemonHistoryEnrichmentUsesMachineAndClosedID(_ id: String) throws {
         let row = try JSONDecoder().decode(DaemonHistoryEntry.self, from: Data("""
-            {"id":"closed:closed_1","kind":"closed","at_ms":"1","title":"",
+            {"id":"\(id)","kind":"closed","at_ms":"1","title":"",
              "closed_kind":"browser_tab","available":true}
             """.utf8))
         let original = try #require(row.historyEntry(untitled: "Terminal fallback"))
@@ -39,7 +40,7 @@ struct ClosedAgentIdentityTests {
         #expect(enriched.title == AgentPaneModel.tabTitle)
         #expect(HistoryPalettePages.agentBrand(enriched) != nil)
         guard case .closed(let item) = enriched.payload else { Issue.record("not a closed row"); return }
-        #expect(item.id == "closed_1")
+        #expect(item.id == String(id.dropFirst("closed:".count)))
         #expect(item.agentSession?.sessionID == "same-session")
         #expect(NewTabClosed.kind(for: item) == .agent)
 
@@ -52,6 +53,15 @@ struct ClosedAgentIdentityTests {
         otherRecord.id = "daemon:closed_2"
         otherMachine.payload = .closed(otherRecord)
         #expect(HistoryService.enrichClosedEntries([original], from: [otherMachine]) == [original])
+    }
+
+    @Test func closedContainersRetainTheirOwnKind() throws {
+        var item = try Self.closed()
+        #expect(HistoryService.closedAgentSession(item)?.harness == "codex")
+        for kind in [CmuxNextDaemon.ClosedItem.Kind.screen, .workspace, .window] {
+            item.kind = kind
+            #expect(HistoryService.closedAgentSession(item) == nil)
+        }
     }
 
     private static func closed() throws -> CmuxNextDaemon.ClosedItem {

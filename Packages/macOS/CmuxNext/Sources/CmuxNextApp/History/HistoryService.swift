@@ -172,13 +172,20 @@ final class HistoryService {
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
                                                     url: tab?.page == nil ? Self.realText(tab?.url) : nil,
-                                                    agentSession: tab?.agentSession.map { .init(sessionID: $0.session, harness: $0.harness) })
+                                                    agentSession: Self.closedAgentSession(item))
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
         }
+    }
+
+    /// A closed tab can be an agent chat. A screen or workspace remains its container kind,
+    /// even when the first tab it would reopen is an agent chat.
+    static func closedAgentSession(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.AgentSession? {
+        guard item.kind == .tab, let agent = shownTab(item)?.agentSession else { return nil }
+        return .init(sessionID: agent.session, harness: agent.harness)
     }
 
     /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
@@ -212,7 +219,7 @@ final class HistoryService {
         let url = realText(tab?.url)
         // The closed record deliberately omits the agent's host. Without trustworthy source
         // identity, a local daemon tree is not proof that its chat belongs to this app's acpmux.
-        let agentTitle = tab?.agentSession == nil ? nil : AgentPaneModel.tabTitle
+        let agentTitle = closedAgentSession(item) == nil ? nil : AgentPaneModel.tabTitle
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
             ?? realText(item.name) ?? realText(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
