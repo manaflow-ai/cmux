@@ -96,15 +96,20 @@ impl Hub {
         });
     }
 
-    /// Wait until `session`'s log is read, reading it now when the background pass has not
-    /// reached it (immediate outside a deferred start, and once every log is read or the load
-    /// failed). A chat whose agent host ran at the start also waits for adoption: a prompt that
-    /// went first would take the turn ahead of the turn adoption recovers (`hosts.rs`).
-    pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
+    /// Wait until adoption has ended, when `session`'s agent host ran at the start (immediate
+    /// otherwise): a prompt that went first would take the turn ahead of the turn adoption
+    /// recovers (`hosts.rs`).
+    pub(crate) async fn wait_adopted(&self, session: &Session) {
         if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id) {
             let mut adopted = self.adoption_ready.subscribe();
             let _ = adopted.wait_for(|ready| *ready).await;
         }
+    }
+
+    /// Wait until `session`'s log is read, reading it now when the background pass has not
+    /// reached it (immediate outside a deferred start, and once every log is read or the load
+    /// failed).
+    pub(crate) async fn session_log(self: &Arc<Self>, session: &Arc<Session>) {
         if self.session_log_loaded(session) {
             return;
         }

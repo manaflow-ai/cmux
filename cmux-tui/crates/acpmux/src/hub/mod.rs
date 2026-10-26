@@ -391,8 +391,8 @@ pub struct Hub {
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
-    /// False from a deferred start with running agent hosts until adoption ends: requests to
-    /// those chats wait for it (`log_load.rs` `session_log`).
+    /// False from a deferred start with running agent hosts until adoption ends: prompts to
+    /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
     /// Startup has read the login environment: the catalog sees its PATH.
     pub(super) catalog_ready: tokio::sync::watch::Sender<bool>,
