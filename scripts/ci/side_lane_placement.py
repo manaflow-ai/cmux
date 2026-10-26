@@ -422,14 +422,15 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
     vars.CI_SIDE_LANE_RUNNER, never to side_route()'s wider class (runner is not read). A FEAT_BRANCH
     push's Release compile takes no placement on a re-run (its runs-on reads it on attempt 1 only), so it
-    leaves the cascade and takes no slot.
+    leaves the cascade and takes no slot, and no idle mini is counted for it.
     """
     if (env.get("GATEWAY_LABEL") or "").strip():
         env = with_gateway_cascade(env)
+    jobs = tuple((env.get("JOBS") or "").split())
     if env.get("GITHUB_EVENT_NAME") == "push" and env.get("GITHUB_REF") == FEAT_BRANCH:
         env = without_cascade(env, "release-compile")
+        jobs = tuple(job for job in jobs if job != "release-compile")
     label = (env.get("SIDE_LABEL") or "").strip()
-    jobs = tuple((env.get("JOBS") or "").split())
     if runners is None or not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         owned: tuple[str, ...] = ()
         why = f"owned runners could not be read live, or `{label}` is not an owned side label"

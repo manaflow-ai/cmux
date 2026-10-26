@@ -1189,7 +1189,7 @@ jobs:
           # stale snapshot) they take Blacksmith 6 vCPU, the last resort, instead of an owned queue nobody
           # measured (next_macos_cascade.unread_fresh_jobs()). A DEV daily's Release compile feeds the DEV
           # channel, a feat-cmux-next push's gates nightly-next.
-          FRESH_JOBS: ${{ github.run_attempt == 1 && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
+          FRESH_JOBS: ${{ (github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
         run: |
           # The rescue's re-run (attempt 2) is placed only by a trusted script that knows it
           # (side_lane_placement.rerun_main()): an older one writes owned routes a re-run must not

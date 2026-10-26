@@ -833,6 +833,36 @@ class Rerun(unittest.TestCase):
         context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
         self.assertEqual(evaluate(jobs["release-compile"]["runs-on"], context), SMALL)
 
+    def test_a_feat_push_rerun_counts_no_idle_mini_for_release_compile(self):
+        # Review of #25707: JOBS lists release-compile first, so an idle mini counted for it left the
+        # scheme compile on the owned label with no mini to take it.
+        idle = {"name": "light-mini", "status": "online", "busy": False,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        free = {LARGE: 0, SMALL: 0}
+        push = self.rerun_outputs([idle], free, dict(free), JOBS="release-compile cmux-scheme-compile",
+                                  CASCADE_RUNS=" cmux-scheme-compile release-compile ", GITHUB_EVENT_NAME="push",
+                                  GITHUB_REF="refs/heads/feat-cmux-next")
+        self.assertEqual(push["owned_jobs"], " cmux-scheme-compile ")
+        self.assertEqual(push["blacksmith_12_jobs"], "")
+        self.assertEqual(push["blacksmith_6_jobs"], "")
+
+    def test_the_rescues_dev_compile_takes_the_last_resort_when_counts_are_unread(self):
+        # #25739 sends a DEV daily's compile to 6 vCPU when attempt 1 cannot read the counts; the rescue's
+        # attempt 2 is placed afresh, so it reads FRESH_JOBS too, and a person's re-run does not.
+        place = next(step for step in self.placement_job()["steps"] if step.get("id") == "place")
+        fresh = place["env"]["FRESH_JOBS"]
+        context = github_context("workflow_dispatch", ref="refs/heads/feat-cmux-next")
+        context["inputs"] = {"dev_daily": True}
+        for attempt, actor, expected in (("1", "teamleaderleo", "cmux-scheme-compile"),
+                                         ("2", BOT, "cmux-scheme-compile"), ("2", "teamleaderleo", ""),
+                                         ("3", BOT, "")):
+            with self.subTest(attempt=attempt, actor=actor):
+                context["github"].update(run_attempt=attempt, triggering_actor=actor)
+                self.assertEqual(evaluate(fresh, context), expected)
+        values = self.rerun(JOBS="cmux-scheme-compile", FRESH_JOBS="cmux-scheme-compile")
+        placed = cascade.place(values, (), None, None)
+        self.assertEqual(placed.jobs[SMALL], ("cmux-scheme-compile",))
+
     def test_an_older_trusted_placement_writes_nothing_on_the_rerun(self):
         # Review of #25707: the steps check out the base's script. One that predates rerun_main() would
         # write owned, GUI, session and gateway routes on attempt 2; the step's shell runs none of it.
@@ -866,7 +896,7 @@ class Rerun(unittest.TestCase):
         for key in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "retry_runner"):
             for match in re.finditer(r"[^|\n]*needs\.macos-placement\.outputs\." + key + r"\b[^|\n]*", text):
                 line = text[:match.start()].count("\n") + 1
-                if "timeout-minutes:" in match.group(0):
+                if text.splitlines()[line - 1].lstrip().startswith("timeout-minutes:"):
                     continue  # a hosted job's longer timeout, not a route
                 with self.subTest(key=key, line=line):
                     self.assertIn(gate, match.group(0))
