@@ -69,6 +69,77 @@ import Testing
         #expect(spares.host(of: .browser) === spare, "the spare again")
         #expect(runtime.hosts[spare.key] === spare, "keyed as a spare, still in the table")
         #expect(runtime.hosts.count == start)
+
+        // Dropped, its placeholder (its last tab) goes, and the host with it (`hostEmptied`).
+        let spareKey = spare.key
+        spares.drop(.browser, runtime: runtime)
+        #expect(runtime.hosts[spareKey] == nil)
+        #expect(runtime.hosts.count == start - 1)
+    }
+
+    /// Chromium closed an untaken spare's placeholder itself: the host is empty and still the
+    /// spare, so `hostEmptied` leaves it in both tables (`CEFSpareWindow.state(of:)` says `closed`).
+    @Test func anUntakenSpareWhosePlaceholderClosedKeepsItsEntry() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        #expect(spares.prepare(.browser, runtime: runtime))
+        let request = try #require(runtime.pendingWindows.keys.first)
+        runtime.handle(.afterCreated(browser: 10, request: request, window: 10))
+        let spare = try #require(spares.host(of: .browser))
+
+        runtime.handle(.beforeClose(browser: 10))
+
+        #expect(spare.tabs.isEmpty, "the placeholder left")
+        #expect(spares.host(of: .browser) === spare)
+        #expect(spares.state(of: .browser) == .closed)
+        #expect(runtime.hosts[spare.key] === spare)
+    }
+
+    /// A taken spare given back when another spare of its kind was made since: its window has no
+    /// use left, and the deferred close of its placeholder takes it out of the table (`hostEmptied`).
+    @Test func aTakenSpareGivenBackBesideANewerSpareLeavesTheTable() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let spares = runtime.spareWindow
+        #expect(spares.prepare(.browser, runtime: runtime))
+        let request = try #require(runtime.pendingWindows.keys.first)
+        runtime.handle(.afterCreated(browser: 10, request: request, window: 10))
+        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default)
+        let taken = runtime.host(for: key)
+        let tab = CEFTab(id: .random(), profile: .default, host: taken, runtime: runtime)
+        taken.add(tab)
+        #expect(spares.prepare(.browser, runtime: runtime), "the next spare")
+        let newer = try #require(spares.host(of: .browser))
+
+        tab.close()
+        #expect(runtime.hosts[key] === taken, "the close waits for a later run-loop pass")
+        let end = ContinuousClock.now + .seconds(2)
+        while runtime.hosts[key] != nil, ContinuousClock.now < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.002))
+        }
+
+        #expect(runtime.hosts[key] == nil)
+        #expect(taken.tabs.isEmpty)
+        #expect(spares.host(of: .browser) === newer)
+        #expect(runtime.hosts[newer.key] === newer)
+    }
+
+    /// A host that emptied after another host took its key leaves the newer host in place.
+    @Test func anEmptiedHostLeavesTheHostThatNowHoldsItsKey() throws {
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: CEFPaneHost.popupPrefix + UUID().uuidString), profile: .default)
+        let replaced = runtime.host(for: key)
+        let tab = CEFTab(id: .random(), profile: .default, host: replaced, runtime: runtime)
+        replaced.add(tab)
+        let newer = CEFPaneHost(key: key, runtime: runtime)
+        runtime.hosts[key] = newer
+
+        tab.close()
+
+        #expect(replaced.tabs.isEmpty)
+        #expect(runtime.hosts[key] === newer)
     }
 
     /// Opens a tab of `key` whose window came up as `browser`.
