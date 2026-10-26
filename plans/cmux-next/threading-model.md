@@ -86,7 +86,7 @@ own turn is posted with a class and an owner (`mainWork.post`, `node.queue(_:own
 005 and 217 land). A raw hop (`DispatchQueue.main.async`, `Task { @MainActor`, a main-inherited `Task {`,
 `MainActor.run`, `CFRunLoopPerformBlock`) is an unattributed job that the scheduler cannot order behind the
 person's input. `p06_queue.py` counts them (queues Q1, Q1b, Q1c, Q7); the hook's `main-async` rule refuses a new
-`DispatchQueue.main.async`, and task 014's `main-hop` rule will refuse the rest. The classes, the posting forms and the
+`DispatchQueue.main.async`, and its `main-hop` rule (task 014, landed) refuses the rest. The classes, the posting forms and the
 recipes are in [main-thread-budget.md](main-thread-budget.md).
 
 In the daemon (p06 tasks 030, 034 and 035, spec'd), a request's cause (`EventCause`: frontend, program,

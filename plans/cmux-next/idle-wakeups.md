@@ -35,7 +35,7 @@ These are the only allowed ways to wake up. `scripts/cmux-next/check-concurrency
 
 cmux-tui gets the same rules (section 6): blocking reads and condvar waits with no timeout, one-shot computed deadlines, one shared Backoff.
 
-How to choose (recipe R-timer, [main-thread-budget.md](main-thread-budget.md) section 11): first make the timer an event (a callback, a stream, a source the producer signals). Only if no event exists, use a `MainDeadline` with a class and an alignment on the main thread, or a `DemandTimer` with `tolerance:` off it. A sleep inside a race uses `Deadline`. `scripts/cmux-next/p06_queue.py` counts the open sites (queue Q6, escape `// timer-class-allow: <why>`). Task 014 (spec'd) adds the pre-push guardrail `timer-class`, which refuses a new main-actor `DemandTimer` and new `Task.sleep` and `clock.sleep` loops with the same escape. `check-concurrency.sh`'s `// wakeup-allow:` stays the escape for timers and loops outside CmuxNextWakeups.
+How to choose (recipe R-timer, [main-thread-budget.md](main-thread-budget.md) section 11): first make the timer an event (a callback, a stream, a source the producer signals). Only if no event exists, use a `MainDeadline` with a class and an alignment on the main thread, or a `DemandTimer` with `tolerance:` off it. A sleep inside a race uses `Deadline`. `scripts/cmux-next/p06_queue.py` counts the open sites (queue Q6, escape `// timer-class-allow: <why>`). The pre-push guardrail `timer-class` (task 014, landed) refuses a new main-actor `DemandTimer` and new `Task.sleep` and `clock.sleep` loops with the same escape. `check-concurrency.sh`'s `// wakeup-allow:` stays the escape for timers and loops outside CmuxNextWakeups.
 
 ## 3. Diagnostics
 

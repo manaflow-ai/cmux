@@ -8,7 +8,7 @@ under load) and the display cycle's layer-tree build. Owner: PL-main (cmux-4f, p
 This file is the contract for main-thread work. The program that builds it is p06-scheduler
 ([chrome-parity/p06-scheduler.md](chrome-parity/p06-scheduler.md), "the spec" below). The "Task" column names
 the p06 task that lands each piece. Section 12 lists every type with its file and says if it is on
-perf/chrome-parity (at `b60b545e50a`) or only spec'd. A spec'd piece is the interface to write against; do not
+perf/chrome-parity (at `4e0005673f2`) or only spec'd. A spec'd piece is the interface to write against; do not
 call it from code until its task lands. Section 14 describes the pieces that existed before p06.
 
 ## Rule
@@ -60,10 +60,11 @@ GCD QoS and Swift task priority ([threading-model.md](threading-model.md), "QoS 
 
 - `passTarget = refresh interval − 2 ms input reserve − the measured render pass` (task 201; today it is a fixed
   8 ms in `MainFrameBudget+Budgets.swift`). `RenderPassMeter` measures the render pass.
-- The budgeted batch runs in its own run-loop turn, right after the tick's commit: a CFRunLoopSource that
-  `AfterFrameCommit` signals. Its deadline is the next vsync minus the render estimate. So a tick turn is drain +
-  frame clients + render, and a budget turn is at most the class shares. The setting
-  `debug.scheduler.inTickBudget` restores the in-tick path (task 201).
+- Task 201 (spec'd): the budgeted batch will run in its own run-loop turn, right after the tick's commit: a
+  CFRunLoopSource that `AfterFrameCommit` signals. Its deadline will be the next vsync minus the render estimate.
+  So a tick turn will be drain + frame clients + render, and a budget turn at most the class shares. The setting
+  `debug.scheduler.inTickBudget` will restore the in-tick path. Today the batch runs in the tick (section 14), and
+  neither the source nor the setting exists.
 - The budget protects a pending input and the frame. The class shares apply only while a key or a click is
   pending. With no input pending, a class past its share uses the frame time that the other classes left.
 - **Progress rule, visible:** a class that yielded in one frame runs in the next frame.
@@ -145,9 +146,11 @@ records `stall.render_starved` with the top unattributed turn from `MainTurnMete
   CmuxNextDesign/Windows/WindowVisibilitySource.swift, task 022, spec'd) > workspace (shown, companion, parked, off screen;
   `WorkspaceContentController`, task 023) > pane (suspended; `PaneController`, task 024) > tab (selected in a shown
   pane; `TabContentCache.node(for:)`, task 024) > sidebar row (viewport + 1 screen of overscan; `SidebarRowFeed`,
-  task 040, spec'd). Tasks 023 and 024 (workspace, pane, tab) are landed.
-- `node.deferUntilVisible(key) { }` (task 215) runs at once if the node is visible, else once on show. It replaces
-  per-view hidden-dirty flags and heavy `viewDidChangeEffectiveAppearance` bodies.
+  task 040, spec'd). Task 024 (pane, tab) is landed. Task 023 (workspace) is spec'd: until it lands,
+  `WorkspaceContentController.visibilityNode` is nil and `PaneController` hangs its node on a root node.
+- `node.deferUntilVisible(key: k) { }` (task 020, landed) runs at once if the node is visible, else once on show.
+  It replaces per-view hidden-dirty flags and heavy `viewDidChangeEffectiveAppearance` bodies. Task 215 (spec'd)
+  adds the R-appear and R-hide adopters.
 - **Show order** (task 213, spec'd). Observers on screen in the focused pane, and `firstFrame` subscribers, read again in
   the show turn. Other newly visible observers post one userBlocking task each, in viewport order, so they land in
   the next 1-2 frames. A `warm` vote (hover, the Ctrl-Tab target, neighbor tabs) reads again in idle without
@@ -178,7 +181,7 @@ records `stall.render_starved` with the top unattributed turn from `MainTurnMete
 | `VisibleObservation(node, owner:, on: mainWork, read:, apply:)` | CmuxNextWakeups/VisibleObservation.swift | A view apply. It applies the first value in the call, then tracks with `withObservationTracking` (the same path on macOS 14-27) only while the node is visible. onChange marks it dirty; one apply per observer per frame, as one task on the node's `MainTaskQueue`. On hide a cancel signal ends the tracking; on show it reads again in the show order. | 025 (landed) |
 | `ObservationCause`, `ObservationCauses` | CmuxNextWakeups/ObservationCause.swift | The cause order automation < program < frontend < person. `mainWork.causes` is the one `ObservationCauses`: `currentCause`, `withCause(_:_:)`, and the person-caused flushes that the input-response pass applies (`flushPersonCaused()`). | 025, 207 (landed) |
 | `ServiceObservation(class, owner, read, apply)` | CmuxNextWakeups/ServiceObservation.swift | Anything that is not a view apply. The same tracking and coalescing, no node. The token cancels on release. | 026 (spec'd) |
-| `StoreWaiters` | CmuxNextDaemon/Store/StoreWaiters.swift | Keyed O(1) waits on `DaemonStore` (`waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection(where:)`, `waitTabGone`), with injected-clock timeouts. They replace predicate waits in `ObservationStream`. | 027 (spec'd) |
+| `StoreWaiters` | CmuxNextDaemon/Store/StoreWaiters.swift | Keyed O(1) waits on `DaemonStore` (`waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection`, `waitTabGone`). Each wait has a timeout on the main deadline queue (`AlignedWakeups`), with no Task or timer of its own. They replace predicate waits in `ObservationStream`. | 027 (landed) |
 | `PageWaiters` | CmuxNextBrowser/Engine/PageWaiters.swift | `page.when(phase:)` and `page.whenPrompt(kind:)`, resumed by the state setters. | 028 (spec'd) |
 | `MachineTabIndex` | CmuxNextDaemonService/MachineTabIndex.swift | O(1) `locateTab`, kept by `StoreIndex` hooks. | 051 (spec'd) |
 | `ObservationLedger` | CmuxNextWakeups/ObservationLedger.swift | `debug.observations`: armed, evaluated and applied counts per owner, show re-reads, SwiftUI hosting body evaluations. Atomic, no lock on the hot path. | 029 (spec'd) |
@@ -196,7 +199,7 @@ them. New code does not add them (guardrail `view-observation`).
 
 ## 9. Cause rules
 
-**Daemon** (PL-daemon, tasks 030, 034, 035, 224-227; spec'd: at `b60b545e50a` event_emit.rs has no cause and the
+**Daemon** (PL-daemon, tasks 030, 034, 035, 224-227; spec'd: at `4e0005673f2` event_emit.rs has no cause and the
 envelope has no `"cause"` field, so the app decodes every event as `program`):
 
 - `EventCause {Frontend, Program, Automation}` (cmux-tui-core/src/mux/event_emit.rs). The request dispatcher sets a
@@ -283,17 +286,17 @@ the rest is spec'd):
 
 The queue generator (`scripts/cmux-next/p06_queue.py`) maps each queue to one rule (its docstring: main-hop Q1, Q1b,
 Q1c, Q7; view-observation Q2, Q3, Q10, Q11; raw-observer Q4; visibility-walk Q5, QA; timer-class Q6; local-monitor
-Q8). Task 014 (spec'd) adds the same six rules to the pre-push guardrails (`scripts/cmux-next/guardrails.py`), on
-added lines only. An escape is `// <rule>-allow: <why>` in the hook's escape window: the line, the comment and
-attribute block directly above it, or the trailing comment of the code line before it. The reason must prove why
-the code is correct; "not migrated yet" is not a reason.
+Q8). The pre-push guardrails (`scripts/cmux-next/guardrails.py`, `MAIN_CLASS_RULES`, task 014, landed) refuse the
+same six rules on added lines only. An escape is `// <rule>-allow: <why>` in the hook's escape window: the line,
+the comment and attribute block directly above it, or the trailing comment of the code line before it. The reason
+must prove why the code is correct; "not migrated yet" is not a reason.
 
-Two hook rules cover part of these queues today, with their own escapes:
+Two older hook rules cover part of these queues, with their own escapes:
 
-- `main-async` refuses an added `DispatchQueue.main.async` (`// main-async-allow: <the API that forces a GCD hop>`).
-  Its text still offers `Task { @MainActor in ... }` as the fix; that is a raw hop here (R-hop), so use a posting
-  form. A hop that must stay carries both escapes, `main-async-allow` for the hook and `main-hop-allow` for the
-  queue.
+- `main-async` refuses an added `DispatchQueue.main.async` (`// main-async-allow: <the API that forces a GCD hop>`)
+  and gives the R-hop fix. The hook's `main-hop` rule does not match `DispatchQueue.main.async`, but the queue
+  counts it under main-hop (Q1c). So a `DispatchQueue.main.async` that must stay carries both escapes,
+  `main-async-allow` for the hook and `main-hop-allow` for the queue.
 - `input-monitor` refuses an added `addLocalMonitorForEvents` or `addGlobalMonitorForEvents` outside CmuxNextInput
   (`// input-monitor-allow: <why the tap cannot see this event>`). A monitor that must stay carries both escapes,
   `input-monitor-allow` and `local-monitor-allow`.
@@ -307,14 +310,16 @@ Two hook rules cover part of these queues today, with their own escapes:
 | R-index | Q11 | A per-object revision or `MachineTabIndex`. | `view-observation` (`// view-observation-allow:`) |
 | R-notif | Q4 | A `WindowEvents` or `AppEvents` subscription with a node. NSView frame and bounds notices become the view's own `layout()` or `setFrameSize`. KVO on WebKit takes the tab node. | `raw-observer` (`// raw-observer-allow:`) |
 | R-vis | Q5 (`isHiddenOrHasHiddenAncestor`) | `node.isVisible`. | `visibility-walk` (`// visibility-walk-allow:`), for hit-test and accessibility uses |
-| R-hide | Q5 (`viewDidHide`, `viewDidUnhide`) | The override only forwards to the node (`super`, `node.…`, `deferUntilVisible`); hidden-dirty flags become `deferUntilVisible`. | `visibility-walk` (`// visibility-walk-allow:`) |
+| R-hide | Q5 (`viewDidHide`, `viewDidUnhide`) | The override contains only `super.viewDidHide()` / `super.viewDidUnhide()` and `node.set(.hidden)` / `node.set(.visible)` for its own direction. Move hidden-dirty work out of the override into `node.deferUntilVisible(key:_:)` at the place that marks it dirty. | `visibility-walk` (`// visibility-walk-allow:`) |
 | R-timer | Q6 | First make it an event (section "Sanctioned primitives" of [idle-wakeups.md](idle-wakeups.md)). Otherwise `MainDeadline` with class and alignment; sleeps in races use `Deadline`. Review every site by hand (rule 6). | `timer-class` (`// timer-class-allow:`) |
 | R-input | Q8 (`mouseMoved`, `scrollWheel`, `mouseDragged` overrides) | cmux-side hover, cursor and drag-target work goes through `FrameInputCoalescer`; a forwarded event keeps its order and count. | `local-monitor` (`// local-monitor-allow:`) |
 | R-monitor | Q8 (`addLocalMonitorForEvents`) | An `InputEventTap.subscribe(class:phase:window:while:handler:)` subscription (CmuxNextInput); a session monitor only while its session is active. Task 220 adds the node filter on the tap. | `local-monitor` (`// local-monitor-allow:`); the hook's `input-monitor` (`// input-monitor-allow:`) |
 | R-appear | QA (`viewDidChangeEffectiveAppearance`) | A body that does more than set layer colors uses `deferUntilVisible`. | `visibility-walk` (`// visibility-walk-allow:`) |
 
 `p06_queue.py --check N` counts the open hits of file group N; escapes and settled overrides (an R-hide, R-input or
-R-appear body that does only what the recipe allows, an R-delivery with `class:`) are not open. The queue
+R-appear body that does only what the recipe allows, an R-delivery with `class:`) are not open. The queue's R-hide
+test is wider than the hook's: it also settles a hide override that calls any `node.` member or
+`deferUntilVisible`, which the hook's `visibility-walk` rule refuses. Write the hook's form (the R-hide row). The queue
 commands are spec section 6. The arch ratchet rows `main_inherited_tasks`, `raw_main_hops`,
 `unscoped_observations`, `visibility_walks`, `unclassed_main_deadlines` and `local_event_monitors`
 (`scripts/cmux-next/arch_counts.py`, `arch-ratchet.json`, task 015, spec'd) will hold the totals; until then
@@ -325,7 +330,7 @@ commands are spec section 6. The arch ratchet rows `main_inherited_tasks`, `raw_
 After task 205 lands, no public signature in CmuxNextWakeups changes without the Performance Lead's OK (spec rule
 8): Wakeups is under most of the 98 targets, so a signature change rebuilds them. Changes inside the module are
 free. The frozen surface, with its files (CmuxNextWakeups unless the path says otherwise). "Landed" means on
-perf/chrome-parity at `b60b545e50a`; "spec'd" means the task has not landed and the name is the spec's interface.
+perf/chrome-parity at `4e0005673f2`; "spec'd" means the task has not landed and the name is the spec's interface.
 
 | Type or member | File | Task | State |
 |---|---|---|---|
@@ -346,7 +351,8 @@ perf/chrome-parity at `b60b545e50a`; "spec'd" means the task has not landed and 
 | `MainDeadline`, `MainDeadlineScheduler`, `TimerAlignment`, `Deadline` | MainDeadline.swift, MainDeadlineScheduler.swift, TimerAlignment.swift, Deadline.swift | 011 | landed |
 | `MainWakeUpQueue`, `AlignedWakeups`; `DemandTimer.schedule(after:tolerance:)` | MainWakeUpQueue.swift, AlignedWakeups.swift, DemandTimer.swift | 011, 012 | landed |
 | `FrameInputCoalescer`, `FrameInputCoalescers` | FrameInputCoalescer.swift, FrameInputCoalescers.swift | 013 | landed |
-| `Visibility`, `VisibilityNode` (`effective`, `isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `setCaptured(_:)`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)`, `queue(_:owner:on:)`, `freeze()`) | Visibility.swift, VisibilityNode.swift | 020, 209, 215 | landed |
+| `Visibility`, `VisibilityNode` (`effective`, `isVisible`, `hiddenSince`, `mediaActiveWithin(_:)`, `setCaptured(_:)`, `subscribe(owner:_:)`, `deferUntilVisible(key:_:)`, `queue(_:owner:on:)`, `freeze()`) | Visibility.swift, VisibilityNode.swift | 020, 209 | landed |
+| The R-appear and R-hide adopters of `deferUntilVisible` | (adopting views) | 215 | spec'd |
 | `VisibilityNode.captureVote(reason:stayHidden:)` | VisibilityNode.swift | 211 | spec'd |
 | `MainTaskQueue` | MainTaskQueue.swift | 209 | landed |
 | `CPUTimeBudgetPool` | CPUTimeBudgetPool.swift | 210 | spec'd |
@@ -358,7 +364,8 @@ perf/chrome-parity at `b60b545e50a`; "spec'd" means the task has not landed and 
 | `InputEventTap` (the input tap that task 220's node filter builds on) | CmuxNextInput/InputEventTap.swift | p04-input-011 | landed |
 | `InputObserverHub` (the node filter) | InputObserverHub.swift | 220 | spec'd |
 | `MainExecutorHook` (default off, decision-gated) | MainExecutorHook.swift | 202 | spec'd |
-| `StoreWaiters` | CmuxNextDaemon/Store/StoreWaiters.swift | 027 | spec'd |
+| The budget turn (a CFRunLoopSource that `AfterFrameCommit` signals) and the setting `debug.scheduler.inTickBudget` | AfterFrameCommit.swift, MainWorkScheduler.swift | 201 | spec'd |
+| `StoreWaiters` (the waits are `DaemonStore.waitForTab`, `waitForWorkspace`, `waitLoaded`, `waitConnection`, `waitTabGone`) | CmuxNextDaemon/Store/StoreWaiters.swift | 027 | landed |
 | `PageWaiters` | CmuxNextBrowser/Engine/PageWaiters.swift | 028 | spec'd |
 | `MachineTabIndex` | CmuxNextDaemonService/MachineTabIndex.swift | 051 | spec'd |
 | `WindowVisibilitySource` | CmuxNextDesign/Windows/WindowVisibilitySource.swift | 022 | spec'd |
@@ -370,7 +377,8 @@ perf/chrome-parity at `b60b545e50a`; "spec'd" means the task has not landed and 
 When a spec'd task lands, its commit changes its row to landed and corrects the signature here.
 
 The DocC on each public declaration is the reference for its signature. Task 205 records the pilot's before and
-after numbers (unattributed share, key to frame, observations, with sha and host) in section 15.
+after numbers (unattributed share, key to frame, observations, with sha and host) in
+[perf-lead.md](perf-lead.md) section 5, the place that section 15 names.
 
 ## 13. Chrome sources (chromium.googlesource.com, main)
 
@@ -433,7 +441,9 @@ These pieces exist before p06 (at `772cdfc45ac`). The sections above extend them
   and agent statuses are transitions; they are never coalesced. A snapshot applies only what differs
   (SnapshotDiff). Task 223 splits the non-person tail out of the frame class (section 9).
 - `CommitBoundary` (CmuxNextSignposts/CommitBoundary.swift): a one-shot observer at order 2,000,001, right after the
-  CA commit of the same turn. `InputResponsePass` installs its observer at `CommitBoundary.order − 1`.
+  CA commit of the same turn. `InputResponsePass` installs its observer at order 1,000,000 (`InputResponsePass.order`): after default-order
+  observers, before AppKit's display cycle and the CA commit (2,000,000). Never at `CommitBoundary.order − 1`,
+  because an observer added later at the same order as CA's commit runs after it.
 - Pending input (`SessionInputPending`, behind the `SessionInputEvents` seam; `WindowServerInputEvents` in the app,
   a fake in SessionInputPendingTests): the window server's time of the last key-down or mouse-button event against
   the last such event AppKit dispatched in this app. Mouse moves and scroll are left out (they stream and would
