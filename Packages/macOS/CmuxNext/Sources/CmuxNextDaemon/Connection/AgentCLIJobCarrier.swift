@@ -82,7 +82,7 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
         let response = try await transport.request(cmd: "terminal.wait_exit", timeout: .seconds(8)) { id in
             try ResourceRequestEnvelope(id: id, operation: "terminal.wait_exit", params: params).line()
         }
-        let status = try ResourceRequestEnvelope.decodeResult(AgentCLIJobStatus.self, from: response.line)
+        let status = try ResourceRequestEnvelope.decodeResult(AgentCLIJobStatus.self, from: response)
         guard status.terminalID == job.path.terminalID else {
             throw DaemonError.malformedResponse("Job status did not match the original terminal")
         }

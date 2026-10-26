@@ -11,6 +11,10 @@ import CmuxNextCompat
 /// enqueued off the main thread: ``MainFrameBudget`` makes every budgeted class yield while the
 /// count is above zero.
 ///
+/// Every finished task also goes to the board's ``ledger`` (one fixed slot, no lock): its owner,
+/// class, run time and, for a posted task (``MainFrameBudget/run(_:owner:posted:_:)``), its wait,
+/// posting location and node state. ``ownerSnapshot()`` reads the per-owner percentiles.
+///
 /// ```swift
 /// let board = scheduler.budget.board
 /// if let task = board.running { print(task.owner, task.workClass) }
@@ -74,8 +78,13 @@ public final class MainTaskBoard: Sendable {
     private let spanSequence = Atomic<UInt32>(0)
     /// Receives each finished task that ran past its budget, on the main thread.
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
+    /// Per-owner wait and run time of the finished tasks.
+    public let ledger: MainOwnerLedger
 
-    public init() {}
+    /// - Parameter ledger: Where finished tasks are recorded (default: one that folds in the background).
+    public init(ledger: MainOwnerLedger = MainOwnerLedger()) {
+        self.ledger = ledger
+    }
 
     /// `name` interned on this board (takes the owners lock: call it when the queue or method is
     /// built, or off the main thread, never per task on the main thread).
@@ -92,6 +101,14 @@ public final class MainTaskBoard: Sendable {
             owners.indices[name] = index
             return index
         }
+    }
+
+    /// Per owner and class, the wait and run percentiles, node states and posting locations of the
+    /// finished tasks. It folds what the main thread wrote since the last fold on the caller's
+    /// thread, under the ledger's lock: call it off the main thread (`debug.main_budget` does).
+    public func ownerSnapshot() -> MainOwnerLedger.Snapshot {
+        ledger.fold()
+        return ledger.snapshot(name: name(of:))
     }
 
     /// Publishes a task start (main thread).
@@ -119,7 +136,7 @@ public final class MainTaskBoard: Sendable {
     }
 
     /// Records where the running task was posted (main thread, inside the task, right after
-    /// ``MainFrameBudget/run(_:owner:_:)`` published it). Atomic stores only, no allocation: the
+    /// ``MainFrameBudget/run(_:owner:posted:_:)`` published it). Atomic stores only, no allocation: the
     /// site's `#fileID` is a static literal, kept by address.
     func notePostedFrom(_ site: MainPostSite) {
         let packed = current.load(ordering: .relaxed)

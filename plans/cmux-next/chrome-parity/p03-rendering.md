@@ -1095,13 +1095,17 @@ every task that changes behavior or performance and is not repeated per row.
 - Size M. Depends: 045.
 
 #### p03-rendering-050 Layer hosting on by default (Track A)
-- Files: `.../CmuxNextBrowser/Core/BrowserResizeTunables.swift`, `plans/cmux-next/cef-layer-hosting-DESIGN.md`.
+- Files: `.../CmuxNextBrowser/Core/BrowserResizeTunables.swift`, `plans/cmux-next/cef-layer-hosting-DESIGN.md`,
+  `plans/cmux-next/rendering-DESIGN.md`.
 - Change: `browserResize.layerHosting` default true when the fork is >= 27 with fence and embedder visibility (API 26/27
   transparent input window). Per-widget fallback to the page window where hosting is refused (DevTools, popups until
   056). Update the section 3 feature table.
 - Acceptance: one default change plus the doc table; cef-layer-verify.py all checks pass with no tunable; drag and
   drop, AX and docked DevTools work through the input window or the per-widget fallback (e2e list in the PR).
-- Test phase: cef-layer-ab.py full run on 26 and 27; DC8a, DC9, DC10.
+  Before the default flips, rendering-DESIGN.md difference 2 records the measured IOSurface and GPU bytes for each
+  hosted page (bench_memory.py) and the wakeups for each visible page (bench_idle.py).
+- Test phase: cef-layer-ab.py full run on 26 and 27; DC8a, DC9, DC10; bench_memory.py (IOSurface and GPU bytes for
+  each hosted page); bench_idle.py (wakeups for each visible page).
 - Size S. Depends: 041, 043, 058.
 
 #### p03-rendering-051 Delete divider catcher panels

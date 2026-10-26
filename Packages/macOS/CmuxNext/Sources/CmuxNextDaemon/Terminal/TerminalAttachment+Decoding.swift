@@ -105,8 +105,7 @@ extension TerminalAttachment {
 
     /// The surface named by the first line of an attach (`vt-state`, or the
     /// READY `snapshot` of a snapshot attach); names an `unplaced` target.
-    static func initialSurface(name: String, line: Data) -> SurfaceID? {
-        let decoder = WireCoding.decoder()
+    static func initialSurface(name: String, line: Data, decoder: WireDecoder) -> SurfaceID? {
         switch name {
         case "vt-state": return try? decoder.decode(VTState.self, from: line).surface
         case "snapshot": return try? decoder.decode(SurfaceScoped.self, from: line).surface
@@ -116,14 +115,15 @@ extension TerminalAttachment {
 
     /// Maps one attach-connection line to a channel event. Returns nil for
     /// events that belong to another surface or that views ignore.
-    static func decodeAttachEvent(name: String, line: Data, surface: SurfaceID) -> TerminalChannelEvent? {
-        decodeAttachLine(name: name, line: line, surface: surface)?.event
+    static func decodeAttachEvent(name: String, line: Data, surface: SurfaceID,
+                                  decoder: WireDecoder = WireCoding.decoder()) -> TerminalChannelEvent? {
+        decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)?.event
     }
 
     /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
-    /// `output` carries, for ``TerminalSnapshotSequencer``.
-    static func decodeAttachLine(name: String, line: Data, surface: SurfaceID) -> DecodedAttachLine? {
-        let decoder = WireCoding.decoder()
+    /// `output` carries, for ``TerminalSnapshotSequencer``. `decoder` is the connection's: it counts
+    /// each decode, and its recorder each `output` payload decoded out of its line.
+    static func decodeAttachLine(name: String, line: Data, surface: SurfaceID, decoder: WireDecoder) -> DecodedAttachLine? {
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }
         do {
             switch name {
@@ -152,6 +152,7 @@ extension TerminalAttachment {
                     localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
+                decoder.recorder?.outputCopied(output.data.count)  // base64 out of the line, even if dropped below
                 guard scoped(output.surface) else { return nil }
                 return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation)
             case "resized":

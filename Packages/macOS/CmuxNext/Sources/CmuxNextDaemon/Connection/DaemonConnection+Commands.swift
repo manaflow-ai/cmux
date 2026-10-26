@@ -358,7 +358,8 @@ extension DaemonConnection {
             throw DaemonError.missingCapabilities([DaemonCapability.terminalReap.rawValue])
         }
         guard let endpoint else { throw DaemonError.notConnected }
-        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
+        let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge, role: .shutdown,
+                                          stats: endpoint.wireStats)
         transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
         defer { transport.close() }
         let request = ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true,

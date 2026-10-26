@@ -147,6 +147,7 @@ def one_open(params):
     sample["rpc"] = round(rpc_ms, 2)
     sample["created_panel"] = o.get("created_panel")
     sample["stall_max_ms"] = hangs.get("max_ms")
+    sample["count250"] = hangs.get("count250")  # stalls >= 250 ms during the open (perf-cron prints the sum)
     sample["stalls"] = [{"ms": r.get("duration_ms"), "frames": [f for f in r.get("frames", []) if "Cmux" in f or "cmux" in f][:14]}
                         for r in (hangs.get("records") or [])[-2:]]
     return sample, reply

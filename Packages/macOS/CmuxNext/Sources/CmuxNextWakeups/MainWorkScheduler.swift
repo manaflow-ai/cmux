@@ -41,7 +41,7 @@ public import QuartzCore
 @MainActor
 public final class MainWorkScheduler {
     /// The per-frame budget every budgeted batch draws on.
-    public let budget: MainFrameBudget
+    public nonisolated let budget: MainFrameBudget
     /// The budget's board, readable from any thread (``postFromAnyThread(_:owner:file:line:_:)``
     /// interns owners on it off the main thread).
     public nonisolated let board: MainTaskBoard
@@ -50,6 +50,10 @@ public final class MainWorkScheduler {
     public let frames: FrameScheduler
     /// The launch's phases: which classes are held until the reveal or the settle.
     public let startup: StartupPhase
+    /// The cause of the changes made now and the person-caused observations the input-response
+    /// pass applies: one per scheduler, shared by every ``VisibleObservation`` on it and the
+    /// daemon store's drain (p06-scheduler.md: "The scheduler holds `currentCause`").
+    public let causes: ObservationCauses
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
     private let renderPasses: RenderPassMeter?
@@ -86,6 +90,7 @@ public final class MainWorkScheduler {
         board = budget.board
         self.frames = frames
         self.startup = startup
+        causes = ObservationCauses(budget: budget)
         self.renderPasses = renderPasses
         inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false

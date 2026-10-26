@@ -48,8 +48,8 @@ public func blockingCall<Result, Failure: Error>(
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0 else {
-        guard BlockingContext.isPoolThread() else { return try body() }
-        return try BlockingViolationTable.poolBlockingCall(kind, fileID: fileID, line: line, body)
+        guard let context = BlockingContext.offMainViolation() else { return try body() }
+        return try BlockingViolationTable.offMainBlockingCall(kind, in: context, fileID: fileID, line: line, body)
     }
     return try BlockingViolationTable.mainThreadBlockingCall(kind, fileID: fileID, line: line, body)
     #else
@@ -74,8 +74,8 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     #if DEBUG || CMUX_BLOCKING_CHECKS
     if pthread_main_np() != 0 {
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
-    } else if BlockingContext.isPoolThread() {
-        BlockingViolationTable.poolBlocked(kind, fileID: fileID, line: line)
+    } else if let context = BlockingContext.offMainViolation() {
+        BlockingViolationTable.offMainBlocked(kind, in: context, fileID: fileID, line: line)
     }
     #endif
 }

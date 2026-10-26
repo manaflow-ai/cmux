@@ -325,7 +325,8 @@ def measure(name, perform):
               "main_ms_total": frames.get("main_ms_total"), "main_ms_p95": frames.get("main_ms_p95"),
               "main_ms_max": frames.get("main_ms_max"), "main_over_8_33": frames.get("main_over_8_33_ms"),
               "missed_at_ms": frames.get("missed_at_ms"),
-              "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count")}
+              "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
+              "count250": hangs.get("count250") if isinstance(hangs, dict) else None}  # stalls >= 250 ms (perf-cron)
     print(f"  {name:<17} frame p50 {fmt(result['p50_ms'])} p95 {fmt(result['p95_ms'])} max {fmt(result['max_ms'])} ms "
           f"dropped {result['dropped']} >8.3 {result['over_8_33']} (refresh {fmt(result['refresh_ms'])})  main p95 "
           f"{fmt(result['main_ms_p95'])} max {fmt(result['main_ms_max'])} total {fmt(result['main_ms_total'])} ms  "

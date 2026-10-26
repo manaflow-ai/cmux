@@ -138,8 +138,15 @@ extension MainWorkScheduler {
     }
 
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
+        post(workClass, owner: owner, post: MainTaskPost(site: site, enqueueNanos: budget.nowNanos), body)
+    }
+
+    /// Queues `body` as `post` (its site, enqueue time and node state: the board's ledger records
+    /// its wait from that enqueue time). Nil: the task names its post itself when it runs one
+    /// (``MainFrameBudget/notePost(_:)``, a node queue's pump).
+    func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
-        queue.append(owner: owner, site: site, body)
+        queue.append(owner: owner, post: post, body)
         if posting.turnQueued { return }
         if frames.hasLink {
             queue.activate()
@@ -149,16 +156,22 @@ extension MainWorkScheduler {
         MainRunLoopBlock.perform { [weak self] in self?.runPostedTurn() }
     }
 
+    /// Reads the enqueue time here, on the posting thread (Chrome sets `PendingTask::queue_time` at
+    /// `PostTask`, base/task/sequence_manager/task_queue_impl.cc), so the task's wait includes its
+    /// time in the main run loop's queue.
     nonisolated func postFromAnyThread(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite,
                                        _ body: @escaping @MainActor @Sendable () -> Void) {
-        MainRunLoopBlock.perform { [weak self] in self?.arrive(workClass, owner: owner, site: site, body) }
+        let enqueueNanos = budget.postClock?()
+        MainRunLoopBlock.perform { [weak self] in self?.arrive(workClass, owner: owner, site: site, enqueueNanos: enqueueNanos, body) }
     }
 
     /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
     /// scheduler it runs now (in class order with anything else posted), not one more turn later.
-    private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, _ body: @escaping @MainActor () -> Void) {
+    /// `enqueueNanos` is nil when the budget's clock is main-actor-only: the wait starts here.
+    private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, enqueueNanos: UInt64?,
+                        _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
-        queue.append(owner: owner, site: site, body)
+        queue.append(owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos), body)
         if posting.turnQueued { return }
         if frames.hasLink {
             queue.activate()
