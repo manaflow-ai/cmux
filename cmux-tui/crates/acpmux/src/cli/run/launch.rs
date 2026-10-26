@@ -76,17 +76,8 @@ impl Launch {
             }
         };
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
-        if args.group.is_some() && name.is_none() {
-            bail!("--group needs --name, so a second run finds the same sidebar row");
-        }
         if args.reuse && name.is_none() {
             bail!("--reuse needs --name: the session to reuse is found by it");
-        }
-        if let (Some(_), Some(host)) = (&args.group, &args.host) {
-            bail!(
-                "--group shows a session of this machine only: leave it off with --host {host}; \
-                 the app cannot yet open another machine's session in a sidebar group"
-            );
         }
         if args.report_to.is_some()
             && file_prompt.is_none()
@@ -292,17 +283,34 @@ fn workspace_key(id: &str) -> String {
 }
 
 /// Shows session `id` in the cmux app's sidebar group `group` through the
-/// app's `agent open` action (`cmux agent open`), named `title`.
-pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
+/// app's `agent open` action (`cmux agent open`), optionally named `title`.
+/// Unnamed launches omit the title so a peer's generated session name cannot
+/// accidentally match another session's workspace in the same group.
+/// A remote create returns the ID mirrored by the local daemon. Open that
+/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// acpmux forwards the chat to the peer. This also avoids a name lookup in
+/// the app's peer inventory, which may not have seen the new session yet.
+pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
     let key = workspace_key(id);
-    let out = std::process::Command::new("cmux")
-        .args(["agent", "open", id, "--name", title, "--key", &key, "--group", group])
-        .output()
-        .context("--group runs `cmux agent open`; no cmux CLI on PATH")?;
+    let mut args = vec!["agent", "open", id];
+    if let Some(title) = title {
+        args.extend(["--name", title]);
+    }
+    args.extend(["--key", &key, "--group", group]);
+    let retry = std::iter::once("cmux")
+        .chain(args.iter().copied())
+        .map(crate::harness_health::channel::quote)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
+        format!(
+            "the session was created, but --group could not run cmux; put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {retry}"
+        )
+    })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: `cmux agent open {id} --name {title:?} \
-             --key {key} --group {group:?}`: {}",
+            "the session runs, but the cmux app did not show it: {retry}: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
@@ -348,6 +356,39 @@ mod tests {
         // One worktree, one session: the name is the worktree's.
         assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
+    }
+
+    #[test]
+    fn a_remote_session_can_join_a_group_without_an_explicit_name() {
+        let prepared = launch(&[
+            "--host",
+            "gcp-codex-lane-2",
+            "-m",
+            "codex",
+            "--group",
+            "Remote demo",
+            "-d",
+            "say hi",
+        ]);
+        assert!(prepared.name.is_none());
+        assert!(!prepared.reuse);
+    }
+
+    #[test]
+    fn a_named_remote_group_launch_keeps_reuse_and_its_title() {
+        let prepared = launch(&[
+            "--host",
+            "peer",
+            "--group",
+            "Remote demo",
+            "--name",
+            "Remote task",
+            "--reuse",
+            "-d",
+        ]);
+        assert_eq!(prepared.name.as_deref(), Some("remote-task"));
+        assert_eq!(prepared.title.as_deref(), Some("Remote task"));
+        assert!(prepared.reuse);
     }
 
     #[test]

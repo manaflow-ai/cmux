@@ -253,6 +253,7 @@ extension WindowManager {
     /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
+        if restoring || !restored { closedDuringRestore.insert(id) } // the restore must not open it again
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
         let keepsGroup = services.daemon.supports(DaemonCapability.windowRecords.rawValue)
@@ -267,6 +268,7 @@ extension WindowManager {
         var reopened: String?
         transition { registry in
             reopened = registry.reopen()
+            if let reopened { closedDuringRestore.remove(reopened) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard let reopened, let controller = controller(for: reopened) else { return false }
@@ -276,7 +278,12 @@ extension WindowManager {
 
     /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
     func releaseClosedWindow(id: String) {
-        transition { $0.releaseClosed(id) }
+        transition { registry in
+            let changes = registry.releaseClosed(id)
+            // Released with no heir it opens again, on purpose: the restore keeps it open.
+            if registry.window(id)?.isOpen == true { closedDuringRestore.remove(id) }
+            return changes
+        }
         if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
     }
 
@@ -287,6 +294,7 @@ extension WindowManager {
         var reopened = false
         transition { registry in
             reopened = registry.reopen(id: id)
+            if reopened { closedDuringRestore.remove(id) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard reopened, let controller = controller(for: id) else { return false }
@@ -375,10 +383,12 @@ extension WindowManager {
         for id in live where !held.contains(id) { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
-        let fallback = launchWindowID ?? UUID().uuidString.lowercased()
+        let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
-                               fallbackWindow: fallback)
+            let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                                             fallbackWindow: fallback)
+            keepClosedDuringRestore(&registry)
+            return changes
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }

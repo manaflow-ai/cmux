@@ -1,7 +1,7 @@
 public import AppKit
 
 /// The Chief pet's character: the Chief Dock's nine pixel mascots (#21194, its `ChiefMascot`
-/// ids), bundled at 256 px wide. Orb is the dock's default too.
+/// ids), bundled at 256 px wide, and Mochi, the first animated avatar set. Orb is the dock's default too.
 public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
     case orb
     case orbSpark = "orb-spark"
@@ -12,6 +12,8 @@ public nonisolated enum ChiefPetMascot: String, CaseIterable, Sendable {
     case moon
     case moonBlue = "moon-blue"
     case fox
+    /// The first animated set (`cmux-avatar/1`, webviews avatars/sets/mochi); still here, its idle frame.
+    case mochi
 
     public static let initial = ChiefPetMascot.orb
 

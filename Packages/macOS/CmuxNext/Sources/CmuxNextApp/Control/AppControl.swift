@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowserImport
 import CmuxNextControl
@@ -84,6 +85,13 @@ final class AppControl {
         service.router.register(FeedControl.methods(services: services))
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
+        // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026).
+        let build = services.environment.build
+        service.router.register([.agentAcpmux {
+            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+            return AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: ProcessInfo.processInfo.environment)
+                .map { ($0.socketPath, $0.home.path) }
+        }])
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
@@ -369,10 +377,7 @@ final class AppControl {
                 return .value(DebugWindowList.list(services: services))
             },
             .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
-            .async("debug.window_snapshot") { [weak services] call in
-                guard let services = await MainActor.run(body: { services }) else { return .null }
-                return await DebugWindowSnapshot.captureAsync(call.params, services: services)
-            },
+            DebugWindowSnapshot.controlMethod(services: services),
             .mainActor("debug.window.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.focusWindow(call.params, services: services))
@@ -527,6 +532,11 @@ final class AppControl {
             .mainActor("debug.sidebar_nested_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.show(call.params, services: services))
+            },
+            // Captures of the daemon update: a board state, an ssh machine fixture and its header's tooltip.
+            .mainActor("debug.daemon_update") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
             },
             .mainActor("debug.sidebar_group_drag") { [weak services] call in
                 guard let services else { return .value(.null) }
