@@ -4760,6 +4760,37 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
     return out
 
 
+def list_perf_hot(repo: Path, wanted: list[str]) -> int:
+    """Prints each path id of BENCHES (or only WANTED) with the markers this hook's resolver sees in the tracked
+    Swift files of REPO's working tree, and each marker that marks no declaration or names an unknown id. Exit 1
+    when a listed id has no marker that marks a declaration, or a marker marks none."""
+    paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    unknown = [pid for pid in wanted if pid not in paths]
+    if unknown:
+        print(f"guardrails: not in {BENCHES}: {', '.join(unknown)}")
+        return 1
+    files = git(repo, "grep", "-I", "-z", "-l", "--no-color", "-F", "perf-hot:", "--", "*.swift", check=False)
+    found: dict[str, list[tuple[str, PerfHotMarker]]] = collections.defaultdict(list)
+    for path in sorted(p for p in files.split("\0") if p):
+        lines = (repo / path).read_text(encoding="utf-8", errors="replace").split("\n")
+        for marker in perf_hot_markers(lines):
+            found[marker.path_id].append((path, marker))
+    failed = False
+    for pid in wanted or list(paths):
+        markers = found.get(pid, [])
+        resolved = [(path, m) for path, m in markers if m.span is not None]
+        print(f"{pid}: {len(resolved)} marker{'s' if len(resolved) != 1 else ''}" + ("" if resolved else " (none)"))
+        for path, marker in markers:
+            target = f"marks `{marker.declaration[:80]}`" if marker.span else "MARKS NO DECLARATION"
+            print(f"  {path}:{marker.line}: {marker.budget}, {target}")
+        failed = failed or not resolved or len(resolved) != len(markers)
+    if not wanted:
+        for pid in sorted(set(found) - set(paths)):
+            sites = ", ".join(f"{path}:{m.line}" for path, m in found[pid])
+            print(f"{pid or '(no path id)'}: not in {BENCHES}: {sites}")
+    return 1 if failed else 0
+
+
 def marker_ids(lines) -> collections.Counter:
     """`// perf-hot:` markers in LINES per path id (the budget when a marker has no id)."""
     found = collections.Counter()
@@ -5594,9 +5625,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--self-test", action="store_true",
                         help="judge the input-monitor, target-settings, safety-todo and raw-continuation rules' "
                              "refuse and escape cases in a scratch repository")
+    parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
+                        help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
+                             "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
+                             "declaration")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
+    if args.list_perf_hot is not None:
+        return list_perf_hot(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip()),
+                             args.list_perf_hot)
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")
