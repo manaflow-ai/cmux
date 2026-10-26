@@ -1,3 +1,4 @@
+import CmuxNextWireDigest
 import Foundation
 
 /// One schema file's bytes and its decoded header.
@@ -22,9 +23,8 @@ struct SchemaFile<Header: Decodable> {
         self.bytes = bytes
     }
 
-    /// FNV-1a 64 of the file's bytes: the function of cmux-ipc's `fnv1a64` and
-    /// `WireSchemaIdentity.digest(of:)` (this tool cannot import CmuxNextIPC, whose build runs it).
+    /// The file's ``WireDigest``, the value `WireSchemaIdentity.digest(of:)` recomputes.
     var digest: UInt64 {
-        bytes.reduce(UInt64(0xcbf2_9ce4_8422_2325)) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
+        WireDigest(bytes).value
     }
 }

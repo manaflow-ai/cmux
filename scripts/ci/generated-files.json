@@ -37,7 +37,7 @@
       "id": "ipc-wire-swift",
       "generator": "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/main.swift",
       "outputs": ["Packages/macOS/CmuxNext/.build/plugins/outputs/**/CmuxNextWireGenPlugin/**"],
-      "inputs": ["cmux-tui/spec/sdk-schema.json", "cmux-tui/spec/resource-operations-v2.json", "Packages/macOS/CmuxNext/Plugins/CmuxNextWireGenPlugin/**", "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/**"],
+      "inputs": ["cmux-tui/spec/sdk-schema.json", "cmux-tui/spec/resource-operations-v2.json", "Packages/macOS/CmuxNext/Plugins/CmuxNextWireGenPlugin/**", "Packages/macOS/CmuxNext/Sources/CmuxNextWireGen/**", "Packages/macOS/CmuxNext/Sources/CmuxNextWireDigest/**"],
       "status": "build"
     },
     {

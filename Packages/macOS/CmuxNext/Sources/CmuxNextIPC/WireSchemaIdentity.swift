@@ -1,3 +1,5 @@
+import CmuxNextWireDigest
+
 /// Which schema this build compiled: the protocol names, versions, method counts and content
 /// digests of cmux-tui/spec/sdk-schema.json and cmux-tui/spec/resource-operations-v2.json.
 ///
@@ -47,8 +49,9 @@ public struct WireSchemaIdentity: Sendable, Equatable {
         self.resourceOperationsDigest = resourceOperationsDigest
     }
 
-    /// FNV-1a 64 of `bytes`, the digest both generators write (cmux-ipc's `fnv1a64`).
+    /// FNV-1a 64 of `bytes` (CmuxNextWireDigest's `WireDigest`), the digest both generators
+    /// write (cmux-ipc's `fnv1a64`).
     public static func digest(of bytes: some Sequence<UInt8>) -> UInt64 {
-        bytes.reduce(UInt64(0xcbf2_9ce4_8422_2325)) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
+        WireDigest(bytes).value
     }
 }

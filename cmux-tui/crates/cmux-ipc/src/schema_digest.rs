@@ -1,7 +1,8 @@
 //! The content digest both schema generators write: FNV-1a 64 over a schema
-//! file's bytes. `build.rs` compiles this same file (`#[path]`), and
-//! CmuxNextWireGen implements the same function, so the Rust and Swift
-//! bindings name the schema bytes they were built from with one number.
+//! file's bytes. `build.rs` compiles this same file (`#[path]`), and the Swift
+//! side's one copy is CmuxNextWireDigest's `WireDigest`, which CmuxNextWireGen
+//! and CmuxNextIPC share, so the Rust and Swift bindings name the schema bytes
+//! they were built from with one number.
 
 /// FNV-1a 64 of `bytes` (offset basis 0xcbf29ce484222325, prime 0x100000001b3).
 #[must_use]

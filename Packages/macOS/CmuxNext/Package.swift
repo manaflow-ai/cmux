@@ -46,8 +46,9 @@ import PackageDescription
 //     the counters, swift-atomics for the table's packed UnsafeAtomic storage, which Compat's Atomic cannot lay out)
 //   CmuxNextInput -> InputCore (the one input tap: typed subscriptions by class, phase and window; globalObserve;
 //     p04-input.md section 3 (A))
-//   CmuxNextIPC -> system frameworks only (the app-daemon wire; its bindings are built from cmux-tui/spec by
-//     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen; p05-ipc.md section 3.3)
+//   CmuxNextIPC -> CmuxNextWireDigest (the app-daemon wire; its bindings are built from cmux-tui/spec by
+//     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen, which shares that digest; p05-ipc.md section 3.3)
+//   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -1452,8 +1453,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // resource-operations-v2.json at build time and compiles its output into CmuxNextIPC. The
         // schema files are the command's declared inputs, so only a schema or generator edit reruns
         // it; nothing generated is in git (scripts/ci/generated-files.json, `ipc-wire-swift`).
+        .target(
+            name: "CmuxNextWireDigest",
+            swiftSettings: daemonSwiftSettings
+        ),
         .executableTarget(
             name: "CmuxNextWireGen",
+            dependencies: ["CmuxNextWireDigest"],
             swiftSettings: daemonSwiftSettings
         ),
         .plugin(
@@ -1463,12 +1469,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextIPC",
+            dependencies: ["CmuxNextWireDigest"],
             swiftSettings: daemonSwiftSettings,
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
         ),
         .testTarget(
             name: "CmuxNextIPCTests",
-            dependencies: ["CmuxNextIPC"],
+            dependencies: ["CmuxNextIPC", "CmuxNextWireDigest"],
             swiftSettings: uiSwiftSettings
         ),
         // Input latency core (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I)): Chromium's

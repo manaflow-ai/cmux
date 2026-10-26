@@ -104,11 +104,6 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /webviews/src/pages/diff/generated/locales/
 /webviews/src/pages/diff/generated/localeLoaders.ts
 /webviews/src/**/generated/*.tmp
-# The IPC wire bindings (p05-ipc task 027): cmux-ipc's build.rs writes Rust into cargo's OUT_DIR
-# and CmuxNextWireGenPlugin writes Swift into its plugin work directory, both at build time
-# (scripts/ci/generated-files.json, ipc-wire-rust and ipc-wire-swift). Neither is ever committed.
-/cmux-tui/target/
-/Packages/macOS/CmuxNext/.build/
 
 # nested-groups prototype gallery output
 Packages/macOS/CmuxNext/nested-groups-gallery/

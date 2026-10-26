@@ -1,4 +1,5 @@
 import CmuxNextIPC
+import CmuxNextWireDigest
 import Foundation
 import Testing
 
@@ -47,5 +48,15 @@ struct WireSchemaIdentityTests {
         #expect(WireSchemaIdentity.digest(of: Data()) == 0xcbf2_9ce4_8422_2325)
         #expect(WireSchemaIdentity.digest(of: Data("a".utf8)) == 0xaf63_dc4c_8601_ec8c)
         #expect(WireSchemaIdentity.digest(of: Data("foobar".utf8)) == 0x8594_4171_f739_67e8)
+    }
+
+    /// Folding a file in pieces gives the digest of the whole, the value CmuxNextWireGen writes.
+    @Test func digestOfPiecesIsTheDigestOfTheWhole() {
+        var pieces = WireDigest()
+        pieces.update(Data("foo".utf8))
+        pieces.update(Data("bar".utf8))
+        #expect(pieces == WireDigest(Data("foobar".utf8)))
+        #expect(pieces.value == WireSchemaIdentity.digest(of: Data("foobar".utf8)))
+        #expect(WireDigest().value == 0xcbf2_9ce4_8422_2325)
     }
 }
