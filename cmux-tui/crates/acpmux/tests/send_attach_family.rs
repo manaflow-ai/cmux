@@ -121,7 +121,8 @@ async fn send_message_carries_attachments_to_a_child() {
     let big = vec![acpmux::attach::block("big.bin", &vec![0u8; 8 << 20])];
     let send = json!({"sessionId": child, "text": "x".repeat(5 << 20), "attachments": big});
     let r = p.call("_acpmux/subsession/send", send).await;
-    assert_eq!(r["error"]["data"]["reason"], "attach.tooLarge", "{}", &r.to_string()[..300]);
+    let shown: String = r.to_string().chars().take(300).collect();
+    assert_eq!(r["error"]["data"]["reason"], "attach.tooLarge", "{shown}");
     assert_eq!(std::fs::read_dir(&uploads).unwrap().count(), 1);
 
     // Only attachment blocks: the tool reads the files, a caller never names bytes otherwise.
