@@ -116,16 +116,16 @@
 .acpmux-dock > .acpmux-running-tray {
   overflow: clip;
 }
-.acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
-  min-height: calc(2 * 28px + 2px + 2 * var(--cmux-hairline, 0.5px));
+@media (min-height: 360px) {
+  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+    min-height: calc(2 * var(--ds-control-row, 28px) + 2px + 2 * var(--cmux-hairline, 0.5px));
+  }
 }
 /* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer
-   first: the tray takes the stack's one-row minimum and scrolls as a whole again, as it did before,
+   first: the tray keeps the stack's one-row minimum and scrolls as a whole again, as it did before,
    so View all is never cut out of reach (a wheel or keyboard focus scrolls it into view). */
 @media (max-height: 359.98px) {
-  .acpmux-dock > .acpmux-running-tray,
-  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
-    min-height: var(--acpmux-stack-row-min, 34px);
+  .acpmux-dock > .acpmux-running-tray {
     overflow-y: auto;
   }
 }
