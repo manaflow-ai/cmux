@@ -3,7 +3,6 @@ import CmuxNextAgentPane
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -29,13 +28,6 @@ extension CrashReporter {
             telemetryOptIn: CrashReportingPolicy.telemetryOptIn(in: defaults),
             managedDisablesTelemetry: forced,
             processEnvironment: environment))
-    }
-}
-
-extension CrashFeatureScope {
-    /// A launch's ``FeatureFieldState`` as Sentry scope tags.
-    init(_ state: FeatureFieldState) {
-        self.init(hash: state.hash, nonDefault: state.nonDefault.map(\.description))
     }
 }
 

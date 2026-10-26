@@ -1,3 +1,4 @@
+import CmuxNextFeatures
 @testable import CmuxNextHangReports
 import CmuxNextMetrics
 import CmuxNextTrace
@@ -516,6 +517,18 @@ struct HangReportWireFormatTests {
         #expect(String(decoding: try HangReport.encoder.encode(older), as: UTF8.self) == Self.golden3)
         let none = Self.report(.v3, features: nil)
         #expect(!String(decoding: try HangReport.encoder.encode(none), as: UTF8.self).contains("features"))
+    }
+
+    @Test func theLaunchsFeatureListBecomesTheReportsFeatures() {
+        let schema3 = Feature(index: 0, name: "hangReportsSchema3", owner: "PL-test", description: "A test feature.", kind: .killSwitch,
+                              process: .app, chromiumFeature: nil, defaults: FeatureDefaults(all: false), expires: nil, params: [],
+                              stories: [], sticky: false, runtimeMutable: false)
+        let list = FeatureList(registry: FeatureRegistry([schema3]), channel: .nightly,
+                               overrides: FeatureOverrides(environmentEnabled: ["hangReportsSchema3"]))
+        let state = HangReport.FeatureState(list.fieldState)
+        #expect(state.hash == list.fieldState.hash)
+        #expect(state.nonDefault == [HangReport.FeatureEntry(name: "hangReportsSchema3", state: "on", source: "env")])
+        #expect(Self.report(.v3, features: state).features == state.nonDefault)
     }
 
     @Test func onlyRegistryNamesStatesAndOverrideSourcesAreSent() {

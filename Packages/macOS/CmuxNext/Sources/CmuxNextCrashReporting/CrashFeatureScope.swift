@@ -1,3 +1,4 @@
+public import CmuxNextFeatures
 public import Sentry
 
 /// This launch's features on the Sentry scope (p12-perf-process-151): the `features_hash` tag (the hash
@@ -22,6 +23,11 @@ public nonisolated struct CrashFeatureScope: Sendable, Equatable {
     public init(hash: String, nonDefault: [String]) {
         self.hash = hash
         self.nonDefault = nonDefault
+    }
+
+    /// A launch's ``FeatureFieldState`` as Sentry scope tags.
+    public init(_ state: FeatureFieldState) {
+        self.init(hash: state.hash, nonDefault: state.nonDefault.map(\.description))
     }
 
     /// `features_hash` and `features`.
