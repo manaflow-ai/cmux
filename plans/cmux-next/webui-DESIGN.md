@@ -156,6 +156,33 @@ passes `ceftests --gtest_filter=CmuxPageProcessTest.*` and `ceftests --cmux-page
 - A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
   crash budget of 3 per 600 s per group.
 
+Fork in-place discard (task 018, manaflow-ai/cef `cp/p13-webui-018` at `f844f729`; not built or run yet; no API
+number until the train, 086, so the app finds the exports with dlsym). `cmux_tab_discard(browser_id)` does what
+Chrome does with `WebContentsDiscard` (`chrome/browser/resource_coordinator/tab_lifecycle_unit.cc`
+`FinishDiscardAndPreserveWebContents`): `AttemptFastKillForDiscard`, then `WebContents::Discard`. The fast kill ends
+the renderer only when `RenderProcessHostImpl::FastShutdownIfPossible` allows it: no other page in the process, and
+no beforeunload, unload, pagehide or visibilitychange listener, keepalive fetch or worker. Most sites have one of
+these. So the result says which: `CMUX_TAB_DISCARD_DONE` (the process ended) or `CMUX_TAB_DISCARD_DONE_RENDERER_KEPT`
+(the frames are gone and the page reloads when shown, but the process still runs). The tab keeps its WebContents, so
+its browser id, its window slot, its NavigationEntry list and its session storage stay. When the page shows again,
+`NavigationControllerImpl::SetActive` reloads the same URL and the document sees `document.wasDiscarded`.
+The fork refuses, and changes nothing, in these cases:
+- The page is not hidden: VISIBLE, or OCCLUDED, which shows as soon as its window is uncovered
+  (`CMUX_TAB_DISCARD_VISIBLE`).
+- The page is hidden but Chromium still paints it for a capture, Picture-in-Picture or XR
+  (`CMUX_TAB_DISCARD_PAINTING`).
+- Only the initial entry is committed, as in a renderer-less placeholder (017) or a first navigation that has not
+  committed. A show would reload nothing (`CMUX_TAB_DISCARD_NOTHING_TO_RELOAD`).
+- A navigation waits to commit (`CMUX_TAB_DISCARD_REFUSED`).
+
+Every other keep reason is native's. `cmux_tab_was_discarded` stays 1 until the reload starts. The fast kill is a
+`TERMINATION_STATUS_NORMAL_TERMINATION`, which CEF never sends to `OnRenderProcessTerminated`, so the crash budget
+never counts a discard. A real crash of a group renderer that still holds a discarded page is reported and counted
+as usual. The fork does not change Chrome's default: `WebContentsDiscard` stays off and `cmux_tab_discard` returns
+`CMUX_TAB_DISCARD_UNAVAILABLE`. The binding (031) adds a default-off feature in `schemas/features/features.d`; when it
+is on, the app passes `--enable-features=WebContentsDiscard` in `OnBeforeCommandLineProcessing`. Test:
+`ceftests --gtest_filter=CmuxDiscardTest.*` (its browser delegate turns the feature on the same way).
+
 ### 3.4 Why cmux freezes WebUI when Chrome does not
 
 Chrome never freezes WebUI: `CannotFreezeReason::kWebUI`
