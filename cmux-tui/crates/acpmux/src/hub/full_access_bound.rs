@@ -87,8 +87,8 @@ impl FullAccessView {
 /// The sessions whose mode or a config option a harness reported in full access while nothing
 /// watched it: a probe, or a pooled agent no chat took yet (reviews 32, 41 and 46 of #23322). Any
 /// such report counts, whatever the harness reported after it or answered `session/new` with, in
-/// either order. Bounded: past `CAP` sessions, or for a report that names none, every session
-/// counts.
+/// either order. Bounded: past `CAP` sessions, or for a report that names none (no id, or a
+/// blank one), every session counts.
 #[derive(Default)]
 pub(crate) struct StartReports {
     sessions: Vec<String>,
@@ -121,7 +121,8 @@ impl StartReports {
         if self.all || !Self::reports_full_access(params) {
             return;
         }
-        let Some(sid) = params["sessionId"].as_str() else {
+        // A blank id names no session (review 70): it counts for all, as a missing one does.
+        let Some(sid) = params["sessionId"].as_str().filter(|s| !s.trim().is_empty()) else {
             self.all = true;
             return;
         };
