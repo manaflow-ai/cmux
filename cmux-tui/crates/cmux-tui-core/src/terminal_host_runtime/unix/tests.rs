@@ -4,6 +4,7 @@
 mod attach_protocol;
 mod clipboard_read;
 mod host_fixture;
+mod host_spans;
 mod input_flow;
 mod input_records;
 mod kitty_file_media;
