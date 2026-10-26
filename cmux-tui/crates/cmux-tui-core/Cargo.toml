@@ -110,6 +110,11 @@ reqwest.workspace = true
 rustls.workspace = true
 tokio.workspace = true
 
+# Low Power Mode and the thermal state for the daemon's own Energy Saver
+# reading (mux/power_source.rs); the version cmux-motion's AppKit links.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo"] }
+
 [target.'cfg(windows)'.dependencies]
 # The local socket transport and its same-user checks (cmux::local_socket),
 # shared with the SDK's clients; the SDK's client code is not built.
