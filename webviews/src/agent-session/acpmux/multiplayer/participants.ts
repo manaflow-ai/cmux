@@ -16,22 +16,33 @@ export type ChatPresence = { viewing: Participant[]; typing: Participant[] };
 
 /// Longest name the pane draws, as acpmux bounds a surface's name.
 const MAX_NAME = 64;
+/// Longest id the pane keeps; a longer one is not a person acpmux would stamp.
+const MAX_ID = 256;
 
-const text = (value: unknown): string | undefined => {
+/// A character a name may not hold (acpmux hub/composers.rs `hidden`): a control, or an invisible
+/// format character (a bidi override, a zero-width one) that could make a name read as another.
+const HIDDEN = /[\p{Cc}\u00AD\u061C\u180E\uFEFF\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFFF9-\uFFFB]/gu;
+
+/// A name as the pane draws it: hidden characters removed, one line, at most 64 characters.
+export function displayName(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, MAX_NAME) : undefined;
-};
+  const shown = Array.from(value.replace(HIDDEN, "").replace(/\s+/g, " ").trim()).slice(0, MAX_NAME).join("");
+  return shown || undefined;
+}
+
+/// An id kept whole, so two ids that share a prefix stay two people.
+const identity = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() && value.length <= MAX_ID ? value.trim() : undefined;
 
 /// Only an inline picture: a link would load from wherever a record points.
 const picture = (value: unknown): string | undefined =>
   typeof value === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/.test(value) ? value : undefined;
 
-function participant(id: unknown, name: unknown, avatar: unknown): Participant | undefined {
-  const key = text(id);
+export function participant(id: unknown, name: unknown, avatar?: unknown): Participant | undefined {
+  const key = identity(id);
   if (!key) return undefined;
   const shown = picture(avatar);
-  return { id: key, name: text(name) ?? key, ...(shown && { avatar: shown }) };
+  return { id: key, name: displayName(name) ?? displayName(key) ?? "?", ...(shown && { avatar: shown }) };
 }
 
 /// The person who sent a `user_message` or `queued` record, or undefined for the chat owner's own.

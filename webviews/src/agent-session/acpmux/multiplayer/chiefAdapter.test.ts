@@ -32,3 +32,8 @@ test("presence: typers are here too, the reader and agents are not", () => {
   expect(presence.viewing.map((p) => p.id)).toEqual(["sam", "ana"]);
   expect(chiefPresence(people, "me", [])).toEqual({ viewing: [], typing: [] });
 });
+
+test("a Home name is cleaned and bounded like an acpmux one", () => {
+  const long = new Map([["p", person("p", `\u202E${"n".repeat(200)}`)]]);
+  expect(chiefAuthor({ author: "p" }, long, "me")?.name).toBe("n".repeat(64));
+});

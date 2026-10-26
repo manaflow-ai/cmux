@@ -2,7 +2,7 @@
 // The shared chat's readers: an author only from the daemon's `person_message` provenance, an
 // answerer only from a person `answeredBy`, presence without the reader, and pictures only inline.
 import { expect, test } from "bun:test";
-import { answeredBy, chatPresence, initials, promptAuthor } from "./participants";
+import { answeredBy, chatPresence, displayName, initials, promptAuthor } from "./participants";
 
 test("a prompt's author comes only from person_message provenance", () => {
   const msg = {
@@ -61,4 +61,16 @@ test("initials take whole graphemes", () => {
   expect(initials("Ana Ruiz")).toBe("AR");
   expect(initials("mei")).toBe("ME");
   expect(initials("Élodie Ünal")).toBe("ÉÜ");
+});
+
+test("a name loses hidden characters and is bounded; an id is kept whole", () => {
+  expect(displayName("Ana\u202Ezurz\u200B Ruiz\n")).toBe("Anazurz Ruiz");
+  expect(displayName("\u202E\u200B")).toBeUndefined();
+  const long = `tailnet:${"a".repeat(80)}`;
+  const presence = chatPresence(
+    { participants: [{ id: long, name: "Me", viewing: true }, { id: `${long}b`, name: "Other", viewing: true }] },
+    long,
+  );
+  expect(presence.viewing.map((p) => p.id)).toEqual([`${long}b`]);
+  expect(answeredBy({ id: "x".repeat(300), name: "Too long" })).toBeUndefined();
 });

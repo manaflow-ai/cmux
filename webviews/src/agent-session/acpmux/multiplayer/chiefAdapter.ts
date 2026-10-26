@@ -8,12 +8,12 @@
 // has the chat open: until the owner sends that (hq plans/cmux-next/chat-multiplayer/DESIGN.md
 // "Asks for Lawrence"), `viewing` is whoever types, and a caller that knows more passes it.
 import type { HomeMessage, HomeParticipant } from "../../../pages/home-channels/types";
-import type { ChatPresence, Participant } from "./participants";
+import { participant, type ChatPresence, type Participant } from "./participants";
 
 /// A Home participant as a face: people only; a Chief or an agent keeps Home's own mark.
 export function chiefParticipant(person: HomeParticipant | undefined): Participant | undefined {
   if (!person || person.kind !== "human") return undefined;
-  return { id: person.id, name: person.name.trim() || person.id };
+  return participant(person.id, person.name);
 }
 
 /// Who wrote `message`, when it is another person (the reader's own and an agent's draw no chip).
