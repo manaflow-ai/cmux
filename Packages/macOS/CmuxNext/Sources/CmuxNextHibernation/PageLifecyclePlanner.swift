@@ -251,17 +251,68 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     }
 
     /// The reasons that apply to `page`: its own and the ones the planner derives from the facts.
-    /// Stub: the page's own reasons only (task 021 lands the property tests first).
     package func keepReasons(of page: Page, conditions: Conditions, isMostRecentlyUsed: Bool) -> Set<KeepReason> {
-        page.keepReasons
+        var reasons = page.keepReasons.subtracting(KeepReason.derived)
+        if page.isShown {
+            reasons.insert(.visible)
+        } else if page.hiddenFor < timing.visibleWindow(lowPowerMode: conditions.lowPowerMode) {
+            reasons.insert(.recentlyVisible)
+        }
+        if isMostRecentlyUsed { reasons.insert(.mostRecentlyUsed) }
+        if !conditions.setting.isEnabled { reasons.insert(.hibernationOff) }
+        if conditions.setting.includesPinnedTabs { reasons.remove(.pinned) }
+        return reasons
     }
 
-    /// Each page's target state and the next deadline. Stub: every page stays active.
+    /// Each page's target state and the next deadline. O(pages) plus the sort of the pages due for
+    /// a discard.
     package func plan(_ pages: [Page], conditions: Conditions) -> Plan {
+        let window = timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
+        let discardAfter = timing.discardAfter(at: conditions.pressure)
+        let pace = timing.pace(at: conditions.pressure)
+        let discardDue = max(discardAfter, pace.minimumHidden)
+        let mostRecent = pages.filter { !$0.isShown && !$0.isDiscarded }
+            .min { ($0.hiddenFor, $0.key) < ($1.hiddenFor, $1.key) }?.key
         var plan = Plan()
+        var due: [(page: Page, reasons: Set<KeepReason>)] = []
         for page in pages {
-            plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: .active)
+            if page.isShown {
+                plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: .active, keptBy: [.visible])
+                continue
+            }
+            if page.isDiscarded {
+                plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: .discarded)
+                continue
+            }
+            let reasons = keepReasons(of: page, conditions: conditions, isMostRecentlyUsed: page.key == mostRecent)
+            let freezeBlockers = reasons.filter(\.blocksFreeze)
+            let discardBlockers = reasons.filter(\.blocksDiscard)
+            let freezeIn = freezeBlockers.isSubset(of: KeepReason.timeBound) ? window - page.hiddenFor : nil
+            let discardIn = discardBlockers.isSubset(of: KeepReason.timeBound) ? max(discardDue, window) - page.hiddenFor : nil
+            if discardBlockers.isEmpty, let discardIn, discardIn <= 0 {
+                due.append((page, reasons))
+                continue
+            }
+            let state: State = freezeBlockers.isEmpty ? .frozen : .hidden
+            let deadline = [state == .hidden ? freezeIn : nil, discardIn].compactMap { $0 }.filter { $0 > 0 }.min()
+            plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: state,
+                                                keptBy: KeepReason.ordered(reasons), nextDeadline: deadline)
         }
+        // Chrome's page_discarding_helper.cc order: the longest hidden goes first.
+        due.sort { $0.page.hiddenFor != $1.page.hiddenFor ? $0.page.hiddenFor > $1.page.hiddenFor : $0.page.key < $1.page.key }
+        for (index, entry) in due.enumerated() {
+            let (page, reasons) = (entry.page, entry.reasons)
+            if index < pace.perPass {
+                plan.discards.append(page.key)
+                plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: .discarded)
+            } else {
+                // Due, but past this pass's share: it goes on a later pass, as far along as its reasons let it.
+                let state: State = reasons.contains(where: \.blocksFreeze) ? .hidden : .frozen
+                plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: state,
+                                                    keptBy: KeepReason.ordered(reasons), nextDeadline: pace.interval)
+            }
+        }
+        plan.nextCheck = plan.decisions.values.compactMap(\.nextDeadline).min()
         return plan
     }
 }
