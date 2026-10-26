@@ -106,8 +106,8 @@ public final class WorkspaceAutoNamer {
     func pending() -> [Rename] {
         _ = retryRevision
         let targets = workspaces()
-        submitted.removeAll { submission in
-            !targets.contains { target in self.matchesTarget(submission, target: target) }
+        submitted = submitted.filter { submission in
+            targets.contains { target in self.matchesTarget(submission, target: target) }
         }
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
@@ -129,7 +129,7 @@ public final class WorkspaceAutoNamer {
             let submission = self.submission(for: candidate)
             // Keep at most the current title for a target. A late completion for an
             // older title then cannot clear a newer same-revision submission.
-            submitted.removeAll { old in self.matchesTarget(old, target: target) && old != submission }
+            submitted = submitted.filter { old in !self.matchesTarget(old, target: target) || old == submission }
             guard !submitted.contains(submission) else { continue }
             renames.append(candidate)
         }
