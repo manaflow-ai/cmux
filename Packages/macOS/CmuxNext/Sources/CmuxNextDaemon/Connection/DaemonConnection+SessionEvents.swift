@@ -21,12 +21,16 @@ extension DaemonConnection {
               identity?.supports(DaemonCapability.stateResources.rawValue) == true else { return }
         let id = SessionEventsWire.newStreamID()
         sessionStream = id
+        // Its items ride the daemon's reply FIFO, so they count in the event barrier.
+        let transport = ready?.transport
+        transport?.routeOnControlSequence(streamID: id)
         do {
             _ = try await resourceRequest({ requestID in
                 ResourceRequestEnvelope(id: requestID, operation: "session.events",
                                         params: ["stream_id": .string(id)], idempotencyKey: nil)
             }, as: SessionEventsWire.Opened.self)
         } catch {
+            transport?.endControlSequence(streamID: id)
             guard sessionStream == id else { return }
             sessionStream = nil
             // No stream: waiters for the first snapshot stop waiting.

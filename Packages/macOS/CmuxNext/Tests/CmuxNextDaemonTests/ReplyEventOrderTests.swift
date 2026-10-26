@@ -131,4 +131,32 @@ import Testing
         #expect(response.eventBarrier == 1, "stream items moved the reply's barrier")
         #expect(transport.routedEventCount == 1, "stream items changed routedEventCount")
     }
+
+    @Test func aControlSequenceStreamCountsUntilItsEnd() async throws {
+        let daemon = try FakeDaemon()
+        let transport = try LineTransport(path: daemon.path)
+        try daemon.accept()
+        let routed = Routed()
+        transport.start(onEvent: { name, _, index in routed.record(name, index) }, onClose: { _ in })
+        defer { transport.close() }
+        let session = "stream_\(String(repeating: "f", count: 32))"
+        transport.routeOnControlSequence(streamID: session)
+
+        let reply = Task {
+            try await transport.request(cmd: "session.events", timeout: nil) { id in Data(#"{"id":\#(id),"cmd":"x"}"#.utf8) }
+        }
+        let id = try daemon.readRequestID()
+        let item = #"{"type":"stream_item","stream_id":"\#(session)","sequence":1,"item":{}}"#
+        let end = #"{"type":"stream_end","stream_id":"\#(session)","reason":"gap"}"#
+        let others = Self.streamItems(rounds: 1, from: 0)
+        daemon.write([item] + others + [#"{"id":\#(id),"ok":true,"data":{}}"#, end, item])
+        let response = try await reply.value
+        await routed.waitFor(1 + others.count + 2)
+
+        #expect(response.eventBarrier == 1, "the control stream's item is in the barrier")
+        #expect(transport.routedEventCount == 2, "its end counts; a line after the end does not")
+        let indices = routed.lines.withLock { $0 }.map(\.index)
+        #expect(indices.first == 1)
+        #expect(indices.last == 2)
+    }
 }

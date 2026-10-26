@@ -328,6 +328,30 @@ Repeated `subscribe` calls and repeated attachments create independent server st
 
 The server event broadcaster holds 4,096 events per subscriber. The connection writer also has a 256-message, 16 MiB regular queue and a separate 256-message, 16 MiB control reserve. Stream overflow discards that stream's queued events, emits one stream-scoped `overflow`, and can leave unrelated streams and command responses usable. Exhausting the control reserve or the two-second write deadline closes the connection.
 
+### Reply and event order
+
+Each connection has one control sequence (stream 0): command replies, the events of its `subscribe`
+stream, and the items of its `session.events` stream. The server writes them in one FIFO, in the
+order they were enqueued, ahead of every other stream's queued items. Every other stream (attach
+output, journal reads, loopback forwards, agent-session attaches and other resource streams) keeps
+its own FIFO: its items are never reordered among themselves, but priority may move them relative
+to other streams. These rules hold on the Unix socket and WebSocket transports:
+
+1. Control replies and control events share one FIFO.
+2. A reply is enqueued after every event its request emitted, so it is written after them. (The
+   server hands an emitted event from the subscriber mailbox to the FIFO on the subscription's
+   thread; the admit-time emit of chrome-parity p05-ipc-120 closes that hop.)
+3. Items of a stream stay in their stream's FIFO; a stream's overflow drops only its own items
+   and never a reply.
+4. Control-sequence items use their stream's queue budget and backpressure, never the control
+   reserve, so an event flood ends its subscription with `overflow` and never closes the connection.
+
+A client may therefore use "events read before this reply" as a barrier: every event the request
+emitted is in it. The macOS app's `LineTransport.routedEventCount` (and the `eventBarrier` of a
+reply) counts only stream-0 lines: raw events and the lines of a stream the client registered on the
+control sequence (`session.events`). The lines of every other stream never move it. Regression
+tests: `cargo test -p cmux-tui-core --lib reply_event_order` and `ReplyEventOrderTests` (CmuxNext).
+
 A reconnect creates a new transport generation. Old pending ids, event buffers, and stream handles never cross generations. A client resends authentication, calls `identify`, registers subscriptions before fetching snapshots, checks generation values, and reattaches surfaces. Network loss uses capped exponential delay with jitter and one in-flight attempt. Static-token rejection is terminal. Reconnect-credential rejection discards that credential once and enters one pairing attempt. Pairing denial, expiry, or rate limiting requires user action.
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
