@@ -2,43 +2,61 @@ import Foundation
 import Testing
 @testable import CmuxNextIPC
 
-// The payload types of the fixture set, as TypeEmitter (p05-ipc-020) writes them.
-private struct OutputEvent: Decodable, Equatable, Sendable {
-    let surface: String
-    let seq: UInt64
+// `DaemonWireEvent` here is CmuxNextWireGen's EventEmitter output for
+// cmux-tui/spec/fixtures/ipc-method-tables/sdk-schema.json, which CmuxNextWireGenPlugin writes into
+// this target at build time. These are the payload types it names, the way TypeEmitter
+// (p05-ipc-020) declares them. sdk-schema.json makes the `event` literal a required field of every
+// event payload, so each type carries it, and a TYPED_EVENT payload holds it as its line does.
+public nonisolated struct OutputEvent: Decodable, Equatable, Sendable {
+    public let event: String
+    public let surface: String
+    public let seq: UInt64
+
+    init(surface: String, seq: UInt64) {
+        event = "output"
+        self.surface = surface
+        self.seq = seq
+    }
 }
 
-private struct SizeStateEvent: Decodable, Equatable, Sendable {
-    let surface: String
-    let cols: UInt16
-    let rows: UInt16
+public nonisolated struct SizeStateEvent: Decodable, Equatable, Sendable {
+    public let event: String
+    public let surface: String
+    public let cols: UInt16
+    public let rows: UInt16
+
+    init(surface: String, cols: UInt16, rows: UInt16) {
+        event = "size-state"
+        self.surface = surface
+        self.cols = cols
+        self.rows = rows
+    }
 }
 
-private struct TabRenamedEvent: Decodable, Equatable, Sendable {
-    let tab: String
-    let title: String
+public nonisolated struct TabCreatedEvent: Decodable, Equatable, Sendable {
+    public let event: String
+    public let tab: String
+
+    init(tab: String) {
+        event = "tab-created"
+        self.tab = tab
+    }
 }
 
-/// The shape EventEmitter writes for `DaemonWireEvent` (CmuxNextWireGenTests checks the emitted
-/// text), over the fixture table below.
-private enum FixtureEvent: WireEventSet, Equatable {
-    case output(OutputEvent)
-    case sizeState(SizeStateEvent)
-    case tabRenamed(TabRenamedEvent)
-    case unknown(name: String, raw: Data)
+public nonisolated struct TabRenamedEvent: Decodable, Equatable, Sendable {
+    public let event: String
+    public let tab: String
+    public let title: String
 
-    static func decodeKnown(id: EventID, payload: Data, using decoder: some WireEventDecoding) throws -> FixtureEvent? {
-        switch id.rawValue {
-        case 0xC000: return .output(try decoder.decode(OutputEvent.self, from: payload))
-        case 0xC001: return .sizeState(try decoder.decode(SizeStateEvent.self, from: payload))
-        case 0xC202: return .tabRenamed(try decoder.decode(TabRenamedEvent.self, from: payload))
-        default: return nil
-        }
+    init(tab: String, title: String) {
+        event = "tab-renamed"
+        self.tab = tab
+        self.title = title
     }
 }
 
 /// Counts every decode, the way the connection's WireDecoder counts into the wire stats.
-private final class CountingDecoder: WireEventDecoding {
+private nonisolated final class CountingDecoder: WireEventDecoding {
     private let decoder = JSONDecoder()
     private(set) var count = 0
 
@@ -50,9 +68,10 @@ private final class CountingDecoder: WireEventDecoding {
 
 /// An event line costs one JSON decode: the name comes from a byte scan, the id from the method
 /// table, and only the event's own type is decoded (p05-ipc-022). A TYPED_EVENT payload is
-/// decoded by its id with no scan.
+/// decoded by its id with no scan. Every case runs on the emitter's generated `DaemonWireEvent`.
 @Suite struct WireEventSetTests {
-    // `tab-created` (0xC200) is in the table but the set has no case for it: it stays unknown.
+    // The fixture schema's events, plus `tab-moved` (0xC201): the injected table knows it, the
+    // generated set has no case for it, so it stays unknown.
     private static let table: MethodTable = {
         let terminalEvents = MethodTableFamily(id: 0xC0, name: "terminal-events", entries: [
             EventAttributes(id: EventID(rawValue: 0xC000), name: "output", priority: .bulk, coalesce: nil),
@@ -60,7 +79,7 @@ private final class CountingDecoder: WireEventDecoding {
         ])
         let tabEvents = MethodTableFamily(id: 0xC2, name: "tab-events", entries: [
             EventAttributes(id: EventID(rawValue: 0xC200), name: "tab-created", priority: .control, coalesce: nil),
-            nil,
+            EventAttributes(id: EventID(rawValue: 0xC201), name: "tab-moved", priority: .control, coalesce: nil),
             EventAttributes(id: EventID(rawValue: 0xC202), name: "tab-renamed", priority: .background, coalesce: nil),
         ])
         return MethodTable(
@@ -72,10 +91,10 @@ private final class CountingDecoder: WireEventDecoding {
 
     /// 20 lines: the `event` key first, last and in the middle; nested objects, arrays and strings
     /// holding `"event"`, escapes, whitespace, and names the table or the set does not know.
-    private static let lines: [(line: String, expected: FixtureEvent)] = [
+    private static let lines: [(line: String, expected: DaemonWireEvent)] = [
         (#"{"event":"output","surface":"s1","seq":1}"#, .output(OutputEvent(surface: "s1", seq: 1))),
         (#"{"surface":"s1","seq":2,"event":"output"}"#, .output(OutputEvent(surface: "s1", seq: 2))),
-        (#"{"seq":3,"event":"output","surface":"s2"}"#, .output(OutputEvent(surface: "s2", seq: 3))),
+        (#"{"tab":"t0","event":"tab-created"}"#, .tabCreated(TabCreatedEvent(tab: "t0"))),
         (#" { "event" : "output" , "surface" : "s3" , "seq" : 4 } "#, .output(OutputEvent(surface: "s3", seq: 4))),
         ("{\n\t\"event\":\"output\",\r\n\"surface\":\"s4\",\"seq\":5}", .output(OutputEvent(surface: "s4", seq: 5))),
         (#"{"meta":{"event":"tab-renamed"},"event":"output","surface":"s5","seq":6}"#,
@@ -102,8 +121,8 @@ private final class CountingDecoder: WireEventDecoding {
         (#"{"event":"tab-renamed","title":"","tab":"t4","extra":{"deep":[{}]}}"#,
          .tabRenamed(TabRenamedEvent(tab: "t4", title: ""))),
         // In the table, no case in the set.
-        (#"{"event":"tab-created","tab":"t5"}"#,
-         .unknown(name: "tab-created", raw: Data(#"{"event":"tab-created","tab":"t5"}"#.utf8))),
+        (#"{"event":"tab-moved","tab":"t5"}"#,
+         .unknown(name: "tab-moved", raw: Data(#"{"event":"tab-moved","tab":"t5"}"#.utf8))),
         // Not in the table: a newer daemon's event.
         (#"{"event":"surface-glow","surface":"s9"}"#,
          .unknown(name: "surface-glow", raw: Data(#"{"event":"surface-glow","surface":"s9"}"#.utf8))),
@@ -115,27 +134,41 @@ private final class CountingDecoder: WireEventDecoding {
         #expect(Self.lines.count == 20)
         for (line, expected) in Self.lines {
             let decoder = CountingDecoder()
-            let event = try FixtureEvent.decode(line: Data(line.utf8), table: Self.table, using: decoder)
+            let event = try DaemonWireEvent.decode(line: Data(line.utf8), table: Self.table, using: decoder)
             #expect(event == expected, "\(line)")
             let decodes = if case .unknown = expected { 0 } else { 1 }
             #expect(decoder.count == decodes, "\(line): \(decoder.count) decodes")
         }
     }
 
+    /// A TYPED_EVENT payload is the event's object, `event` included, as on a line.
     @Test func typedEventPayloadsDecodeByIDWithoutAScan() throws {
         let decoder = CountingDecoder()
-        let payload = Data(#"{"surface":"s1","cols":80,"rows":24}"#.utf8)
-        let event = try FixtureEvent.decode(eventID: EventID(rawValue: 0xC001), payload: payload,
-                                            table: Self.table, using: decoder)
+        let payload = Data(#"{"event":"size-state","surface":"s1","cols":80,"rows":24}"#.utf8)
+        let event = try DaemonWireEvent.decode(eventID: EventID(rawValue: 0xC001), payload: payload,
+                                               table: Self.table, using: decoder)
         #expect(event == .sizeState(SizeStateEvent(surface: "s1", cols: 80, rows: 24)))
         #expect(decoder.count == 1)
 
         // An id this build does not know keeps the name its payload carries, undecoded.
         let newer = Data(#"{"event":"surface-glow","surface":"s9"}"#.utf8)
-        let unknown = try FixtureEvent.decode(eventID: EventID(rawValue: 0xC7FF), payload: newer,
-                                              table: Self.table, using: decoder)
+        let unknown = try DaemonWireEvent.decode(eventID: EventID(rawValue: 0xC7FF), payload: newer,
+                                                 table: Self.table, using: decoder)
         #expect(unknown == .unknown(name: "surface-glow", raw: newer))
         #expect(decoder.count == 1)
+    }
+
+    /// An unknown id is never an error: with no readable `event`, its name is the id, and nothing
+    /// is parsed.
+    @Test func unknownIDWithoutAnEventNameIsNamedByItsID() throws {
+        let decoder = CountingDecoder()
+        for payload in [#"{"surface":"s9"}"#, #"{"event":"glow\u002Dx"}"#, "[1,2]", ""] {
+            let bytes = Data(payload.utf8)
+            let event = try DaemonWireEvent.decode(eventID: EventID(rawValue: 0xC7FF), payload: bytes,
+                                                   table: Self.table, using: decoder)
+            #expect(event == .unknown(name: "0xC7FF", raw: bytes), "\(payload)")
+        }
+        #expect(decoder.count == 0)
     }
 
     @Test func scanReadsOnlyTheTopLevelEventKey() {
@@ -148,23 +181,31 @@ private final class CountingDecoder: WireEventDecoding {
         #expect(WireEventNameScanner.name(in: Data()) == nil)
     }
 
-    /// A name the scan cannot read (escaped) falls back to a parse of `event`, then one decode.
+    /// A name or key the scan cannot read (it holds a JSON escape) falls back to a parse of
+    /// `event`, then one decode of the event: two decodes.
     @Test func escapedNameFallsBackToAFullParse() throws {
-        let decoder = CountingDecoder()
-        let line = Data(#"{"event":"size-state","surface":"s1","cols":80,"rows":24}"#.utf8)
-        #expect(WireEventNameScanner.name(in: line) == nil)
-        let event = try FixtureEvent.decode(line: line, table: Self.table, using: decoder)
-        #expect(event == .sizeState(SizeStateEvent(surface: "s1", cols: 80, rows: 24)))
-        #expect(decoder.count == 2)
+        let escaped = [
+            #"{"event":"size\u002Dstate","surface":"s1","cols":80,"rows":24}"#,
+            #"{"surface":"s1","\u0065vent":"size-state","cols":80,"rows":24}"#,
+        ]
+        for text in escaped {
+            let line = Data(text.utf8)
+            #expect(line.contains(UInt8(ascii: "\\")), "\(text)")
+            #expect(WireEventNameScanner.name(in: line) == nil, "\(text)")
+            let decoder = CountingDecoder()
+            let event = try DaemonWireEvent.decode(line: line, table: Self.table, using: decoder)
+            #expect(event == .sizeState(SizeStateEvent(surface: "s1", cols: 80, rows: 24)), "\(text)")
+            #expect(decoder.count == 2, "\(text): \(decoder.count) decodes")
+        }
     }
 
     @Test func refusesLinesWithoutANameOrWithABadPayload() {
         #expect(throws: WireEventDecodeError.self) {
-            try FixtureEvent.decode(line: Data(#"{"surface":"s1"}"#.utf8), table: Self.table, using: CountingDecoder())
+            try DaemonWireEvent.decode(line: Data(#"{"surface":"s1"}"#.utf8), table: Self.table, using: CountingDecoder())
         }
         do throws(WireEventDecodeError) {
-            _ = try FixtureEvent.decode(line: Data(#"{"event":"output","surface":7}"#.utf8), table: Self.table,
-                                        using: CountingDecoder())
+            _ = try DaemonWireEvent.decode(line: Data(#"{"event":"output","surface":7}"#.utf8), table: Self.table,
+                                           using: CountingDecoder())
             Issue.record("a bad payload decoded")
         } catch {
             #expect(error.isPayload(of: "output"), "\(error)")

@@ -33,9 +33,11 @@ extension WireEventSet {
         return try decode(id: id, name: name, payload: line, using: decoder)
     }
 
-    /// Decodes a TYPED_EVENT frame's payload: `eventID` picks the type, so nothing is scanned. An
-    /// id `table` does not know (a newer daemon's event) is `unknown` under the name its payload
-    /// carries, and is not decoded.
+    /// Decodes a TYPED_EVENT frame's payload: `eventID` picks the type, so a known id is neither
+    /// scanned nor parsed for its name. The payload is the event's JSON object, the same bytes as
+    /// its line, `event` included (sdk-schema.json makes that literal a required field of every
+    /// event payload). An id `table` does not know (a newer daemon's event) is `unknown` and never
+    /// an error: its name is the scanned `event`, or the id (`0xC7FF`) when the scan finds none.
     public static func decode(
         eventID: EventID,
         payload: Data,
@@ -43,7 +45,7 @@ extension WireEventSet {
         using decoder: some WireEventDecoding
     ) throws(WireEventDecodeError) -> Self {
         guard let name = table.event(eventID)?.name else {
-            return unknown(name: try eventName(in: payload, using: decoder), raw: payload)
+            return unknown(name: WireEventNameScanner.name(in: payload) ?? eventID.description, raw: payload)
         }
         return try decode(id: eventID, name: name, payload: payload, using: decoder)
     }
