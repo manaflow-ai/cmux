@@ -374,6 +374,21 @@ struct BlockingCheckTests {
         #expect(BlockingDetector(table: table).sites.count == 1)
     }
 
+    // MARK: wall time (Mutex)
+
+    /// A long main-thread `Mutex` wait adds the wait it measured to its site, like a timed call.
+    @MainActor @Test func aLongLockWaitAddsItsWaitToTheSite() async {
+        let wait = BlockingKind.lockWaitLimitNanos * 10
+        let fixture = Self.lockTable(measuredNanos: wait)
+        await Self.waitForAHeldMutex(fixture) { $0.mutex.withLock { $0 += 1 } }
+
+        let sites = BlockingDetector(table: fixture.table).sites
+        #expect(sites.map(\.kind) == [.lockWait])
+        #expect(sites.map(\.count) == [1])
+        #expect(sites.map(\.maxNanos) == [wait])
+        #expect(sites.map(\.totalNanos) == [wait])
+    }
+
     // MARK: helpers
 
     private static func recordingTable() -> (BlockingViolationTable, Recorder) {
@@ -414,6 +429,7 @@ struct BlockingCheckTests {
     @MainActor @Test func releaseBuildsCheckNothing() {
         _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
         _ = FileManager.checked.fileExists(atPath: "/")
+        #expect(blockingCall(.fileIO) { 42 } == 42)
         #expect(!BlockingDetector.forProcess().isCompiledIn)
         #expect(BlockingDetector.forProcess().sites.isEmpty)
     }

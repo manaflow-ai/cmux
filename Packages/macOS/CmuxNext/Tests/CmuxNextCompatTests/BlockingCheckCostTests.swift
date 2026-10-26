@@ -20,6 +20,13 @@ struct BlockingCheckCostTests {
         #expect(nanos < Self.budgetNanos)
     }
 
+    /// `blockingCall` off the main thread is the same `pthread_main_np()` and branch, and reads no clock.
+    @Test func aBlockingCallOffTheMainThreadCostsUnderTheBudget() async {
+        let nanos = await Task.detached { Self.fastestNanosPerBlockingCall() }.value
+        print("blocking-check cost: blockingCall off the main thread \(String(format: "%.2f", nanos)) ns per call")
+        #expect(nanos < Self.budgetNanos)
+    }
+
     @MainActor @Test func aRepeatOfAKnownSiteOnTheMainThreadCostsUnderTheBudget() async {
         let table = BlockingViolationTable(mode: .record)
         let nanos = BlockingViolationTable.$scoped.withValue(table) { Self.fastestNanosPerCall() }
@@ -34,6 +41,16 @@ struct BlockingCheckCostTests {
         for _ in 0..<runs {
             let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             for _ in 0..<calls { assertBlockingAllowed(.fileIO) }
+            best = min(best, Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / Double(calls))
+        }
+        return best
+    }
+
+    nonisolated private static func fastestNanosPerBlockingCall() -> Double {
+        var best = Double.infinity
+        for _ in 0..<runs {
+            let start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            for _ in 0..<calls { blockingCall(.fileIO) {} }
             best = min(best, Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - start) / Double(calls))
         }
         return best
