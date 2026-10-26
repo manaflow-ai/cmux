@@ -488,10 +488,13 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
+    let inputFrameSignposts = InputFrameSignposts()  // the key slots' key.frame; opt-in hang reports read each commit (WatchdogReporting)
     /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface (``inputTargets(agentPaneOwnsPage:)``).
     /// Its key and scroll slots carry the `key.frame` and `key.scroll_frame` intervals.
-    private(set) lazy var inputLatency = InputLatencyDispatch(tracker: InputLatencyTracker(presentation: PresentationClock()), classifier: Self.inputTargets {
-        [weak self] page in self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
+    private(set) lazy var inputLatency = InputLatencyDispatch(
+        tracker: InputLatencyTracker(presentation: PresentationClock(), frameIntervals: inputFrameSignposts),
+        classifier: Self.inputTargets { [weak self] page in
+            self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
     /// The surfaces, most specific first. A Chromium page in either process: an in-process page window (`CefNSWindow`, an agent
     /// chat's being the agent pane's) or a host-mode page view, which takes text input, so it precedes that rule (p04-input-066).
     static func inputTargets(agentPaneOwnsPage: @escaping @MainActor (NSWindow) -> Bool) -> InputTargetClassifier {
