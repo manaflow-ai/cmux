@@ -7,7 +7,7 @@ mod machine_catalog;
 
 use super::*;
 use cmux_threads::work::{Lane, Priority, Shutdown};
-use crate::event_cause::{EventCause, EventCauseScope};
+use crate::event_cause::EventCause;
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -60,7 +60,9 @@ pub(super) fn handle_connection_frame_at(
     // Every event this frame sets off, here or on a thread it hands work
     // to, carries the connection's cause (crate::event_cause).
     let (remote, cause) = mux.frame_client(client);
-    let _cause = EventCauseScope::enter(cause);
+    // The frame runs at its cause's class (crate::request_qos).
+    let request_qos = mux.request_qos();
+    let _cause = request_qos.enter(cause);
     if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,
@@ -92,9 +94,11 @@ pub(super) fn handle_connection_frame_at(
         }
         // An envelope's `origin` claim may only narrow the cause, as it
         // only narrows the origin; the origin gate still checks the claim.
+        // The narrowed cause sets the class too: a claimed automation line
+        // runs at UTILITY here, as it would on the dispatcher.
         let _claimed =
             request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-                EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+                request_qos.enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
             });
         let arrival = RequestArrival::parsed_now(arrived);
         let mut span = match &request {

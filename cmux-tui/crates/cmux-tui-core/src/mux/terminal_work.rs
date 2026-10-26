@@ -73,9 +73,10 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started = std::thread::Builder::new()
-            .name("mux-terminal-work".into())
-            .spawn(move || Self::work(&state));
+        let started = cmux_tui_platform::qos::spawn_outside_request(
+            std::thread::Builder::new().name("mux-terminal-work".into()),
+            move || Self::work(&state),
+        );
         if started.is_ok() {
             return Ok(());
         }

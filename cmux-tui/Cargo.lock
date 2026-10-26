@@ -1761,6 +1761,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-config",
  "cmux-conversation",
+ "cmux-features",
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",

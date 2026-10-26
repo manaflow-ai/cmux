@@ -271,6 +271,16 @@ impl Mux {
         &self.request_path_stats
     }
 
+    /// Whether this daemon's requests run at their cause's QoS class.
+    pub(crate) fn request_qos(&self) -> crate::request_qos::RequestQos {
+        self.request_qos.snapshot()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_request_qos_for_test(&self, enabled: bool) {
+        self.request_qos.set_for_test(enabled);
+    }
+
     pub(crate) fn request_stats(&self) -> &Arc<crate::diagnostics::RequestStats> {
         &self.request_stats
     }
