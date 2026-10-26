@@ -100,7 +100,15 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     if !report.ok {
         // After the report: exit 1, with the error envelope on stderr.
         let why = format!("{} ({}) needs attention", report.name, report.host);
-        return Err(AppError::new(Code::Runtime, "unhealthy", why).into());
+        let mut error = AppError::new(Code::Runtime, "unhealthy", why);
+        if let Some(step) = report.steps.iter().find(|step| step.state == StepState::Fail) {
+            let mut data = step.data.clone().unwrap_or_else(|| json!({}));
+            if let Some(reason) = step.reason {
+                data["reason"] = json!(reason);
+            }
+            error = error.with_data(data);
+        }
+        return Err(error.into());
     }
     Ok(())
 }
@@ -201,7 +209,28 @@ fn print_step(r: &StepResult, json_out: bool) {
 }
 
 fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepResult {
-    StepResult::new(step, StepState::Fail, detail).with_fix(fix)
+    let detail = detail.into();
+    let fix = fix.into();
+    let reason = match step {
+        Step::Reach => "ssh_unreachable",
+        Step::Install => "remote_install_failed",
+        Step::Daemon => "remote_daemon_unhealthy",
+        Step::Harness => "remote_harness_unhealthy",
+        Step::Peer => "peer_unreachable",
+        Step::PeerBack => "peer_back_unreachable",
+        Step::Identity => "peer_identity_failed",
+    };
+    let mut result = StepResult::new(step, StepState::Fail, detail).with_fix(fix);
+    // A missing standalone link is an intentional handoff to the app's own
+    // installer; retain the legacy shape so callers do not treat it as a
+    // repairable remote failure.
+    if !(step == Step::Install && result.detail.ends_with(" is missing")) {
+        result = result.with_reason(reason);
+        if let Some(command) = result.fix.clone().as_deref().and_then(|fix| fix.split('`').nth(1)) {
+            result = result.with_try(command.to_owned());
+        }
+    }
+    result
 }
 
 /// Why `ssh -o BatchMode=yes HOST true` failed, from its stderr.
@@ -761,7 +790,9 @@ fn judge_daemon(host: &str, name: &str, probe: &Probe, port: u16) -> Verdict {
                 StepState::Warn,
                 format!("the daemon runs build {b}, this is {want}"),
             )
-            .with_fix(format!("Run `acpmux host update {name}`.")),
+            .with_fix(format!("Run `acpmux host update {name}`."))
+            .with_reason("peer_version_skew")
+            .with_try(format!("acpmux host update {name}")),
         ),
         _ => Verdict::Done(StepResult::new(
             Step::Daemon,
@@ -917,6 +948,29 @@ fn harness_one(
     }
 }
 
+/// A host may have a catalog harness discovered from PATH even when this
+/// client has no profile file to copy. That is a usable remote harness; the
+/// real session check belongs to `new --host`, not to profile synchronization.
+fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
+    let command = probe(r)
+        .ok()
+        .and_then(|p| p.in_use().map(|u| u.path))
+        .unwrap_or_else(|| DAEMON_BIN.to_owned());
+    let command = if command.rsplit('/').next() == Some("acpmux") {
+        format!("{command} --json daemon harnesses")
+    } else {
+        format!("{command} acp --json daemon harnesses")
+    };
+    let Ok(out) = hosts::run(r, &command) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&out) else { return false };
+    value
+        .get("harnesses")
+        .and_then(|harnesses| harnesses.get(id))
+        .is_some_and(|profile| profile.get("unavailable").is_none())
+}
+
 fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResult {
     if ids.is_empty() {
         return StepResult::new(Step::Harness, StepState::Skip, "no --harness given");
@@ -934,6 +988,18 @@ fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResu
     };
     let (mut parts, mut failed, mut fixed) = (Vec::new(), false, false);
     for id in ids {
+        let local_profile = local
+            .harness_dir
+            .as_deref()
+            .map(|dir| dir.join(format!("{id}.toml")).is_file())
+            .unwrap_or(false);
+        if !local_profile && remote_harness_discovered(r, id) {
+            parts.push(format!(
+                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {} -m {id} -d`) ",
+                r.host()
+            ));
+            continue;
+        }
         match harness_one(r, id, local, &remote_home, fix) {
             Ok(None) => parts.push(format!("{id} ok")),
             Ok(Some(why)) => {

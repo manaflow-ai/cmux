@@ -427,6 +427,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
+                    let has_token = token.is_some();
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -434,7 +435,69 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
                     p["wait"] = json!(true);
-                    client.request("_acpmux/peer_add", p).await?
+                    let reply = client.request("_acpmux/peer_add", p).await?;
+                    let connected = reply
+                        .get("peers")
+                        .and_then(Value::as_array)
+                        .and_then(|peers| {
+                            peers.iter().find(|peer| {
+                                peer.get("name").and_then(Value::as_str) == Some(name.as_str())
+                            })
+                        })
+                        .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
+                        .unwrap_or(false);
+                    if !connected {
+                        let host = url
+                            .strip_prefix("ssh://")
+                            .unwrap_or(&url)
+                            .split(':')
+                            .next()
+                            .unwrap_or(&name);
+                        let (message, data) = if url.starts_with("ssh://") && has_token {
+                            (
+                                format!(
+                                    "peer {name} is offline; verify the SSH alias, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": "acpmux host ls",
+                                    "detail": "the peer is offline; the saved WebSocket token is retained"
+                                }),
+                            )
+                        } else if url.starts_with("ssh://") {
+                            (
+                                format!(
+                                    "peer {name} is offline; verify the SSH alias, then run `ssh -o BatchMode=yes {host} true`, `acpmux host add {name} {url}`, and `acpmux host doctor {name} --json`"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "then": format!("acpmux host add {name} {url}"),
+                                    "doctor": format!("acpmux host doctor {name} --json")
+                                }),
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "peer {name} is offline; run `acpmux host ls` and retry after it shows connected"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": "acpmux host ls",
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        };
+                        return Err(crate::cli::errors::AppError::new(
+                            crate::cli::errors::Code::Runtime,
+                            "peer_unreachable",
+                            message,
+                        )
+                        .retryable()
+                        .with_data(data)
+                        .into());
+                    }
+                    reply
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Status { name } => {
