@@ -112,6 +112,7 @@ extension CrashReporter {
         let count = CrashKeySlots.writeRecord(wordsAt: slots, into: block.line)
         // concurrency-allow: async-signal-safe crash path (the process is ending), which can run no seam; one write
         // of at most 512 bytes to this run's local file.
+        // blocking-allow: a fatal-signal handler can call no seam (blockingCall records and may allocate).
         _ = Darwin.write(Int32(truncatingIfNeeded: taken - 1), block.line.baseAddress, count)
     }
 }

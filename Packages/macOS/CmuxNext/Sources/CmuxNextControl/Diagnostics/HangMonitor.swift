@@ -58,13 +58,14 @@ struct HangMonitor {
     /// (`HangWatch` close), which wakes the watchdog thread even when the monitor was parked, so this runs at once.
     private mutating func clearEndedHangs() {
         guard let crashKeys, !named.isEmpty else { return }
-        var index = named.count
-        while index > 0 {
-            index -= 1
-            guard !watch.isStillOpen(named[index]) else { continue }
-            let port = named.remove(at: index).port
-            if !named.contains(where: { $0.port == port }) { crashKeys.clearHung(port: port) }
+        let watch = watch // the closure reads a local, not `self`, while `named` is being changed
+        var ended: [UInt32] = []
+        named.removeAll { overdue in
+            guard !watch.isStillOpen(overdue) else { return false }
+            ended.append(overdue.port)
+            return true
         }
+        for port in ended where !named.contains(where: { $0.port == port }) { crashKeys.clearHung(port: port) }
     }
 
     private mutating func report(_ overdue: HangWatch.Overdue, now: UInt64) {

@@ -133,8 +133,11 @@ final class AppRunMarker {
         // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
         // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
         // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
+        // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
+        // on main like run.signal's open above; no seam runs earlier.
         if rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unlink(previousCrashKeysFile.path) }
         // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
+        // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
         let keysDescriptor = open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
