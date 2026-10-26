@@ -1,6 +1,7 @@
 // A press outside an open composer menu only closes it (menuPressGuard.ts). A chip that still says
-// its menu is open when no menu is on screen must not take every press in the composer: the queued
-// rows' buttons then did nothing (Leo, 2026-10-21: "WHY THE FUCK CANT I CLICK THESE BUTTONS").
+// its menu is open when no menu is on screen must not take every press in the composer (Leo,
+// 2026-10-21: "WHY THE FUCK CANT I CLICK THESE BUTTONS"). The queued rows' buttons always pass, so
+// these presses land on the field, which the guard swallows whenever a chip's menu is on screen.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { installMenuPressGuard } from "./menuPressGuard";
@@ -18,12 +19,13 @@ afterEach(() => {
 
 /**
  * A composer with a chip that says its menu is open (`chip` adds its attributes), `menu` beside
- * it, and a queued row's Delete button.
+ * it, the field, and a queued row's Delete button.
  */
 function composer(menu: string, chip = "") {
   const dom = new JSDOM(
     `<!doctype html><body><div id="root"><div class="acpmux-composer">
       <button id="chip" aria-haspopup="listbox" aria-expanded="true"${chip}>Model</button>${menu}
+      <div id="field" contenteditable="true"></div>
       <div class="acpmux-composer-queue"><button id="delete">Delete</button></div>
     </div></div></body>`,
     { url: "http://localhost/" },
@@ -55,9 +57,9 @@ function composer(menu: string, chip = "") {
 const TAKEN = { seen: ["pointerdown", "mousedown", "click"], cancelled: false };
 const SWALLOWED = { seen: [], cancelled: true };
 
-test("a chip left saying its menu is open, with no menu on screen, lets the queued row's buttons take the press", () => {
+test("a chip left saying its menu is open, with no menu on screen, lets the field take the press", () => {
   const press = composer("");
-  expect(press("delete")).toEqual(TAKEN);
+  expect(press("field")).toEqual(TAKEN);
 });
 
 test("a chip whose named menu is gone lets the press through, though another chip's menu is open", () => {
@@ -65,12 +67,12 @@ test("a chip whose named menu is gone lets the press through, though another chi
     `<div class="ui-positioner"><div class="ui-popup">elsewhere</div></div>`,
     ` aria-controls="gone"`,
   );
-  expect(press("delete")).toEqual(TAKEN);
+  expect(press("field")).toEqual(TAKEN);
 });
 
 test("an unnamed chip left open does not count the slash menu in the field as its menu", () => {
   const press = composer(`<div class="ui-popup acpmux-slash-menu">/</div>`);
-  expect(press("delete")).toEqual(TAKEN);
+  expect(press("field")).toEqual(TAKEN);
 });
 
 test("a press outside a named menu that is open only closes it; the menu and the chips still take theirs", () => {
@@ -78,12 +80,13 @@ test("a press outside a named menu that is open only closes it; the menu and the
     `<div class="ui-popup"><div id="menu" role="listbox"><button id="option">Opus</button></div></div>`,
     ` aria-controls="menu"`,
   );
-  expect(press("delete")).toEqual(SWALLOWED);
+  expect(press("field")).toEqual(SWALLOWED);
+  expect(press("delete")).toEqual(TAKEN);
   expect(press("option")).toEqual(TAKEN);
   expect(press("chip")).toEqual(TAKEN);
 });
 
 test("a press outside an unnamed chip's positioned menu only closes it", () => {
   const press = composer(`<div class="ui-positioner"><div class="ui-popup">menu</div></div>`);
-  expect(press("delete")).toEqual(SWALLOWED);
+  expect(press("field")).toEqual(SWALLOWED);
 });
