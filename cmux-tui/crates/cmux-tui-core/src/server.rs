@@ -240,6 +240,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+mod tabs_wire;
 pub(crate) mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
@@ -267,9 +268,7 @@ use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
     workspace_group_json, workspace_groups_json,
 };
-use split_respawn::{
-    SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
-};
+use split_respawn::{frontend_shell, placement_spawn_options, shell_argv, split_tab};
 mod terminal_create;
 mod terminal_history;
 mod terminal_io_wire;
@@ -296,6 +295,8 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
+/// `energy.set` and `energy.status` (p14-energy-033).
+pub(crate) mod energy_op;
 pub(crate) use chief_engine_mirror::{
     engine_file as chief_engine_file, write as write_chief_engine_file,
 };
@@ -616,42 +617,6 @@ struct Request {
 }
 
 #[derive(Deserialize)]
-struct CreateSurfaceWithReceiptRequest {
-    operation: String,
-    origin: String,
-    /// Stable correlation identity for the logical creation across retries.
-    receipt: String,
-    /// One execution attempt. Omission preserves the original adapter
-    /// behavior by using `receipt` for both identities.
-    #[serde(default)]
-    idempotency_key: Option<String>,
-    /// Stable public identities captured by the frontend before the request
-    /// is sent. Numeric targets remain a legacy fallback.
-    #[serde(default)]
-    selectors: Option<crate::ResourceSelectors>,
-    /// Ordered client-local selection continuations used only when the
-    /// primary creation target disappeared before the mutation committed.
-    #[serde(default)]
-    selector_fallbacks: Vec<crate::ResourceSelectors>,
-    #[serde(default)]
-    pane: Option<PaneId>,
-    #[serde(default)]
-    workspace: Option<WorkspaceId>,
-    #[serde(default)]
-    argv: Option<Vec<String>>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    width: Option<f32>,
-    #[serde(default)]
-    cols: Option<u16>,
-    #[serde(default)]
-    rows: Option<u16>,
-}
-
-#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
@@ -742,11 +707,12 @@ impl DetachNotice {
     }
 }
 
-// The `terminal-io` family's variants are generated from
-// spec/sdk-schema.json (cmux-ipc build.rs, server-families.json): the
-// macro appends them, each a newtype over its `terminal_io_wire` params.
+// The generated families' variants (crates/cmux-ipc/server-families.json,
+// from spec/sdk-schema.json): the macro appends them, each a newtype over its
+// `terminal_io_wire` or `tabs_wire` params.
 cmux_ipc::server_command_enum! {
 terminal_io = terminal_io_wire;
+tabs = tabs_wire;
 // Variant names are the wire command names (`terminal-resume-command`).
 #[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
@@ -1008,24 +974,9 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Execute one destination-creating TUI action behind a durable receipt.
-    /// Repeating the same receipt with identical fields returns the exact
-    /// created view, so a lost response can never duplicate or retarget it.
-    CreateSurfaceWithReceipt(Box<CreateSurfaceWithReceiptRequest>),
     Ids {
         #[serde(default)]
         kind: Option<String>,
-    },
-    Notify {
-        title: String,
-        body: String,
-        #[serde(default)]
-        level: Option<String>,
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or `daemon`.
-        #[serde(default)]
-        source: Option<String>,
     },
     ListAgents {
         #[serde(default)]
@@ -1086,53 +1037,6 @@ enum Command {
         terminal_id: Option<String>,
         #[serde(default, deserialize_with = "present_nullable")]
         command: Option<Option<String>>,
-    },
-    /// New tab in a pane (default: the active pane).
-    NewTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cwd: Option<String>,
-        /// Extra environment for the new terminal's child only.
-        #[serde(default)]
-        env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        /// Mark the new terminal `keep` so it survives with no tab.
-        #[serde(default)]
-        keep: bool,
-        /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
-        /// `SHELL` in `env`, else the daemon's default shell).
-        #[serde(default)]
-        shell_args: Option<Vec<String>>,
-    },
-    NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
-    BindConversationTabSession(conversation_tabs_wire::BindSessionParams),
-    /// New browser tab whose page the frontend renders (WebKit or CEF).
-    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
-    RestartTab(tab_restart::Params),
-    ParkTabs(tab_park::Params),
-    UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
-    SetFrontendBrowserHistory(frontend_browser_history::SetParams),
-    GetFrontendBrowserHistory(frontend_browser_history::GetParams),
-    /// Remote-terminal tabs (`remote-terminal-tabs-v1`).
-    NewRemoteTerminalTab(remote_terminal_tabs_wire::NewParams),
-    UpdateRemoteTerminalTab(remote_terminal_tabs_wire::UpdateParams),
-    RemoteTerminalSnapshot(remote_terminal_tabs_wire::SnapshotParams),
-    NewBrowserTab {
-        url: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
     },
     BrowserFramePresented {
         surface: SurfaceId,
@@ -1489,13 +1393,6 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
-    MoveTab {
-        surface: SurfaceId,
-        pane: PaneId,
-        index: usize,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
     /// Every tab group with its pane and members.
     ListTabGroups,
     /// Group tabs of one pane; they become contiguous at the first one.
@@ -1603,60 +1500,10 @@ enum Command {
         #[serde(default)]
         transaction: Option<String>,
     },
-    /// Acknowledge a tab's notifications without selecting or focusing it.
-    AckTabNotifications {
-        surface: SurfaceId,
-    },
-    /// Retained notifications, newest first.
-    ListNotifications {
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
-    SetTabPinned {
-        surface: SurfaceId,
-        pinned: bool,
-    },
-    MoveTabToWorkspace {
-        surface: SurfaceId,
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
-    /// Drop a tab on a pane edge: a new split beside `pane` holding the tab.
-    MoveTabToSplit {
-        surface: SurfaceId,
-        pane: PaneId,
-        edge: String,
-        #[serde(default)]
-        ratio: Option<f32>,
-        #[serde(default)]
-        respawn: Option<SplitRespawnRequest>,
-        /// `tab-split-keep-focus-v1`: the focused pane stays focused.
-        #[serde(default)]
-        keep_focus: bool,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
-    /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn(tab_column::MoveTabToColumnParams),
     NewRow(rows::NewRowParams),
     SetRowHeights(rows::SetRowHeightsParams),
     /// Move a whole viewport column one place (`column-move-v1`).
     MoveColumn(column_move::MoveColumnParams),
-    /// Drop a tab on the sidebar: a new workspace holding the tab.
-    MoveTabToNewWorkspace {
-        surface: SurfaceId,
-        #[serde(default)]
-        group: Option<String>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
     MoveWorkspace {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1993,24 +1840,6 @@ enum Command {
         #[serde(default)]
         complete: bool,
     },
-    /// Close one tab.
-    CloseSurface {
-        surface: SurfaceId,
-    },
-    /// Close several tab placements in one durable commit. With
-    /// `end_terminals`, also end every terminal whose views all close and that is not kept.
-    CloseTabs {
-        surfaces: Vec<TabRef>,
-        #[serde(default)]
-        end_terminals: bool,
-        #[serde(default)]
-        transaction: Option<String>,
-        /// `close-reason-v1`: `session_end` keeps the close out of closed history.
-        #[serde(default)]
-        reason: Option<crate::mux::CloseReason>,
-        #[serde(flatten)]
-        mutation: MutationRequest,
-    },
     /// Close a pane and all its tabs.
     ClosePane {
         pane: PaneId,
@@ -2056,11 +1885,6 @@ enum Command {
     RenamePane {
         pane: PaneId,
         /// Empty clears the name (falls back to the tab title).
-        name: String,
-    },
-    RenameSurface {
-        surface: SurfaceId,
-        /// Empty clears the name (falls back to the generated tab label).
         name: String,
     },
     RenameScreen {
@@ -2127,15 +1951,6 @@ enum Command {
     FocusPane {
         pane: PaneId,
     },
-    /// Select a tab within a pane (default: the active pane).
-    SelectTab {
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        delta: Option<isize>,
-    },
     /// Select a screen within the active workspace.
     SelectScreen {
         #[serde(default)]
@@ -2198,10 +2013,6 @@ impl Command {
             | Self::BrowserActivate { surface }
             | Self::ProcessInfo { surface }
             | Self::TerminalPorts { surface }
-            | Self::MoveTab { surface, .. }
-            | Self::MoveTabToWorkspace { surface, .. }
-            | Self::CloseSurface { surface }
-            | Self::RenameSurface { surface, .. }
             | Self::ResizeSurface { surface, .. }
             | Self::ResizeAttachedView { surface, .. }
             | Self::ReleaseSurfaceSize { surface }
@@ -2212,9 +2023,13 @@ impl Command {
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface(ScrollSurfaceParams { surface, .. }) => Some(*surface),
+            Self::MoveTab(params) => Some(params.surface),
+            Self::MoveTabToWorkspace(params) => Some(params.surface),
+            Self::CloseSurface(params) => Some(params.surface),
+            Self::RenameSurface(params) => Some(params.surface),
             Self::Send(send) => send.surface,
+            Self::Notify(params) => params.surface,
             Self::AttachSurface(AttachSurfaceParams { surface, .. })
-            | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe(SubscribeParams { surface, .. })
             | Self::SetSizePolicy { surface, .. }
@@ -2253,6 +2068,7 @@ impl Command {
 
 /// A tab named by its numeric surface id or its public `tab_...` id.
 #[derive(Debug, Clone, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(untagged)]
 enum TabRef {
     Surface(SurfaceId),

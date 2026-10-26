@@ -5,6 +5,7 @@
 
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
+#include "renderer_end.h"
 #include "shim_internal.h"
 
 using namespace cmux_shim;
@@ -134,26 +135,13 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
   if (!browser || !out || capacity <= 0) {
     return 0;
   }
-  // A frame identifier is "<render process host id>-<frame token>"
-  // (frame_util::MakeFrameIdentifier); the host id is the renderer's
-  // --renderer-client-id.
+  // Each frame's render process host id (RendererClientIdOf), once.
   std::vector<CefString> identifiers;
   browser->GetFrameIdentifiers(identifiers);
   int count = 0;
   for (const CefString& identifier : identifiers) {
-    const std::string text = identifier.ToString();
-    const size_t dash = text.find('-');
-    if (dash == std::string::npos || dash == 0) continue;
-    int id = 0;
-    bool digits = true;
-    for (size_t i = 0; i < dash; ++i) {
-      if (text[i] < '0' || text[i] > '9' || id > 100000000) {
-        digits = false;
-        break;
-      }
-      id = id * 10 + (text[i] - '0');
-    }
-    if (!digits || id <= 0) continue;
+    const int id = RendererClientIdOf(identifier.ToString());
+    if (id <= 0) continue;
     bool seen = false;
     for (int i = 0; i < count; ++i) {
       if (out[i] == id) {
@@ -208,10 +196,9 @@ int cmux_shim_print(int browser_id) {
 }
 
 void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next) {
-  // CEF reports its own identifier in OnFindResult; this build ignores the
-  // caller's, so Swift matches results by browser and the latest request.
-  (void)find_id;
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) {
+    // Before Find, which starts the search: its results carry `find_id` (find_ids.h).
+    cmux_shim::host().find_ids.Sent(browser_id, find_id);
     host->Find(text ? text : "", forward != 0, match_case != 0, find_next != 0);
   }
 }
@@ -388,4 +375,9 @@ char* cmux_shim_tab_navigation_entries(int browser_id) {
 
 int cmux_shim_tab_go_to_entry(int browser_id, int offset) {
   return fork_api().tab_go_to_offset ? fork_api().tab_go_to_offset(browser_id, offset) : 0;
+}
+
+int cmux_shim_browser_attach_view(int browser_id, void* parent_view) {
+  if (!fork_api().browser_attach_view) return 0;
+  return fork_api().browser_attach_view(browser_id, parent_view);
 }

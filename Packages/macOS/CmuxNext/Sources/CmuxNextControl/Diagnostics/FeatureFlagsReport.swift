@@ -8,20 +8,39 @@ public import CmuxNextSettings
 /// (chrome/browser/ui/webui/version/version_ui.cc). `cmux settings
 /// feature-flags [--json]` and the Labs page's Feature Flags card read it.
 ///
-/// Read-only and parameterless: the list is immutable after launch, so the
-/// method answers off the main actor from the last published snapshot, and
-/// any param a caller sends is ignored (nothing it names can change or run).
-/// The App registers ``method`` with its ``FeatureList``.
+/// Read-only and parameterless: the method answers off the main actor from
+/// the last published snapshot, and any param a caller sends is ignored
+/// (nothing it names can change or run). The App registers ``method`` with
+/// its ``FeatureList`` and the Debug toggles that still override a feature
+/// after launch (``liveLocal``), so each row is the value the app runs with.
 public struct FeatureFlagsReport: Sendable {
     public static let methodName = "features.list"
+    /// A Debug toggle's value for a feature, read with the report: nil while it is unset or does not apply.
+    public typealias LiveLocalOverride = @Sendable () -> Bool?
 
     public let features: FeatureList
     /// This launch's safe mode (``FeatureSafeMode/state``), nil where the App applies no remote document.
     public let safeMode: FeatureSafeMode.State?
+    /// The Debug toggles that override a feature after the launch resolved it (step 3 of ``FeatureList``'s
+    /// order), by feature name. Each answers nil where policy or the environment decided the feature, and in Release.
+    public let liveLocal: [String: LiveLocalOverride]
 
-    public init(features: FeatureList, safeMode: FeatureSafeMode.State? = nil) {
+    public init(features: FeatureList, safeMode: FeatureSafeMode.State? = nil, liveLocal: [String: LiveLocalOverride] = [:]) {
         self.features = features
         self.safeMode = safeMode
+        self.liveLocal = liveLocal
+    }
+
+    /// The value the app runs with for `feature`: its live Debug toggle (source `local`) when one is set, else
+    /// the launch's resolution.
+    public func resolution(of feature: Feature) -> Feature.Resolution {
+        if let value = liveLocal[feature.name]?() { return Feature.Resolution(isEnabled: value, source: .local) }
+        return features.resolution(of: feature)
+    }
+
+    /// Every feature with ``resolution(of:)``, in registry order.
+    public var entries: [(feature: Feature, resolution: Feature.Resolution)] {
+        features.registry.features.map { (feature: $0, resolution: resolution(of: $0)) }
     }
 
     public var method: ControlMethod {
@@ -42,7 +61,7 @@ public struct FeatureFlagsReport: Sendable {
             "local_overrides": .bool(channel.allowsLocalOverrides),
             "safe_mode": safeMode.map(Self.safeModeJSON) ?? .null,
             "unknown_names": .array(features.unknownNames.map(JSONValue.string)),
-            "features": .array(features.entries.map { Self.row($0.feature, $0.resolution, channel: channel) }),
+            "features": .array(entries.map { Self.row($0.feature, $0.resolution, channel: channel) }),
         ])
     }
 

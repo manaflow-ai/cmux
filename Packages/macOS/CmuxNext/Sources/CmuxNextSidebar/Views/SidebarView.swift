@@ -24,7 +24,7 @@ public final class SidebarView: NSView {
     /// Height reserved at the top for the window's traffic lights (the
     /// toolbar buttons sit in this row, trailing). Nil follows
     /// `Metrics.titlebarHeight`, read at layout time.
-    public var titlebarHeightOverride: CGFloat? { didSet { needsLayout = true } }
+    public var titlebarHeightOverride: CGFloat? { didSet { if titlebarHeightOverride != oldValue { needsLayout = true } } }
     /// Where the titlebar row's accessory may start: after the window's
     /// toolbar band (R68).
     public var titlebarLeadingReserve: CGFloat = 0 { didSet { if oldValue != titlebarLeadingReserve { needsLayout = true } } }
@@ -178,6 +178,7 @@ public final class SidebarView: NSView {
                 titlebarAccessory.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(titlebarAccessory)
             }
+            // invalidate: another accessory (the guard above) takes the titlebar row.
             needsLayout = true
         }
     }
@@ -191,11 +192,13 @@ public final class SidebarView: NSView {
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
+            // invalidate: an app section's view invalidated its intrinsic size (`AppSectionProvider`); the bands lay out again.
             appSections?.onContentChange = { [weak self] in self?.bandsDirty = true; self?.needsLayout = true }
             for region in bandRegions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             bandsDirty = true
+            // invalidate: another provider draws the app sections (set once per window).
             needsLayout = true
         }
     }
@@ -205,10 +208,12 @@ public final class SidebarView: NSView {
     /// popover does not open and the Updated card does not show.
     public var updateSurfaces: (any SidebarUpdateSurfaces)? {
         didSet {
+            // invalidate: the Updated card's page reports a new height (`UpdateSurfaceIsland.setHeight` on a change only).
             updatedCardView.onHeightChange = { [weak self] in self?.needsLayout = true }
             // Each page is made once its card shows.
             updateCardView.surfaces = updateSurfaces
             updatedCardView.surfaces = updateSurfaces
+            // invalidate: other update surfaces (set once per window) may show another card.
             needsLayout = true
         }
     }

@@ -43,9 +43,9 @@ enum DebugPaletteCapture {
         guard let drawn = panel.renderSnapshot()?.cgImage else { return .object(["error": .string("no image")]) }
         let size = view.bounds.size
         let scale = panel.backingScaleFactor
-        guard let context = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale), bitsPerComponent: 8,
-                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.bitmapOwningPixels(width: Int(size.width * scale), height: Int(size.height * scale),
+                                                         space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return .object(["error": .string("no bitmap context")]) }
         context.scaleBy(x: scale, y: scale)
         let dark = panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua

@@ -41,8 +41,7 @@ enum CmuxAppLinks {
             // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
             // holds a lane thread, never a cooperative-pool one).
             let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
-                var directory: ObjCBool = false
-                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+                FileManager.checked.directoryExists(atPath: path)
             }) ?? false
             guard let services else { return }
             // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which

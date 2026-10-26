@@ -15,13 +15,15 @@ final class MainDeadlineRig {
     private let keeper: FrameClient
     private var frames: Double = 0
 
-    init() {
+    /// - Parameter startup: The scheduler's launch phases; a test of work the launch holds passes a launching one.
+    init(startup: StartupPhase = .settled()) {
         let timer = HandFiredWakeUpTimer(), uptime = RigUptime(0), budgetClock = RigUptime(1_000_000_000)
         self.timer = timer
         self.uptime = uptime
         self.budgetClock = budgetClock
         let queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in timer }
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger()) { _ in RigLink() }
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: { budgetClock.now }), ledger: WakeupLedger(),
+                                             startup: startup) { _ in RigLink() }
         self.queue = queue
         self.work = work
         deadlines = MainDeadlineScheduler(work: work, queue: queue)
@@ -40,6 +42,13 @@ final class MainDeadlineRig {
     func fireAndRun() {
         if let date = timer.armedDate { uptime.now = max(uptime.now, date) }
         timer.armedDate = nil
+        queue.fire()
+        frame()
+    }
+
+    /// Fires the queue at the current uptime, as a wake that came before the armed date, and runs the posted actions
+    /// in one frame: only what is due by now runs, and the wake stays armed for the rest.
+    func fireAtNow() {
         queue.fire()
         frame()
     }

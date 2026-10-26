@@ -113,11 +113,14 @@ nonisolated struct ChromiumHostInputOutbox: Sendable {
         return true
     }
 
-    /// Writes the waiting bytes with one `write` (again on EINTR).
+    /// Writes the waiting bytes with one `write` (again on EINTR). `write` gets a view of the outbox's own
+    /// bytes, valid only during its call.
+    @safe
     mutating func flush(_ write: (UnsafeRawBufferPointer) -> WriteOutcome) -> FlushResult {
         while hasUnwritten {
             let offset = written
-            let outcome = bytes.withUnsafeBytes { write(UnsafeRawBufferPointer(rebasing: $0[offset...])) }
+            // SAFETY: a view of `bytes[offset...]`, inside the array, valid for the call; `write` keeps none of it.
+            let outcome = unsafe bytes.withUnsafeBytes { unsafe write(UnsafeRawBufferPointer(rebasing: $0[offset...])) }
             switch outcome {
             case .wrote(let count) where count > 0:
                 written += count

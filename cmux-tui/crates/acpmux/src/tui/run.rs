@@ -16,6 +16,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         .await
         .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
+    // This process's memory pressure empties the transcript layout (`tui_memory.rs`).
+    let memory = super::tui_memory::TuiMemory::start(tx.clone());
     let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
     let mut app = make_app(
         client.clone(),
@@ -83,6 +85,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             if let Err(e) = terminal.draw(&mut app) {
                 break Err(e.into());
             }
+            memory.drew(&app.transcript_cache);
             frames.presented(Instant::now());
         }
         tokio::select! {
@@ -154,9 +157,11 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             m = rx.recv() => {
                 if let Some(m) = m {
                     let status_only = matches!(m, AppMsg::Status(_));
+                    // An emptied cache stays empty until something else draws.
+                    let released = matches!(m, AppMsg::MemoryPressure);
                     let before = status_only.then(|| (app.web_url.clone(), app.hosts.clone()));
                     app.on_msg(m);
-                    if before.as_ref().map(|(url, hosts)| url != &app.web_url || hosts != &app.hosts).unwrap_or(true) {
+                    if !released && before.as_ref().map(|(url, hosts)| url != &app.web_url || hosts != &app.hosts).unwrap_or(true) {
                         frames.request();
                     }
                 }

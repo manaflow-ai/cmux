@@ -63,7 +63,8 @@ pub(super) fn handle_connection_with_permit(
 /// serves automation clients too. So it stays at the class those children
 /// start at until children reset their class (p02-threads task 223) and the
 /// app's UI connection is raised after its hello (task 224).
-pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos =
+    crate::thread_qos::ThreadType::UnclassifiedClient.qos();
 
 /// Starts connection reader thread `name` at [`CONNECTION_READER_QOS`] with
 /// blocking disallowed (each blocking request site is recorded, MQ-13).

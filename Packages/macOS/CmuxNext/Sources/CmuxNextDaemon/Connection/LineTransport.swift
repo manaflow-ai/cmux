@@ -112,11 +112,11 @@ final class LineTransport: Sendable {
     /// async id (``traceConnectionBits(scope:)``) and its flow's seed (``requestFlowSeed(pid:)``).
     let trace: TraceRuntime, traceConnection: UInt64, traceFlowSeed: UInt64
 
-    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:trace:)``); nil connects to `path`.
+    /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
-    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role,
-         stats: DaemonWireStats?, hangs: (any HangWatchScoping)? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
+    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing. `writerTarget`: see `open`.
+    init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
+         hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared) throws(DaemonError) {
         self.path = path
         self.role = role
         self.trace = trace
@@ -134,7 +134,7 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }
@@ -147,27 +147,13 @@ final class LineTransport: Sendable {
         // peer key is this process's audit token (request-origin.md, peer key caveat).
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(path.utf8)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard pathBytes.count < capacity else {
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        guard let address = UnixSocketAddress(path: path) else {
             Darwin.close(fd)
             throw .socketPathTooLong(path)
         }
-        withUnsafeMutableBytes(of: &address.sun_path) { sunPath in
-            var raw = sunPath  // the same memory; `modify` is mutating on the view
-            raw.copyBytes(from: pathBytes)
-            raw.modify(checked: pathBytes.count) { $0 = 0 }
-        }
-        address.sun_len = UInt8(clamping: MemoryLayout<sockaddr_un>.size) // 106 bytes
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard result == 0 else {
+        guard address.connect(fd) == 0 else {
             let code = errno
             Darwin.close(fd)
             throw .connectFailed(path: path, errno: code)
@@ -200,11 +186,13 @@ final class LineTransport: Sendable {
             readLoop(fd: fd, onEvent: onEvent, onClose: onClose)
         }
         thread.name = "cmux-tui reader \(path)"
-        thread.qualityOfService = .userInteractive
+        thread.qualityOfService = role.readerQoS
         thread.start()
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
+    /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
+    var writerQoS: DispatchQoS { writer.queueQoS }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
 
     /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
@@ -366,11 +354,13 @@ final class LineTransport: Sendable {
         var closeDetail = "EOF"
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
+            // for the call and nothing else touches meanwhile.
+            let count = unsafe chunk.withUnsafeMutableBytes { unsafe Darwin.read(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }
-                closeDetail = "read: \(String(cString: strerror(errno)))"
+                closeDetail = "read: \(POSIXErrorText(errno))"
                 break
             }
             recorder?.bytesRead(count)

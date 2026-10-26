@@ -50,10 +50,8 @@ public final class DaemonService {
     /// The running push of `terminalDefaultColors`, and whether a newer value waits for it.
     @ObservationIgnored var terminalColorsPush: Task<Void, Never>?
     @ObservationIgnored var terminalColorsPending = false
-    /// The current (or last) daemon's identity. The store owns it and
-    /// replaces it on every handshake, so capabilities follow a daemon that
-    /// restarted or was handed off to a newer build after the first connect.
-    public var identity: DaemonIdentity? { store.identity }
+    /// The app's Energy Saver the local daemon follows (DaemonService+Energy); nil until `follow(_:on:)`.
+    @ObservationIgnored var energyFollow: DaemonEnergyFollow?
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?

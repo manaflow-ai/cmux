@@ -61,7 +61,8 @@ struct CrashKeysRecordTests {
         let keys = try #require(AppRunMarker.readCrashKeys(planted))
         let previous = PreviousRun(pid: 4242, launched: Date(timeIntervalSince1970: 1_790_000_000), recovery: false,
                                    survived: true, signal: SIGSEGV, quitting: false)
-        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", marksRun: false)
+        let service = CrashRecoveryService(bundleID: "com.cmuxterm.test.crashkeys", marksRun: false,
+                                           work: BackgroundWork(label: "test.crash-keys"), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let tags = try #require(service.appReport(previous, crashKeys: keys)["crash_keys"] as? [String: String])
         #expect(tags["crash_key.action_id"] == "ff")
         #expect(tags["crash_key.pane_kind"] == "terminal")

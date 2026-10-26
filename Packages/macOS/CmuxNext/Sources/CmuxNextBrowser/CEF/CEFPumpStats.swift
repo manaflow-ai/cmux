@@ -1,4 +1,5 @@
 public import CmuxNextInputCore
+import CmuxNextMetrics
 import Foundation
 
 /// Counters of the external message pump since `CefInitialize` (`debug.cef`
@@ -51,14 +52,19 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
 
     public init() {}
 
-    /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds.
+    /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds and records it as one `cef.pump` sample in us
+    /// (``HistogramID/cefPump``) into `metrics`, the field histograms of the process that runs the pump: the app's,
+    /// as only the in-process pump calls this. In host mode the Chromium host runs the pump and writes the pump
+    /// numbers into its own metrics file (p09-observability task 104).
     ///
     /// - Returns: Whether it used CEF's whole time slice (a ``longWorkRuns`` pass; `cef.pump` end `arg0` 1).
-    mutating func recordWorkRun(elapsed: TimeInterval, timeSlice: TimeInterval = CEFPumpSchedule.timeSlice) -> Bool {
+    mutating func recordWorkRun(elapsed: TimeInterval, timeSlice: TimeInterval = CEFPumpSchedule.timeSlice,
+                                metrics: Metrics) -> Bool {
         let longRun = elapsed >= timeSlice
         workRuns += 1
         workSeconds += elapsed
         if longRun { longWorkRuns += 1 }
+        metrics.record(.cefPump, Int64(max(0, elapsed) * 1e6))
         return longRun
     }
 

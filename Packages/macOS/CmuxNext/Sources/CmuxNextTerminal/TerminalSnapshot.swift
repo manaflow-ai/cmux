@@ -12,7 +12,8 @@ extension TerminalSurfaceView {
         guard let contents = layer?.contents else { return nil }
         let object = contents as CFTypeRef
         guard CFGetTypeID(object) == IOSurfaceGetTypeID() else { return nil }
-        return unsafeDowncast(object, to: IOSurface.self)
+        // SAFETY: the CF type ID check above proves `object` is an IOSurface.
+        return unsafe unsafeDowncast(object, to: IOSurface.self)
     }
 
     /// Downscaled copy of the last presented frame. One GPU blit; does not
@@ -30,7 +31,7 @@ extension TerminalSurfaceView {
         guard let frame = beginFrameRead() else { return nil }
         defer { endFrameRead(frame) }
         let surface = SendableSurface(surface: frame)
-        return await Task.detached(priority: .utility) {
+        return await Task.detached(priority: Task.currentPriority) {
             TerminalSnapshotRenderer.render(surface, maxPixelSize: maxPixelSize)
         }.value
     }

@@ -8,7 +8,8 @@ import GhosttyNextKit
 extension GhosttyRuntime {
     public var loadedConfigFiles: [String] {
         guard let config else { return [] }
-        return Self.loadedFiles(of: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe Self.loadedFiles(of: config)
     }
 
     /// The files that can change which Ghostty config is loaded. The finalized
@@ -52,29 +53,46 @@ extension GhosttyRuntime {
         return paths
     }
 
+    /// The files `config`, a live handle, read.
     nonisolated static func loadedFiles(of config: ghostty_config_t) -> [String] {
-        (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
-            ghostty_config_loaded_file(config, index).map { String(cString: $0) }
+        // SAFETY: the caller's live config; each index is below the count it reported, and each
+        // path is a NUL-terminated string the config owns, copied by String(cString:) at once.
+        let count = unsafe ghostty_config_loaded_file_count(config)
+        return (0..<count).compactMap { index in
+            // SAFETY: as above.
+            unsafe ghostty_config_loaded_file(config, index).map { unsafe String(cString: $0) }
         }
     }
 
     /// The files a config made of `path` and its includes reads, for tests.
     nonisolated static func loadedFiles(configFile path: String) -> [String] {
-        guard let config = ghostty_config_new() else { return [] }
-        defer { ghostty_config_free(config) }
-        ghostty_config_load_file(config, path)
-        ghostty_config_load_recursive_files(config)
-        ghostty_config_finalize(config)
-        return loadedFiles(of: config)
+        // SAFETY: a new config this function owns and frees once (defer), after its last use;
+        // Swift passes a NUL-terminated copy of `path` for the load call.
+        guard let config = unsafe ghostty_config_new() else { return [] }
+        // SAFETY: as above.
+        defer { unsafe ghostty_config_free(config) }
+        // SAFETY: as above.
+        unsafe ghostty_config_load_file(config, path)
+        // SAFETY: as above.
+        unsafe ghostty_config_load_recursive_files(config)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
+        // SAFETY: as above.
+        return unsafe loadedFiles(of: config)
     }
 
     /// The Ghostty config file to edit, chosen as Ghostty.app chooses it
     /// (`ghostty_config_open_path`: App Support before XDG, an existing
     /// non-empty file first). libghostty creates it when none exists.
     public nonisolated static func editableConfigPath() -> String? {
-        let path = ghostty_config_open_path()
-        defer { ghostty_string_free(path) }
-        guard let pointer = path.ptr, path.len > 0 else { return nil }
-        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(path.len)), as: UTF8.self)
+        // SAFETY: open_path returns a string of `len` bytes that this function owns and frees
+        // once (defer); the text is copied before the free.
+        let path = unsafe ghostty_config_open_path()
+        // SAFETY: as above.
+        defer { unsafe ghostty_string_free(path) }
+        // SAFETY: as above.
+        guard let pointer = unsafe path.ptr, path.len > 0 else { return nil }
+        // SAFETY: as above.
+        return unsafe String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(path.len)), as: UTF8.self)
     }
 }

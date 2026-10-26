@@ -1,7 +1,8 @@
 import AppKit
 
 /// The key-downs the dispatcher decided, so the window hook, Chromium's
-/// pre-key hook and the menu gate run nothing for them. Matched by identity
+/// pre-key hook and the menu gate run nothing for them (and, as a second set,
+/// those whose extension shortcuts it looked up). Matched by identity
 /// (weak) and by signature (timestamp, key code, modifiers, characters), so
 /// a copy of the same key that Chromium hands back is recognized too. Events
 /// with a zero timestamp (AppKit's synthesized key bindings) match by

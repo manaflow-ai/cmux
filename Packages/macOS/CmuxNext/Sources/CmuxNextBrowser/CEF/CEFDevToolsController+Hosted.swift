@@ -51,7 +51,7 @@ extension CEFDevToolsController {
         let size = layout.dock.isDocked
             ? layout.frames(in: tab.container.bounds, devToolsDocked: true).devTools.size
             : CEFDevToolsWindow.frame(near: tab.container.window).size
-        shim.devToolsSetPlacement(browser, UnsafeMutableRawPointer(bitPattern: UInt(page.wireToken)), 0, 0,
+        shim.devToolsSetPlacement(browser, CEFParentView(token: page.wireToken), 0, 0,
                                   max(size.width, 1).clampedInt32, max(size.height, 1).clampedInt32)
         hostedPlacement = browser
     }

@@ -61,7 +61,9 @@ final class ConcealedPasteboard {
     }
 
     func write(_ secret: SecretBytes) {
-        let text = secret.withUnsafeBytes { String(decoding: $0, as: UTF8.self) }
+        // SAFETY: the bytes view is SecretBytes' own locked buffer, valid for the closure; the String copies
+        // the bytes out before it returns and the view does not escape.
+        let text = unsafe secret.withUnsafeBytes { unsafe String(decoding: $0, as: UTF8.self) }
         pasteboard.write(text, markers: [Self.concealedType, Self.transientType])
         let written = pasteboard.changeCount
         clearTimer.scheduleOnMain(after: clearAfter) { [weak self] in

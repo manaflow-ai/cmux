@@ -29,7 +29,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
-    case findResult(browser: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
+    /// A result of the find `findID` (``CEFFindRequests``): the shim stamps the caller's id of the
+    /// browser's last `cmux_shim_find`.
+    case findResult(browser: Int32, findID: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
     case closeRequested(browser: Int32)
     case tab(CEFForkTabEvent, browser: Int32, window: Int32, value: Int)
     case popup(browser: Int32, url: String, disposition: Int, userGesture: Bool)
@@ -43,8 +45,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case devToolsOpened(browser: Int32, devTools: Int32, docked: Bool)
     case devToolsClosed(browser: Int32, devTools: Int32)
     /// The tab's renderer ended unexpectedly: `status` is
-    /// `cef_termination_status_t`, `code` the exit code or signal.
-    case renderTerminated(browser: Int32, status: Int, code: Int, text: String)
+    /// `cef_termination_status_t`, `code` the exit code or signal, `end` whether this browser
+    /// is the first that renderer hosted to report it (``CEFRendererEnd``).
+    case renderTerminated(browser: Int32, status: Int, code: Int, text: String, end: CEFRendererEnd)
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
@@ -142,7 +145,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
         case 14:
             self = .findResult(
-                browser: browser, count: Int(a),
+                browser: browser, findID: request, count: Int(a),
                 activeOrdinal: Int(Int32(truncatingIfNeeded: b)), isFinal: (b >> 32) & 1 != 0
             )
         case 15: self = .closeRequested(browser: browser)
@@ -155,7 +158,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 20: self = .devToolsWillOpen(browser: browser)
         case 21: self = .devToolsOpened(browser: browser, devTools: Int32(truncatingIfNeeded: a), docked: b != 0)
         case 22: self = .devToolsClosed(browser: browser, devTools: Int32(truncatingIfNeeded: a))
-        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1)
+        case 23: self = .renderTerminated(browser: browser, status: Int(a), code: Int(b), text: s1, end: CEFRendererEnd(rawValue: request) ?? .unknown)
         case 24: self = .renderUnresponsive(browser: browser)
         case 25: self = .renderResponsive(browser: browser)
         case 26: self = .chromeCommand(browser: browser, command: request)

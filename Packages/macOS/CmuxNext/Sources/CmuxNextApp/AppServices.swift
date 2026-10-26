@@ -27,6 +27,7 @@ import CmuxNextKeepAwake
 import CmuxNextLayout
 import CmuxNextLaunch
 import CmuxNextMemory
+import CmuxNextMetrics
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -107,7 +108,9 @@ final class AppServices {
     var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
     /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.
     var cloudPolicyDisabled = false, feedGitHub: (enabled: Bool, pollIntervalSeconds: Double)?
-    var cloudContext: Task<Void, Never>?  // the Cloud start's registry context follow; nil until Cloud starts
+    var cloudContext: ServiceObservation<CloudContextFacts>?  // the Cloud start's registry context follow; nil until Cloud starts
+    /// What ``cloudContext`` reads; each flush applies (a tuple: no dedupe, as the loop it replaced).
+    typealias CloudContextFacts = (signedIn: Bool, machines: Int, user: String?, team: String?)
     var cloudStart: CloudStartPost?  // the launch's Cloud start (`postCloudStart`); nil in tests
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
@@ -174,9 +177,14 @@ final class AppServices {
         ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
                          deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
     /// The agent page WebKit warm-up.
-    let agentPageWarmup = AgentPageWarmup(chromiumChat: { AgentPaneTunables.chromium.value })
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
+    /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
+    /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
+    private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
+        features.isEnabled(.agentChromium, localOverride: AgentPaneTunables.chromium.override)
+    }
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
-    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
+    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
@@ -316,12 +324,14 @@ final class AppServices {
     var features: FeatureList
 
     /// Every declared feature's value for this launch: this build's channel, the launch
-    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the Labs page's local choices
-    /// when their launch read has ended. The composition root builds it once, before anything that reads a feature.
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`) and the local choices (the Labs page's, then
+    /// the Debug tunables features replace: ``FeatureLaunchLocalOverrides``) whose launch reads have ended.
+    /// The composition root builds it once, before anything that reads a feature.
     static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
         FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment),
-                    local: environment.featureLocalOverrides?.value)
+                    local: FeatureLaunchLocalOverrides(labs: environment.featureLocalOverrides?.value ?? FeatureLocalOverrides(),
+                                                       tunables: environment.featureTunableOverrides?.value ?? [:]))
     }
     /// The Feature Flags card's local choices (feature `featureFlagsCard`): this launch's, and the next one's it writes.
     private(set) lazy var featureLocalOverrides = FeatureLocalOverrideStore(registry: features.registry, channel: features.channel,
@@ -421,20 +431,32 @@ final class AppServices {
     /// The New Tab page on the app's one preload slot, which it installs on `webUI` (instant open, p13-webui-044).
     private(set) lazy var newTabSpares = NewTabPreload.app(self)
     /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
-                                                      hoverFrameInput: hoverFrameInput)
+    private(set) lazy var pageHostPool: PageHostPool = {
+        let pool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)),
+                                hoverFrameInput: hoverFrameInput)
+        pool.scriptFrames = pageScriptFrame
+        return pool
+    }()
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
-    private(set) lazy var webUI: WebUIHost = WebUIHost(
-        chromium: ChromiumPageHost(
-            chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
-            preference: { [weak self] in
-                self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
-            },
-            keyRouter: keyRouter, work: work),
-        openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
-        hoverFrameInput: hoverFrameInput)
+    private(set) lazy var webUI: WebUIHost = {
+        let host = WebUIHost(
+            chromium: ChromiumPageHost(
+                chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
+                preference: { [weak self] in
+                    self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
+                },
+                keyRouter: keyRouter, work: work),
+            openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
+            hoverFrameInput: hoverFrameInput)
+        host.scriptFrames = pageScriptFrame
+        return host
+    }()
+    /// The frame cmux pages deliver their router envelopes on, one board task per page per frame
+    /// (`pageScriptFrames`, default off, p06-scheduler-222); nil while the feature is off.
+    private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
+        ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
@@ -549,8 +571,12 @@ final class AppServices {
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
+    private(set) var idleWakeups: IdleWakeupSampler?
+    /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
+    private var idleWakeupEvents: [EventSubscription] = []
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
-    var updateFeedObservation: Task<Void, Never>?
+    var updateFeedObservation: ServiceObservation<UpdateHighlights?>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -693,7 +719,7 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
@@ -723,7 +749,7 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages; crashRecovery.armSurvivalWindow(on: mainDeadlines)
         cache.useLaunchPictures(environment.browserLaunchPictures, enabled: features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
@@ -843,16 +869,37 @@ final class AppServices {
     func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: KeepAwake's battery rule, the video wallpaper, and the saver itself to the
-    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself. Only
+    /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself; the local daemon
+    /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
+        daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
             keepAwake.setOnBattery(inputs.onBattery)
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
             self?.energy.driver.update(inputs: inputs)
         }
+    }
+    /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
+    /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
+    /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
+    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing.
+    func startIdleWakeups(watchdog: MainThreadWatchdog) {
+        guard idleWakeups == nil else { return }
+        let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
+                                                       daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
+        idleWakeups = sampler
+        idleWakeupEvents = [
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appResignedActive()
+            },
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appBecameActive()
+            },
+        ]
+        if !NSApp.isActive { sampler.appResignedActive() }
     }
     /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.

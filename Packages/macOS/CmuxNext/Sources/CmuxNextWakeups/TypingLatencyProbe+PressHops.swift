@@ -47,8 +47,9 @@ extension TypingLatencyProbe {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = Thread.isMainThread
-        let recorded = state.withLock { state -> Recorded? in
+        let recorded = withState { state -> Recorded? in
             guard let index = state.open.firstIndex(where: { $0.awaitsWrite(on: surface) }) else { return nil }
+            state.dropEchoSample(overtakenBy: index)
             return state.record(.ioWrite, at: index, now: now, onMain: onMain)
         }
         finish(recorded.map { [$0] } ?? [])
@@ -59,7 +60,7 @@ extension TypingLatencyProbe {
     public func mark(_ mark: Mark, flow: UInt64) {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let recorded = state.withLock { state -> Recorded? in
+        let recorded = withState { state -> Recorded? in
             guard let index = state.open.firstIndex(where: { $0.flow == flow }) else { return nil }
             return state.record(mark, at: index, now: now, onMain: false)
         }
@@ -74,7 +75,7 @@ extension TypingLatencyProbe {
     public func outputDecoded(flow: UInt64?) {
         guard isSampling else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let (recorded, dropped) = state.withLock { state -> (Recorded?, [Sample]) in
+        let (recorded, dropped) = withState { state -> (Recorded?, [Sample]) in
             if let flow {
                 state.exactEchoes = true
                 guard let index = state.open.firstIndex(where: { $0.flow == flow }),
@@ -101,10 +102,22 @@ extension TypingLatencyProbe {
     /// ``Mark/outputParsed`` (the session took an output chunk, the lane parsed one) go only to presses
     /// whose echo named no press (a daemon without exact flows); a named echo's chunk marks its own press
     /// (``mark(_:flow:)``).
-    public func mark(_ mark: Mark, surface: SurfaceKey) {
-        guard isSampling else { return }
+    ///
+    /// - Parameters:
+    ///   - awaitsGPU: The frame of a ``Mark/contents`` went to its layer before its GPU work finished: the
+    ///     presents also wait for ``FramePresentEstimate/gpuDidFinish(flow:atNanos:)`` of each flow it closes.
+    /// - Returns: The flows a ``Mark/contents`` closed, oldest first; empty for the other marks.
+    @discardableResult
+    public func mark(_ mark: Mark, surface: SurfaceKey, awaitsGPU: Bool = false) -> [UInt64] {
+        guard isSampling else { return [] }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-        let recorded = state.withLock { state -> [Recorded] in
+        let recorded = withState { state -> [Recorded] in
+            let commitsBefore = state.echoCommits.count
+            defer {
+                if awaitsGPU {
+                    for index in commitsBefore..<state.echoCommits.count { state.echoCommits[index].awaitsGPU = true }
+                }
+            }
             var recorded: [Recorded] = []
             // Newest first: a press the frame closes leaves the indices below it in place.
             for index in state.open.indices.reversed() {
@@ -115,5 +128,16 @@ extension TypingLatencyProbe {
             return Array(recorded.reversed())
         }
         finish(recorded)
+        return mark == .contents ? recorded.compactMap { $0.finished?.flow } : []
+    }
+
+    /// The oldest press open on `surface` whose echo was parsed: the frame Ghostty draws for `surface` now
+    /// shows it (`ghostty.render`'s flow, ``GhosttyTraceHook``). Nil while none, the probe is off or the
+    /// keystroke-timing gate is closed.
+    public func echoFlow(on surface: SurfaceKey) -> UInt64? {
+        guard isSampling else { return nil }
+        return state.withLock { state in
+            state.open.first(where: { $0.surface == surface && $0.has(.outputParsed) })?.flow
+        }
     }
 }
