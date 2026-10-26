@@ -128,25 +128,55 @@ extension WebKitTab: PageInfoProviding {
             return answer(challenge, completionHandler: completionHandler)
         }
         let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
+        ServerTrustChallengeAnswer().answer(trust, excepted: excepted, activity: pageInfoActivity, completionHandler: completionHandler)
+    }
+}
+
+/// How WebKit's server-trust challenge is answered and what Page Info records from it. A host with no
+/// certificate exception gets WebKit's default handling at once; an excepted host (the person proceeded
+/// past its certificate) gets the trust as its credential when the system does not trust it, else the
+/// default handling, once the evaluation ends. Either way Page Info records the failure or clears it.
+///
+/// Evaluation can fetch intermediates or revocation data: never on the main thread (architecture.md 5a).
+/// The system's evaluation (``system(_:done:)``) runs on Security's own queue and answers on main, where
+/// the delegate runs, so the trust never crosses threads in Swift; Chromium likewise verifies on a worker
+/// and replies on the calling sequence (net/cert/multi_threaded_cert_verifier.cc).
+struct ServerTrustChallengeAnswer {
+    /// Starts evaluating a trust and returns the start status; on success `done` runs once, on the main
+    /// thread, with whether the system trusts it and why not.
+    typealias Evaluate = @MainActor (SecTrust, _ done: @escaping @MainActor (_ trusted: Bool, _ error: CFError?) -> Void) -> OSStatus
+
+    let evaluate: Evaluate
+
+    init(evaluate: @escaping Evaluate = ServerTrustChallengeAnswer.system) {
+        self.evaluate = evaluate
+    }
+
+    /// The system's evaluation: `SecTrustEvaluateAsyncWithError` on Security's queue, answered on main.
+    static func system(_ trust: SecTrust, done: @escaping @MainActor (_ trusted: Bool, _ error: CFError?) -> Void) -> OSStatus {
+        SecTrustEvaluateAsyncWithError(trust, .main) { _, trusted, error in done(trusted, error) }
+    }
+
+    /// Calls `completionHandler` exactly once and records the evaluation in `activity`. An evaluation that
+    /// cannot start counts as failed, with the start status as the reason and no chain (reading the chain
+    /// would evaluate on this thread), as an evaluation that failed did.
+    func answer(_ trust: SecTrust, excepted: Bool, activity: PageInfoActivity,
+                completionHandler: @escaping @MainActor (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         if !excepted { completionHandler(.performDefaultHandling, nil) }
-        // Evaluation can fetch intermediates or revocation data: never on the main thread
-        // (architecture.md 5a). Security evaluates on its own queue and answers on main, where this
-        // delegate call runs, so the trust never crosses threads in Swift; Chromium likewise verifies on
-        // a worker and replies on the calling sequence (net/cert/multi_threaded_cert_verifier.cc).
-        let status = SecTrustEvaluateAsyncWithError(trust, .main) { [weak self] evaluated, trusted, error in
+        let finish: @MainActor (ServerTrustFailure?) -> Void = { failure in
             if excepted {
-                completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: evaluated))
+                completionHandler(failure == nil ? .performDefaultHandling : .useCredential, failure == nil ? nil : URLCredential(trust: trust))
             }
-            guard let activity = self?.pageInfoActivity else { return }
-            if trusted {
-                activity.clearCertificateFailure()
-            } else {
-                let failure = ServerTrustFailure(trust: evaluated, error: error)
+            if let failure {
                 activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
+            } else {
+                activity.clearCertificateFailure()
             }
         }
-        // The evaluation never started: WebKit's own evaluation decides, as for a host with no exception.
-        if status != errSecSuccess, excepted { completionHandler(.performDefaultHandling, nil) }
+        let status = evaluate(trust) { trusted, error in
+            finish(trusted ? nil : ServerTrustFailure(trust: trust, error: error))
+        }
+        if status != errSecSuccess { finish(ServerTrustFailure(unstarted: status)) }
     }
 }
 
@@ -158,6 +188,12 @@ nonisolated struct ServerTrustFailure {
     init(trust: SecTrust, error: CFError?) {
         chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
         reason = error.map { CFErrorCopyDescription($0) as String }
+    }
+
+    /// An evaluation that could not start: no chain, the start status as the reason.
+    init(unstarted status: OSStatus) {
+        chain = []
+        reason = CFErrorCopyDescription(CFErrorCreate(nil, kCFErrorDomainOSStatus, CFIndex(status), nil)) as String
     }
 
     /// Evaluates `trust` on the calling thread (a URLSession delegate queue, never the main thread);
