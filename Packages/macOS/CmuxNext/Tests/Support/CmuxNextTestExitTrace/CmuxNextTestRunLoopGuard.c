@@ -27,12 +27,18 @@
 #include "CmuxNextTestExitTrace.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static int guard_installed;
+/// Whether the block below is holding a run open. 0 when CMUX_NEXT_TEST_RUNLOOP_GUARD=0 turned the
+/// guard off: the depth counting and the probe still work, so the regression test can take the
+/// same stop on an unprotected process and really die of it.
+static int guard_holding;
 /// Runs of the main run loop in the common modes, outermost first. A nested pass in a private mode
 /// is not counted, and must not be: stopping one of those ends that pass, not the outermost run.
 static int run_depth;
@@ -49,9 +55,21 @@ static int spins;
 static const int spin_cap = 1000;
 static const long long spin_microseconds = 1000;
 
-/// The test probe below: a timer that stops the innermost run the way a real stray stop does.
+/// The test probe below: a timer that stops the run the guard protects, the way a real stray stop
+/// reaches it. It fires only when THAT run is the current one (`guard_floor()` deep), because a
+/// stop taken while a sibling test's nested pass is open ends that pass instead -- which is not
+/// the failure under test, and made the regression test fail or pass for the wrong reason
+/// (cmux#25391 review, 2026-10-26).
 static CFRunLoopTimerRef probe_timer;
-static int probe_stopped;
+static int probe_stops;
+static int probe_target;
+static int probe_ticks;
+/// 60 s at 10 ms. A probe that never finds its moment disarms instead of waiting out the test.
+static const int probe_tick_cap = 6000;
+
+/// The depth at which the run that a stray stop would be fatal to is the current one: the drain
+/// queue's run, plus the one the guard holds inside it when it is holding.
+static int guard_floor(void) { return guard_holding ? 2 : 1; }
 
 static void guard_say(const char *message, int number) {
     char line[256];
@@ -70,8 +88,13 @@ static void guard_observe(CFRunLoopObserverRef observer, CFRunLoopActivity activ
     }
 }
 
+/// A monotonic clock: the wall clock CFAbsoluteTimeGetCurrent reads can step (NTP, a sleeping CI
+/// host), and a backwards step would read as a run that took no time and count towards the spin
+/// cap below.
 static long long guard_now_microseconds(void) {
-    return (long long)(CFAbsoluteTimeGetCurrent() * 1000000.0);
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) return 0;
+    return (long long)now.tv_sec * 1000000 + now.tv_nsec / 1000;
 }
 
 /// Runs inside the drain queue's run, before any test does anything, and does not return: from
@@ -107,8 +130,16 @@ static void probe_disarm(void) {
 static void probe_fire(CFRunLoopTimerRef timer, void *info) {
     (void)timer;
     (void)info;
-    probe_stopped = 1;
-    probe_disarm();
+    if (++probe_ticks >= probe_tick_cap) {
+        probe_disarm();
+        return;
+    }
+    // Only when the protected run is the current one. Deeper means a nested pass is open -- a
+    // sibling test's, or this test's own -- and stopping that ends the pass, not the run this is
+    // about.
+    if (run_depth != guard_floor()) return;
+    probe_stops++;
+    if (probe_stops >= probe_target) probe_disarm();
     CFRunLoopStop(CFRunLoopGetMain());
 }
 
@@ -116,10 +147,11 @@ static void probe_fire(CFRunLoopTimerRef timer, void *info) {
 int cmux_next_test_lists_tests(void);
 
 __attribute__((constructor)) static void cmux_next_test_runloop_guard_install(void) {
-    const char *setting = getenv("CMUX_NEXT_TEST_RUNLOOP_GUARD");
-    if (setting && strcmp(setting, "0") == 0) return;
-    // A listing run reports its tests and ends; holding its run loop open could only hang it.
+    // A listing run reports its tests and ends; holding its run loop open could only hang it, and
+    // nothing in a listing run needs the depth count either.
     if (cmux_next_test_lists_tests()) return;
+    const char *setting = getenv("CMUX_NEXT_TEST_RUNLOOP_GUARD");
+    int hold = !(setting && strcmp(setting, "0") == 0);
     CFRunLoopRef main_loop = CFRunLoopGetMain();
     if (!main_loop) return;
     CFRunLoopObserverRef observer = CFRunLoopObserverCreate(
@@ -141,9 +173,16 @@ __attribute__((constructor)) static void cmux_next_test_runloop_guard_install(vo
     // Queued, not called: the constructor runs while the test bundle loads, before the drain
     // queue's run exists. The block runs on that run's first turn and keeps the main thread from
     // then on, which is the point.
-    CFRunLoopPerformBlock(main_loop, kCFRunLoopCommonModes, ^{ guard_hold_the_main_loop(); });
-    CFRunLoopWakeUp(main_loop);
-    guard_installed = 1;
+    //
+    // Turned off, everything above still happens: the depth count and the keepalive source cost
+    // nothing and leave the process exactly as vulnerable as it was, so the regression test can
+    // take the same stop and the process really dies of it. Only the holding is skipped.
+    if (hold) {
+        guard_holding = 1;
+        CFRunLoopPerformBlock(main_loop, kCFRunLoopCommonModes, ^{ guard_hold_the_main_loop(); });
+        CFRunLoopWakeUp(main_loop);
+    }
+    guard_installed = hold;
 }
 
 int cmux_next_test_runloop_guard_installed(void) {
@@ -158,9 +197,11 @@ int cmux_next_test_runloop_guard_depth(void) {
     return run_depth;
 }
 
-void cmux_next_test_runloop_guard_stop_outermost(void) {
-    if (probe_timer) return;
-    probe_stopped = 0;
+void cmux_next_test_runloop_guard_stop_outermost(int times) {
+    if (probe_timer || times < 1) return;
+    probe_stops = 0;
+    probe_ticks = 0;
+    probe_target = times;
     probe_timer = CFRunLoopTimerCreate(
         NULL, CFAbsoluteTimeGetCurrent() + 0.01, 0.01, 0, 0, probe_fire, NULL);
     if (!probe_timer) return;
@@ -168,5 +209,9 @@ void cmux_next_test_runloop_guard_stop_outermost(void) {
 }
 
 int cmux_next_test_runloop_guard_stopped_outermost(void) {
-    return probe_stopped;
+    return probe_stops;
+}
+
+void cmux_next_test_runloop_guard_stop_probing(void) {
+    probe_disarm();
 }
