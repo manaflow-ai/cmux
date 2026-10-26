@@ -1747,7 +1747,7 @@
     },
     {
       "name": "cmux_shim_ext_set_enabled",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1763,7 +1763,9 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1772,12 +1774,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
-      "reason": "Optimistic in the mirror; TAB_EVENT 7 confirms or reverts it. BrowserExtensionStore refuses in the person's turn what Chromium would (BrowserExtensionInfo.canToggle), shows the change at once and reads no result (task 026)."
+      "reply_event": "wire:REPLY",
+      "reason": "Chromium's verdict (ExtensionService refuses what ManagementPolicy forbids) is known only in the host. BrowserExtensionStore refuses in the person's turn what the menus do not offer (canToggle), shows the change at once with the lists pending, and refreshes at the REPLY, which clears the pending marks: a refused change reverts, an applied one takes the host's lists. The action reports the REPLY's verdict (task 026)."
     },
     {
       "name": "cmux_shim_ext_uninstall",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1789,7 +1791,9 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1798,12 +1802,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
-      "reason": "As ext_set_enabled: the store refuses what the menus do not offer (canRemove) and removes the card at once; a refused uninstall shows when the list comes back unchanged."
+      "reply_event": "wire:REPLY",
+      "reason": "As ext_set_enabled: the store refuses what the menus do not offer (canRemove) and removes the card at once; the REPLY's refresh brings a refused card back."
     },
     {
       "name": "cmux_shim_ext_reload",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1815,7 +1819,9 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1824,12 +1830,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {
       "name": "cmux_shim_ext_move_pinned",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1845,7 +1851,9 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1854,12 +1862,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {
       "name": "cmux_shim_ext_set_pinned",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -1875,7 +1883,9 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [],
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
+      ],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1884,7 +1894,7 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {

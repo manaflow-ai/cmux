@@ -49,8 +49,9 @@ Inputs (paths relative to --root, the repository by default):
            preinit  queued in the client and applied in order before CefInitialize. A non-void one
                     returns the client's own check and names `reply_event` wire:REPLY: the host's
                     verdict, sent by token when it applies the op
-         `pending_keys` are mirror keys a post changes, `*` for a param the post does not name:
-         the client marks them pending under the op's token until the host's ack. `local` and
+         `pending_keys` are mirror keys a post (or an async op) changes, `*` for a param the op
+         does not name: the client marks them pending under the op's token until the host's ack
+         (an async op's: its REPLY, which the host sends after the op ran). `local` and
          `policy` need a `reason`. `channel` "input" sends the op on the input ring.
          `optional_exports` are fork API symbols CEFShimLibrary binds with r.optional that the
          header does not declare yet (with a `fork_api`); they take op ids after the header's, and
@@ -945,8 +946,8 @@ def class_problems(op: Op) -> list[str]:
             out.append("a mirror key is ints and strings only; its only out-parameters are int*")
     elif op.mirror_key or op.refresh_events:
         out.append("mirror_key and refresh_events are for mirror exports")
-    if op.pending_keys and cls not in ("post", "view", "preinit", "mint"):
-        out.append("pending_keys are for posts")
+    if op.pending_keys and cls not in ("post", "view", "preinit", "mint", "async"):
+        out.append("pending_keys are for ops the host acks or answers")
     if cls == "async":
         if op.reply_event is None:
             out.append(f"an async export names its answer: reply_event is an event kind or {REPLY_WIRE}")
