@@ -10,12 +10,14 @@ dependencies = [
  "base64",
  "clap",
  "cmux-agent-pane-policy",
+ "cmux-blocking",
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-trace",
@@ -591,6 +593,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-blocking"
+version = "0.1.0"
+dependencies = [
+ "cmux-panic-log",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -615,8 +626,10 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -768,13 +781,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-lock-rank"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-local-auth",
+ "cmux-panic-log",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -908,6 +927,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-blocking",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
@@ -919,6 +939,8 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
@@ -1050,6 +1072,8 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
