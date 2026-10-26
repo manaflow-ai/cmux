@@ -263,6 +263,10 @@ type CaptureStack = Box<dyn Fn(ThreadHandle) -> Result<Backtrace, BacktraceError
 /// frames would be the thread's next work.
 const RUN_ENDED: &str = "run-ended";
 
+/// `stack_error` of a hang another process reported: the thread is there.
+#[cfg(unix)]
+const OTHER_PROCESS: &str = "other-process";
+
 /// A recorded request in the ring, with the run it came from so its final
 /// duration can be filled in.
 struct RecentEntry {
@@ -316,11 +320,18 @@ impl Shared {
         duration_us(self.threshold)
     }
 
-    /// `kind`'s hang tier, never before the threshold (the grid's period).
+    /// `kind`'s hang tier, never before the threshold (the grid's period)
+    /// but for an echo item's: a run that ends past it hands its end to the
+    /// watchdog, and a busy one is seen on the first tick after it.
     fn hang_us(&self, kind: WatchKind) -> u64 {
         #[cfg(test)]
-        if let Some(hang) = self.hang_for_test {
+        if let Some(hang) = self.hang_for_test
+            && !kind.is_echo()
+        {
             return duration_us(hang).max(self.threshold_us());
+        }
+        if kind.is_echo() {
+            return duration_us(kind.hang());
         }
         duration_us(kind.hang()).max(self.threshold_us())
     }
@@ -560,6 +571,28 @@ impl Shared {
         (self.hang_sink)(record);
     }
 
+    /// Write a hang another process's watcher saw (a holder's loop pass)
+    /// to the hang log, counted in `hangs`. It has no stack: the hung
+    /// thread is in that process.
+    #[cfg(unix)]
+    fn report_hang(&self, scope: &str, method: &str, hang_ms: u64, busy_ms: u64) {
+        self.hangs.fetch_add(1, Ordering::Relaxed);
+        let at_ms = self.epoch_ms.saturating_add(self.now_us() / 1000);
+        (self.hang_sink)(serde_json::json!({
+            "event": "hang",
+            "scope": scope,
+            "method": method,
+            "hang_ms": hang_ms,
+            "busy_ms": busy_ms,
+            "duration_ms": null,
+            "started_at_ms": at_ms.saturating_sub(busy_ms),
+            "at_ms": at_ms,
+            "stack": [],
+            "stack_truncated": false,
+            "stack_error": OTHER_PROCESS,
+        }));
+    }
+
     /// The stack of the thread running the recorded run `word` in `slot`.
     /// The slot holds the run until this thread frees it, so if `busy` is
     /// still `word` after the capture, the run was busy the whole time its
@@ -778,12 +811,12 @@ impl RequestWatchdog {
 
     fn watch_run(&self, kind: WatchKind, client: u64, method: u32) -> Option<RequestScope<'_>> {
         let (index, word) = self.shared.claim(kind, client, method)?;
-        Some(RequestScope {
-            shared: &self.shared,
-            slot: &self.shared.slots[index],
-            word,
-            ended: Cell::new(false),
-        })
+        Some(RequestScope::new(&self.shared, index, word))
+    }
+
+    /// The echo threads' handle on this watchdog ([`EchoWatch::item`]).
+    pub(crate) fn echo_watch(&self) -> EchoWatch {
+        EchoWatch::new(self.shared.clone())
     }
 
     /// Make this the process's watchdog, for scopes opened with no `Mux` at
@@ -844,7 +877,11 @@ pub(crate) struct RequestScope<'a> {
     ended: Cell<bool>,
 }
 
-impl RequestScope<'_> {
+impl<'a> RequestScope<'a> {
+    fn new(shared: &'a Arc<Shared>, index: usize, word: u64) -> Self {
+        Self { shared, slot: &shared.slots[index], word, ended: Cell::new(false) }
+    }
+
     /// The run is now doing `method` (a frame reaching its handler).
     pub(crate) fn set_method(&self, method: WatchedMethod) {
         self.slot.method.store(method.0, Ordering::Relaxed);
@@ -891,8 +928,11 @@ impl Drop for RequestScope<'_> {
 #[path = "request_watchdog_scopes.rs"]
 mod scopes;
 use scopes::PROCESS;
+#[cfg(unix)]
+pub(crate) use scopes::process_report_holder_hang;
 #[cfg(debug_assertions)]
 pub(crate) use scopes::spawn_owner_hang_test;
+pub use scopes::{EchoItem, EchoWatch};
 pub(crate) use scopes::{WatchKind, process_enter, process_exit};
 
 #[cfg(test)]
@@ -906,3 +946,7 @@ mod stack_tests;
 #[cfg(test)]
 #[path = "request_watchdog_hang_tests.rs"]
 mod hang_tests;
+
+#[cfg(test)]
+#[path = "request_watchdog_echo_tests.rs"]
+mod echo_tests;
