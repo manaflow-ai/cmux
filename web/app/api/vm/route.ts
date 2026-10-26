@@ -1,5 +1,6 @@
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
+import { parseCreateIdlePause } from "../../../services/vms/idlePauseRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -7,6 +8,7 @@ import {
   withCallerName,
 } from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../services/vms/machineCost";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
@@ -96,7 +98,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -201,16 +203,30 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
-      // Who made each machine. A team list is scoped by owner team, so this is
-      // the only thing separating one member's machines from another's.
-      const creatorNames = await readCreatorNames({
-        userIds: creatorUserIds(entries),
-        teamId: billingTeamId,
-        caller: user,
-        onFailure: (error) => setSpanAttributes(span, {
-          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+      // Who made each machine, and when each live machine last started (its
+      // running time and cost line). Both reads are bounded and best effort,
+      // and they run together so a stalled database delays the list once.
+      // A team list is scoped by owner team, so the names are the only thing
+      // separating one member's machines from another's.
+      const [creatorNames, runningSince] = await Promise.all([
+        readCreatorNames({
+          userIds: creatorUserIds(entries),
+          teamId: billingTeamId,
+          caller: user,
+          onFailure: (error) => setSpanAttributes(span, {
+            "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+          }),
         }),
-      });
+        readVmRunningSince(
+          entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
+            .map((entry) => entry.providerVmId),
+          {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          },
+        ),
+      ]);
       // A migration lagging in one environment turns every row into "Unknown"
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
@@ -247,6 +263,10 @@ export async function GET(request: Request): Promise<Response> {
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
         // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
         agentUpdates: entry.agentUpdates,
+        // Minutes without activity before the machine pauses by itself (0 is
+        // Off), and why a paused machine is paused ("idle" or "user", else null).
+        idlePauseMinutes: entry.idlePauseMinutes,
+        pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
@@ -256,6 +276,10 @@ export async function GET(request: Request): Promise<Response> {
         // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
+        // Display cost: the size's hourly rate (null when the size is not
+        // measured yet) and when a live machine last started (epoch ms; null
+        // while paused). Clients show rate x elapsed as an estimate.
+        ...vmCostFields(entry, runningSince.get(entry.providerVmId)),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
@@ -411,6 +435,8 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
+      const providerMetadata = gcpProviderMetadataFromRequest(request, provider);
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.
@@ -429,6 +455,7 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
+        providerMetadata,
         idempotencyKey,
         displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
@@ -438,10 +465,15 @@ export async function POST(request: Request): Promise<Response> {
         modelPlane,
         networkPolicy: machineOptions.networkPolicy,
         agentUpdates: machineOptions.agentUpdates,
+        idlePauseMinutes: machineOptions.idlePauseMinutes,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+        // Allocated last, after every early return and every other input:
+        // createVm owns it from here and wipes it when the workflow ends,
+        // including a create that continues past its answer deadline.
+        providerCredential: gcpCredentialFromRequest(request, provider),
       }), {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),
@@ -476,6 +508,7 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        idlePauseMinutes: created.idlePauseMinutes,
         // Keep the create response self-contained for clients that append it
         // directly to their fleet model. Pool accounting and the per-machine
         // resize shape are separate contracts even when they currently match.
@@ -486,13 +519,18 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
-/** The create body's outbound network policy and agent-update setting. */
+/**
+ * The create body's outbound network policy, agent-update setting and idle pause
+ * (`cmux cloud new-machine --persistent` sends "off"; stored with the row, before any provider call).
+ */
 function parseCreateMachineOptions(candidate: Record<string, unknown>) {
   const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
   if (!networkPolicy.ok) return networkPolicy;
   const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
   if (!agentUpdates.ok) return agentUpdates;
-  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
+  const idlePause = parseCreateIdlePause(candidate);
+  if (!idlePause.ok) return idlePause;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting, idlePauseMinutes: idlePause.minutes };
 }
 
 /**

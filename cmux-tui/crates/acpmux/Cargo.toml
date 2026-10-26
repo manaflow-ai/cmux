@@ -34,7 +34,8 @@ futures = "0.3"
 futures-util = "0.3"
 ratatui = "0.30"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# raw_value: an OpenCode config keeps its keys as written (src/opencode_ask.rs).
+serde_json = { version = "1", features = ["raw_value"] }
 sha2.workspace = true
 # P-256 signatures of the person's phones (src/hub/approvers.rs); ring is
 # already in the graph through rustls.
@@ -53,6 +54,8 @@ notify.workspace = true
 getrandom.workspace = true
 base64 = "0.22"
 unicode-width = "0.2"
+# NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
+unicode-normalization.workspace = true
 wait-timeout.workspace = true
 zeroize.workspace = true
 regex = "1"
@@ -66,7 +69,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 # Codex over `codex app-server` as an ACP agent, in process
 # (src/codex_app_server.rs). Pinned to an exact commit.
-cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b", default-features = false }
+cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "6e476aa8220e18aad1eaeaabd59659b53f7eca31", default-features = false }
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
@@ -84,4 +87,6 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
+tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }

@@ -94,6 +94,33 @@ import Testing
         #expect(opened == 1)
     }
 
+    /// The picked emoji goes in at the person's caret in the middle of the draft, or over the
+    /// words they selected, not at the end (Leo 2026-10-21). The system picker inserts a pick
+    /// through the text input client it opened for, with no replacement range; that client must
+    /// be the box, still holding the caret it had before the button took the click.
+    @Test(arguments: ["caret", "selection"])
+    func thePickedEmojiGoesInAtTheCaret(_ place: String) async {
+        let p = pane()
+        p.window.makeFirstResponder(p.field)
+        p.field.insertText("Hello world", replacementRange: p.field.selectedRange())
+        let before = place == "caret" ? NSRange(location: 5, length: 0) : NSRange(location: 6, length: 5)
+        p.field.setSelectedRange(before)
+        p.window.makeFirstResponder(p.controller.host.scrollView.document)
+        var client: NSTextInputClient?
+        p.controller.openEmojiPalette = { [weak window = p.window] in client = window?.firstResponder as? NSTextInputClient }
+
+        p.controller.host.fieldChrome.onEmoji()
+        await nextTurn()
+        // The pick, as the system picker sends it.
+        client?.insertText("😀", replacementRange: NSRange(location: NSNotFound, length: 0))
+
+        let expected = place == "caret" ? "Hello😀 world" : "Hello 😀"
+        #expect((client as AnyObject?) === p.field)
+        #expect(p.field.string == expected)
+        #expect(p.controller.store?.state.ui.draft.text == expected)
+        #expect(p.field.selectedRange() == NSRange(location: before.location + ("😀" as NSString).length, length: 0))
+    }
+
     /// The picker opens at the button, its arrow on it (Leo 2026-10-20: it opened at the left
     /// corner of the screen). The system picker places itself at the rect the focused field
     /// reports for its text; during the open that is the emoji button's rect, and the next

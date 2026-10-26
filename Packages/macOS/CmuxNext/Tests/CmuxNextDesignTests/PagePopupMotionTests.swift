@@ -36,11 +36,46 @@ import Testing
         #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
-    static func menu(_ ids: [String]) throws -> WebPopupHost.Model {
-        try #require(WebPopupHost.Model([
+    static func menu(_ ids: [String], instant: Bool? = nil) throws -> WebPopupHost.Model {
+        var params: [String: Any] = [
             "items": ids.map { ["id": $0, "label": $0] },
             "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64], "width": 160,
-        ]))
+        ]
+        if let instant { params["instant"] = instant }
+        return try #require(WebPopupHost.Model(params))
+    }
+
+    /// Leo 2026-10-22, no entry animations on the New Tab: its menus ask for none (`instant: true`).
+    @Test func theInstantFlagIsReadFromThePageRequest() throws {
+        #expect(try Self.menu(["a"], instant: true).instant)
+        #expect(try !Self.menu(["a"]).instant)
+        #expect(try !Self.menu(["a"], instant: false).instant)
+    }
+
+    /// No entrance asked: the card shows whole in one frame, and its close still fades.
+    @Test(.enabled("needs an awake display and animations on, or every popup snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
+    func anInstantPageMenuOpensInOneFrameAndStillFadesOut() async throws {
+        let (window, page) = try Self.page()
+        defer { window.orderOut(nil) }
+        let host = WebPopupHost(webView: page, zoom: { 1 }, send: { _ in })
+        let (panel, opening, opacity) = try { () throws -> (WebPopupPanel, [String], Float?) in
+            Motion.reduceMotionOverride = false
+            defer { Motion.reduceMotionOverride = nil }
+            host.show(try Self.menu(["a", "b"], instant: true))
+            let panel = try #require(NSApp.windows.compactMap { $0 as? WebPopupPanel }.first { $0.parent === window })
+            let layer = panel.contentView?.layer
+            return (panel, ["opacity", "sublayerTransform"].filter { layer?.animation(forKey: $0) != nil }, layer?.opacity)
+        }()
+        #expect(opening == [], "the menu animated in")
+        #expect(opacity == 1)
+        #expect(panel.alphaValue == 1)
+
+        Motion.reduceMotionOverride = false
+        host.hide()
+        let closing = panel.contentView?.layer?.animation(forKey: "opacity") != nil
+        Motion.reduceMotionOverride = nil
+        #expect(closing, "the close lost its fade")
+        #expect(await GUIAnimationTestSupport.settle { !panel.isVisible }, "the close never ended")
     }
 
     /// A window on screen with a page view, and the page menu panel of `host` once shown.

@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The chat's pull requests above the composer (cx-ncc.81, Claude parity): each PR a `gh pr create`
 // in the chat opened shows as a bar with its number, repository, title and state; a later
-// `gh pr merge` marks it merged. The newest two show, the rest behind Show more, and a bar's
+// `gh pr merge` takes its bar away (it lives in the right panel's Changes card). The newest two
+// show, the rest behind Show more, and a bar's
 // dismiss hides it for this chat, also after a reload. The page is the pane's dev entry with its
 // browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
@@ -62,13 +63,14 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   const create = (id: string, title: string, number: number) =>
     shell(id, `gh pr create --title "${title}" --body x`, `https://github.com/acme/uploader/pull/${number}\n`);
   const steps: Step[] = [
-    ["mux", "user_message", { text: "Open the three PRs, then merge the first" }],
+    ["mux", "user_message", { text: "Open the four PRs, then merge the first" }],
     ["mux", "turn_started", {}],
     ...create("t1", "Add retry to the uploader", 41),
     ...create("t2", "Cover retry with a test", 42),
     ...create("t3", "Document retry", 43),
-    ...shell("t4", "gh pr merge 41 --squash", "Merged"),
-    ["in", "agent_message_chunk", say("Three PRs open, the first merged.")],
+    ...create("t4", "Log each retry", 44),
+    ...shell("t5", "gh pr merge 41 --squash", "Merged"),
+    ["in", "agent_message_chunk", say("Four PRs open, the first merged.")],
     ["mux", "turn_result", { status: "completed" }],
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
@@ -142,7 +144,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       const warm = await browser.newPage();
       try {
         await warm.goto(url(CHAT));
-        await warm.getByText("Three PRs open, the first merged.").waitFor({ timeout: 25_000 });
+        await warm.getByText("Four PRs open, the first merged.").waitFor({ timeout: 25_000 });
         await warm.close();
         break;
       } catch (error) {
@@ -172,14 +174,14 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await installPaintedFrames(page);
     await page.goto(url(CHAT));
-    await page.getByText("Three PRs open, the first merged.").waitFor();
+    await page.getByText("Four PRs open, the first merged.").waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
     expect(await bars(page)).toEqual([
+      ["#44", "uploader", "Log each retry", "open"],
       ["#43", "uploader", "Document retry", "open"],
-      ["#42", "uploader", "Cover retry with a test", "open"],
     ]);
     expect(await page.locator(".acpmux-pr-dock__bar").first().getAttribute("href")).toBe(
-      "https://github.com/acme/uploader/pull/43",
+      "https://github.com/acme/uploader/pull/44",
     );
     // Each one a chip as wide as its text, its dismiss button inside, and no tooltip (Leo, 2026-10-13).
     const chip = await page.evaluate(() => {
@@ -218,20 +220,70 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     }
     await page.setViewportSize({ width: 900, height: 760 });
 
+    // The merged #41 keeps no bar, even behind Show more.
     await page.getByRole("button", { name: "Show 1 more" }).click();
-    expect((await bars(page)).at(-1)).toEqual(["#41", "uploader", "Add retry to the uploader", "merged"]);
+    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#44", "#43", "#42"]);
 
-    await page.getByRole("button", { name: "Dismiss pull request #43" }).click();
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#42", "#41"]);
+    await page.getByRole("button", { name: "Dismiss pull request #44" }).click();
+    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#43", "#42"]);
     // Focus moves to the bar now in its place, not the page.
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe(
-      "Dismiss pull request #42",
+      "Dismiss pull request #43",
     );
     // Dismissed for this chat: a reload keeps it hidden.
     await page.reload();
-    await page.getByText("Three PRs open, the first merged.").waitFor();
+    await page.getByText("Four PRs open, the first merged.").waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
-    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#42", "#41"]);
+    expect((await bars(page)).map((bar) => bar[0])).toEqual(["#43", "#42"]);
     await page.close();
+  });
+  test("the default compact count reveals Session Info Changes and retains PR actions", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1200, height: 900 } });
+    try {
+      await page.goto(url(CHAT));
+      await page.getByText("Four PRs open, the first merged.").waitFor();
+      await page.evaluate(() => {
+        (
+          window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
+        ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
+      });
+      const dock = page.locator('.acpmux-pr-dock[data-mode="compact"]');
+      await dock.waitFor();
+      expect(await page.evaluate(() => document.documentElement.dataset.prDock)).toBeUndefined();
+      expect(await dock.locator(".acpmux-pr-dock__bar").count()).toBe(0);
+      // Includes the merged PR, exactly as Changes does.
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+      const panel = page.locator("aside.acpmux-chat-inspector");
+      const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+      if (await panel.isVisible()) await toggle.click();
+      await panel.waitFor({ state: "detached" });
+      await dock.locator(".acpmux-pr-dock__count").first().click();
+      const changes = panel.locator('section[data-section="changes"]');
+      await changes.getByText("Add retry to the uploader", { exact: true }).waitFor();
+      expect(await changes.getAttribute("data-revealed")).not.toBeNull();
+      expect(await changes.innerText()).toContain("Add retry to the uploader");
+      expect(await changes.locator(".acpmux-chat-inspector-section__value").innerText()).toBe("4");
+      await toggle.click();
+      await panel.waitFor({ state: "detached" });
+      const disclosure = dock.locator(".acpmux-pr-dock__disclosure");
+      await disclosure.click();
+      await page.keyboard.press("Escape");
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
+      await disclosure.click();
+      await page.mouse.click(20, 200);
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
+      await disclosure.click();
+      const link = page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").first();
+      await link.focus();
+      await page.locator(".acpmux-pr-card").waitFor();
+      expect(await page.locator(".acpmux-pr-card").innerText()).toContain("Log each retry");
+      await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__dismiss").first().click();
+      expect(await page.locator(".acpmux-pr-dock__popover .acpmux-pr-dock__bar").count()).toBe(3);
+      expect(await dock.locator(".acpmux-pr-dock__count").first().innerText()).toBe("4 PRs");
+    } finally {
+      await page.close();
+    }
   });
 });

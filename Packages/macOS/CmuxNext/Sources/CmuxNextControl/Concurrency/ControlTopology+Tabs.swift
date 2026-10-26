@@ -10,6 +10,10 @@ public struct ControlPaneInfo: Sendable, Hashable {
     /// `tabs` with kind `page`; targets, counts and Search Tabs read the
     /// daemon's `tabs` only (bd cx-5xsi).
     public var pageTabs: [ControlPageTabInfo] = []
+    /// Browser tabs of other panes this pane's strip also lists (`browser.page.mirror`):
+    /// the pane shows the same live page when it selects one, no copy
+    /// (plans/cmux-next/shared-browser-tabs.md). Their ids are the tabs' own.
+    public var mirroredTabIDs: [String] = []
     /// The pane's column on its screen, left to right as the window draws
     /// them (left docks, the scrolling strip, right docks); nil for a pane in
     /// a top or bottom band. A screen stored as one split tree is column 0.

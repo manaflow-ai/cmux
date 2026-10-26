@@ -11,6 +11,8 @@
 // Inspector's Background tasks, the summary card, the running turn's line and the tray above the
 // composer (subagents/runningTray.ts) read. The registry wins: a transcript task whose call started a
 // listed process is that process.
+import { acpmuxSend } from "../conversation/acpmuxSends";
+import type { Translate } from "../i18n";
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 
@@ -145,6 +147,9 @@ export type BackgroundCommand = {
   /// The registry's process id, else the transcript's tool call id.
   id: string;
   command: string;
+  /// What the call that started it says it does (Claude's Bash `description`): the tray names the
+  /// command by it (`commandLabel`).
+  description?: string;
   /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
   /// never says so.
   state: SummaryBackgroundTask["state"] | "lost";
@@ -180,9 +185,13 @@ export function backgroundCommands(
   transcript: readonly SummaryBackgroundTask[],
   listed: boolean,
 ): BackgroundCommand[] {
+  const described = new Map(transcript.flatMap((task) => (task.description ? [[task.id, task.description]] : [])));
   const fromRegistry = processes.map((process): BackgroundCommand => ({
     id: process.id,
     command: process.command,
+    ...(process.toolCallId && described.has(process.toolCallId)
+      ? { description: described.get(process.toolCallId) }
+      : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,
@@ -195,11 +204,84 @@ export function backgroundCommands(
     .map((task): BackgroundCommand => ({
       id: task.id,
       command: task.command,
+      ...(task.description ? { description: task.description } : {}),
       state: task.state,
       toolCallId: task.id,
       ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
     }));
   return [...fromRegistry, ...fromTranscript];
+}
+
+/// A command's leading shell words, each with where it ends, and the `&&` or `;` that ends its
+/// first part. One pass over the text, quotes kept whole: no pattern that can backtrack.
+function leadingWords(text: string, from: number): { words: { word: string; end: number }[]; end: number } {
+  const words: { word: string; end: number }[] = [];
+  let index = from;
+  for (;;) {
+    while (index < text.length && /\s/.test(text[index]!)) index += 1;
+    if (index >= text.length) return { words, end: -1 };
+    if (text.startsWith("&&", index)) return { words, end: index + 2 };
+    if (text[index] === ";") return { words, end: index + 1 };
+    if (text[index] === "|" || text[index] === "&") return { words, end: -1 };
+    let word = "";
+    while (index < text.length && !/[\s;&|]/.test(text[index]!)) {
+      const quote = text[index]!;
+      if (quote === '"' || quote === "'") {
+        const close = text.indexOf(quote, index + 1);
+        const stop = close < 0 ? text.length : close + 1;
+        word += text.slice(index, stop);
+        index = stop;
+      } else {
+        word += quote;
+        index += 1;
+      }
+    }
+    words.push({ word, end: index });
+  }
+}
+
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+/// What the tray names a command by: what its call says it does, else the command without what
+/// only sets the stage in front of what it runs: `cd DIR &&` (or `;`), `export X=1 &&`, a part
+/// that only assigns, and `env` or `X=1` before the program (the whole command when that is all
+/// it is).
+export function commandLabel(command: BackgroundCommand): string {
+  if (command.description) return command.description;
+  const text = command.command.trim();
+  let from = 0;
+  for (;;) {
+    const { words, end } = leadingWords(text, from);
+    const names = words.map(({ word }) => word);
+    const staging =
+      end > 0 &&
+      names.length > 0 &&
+      ((names[0] === "cd" && names.length <= 2) ||
+        (names[0] === "export" && names.slice(1).every((word) => ASSIGNMENT.test(word))) ||
+        names.every((word) => ASSIGNMENT.test(word)));
+    if (!staging || !text.slice(end).trim()) break;
+    from = end;
+  }
+  // `env` and assignments before the program it runs; `env` with options stays as it is.
+  const { words } = leadingWords(text, from);
+  let skip = words[0]?.word === "env" && !words[1]?.word.startsWith("-") ? 1 : 0;
+  while (skip < words.length - 1 && ASSIGNMENT.test(words[skip]!.word)) skip += 1;
+  const begin = skip > 0 ? words[skip - 1]!.end : from;
+  return text.slice(begin).trim() || command.command;
+}
+
+/// A background command that sends another agent a message (conversation/acpmuxSends.ts) reads as
+/// its transcript row does: "Sending message to tests", "Sent message to tests", "Couldn't send to
+/// tests". Nil for every other command.
+export function sendLabel(t: Translate, command: Pick<BackgroundCommand, "command" | "state">): string | undefined {
+  const send = acpmuxSend(command.command);
+  // Stopped or lost: whether it went is not known, so the command stays as typed. So does an ended
+  // one whose exit status is another command's (`acpmux send … | tail -1`, `… && make`).
+  if (!send || (command.state !== "running" && command.state !== "failed" && command.state !== "completed"))
+    return undefined;
+  if (command.state !== "running" && !send.ownsExit) return undefined;
+  const key = command.state === "running" ? "send.sending" : command.state === "failed" ? "send.failed" : "send.sent";
+  return t(key, { target: send.target });
 }
 
 const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>
@@ -297,15 +379,9 @@ export function inspectorLists(
 }
 
 /// The Inspector section a background command opens (App.tsx `openCommands` and
-/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
-/// every running command is one (the Inspector draws no Background tasks for those), else
-/// Subagents (only subagents and started chats run). `running` is the chat's running commands,
-/// servers included, as the running line counts them.
-export function backgroundSection(
-  processes: readonly InspectorProcess[],
-  running: readonly BackgroundCommand[],
-): "tasks" | "servers" | "subagents" {
-  const serving = servingIds(processes);
-  if (running.some((command) => !served(command, serving))) return "tasks";
-  return running.length > 0 ? "servers" : "subagents";
+/// `openTrayCommand`): Background tasks while any command runs, a dev server included (its rows head
+/// that section), else Subagents (only subagents and started chats run). `running` is the chat's
+/// running commands, servers included, as the running line counts them.
+export function backgroundSection(running: readonly BackgroundCommand[]): "tasks" | "subagents" {
+  return running.length > 0 ? "tasks" : "subagents";
 }

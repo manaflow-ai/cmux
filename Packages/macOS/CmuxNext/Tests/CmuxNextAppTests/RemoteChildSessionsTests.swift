@@ -27,7 +27,8 @@ import Testing
         func events(_ page: AgentSessionPage) async throws -> Data { Data("{}".utf8) }
         func prompt(id: String, text: String) async throws -> Data { Data("{}".utf8) }
         func cancel() async throws {}
-        func permission(id: String, option: String, decisionNonce: String?, personDecision: String?) async throws {}
+        func permission(id: String, option: String, answers: Data?, annotations: Data?, decisionNonce: String?,
+                        personDecision: String?) async throws {}
         func detach() async {}
         func close() async {}
         func children() async throws -> Data { RemoteAcpmuxWire.json(["sessions": listed]) }
@@ -57,6 +58,7 @@ import Testing
         let reply = try await Self.watch(wire)
         let ids = (reply["sessions"] as? [[String: Any]])?.compactMap { $0["sessionId"] as? String }
         #expect(ids == ["vm-chat", "vm-child", "vm-spawned", "vm-grandchild"])
+        #expect(reply["tabSessionId"] as? String == "vm-chat")
         // The note lands on the main actor after the reply.
         for _ in 0..<50 where RemoteAgentSessionLinks.shared.parents["vm-grandchild"] == nil { await Task.yield() }
         let links = RemoteAgentSessionLinks.shared
@@ -64,6 +66,18 @@ import Testing
         #expect(links.parents["vm-spawned"] == "vm-chat")
         #expect(links.descends("vm-grandchild", from: "vm-chat"))
         #expect(!links.descends("vm-chat", from: "vm-child"))
+        wire.cancel(code: 1000, reason: "done")
+    }
+
+    /// A tab that names its chat by another id than acpmux's (a session name, or a chat rebound on
+    /// that machine since the page got its id): the watch says which session the daemon attached as
+    /// the tab's, so the page opens it instead of saying "This chat isn't available".
+    @Test func theWatchNamesTheSessionTheDaemonAttachedForTheTab() async throws {
+        let client = FakeClient(parent: "acp-id-1", children: [])
+        let wire = RemoteAcpmuxWire(client: client, session: "lane/review")
+        let reply = try await Self.watch(wire)
+        #expect((reply["sessions"] as? [[String: Any]])?.compactMap { $0["sessionId"] as? String } == ["acp-id-1"])
+        #expect(reply["tabSessionId"] as? String == "acp-id-1")
         wire.cancel(code: 1000, reason: "done")
     }
 

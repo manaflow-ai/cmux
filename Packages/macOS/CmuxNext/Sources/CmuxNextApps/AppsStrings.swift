@@ -24,10 +24,13 @@ nonisolated enum AppsStrings {
     static func featureCategory(_ category: AppFeature.Category) -> String {
         switch category {
         case .backgrounds: t("store.feature.category.backgrounds", "Backgrounds")
+        case .appearance: t("store.feature.category.appearance", "Appearance")
         case .chief: t("store.feature.category.chief", "Chief")
         case .newTab: t("store.feature.category.newTab", "New Tab")
         case .sidebar: t("store.feature.category.sidebar", "Sidebar")
         case .media: t("store.feature.category.media", "Media")
+        case .editor: t("store.feature.category.editor", "Editor")
+        case .devices: t("store.feature.category.devices", "Mac & Phone")
         case .browser: t("store.feature.category.browser", "Browser")
         case .layout: t("store.feature.category.layout", "Layout")
         }

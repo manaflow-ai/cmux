@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import ImageIO
 import Testing
+import CmuxNextDesignTokens
 
 /// The wallpaper still a page's glass lenses (plans/cmux-next/glass-lens-DESIGN.md): where the
 /// aspect-filled art lies in the page's CSS px, what a push carries, the encoded still, and which

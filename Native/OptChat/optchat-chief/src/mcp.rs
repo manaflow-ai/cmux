@@ -10,9 +10,10 @@ use serde_json::{Value, json};
 
 use crate::prompt::{
     CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
-    PEERS_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
-    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION, REPLY_DESCRIPTION,
+    SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION,
+    STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION,
+    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -59,7 +60,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     }
     if !subagent && grant.allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: on the cloud VM peer (code, tests through the fleet); local: on this Mac (its app, UI, computer use). By default: the `control cloud` setting."}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && grant.allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -101,6 +102,11 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
           "additionalProperties": false}}));
+        list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "n": {"type": "integer", "minimum": 1, "maximum": crate::brain::TRANSCRIPT_MAX, "description": "How many messages, newest last (default 20)."},
+            "before": {"type": "integer", "minimum": 1, "description": "A message's #seq: only messages older than it (to page back)."}},
+          "additionalProperties": false}}));
         list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
         list.push(json!({"name": "sleep", "description": SLEEP_DESCRIPTION,
@@ -109,6 +115,10 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
             "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
           "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "minLength": 1, "maxLength": crate::remember::REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
+          "required": ["text"], "additionalProperties": false}}));
     }
     Value::Array(list)
 }
@@ -209,8 +219,10 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
                     | Call::React { .. }
                     | Call::Reply { .. }
                     | Call::Send(_)
+                    | Call::Transcript { .. }
                     | Call::Stop
                     | Call::Sleep(_)
+                    | Call::Remember { .. }
                     | Call::Control(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }

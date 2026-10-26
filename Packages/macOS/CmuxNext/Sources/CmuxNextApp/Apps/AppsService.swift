@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextActions
 import CmuxNextApps
 import CmuxNextControl
-import CmuxNextDaemonRecovery
 import CmuxNextDaemonService
 import CmuxNextIcons
 import CmuxNextPages
@@ -27,23 +26,15 @@ final class AppsService {
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
-    private var waitingStore: (appID: String?, tab: AppStoreModel.Tab?, focus: Bool)?
+    private var waitingStore: (appID: String?, tab: AppStoreTab?, focus: Bool)?
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
-    /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
+    /// The App Store page (React, apps-web-DESIGN.md) per tab key.
     private var webStorePages: [String: PageWebView] = [:]
+    /// The route of the show running now, for the page it makes (``makeView(for:in:)``).
+    private var pendingRoute: String?
     private var machineCatalog: MachineCatalogPublisher?
-    /// The App Store tabs (internal page), one store model per tab over the
-    /// one client. Captures the client, not the service, so a page set that
-    /// outlives the service still makes models.
-    private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
-        let model = AppStoreModel(client: client, features: SettingsAppFeatures(settings: { [weak self] in self?.services.settings }, showSettings: { [weak self] key in try? self?.services.settingsWindow.show(section: nil, setting: key, focus: true) })) { app in _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user)) }
-        model.recovery = { recovery.appsRecovery }
-        model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
-        return model
-    }
-
     init(services: AppServices) {
         self.services = services
         transport = DaemonAppsTransport(daemon: services.daemon, inventoryRoutes: { [weak machines = services.machines] in
@@ -94,22 +85,22 @@ final class AppsService {
     /// run shows it as the active window's App Store top page
     /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
     /// view, opens it as a background tab (internal page `app-store`, one
-    /// per window). `appID` opens that listing, `tab` a store tab (Features,
-    /// Installed); the React store has no Features tab and shows Discover. With no main window that can hold it, the request waits for
+    /// per window). `appID` opens that listing, `tab` a store tab (Discover,
+    /// Installed). With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
-    func showStore(appID: String? = nil, tab: AppStoreModel.Tab? = nil, focus: Bool = true) {
+    func showStore(appID: String? = nil, tab: AppStoreTab? = nil, focus: Bool = true) {
+        pendingRoute = Self.storeRoute(appID: appID, tab: tab)
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
-            if let page = webStorePages[key] {
-                page.open(route: Self.storeRoute(appID: appID, installed: tab == .installed))
-            } else {
-                storePages.present(key, appID: appID, tab: tab)
-            }
+            // An open page moves to the route; a page this show made already opened on it.
+            webStorePages[key]?.open(route: Self.storeRoute(appID: appID, tab: tab))
+            pendingRoute = nil
             waitingStore = nil
             return
         }
+        pendingRoute = nil
         waitingStore = (appID, tab, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
@@ -178,34 +169,34 @@ extension InternalPageID {
 
 extension AppsService: InternalPageProvider {
     var page: InternalPageID { .appStore }
-    var title: String { AppStoreModel.title }
+    var title: String { AppStoreTab.storeTitle }
     var symbol: String { "bag" }
     var icon: IconName? { .store }
 
+    /// The React App Store page; it opens on the route of the show that made it. Missing page
+    /// resources (a build without the web bundles) show an empty view, never a second store.
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        if let page = PageFactory(services: services).appsWebPage(route: Self.storeRoute(appID: nil, installed: false)) {
-            webStorePages[key] = page
-            return page
+        guard let page = PageFactory(services: services).appsWebPage(route: pendingRoute ?? Self.storeRoute(appID: nil, tab: nil)) else {
+            return NSView()
         }
-        return storePages.makeView(for: key)
+        webStorePages[key] = page
+        return page
     }
 
     func tabClosed(_ key: String) {
         webStorePages.removeValue(forKey: key)?.close()
-        storePages.tabClosed(key)
     }
 
-    /// The native store's page history (the React store keeps its own).
-    func history(for key: String) -> (any PageHistory)? {
-        webStorePages[key] == nil ? storePages.model(for: key) : nil
-    }
+    /// The page keeps its own history (its fragment).
+    func history(for key: String) -> (any PageHistory)? { nil }
 
-    /// The React page's fragment for a listing or the Installed tab.
-    nonisolated static func storeRoute(appID: String?, installed: Bool) -> String {
-        if installed { return "#/installed" }
-        guard let appID, var query = URLComponents(string: "x:") else { return "#/discover" }
-        query.queryItems = [URLQueryItem(name: "app", value: appID)]
-        return "#/discover?" + (query.percentEncodedQuery ?? "")
+    /// The page's fragment: a listing, else `tab` (Discover by default).
+    nonisolated static func storeRoute(appID: String?, tab: AppStoreTab?) -> String {
+        if let appID, var query = URLComponents(string: "x:") {
+            query.queryItems = [URLQueryItem(name: "app", value: appID)]
+            return "#/discover?" + (query.percentEncodedQuery ?? "")
+        }
+        return "#/" + (tab ?? .discover).rawValue
     }
 }
 

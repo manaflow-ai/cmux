@@ -14,6 +14,7 @@ import {
   orderEnvironments,
 } from "./environments";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
+import { machineColor } from "./machineColor";
 
 const SECTION_LABELS = {
   local: "composer.envLocal",
@@ -323,7 +324,7 @@ export function EnvironmentPicker({
         data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
         data-current={environment.id === currentRow ? "" : undefined}
       >
-        <EnvironmentIcon kind={environment.kind} />
+        <EnvironmentIcon kind={environment.kind} name={environment.label} />
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
@@ -457,11 +458,15 @@ function PencilIcon() {
   );
 }
 
-export function EnvironmentIcon({ kind }: { kind: EnvironmentKind }) {
+/// A machine's icon: its kind's shape. Another machine draws in its own color (machineColor), so
+/// it reads the same in the chip, this list and the chat's Environment line; this Mac stays quiet
+/// (Leo 2026-10-20: another machine is the news).
+export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon acpmux-env-icon ui-ghost-icon"
       data-kind={kind}
+      style={name && kind !== "local" ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

@@ -3,7 +3,9 @@ import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
+import { avatarRows } from "./avatarRow";
 import type { ChatMenuItem } from "./ChatHeaderTools";
+import { PanelToggle } from "./PanelToggle";
 import type { QuickAction } from "./quickActions";
 
 type HeaderToolsProps = {
@@ -73,11 +75,16 @@ const menuRows = (): ChatMenuItem[] => [
   { key: "close", label: "Close", icon: "tab.close", shortcutAction: "closeTab", onSelect: () => undefined },
 ];
 
-const summary = createElement(
-  "button",
-  { type: "button", className: "acpmux-summary-button", "aria-label": "Turn summary" },
-  "Completed",
-);
+// The summary's panel toggle as the App passes it (summary/SummaryButton.tsx).
+const panelToggle = (shown: boolean, icon = "view.list") =>
+  createElement(PanelToggle, {
+    className: "acpmux-summary-button",
+    label: "Chat summary",
+    shown,
+    icon,
+    onToggle: () => undefined,
+  });
+const summary = panelToggle(false);
 
 const openMenu: Play = async (ctx) => {
   await ctx.focus({ role: "button", name: "Chat actions" });
@@ -93,21 +100,52 @@ const panelsOpen: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-header-tool[aria-pressed="true"]'));
 };
 
-// Action controls and session metadata stay separate in the compact top-right cluster while every
-// existing control keeps its 26px hit target.
+// Claude Code desktop's top strip (Leo 2026-10-21): no separators, the right-side panel's toggle
+// first, every button a 24px square on one 26px pitch, every glyph the same size.
 const groupedControls: Play = async (ctx) => {
-  const actions = ctx.find({ selector: ".acpmux-header-tool-group-actions" });
-  const meta = ctx.find({ selector: ".acpmux-header-tool-group-meta" });
-  const separator = ctx.find({ selector: ".acpmux-header-separator" });
-  if (actions.getBoundingClientRect().width <= 0 || meta.getBoundingClientRect().width <= 0)
-    throw new Error("header control groups must remain visible");
-  // An <hr> is a separator by its implicit role, so the play checks the element, not an attribute.
-  if (separator.tagName !== "HR") throw new Error("header group separator is not semantic");
-  if (separator.getAttribute("aria-orientation") !== "vertical")
-    throw new Error("header separator orientation changed");
-  const tools = ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button");
-  if ([...tools].some((button) => Math.round(button.getBoundingClientRect().height) !== 26))
-    throw new Error("header control hit target changed");
+  const first = ctx.document.querySelector(".acpmux-header-tools button");
+  if (!first?.classList.contains("acpmux-summary-button"))
+    throw new Error("the panel toggle must be the first of the header's icons");
+  if (ctx.document.querySelector(".acpmux-header-tools hr, .acpmux-header-separator"))
+    throw new Error("the header tools draw a separator");
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")];
+  for (const button of tools) {
+    const box = button.getBoundingClientRect();
+    if (Math.round(box.width) !== 24 || Math.round(box.height) !== 24)
+      throw new Error(`header button ${button.getAttribute("aria-label")} is not a 24px square`);
+  }
+  const lefts = tools.map((button) => button.getBoundingClientRect().left);
+  if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== 26))
+    throw new Error("header buttons are not on one 26px pitch");
+  const glyphs = new Set(tools.map((button) => button.querySelector("svg")?.getAttribute("width")));
+  if (glyphs.size !== 1) throw new Error(`header glyphs come in several sizes: ${[...glyphs].join(", ")}`);
+};
+
+// Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
+// just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
+// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
+// as on by its ink alone, against Browser at rest.
+const plainIcons: Play = async (ctx) => {
+  const { setHeaderState } = await import("./headerState");
+  setHeaderState({ lit: ["splitRight"] });
+  await ctx.waitFor(() => ctx.document.querySelector('[data-quick-action="terminal"][aria-pressed="true"]'));
+  await ctx.hover({ role: "button", name: "Terminal" });
+  await openMenu(ctx);
+  const view = ctx.document.defaultView!;
+  const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  for (const tool of tools) {
+    const style = view.getComputedStyle(tool);
+    const name = tool.getAttribute("aria-label");
+    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
+      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
+      throw new Error(`header tool ${name} draws a border`);
+    if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
+  }
+  const on = ctx.find({ selector: '.acpmux-summary-button[aria-pressed="true"]' });
+  const off = ctx.find({ selector: '[data-quick-action="browser"]' });
+  if (view.getComputedStyle(on).color === view.getComputedStyle(off).color)
+    throw new Error("the open panel's toggle has the same ink as a tool at rest");
 };
 
 // The App found the chat branch's pull request: open, 3 of 5 checks passed, one failing (cx-tcwj).
@@ -283,6 +321,7 @@ export default componentEntry<HeaderToolsProps>({
     "agent-session/acpmux/header/WorktreePill.tsx#WorktreePill",
     "agent-session/acpmux/header/WorktreeApply.tsx#WorktreeApply",
     "agent-session/acpmux/header/WorktreeRemove.tsx#WorktreeRemove",
+    "agent-session/acpmux/header/PanelToggle.tsx#PanelToggle",
   ],
   load: () => import("./ChatHeaderTools").then((module) => module.ChatHeaderTools),
   // The pane's own stylesheets, as the app ships them (build-agent-pane-web.sh): its theme variables,
@@ -320,12 +359,33 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: panelsOpen,
     },
+    "panel-open": {
+      note: "The right-side panel is open: its toggle, first of the icons, is pressed and its glyph's column filled.",
+      props: { ...base, summary: panelToggle(true) },
+    },
+    "panel-icon-list": {
+      note: "Panel icon option: three list rows with circular markers, matching ChatGPT's session rail control; this is the shipped choice.",
+      props: { ...base, summary: panelToggle(false, "view.list") },
+    },
+    "panel-icon-info": {
+      note: "Panel icon option: the compact information glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "status.info") },
+    },
+    "panel-icon-session": {
+      note: "Panel icon option: the session speech-bubble glyph, shown for comparison with the list control.",
+      props: { ...base, summary: panelToggle(false, "agent.session") },
+    },
+    "plain-icons": {
+      note: "Plain icons: the panel and Terminal's split open, Terminal hovered, the chat menu open; no tool draws a box, and the open panel's toggle is lit by its ink.",
+      props: { ...base, summary: panelToggle(true) },
+      play: plainIcons,
+    },
     "browser-preview": {
       note: "The chat's last turn named a local page: Browser opens it beside the chat and its tooltip names it; there is no separate Preview button.",
       props: { ...base, previewUrl: "http://localhost:5173/", onPreview: () => undefined },
     },
     "grouped-controls": {
-      note: "Quick actions and session metadata are separated without changing the existing button hit targets.",
+      note: "Claude Code desktop's strip: the panel toggle first, no separators, 24px square buttons on one 26px pitch, one glyph size.",
       props: base,
       play: groupedControls,
     },
@@ -422,6 +482,23 @@ export default componentEntry<HeaderToolsProps>({
     "menu-open": {
       note: "The chat menu starts with the quick actions not shown as buttons (New tab, Files, Split Down), then the tab's own rows, ending with Close.",
       props: base,
+      play: openMenu,
+    },
+    "menu-avatar": {
+      height: 860,
+      note: "A chat with an agent session and an uploaded avatar: Set Avatar… and Remove Avatar end the chat menu's tab rows, before Archive and Close (header/avatarRow.ts).",
+      props: {
+        ...base,
+        menu: () => {
+          const rows = menuRows();
+          const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
+          const avatar = avatarRows(
+            { sessionId: "session-1", hasAvatar: true },
+            { set: () => undefined, remove: () => undefined },
+          );
+          return [...rows.slice(0, archive), ...avatar, "separator", ...rows.slice(archive)];
+        },
+      },
       play: openMenu,
     },
     "keyboard-menu": {
