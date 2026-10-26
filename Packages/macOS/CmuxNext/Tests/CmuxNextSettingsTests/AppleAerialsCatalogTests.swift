@@ -26,8 +26,9 @@ struct AppleAerialsCatalogTests {
         #expect(AppleWallpapers.isPending(movies.appendingPathComponent("B2.mov").path))
 
         let catalog = BackdropCatalog(systemDirectory: pictures, fileManager: .default, aerials: aerials)
-        // Rendering reuses this catalog's metadata even after the source file is gone.
+        // Rendering reuses this catalog's metadata and download snapshot without reading disk.
         try FileManager.default.removeItem(at: aerials.appendingPathComponent("entries.json"))
+        try FileManager.default.removeItem(at: movies.appendingPathComponent("A1.mov"))
         let rows = catalog.pageRows.arrayValue ?? []
         let row = { (id: String) in rows.first { $0["id"]?.stringValue == id } }
         #expect(row(have.id)?["title"]?.stringValue == "Tahoe Morning")
