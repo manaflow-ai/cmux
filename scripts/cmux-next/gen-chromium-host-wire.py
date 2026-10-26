@@ -60,8 +60,8 @@ Inputs (paths relative to --root, the repository by default):
          sites that stay as written (needs `kept`, `change` says why: in-process-only code, a
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
-         with needs after_attach, host_exit or kept, and an async or mint call in the token form,
-         inside a closure handed to CEFRuntime's sendAsync, siteCall or profileWrite
+         with needs after_attach, host_exit, kept or pending_tab, and an async or mint call in the
+         token form, inside a closure handed to CEFRuntime's sendAsync, siteCall or profileWrite
          (CEFRuntime+HostReplies.swift), which await the answer the same way in both backends.
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
@@ -191,8 +191,9 @@ EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
 REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
 # A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
-# token form (TOKEN_FORM_CALLS), and a `pending_tab` one by its task's code.
-SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+# token form (TOKEN_FORM_CALLS). A `pending_tab` site is done by task 019's code, which makes the tab
+# before the mint call (rewrite_site_problems checks the function still makes that call).
+SETTLED_NEEDS = ("after_attach", "host_exit", "kept", "pending_tab")
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): a call in a closure handed to one is in the
 # token form, and --swift-sites no longer lists it.

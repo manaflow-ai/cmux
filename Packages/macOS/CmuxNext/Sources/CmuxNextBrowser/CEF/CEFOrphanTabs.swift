@@ -137,14 +137,16 @@ final class CEFOrphanTabs {
         // and removed at once): adopting it would leave a ghost tab.
         guard runtime.tabsByBrowser[browser] == nil, !ledger.isClosed(browser) else { return }
         let hosts = runtime.hosts
-        guard let shim = runtime.shim, runtime.forkAPIVersion >= 3,
+        guard let shim = runtime.shim, runtime.forkAPIVersion >= CEFPaneHost.tabMoveForkAPI,
               let host = preferred.flatMap({ $0.isLive ? $0 : nil }) ?? runtime.lastShownHost ?? hosts.values.first(where: { $0.isLive }),
-              let anchor = host.anchorBrowser,
-              shim.tabMoveToWindow(browser, anchor, -1) == 1 else {
+              let anchor = host.anchorBrowser else {
             runtime.logger.error("CEF browser \(browser) in a window cmux does not host; closing it")
             runtime.shim?.close(browser)
             return
         }
+        // One-way (`CEFPaneHost.movePopupsIn`): the fork's version is the precondition, and a browser
+        // that closed meanwhile reports its close, which ends the tab adopted here.
+        _ = shim.tabMoveToWindow(browser, anchor, -1)
         host.adoptChromiumTab(browser: browser, disposition: disposition)
     }
 }

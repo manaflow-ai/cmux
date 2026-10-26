@@ -1986,10 +1986,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFOrphanTabs.swift",
-        "CmuxNextBrowser/CEF/CEFPaneHost+Popups.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1997,7 +1994,7 @@
         "tab.window_id[browser_id]"
       ],
       "reply_event": null,
-      "reason": "The mirrored window id applies optimistically; TAB_EVENT 2 confirms it. The side panel state is pending until then, because the panel belongs to the new window."
+      "reason": "The mirrored window id applies optimistically; TAB_EVENT 2 confirms it. The side panel state is pending until then, because the panel belongs to the new window. No caller reads the result (task 023): the fork API (3) is the precondition cmux checks, and a browser that closed meanwhile reports its close."
     },
     {
       "name": "cmux_shim_unresponsive_reply",
@@ -2162,14 +2159,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFPaneHost+PopupWindows.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "NSView* arg. An extension popup window becomes a hosted context in a ChromiumHostPageView (task 066); the window id is Chromium's, reported by TAB_EVENT 10."
+      "reason": "NSView* arg. An extension popup window becomes a hosted context in a ChromiumHostPageView (task 066); the window id is Chromium's, reported by TAB_EVENT 10. The parent is CEFPaneHost.pageParent() (the pane's page view in host mode, task 023) and no caller reads the result: popup windows exist only on a fork that attaches them, and a window that closed meanwhile closes its tab (BEFORE_CLOSE)."
     },
     {
       "name": "cmux_shim_side_panel_state",
@@ -3238,14 +3233,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFPaneHost.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 1 when stored; ordered before the create_window that uses the context (CEFPaneHost)."
+      "reason": "Returns 1 when stored; ordered before the state query and the create_window that use the context. No caller reads it: CEFPaneHost+MachineProxy checks the port the shim would refuse (0) and then the context's state, which is 1 or 2 only when the proxy is stored (task 023)."
     },
     {
       "name": "cmux_shim_set_context_proxy_server",
@@ -3285,7 +3278,7 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFPaneHost.swift",
+        "CmuxNextBrowser/CEF/CEFPaneHost+MachineProxy.swift",
         "CmuxNextBrowser/CEF/CEFRuntime+ProfileProxy.swift"
       ],
       "mirror_key": null,
@@ -4231,12 +4224,12 @@
       "task": "p01-process-021"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFPaneHost.swift: CEFPaneHost.ensureCreated(_:)",
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost+MachineProxy.swift: CEFPaneHost.sendMachineProxy(_:contextKey:)",
       "exports": [
         "cmux_shim_context_proxy_state"
       ],
       "needs": "reply",
-      "change": "The remote-localhost proxy check: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; the tab is created after the reply says applied, and creationFailed() runs when it does not.",
+      "change": "The remote-localhost proxy check takes the token form (sendAsync, task 021): in host mode machineProxyGate is .waiting, and createAfterMachineProxy asks for the tab's window in the turn after the REPLY says the proxy is stored (state 1 or 2); creationFailed() runs when it does not.",
       "task": "p01-process-023"
     },
     {
@@ -4310,6 +4303,44 @@
       "needs": "reply",
       "change": "The `call { $0.extLoadUnpacked($1, path) } == 1` read is the client's 1 in host mode: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; loadUnpacked becomes async and returns whether the host loaded the extension.",
       "task": "p01-process-026"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost.swift: CEFPaneHost.ensureCreated(_:machineProxyApplied:)",
+      "exports": [
+        "cmux_shim_create_window",
+        "cmux_shim_create_placeholder_window"
+      ],
+      "needs": "kept",
+      "change": "The mint form as written: the caller gives the request token, a 1 means sent, and AFTER_CREATED(request) or CREATE_FAILED(minted, request) answers (task 019). parent_view is pageParent(): in host mode the pane's ChromiumHostPageView, which crosses the wire as its view token and shows the context the host gives for it; in process CEFHostView, which the fork's tracker follows (task 023).",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost.swift: CEFPaneHost.addToWindow(_:)",
+      "exports": [
+        "cmux_shim_tab_add"
+      ],
+      "needs": "kept",
+      "change": "The mint form as written: tab_add returns the minted id at once and addToWindow registers the tab for it when AFTER_CREATED did not run inside the call (tabBeingAdded, register); the host's AFTER_CREATED completes that tab and CREATE_FAILED fails it (task 019).",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost+PopupWindows.swift: CEFPaneHost.attachPopupWindowIfNeeded(_:)",
+      "exports": [
+        "cmux_shim_popup_window_attach"
+      ],
+      "needs": "kept",
+      "change": "parent_view is pageParent() (the popup host's page view in host mode) and the result is not read. The window shows as a hosted widget with task 066.",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFLayerHosting.swift: Fork.init(shim:apiVersion:)",
+      "exports": [
+        "cmux_shim_browser_set_layer_hosting",
+        "cmux_shim_browser_set_resize_sync"
+      ],
+      "needs": "kept",
+      "change": "In process only: CEFPaneHost.windowCreated gives the page window no Fork in host mode, where the page shows in the pane's ChromiumHostPageView from the context the host gives and the resize fence is the page view's (task 052). The DevTools page window's Fork moves to hosted-context placement with task 024.",
+      "task": "p01-process-023"
     }
   ]
 }

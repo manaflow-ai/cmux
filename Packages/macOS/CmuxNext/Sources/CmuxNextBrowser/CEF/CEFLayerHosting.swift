@@ -86,6 +86,9 @@ final class CEFLayerHosting {
     /// A browser of the page window (any tab of it names the same window).
     private(set) var browser: Int32?
     private var fork: Fork?
+    /// The fork hosts this view's page window (in process, fork API 26). False in host mode, where
+    /// the pane's ``ChromiumHostPageView`` shows the context the Chromium Host gives (task 023).
+    var isForkBacked: Bool { fork != nil }
     private var pending = Pending.none
     private let isEnabled: () -> Bool
     private let schedule: Scheduler

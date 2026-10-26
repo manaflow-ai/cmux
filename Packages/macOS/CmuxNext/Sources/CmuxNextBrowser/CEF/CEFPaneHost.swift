@@ -108,6 +108,13 @@ final class CEFPaneHost {
     private(set) var deferredCreations: [WeakCEFTab] = []
     /// Host mode: tabs whose window waits for the host's verdict on their profile's proxy (`createAfterProfileProxy`).
     private var profileProxyWaits: Set<ObjectIdentifier> = []
+    /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
+    /// (`createAfterMachineProxy`).
+    var machineProxyWaits: Set<ObjectIdentifier> = []
+    /// Host mode: the view this pane's page shows in, made by the first window the pane asks for
+    /// (`pageParent`). It names the page's parent view on the wire and shows the Core Animation
+    /// context id the host gives for it (``ChromiumHostPageView/show(contextID:)``).
+    var hostedPageView: ChromiumHostPageView?
 
     /// The host view's visibility is derived: hidden unless the shown tab is
     /// not concealed. A conceal queues one pass for the end of this run-loop
@@ -214,8 +221,10 @@ final class CEFPaneHost {
 
     /// Starts `tab`'s browser: a new Chromium window, or a tab of this host's live or coming one.
     /// True when it joined the live window as Chromium's active tab (`tab_add` with activate).
+    /// `machineProxyApplied`: the host already said the tab's machine store proxy is stored
+    /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
-    func ensureCreated(_ tab: CEFTab) -> Bool {
+    func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
         guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
@@ -236,12 +245,16 @@ final class CEFPaneHost {
                 try? FileManager.default.createDirectory(at: URL(filePath: contextKey), withIntermediateDirectories: true)
             }
             // A remote-localhost store: its context must use the proxy before
-            // its first request, or localhost would reach this Mac.
-            if let store = tab.machineStore,
-               shim.setContextProxy(contextKey, Int32(store.proxyPort)) != 1
-                || shim.contextProxyState(contextKey) < 0 {
-                tab.creationFailed()
-                return false
+            // its first request, or localhost would reach this Mac (fail closed).
+            if let store = tab.machineStore, !machineProxyApplied {
+                switch machineProxyGate(tab, store, contextKey: contextKey) {
+                case .open: break
+                case .refused:
+                    tab.creationFailed()
+                    return false
+                case .waiting:
+                    return false
+                }
             }
             // A browser profile's own proxy (#24432), also before the first
             // request: a page the shim cannot proxy never opens (fail closed).
@@ -271,9 +284,9 @@ final class CEFPaneHost {
             placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && runtime.spareWindow.rendererlessPlaceholders
                 && shim.placeholderSupported() == 1
             let rendererless = placeholderHasNoRenderer
+            let view = pageParent()
             let create = {
                 CEFStartSteps.shared.createWindow {
-                    let view = Unmanaged.passUnretained(self.hostView).toOpaque()
                     let width = max(size.width, 1).clampedInt32, height = max(size.height, 1).clampedInt32
                     return rendererless ? shim.createPlaceholderWindow(request, view, width, height, contextKey)
                         : shim.createWindow(request, view, width, height, initialURL, contextKey)
@@ -344,7 +357,10 @@ final class CEFPaneHost {
         window = .live(window: windowID)
         lastActivated = browser
         runtime.register(tab, browser: browser)
-        hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
+        // In host mode the page shows in `hostedPageView`, from the context the host gives; the
+        // fork's layer hosting of a page window over `hostView` is in process only.
+        hostView.layerHosting.pageWindowCreated(
+            browser: browser, fork: isHostMode ? nil : CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion))
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).
         var active = tab
@@ -413,32 +429,6 @@ final class CEFPaneHost {
         if case .none = window, let popup = tabs.first(where: \.awaitsWindowMove) { ensureOwnWindow(for: popup) }
     }
 
-    /// A tab Chromium opened in this window (target=_blank, window.open,
-    /// chrome.tabs.create, a window request the fork placed here). It is
-    /// handed to the host app through the opener's delegate as `.adoptTab`,
-    /// which keeps `window.opener`.
-    /// A `.popup` becomes a floating panel page with its own window
-    /// (`adoptPopup`); `bounds` are its window features.
-    func adoptChromiumTab(browser: Int32, disposition: BrowserNewTabDisposition = .foregroundTab, bounds: CGRect? = nil) {
-        // The spare window has no pane to announce it to: the tab that takes it adopts it.
-        if isSpare { return runtime.spareWindow.park(browser, in: self, disposition: disposition, bounds: bounds) }
-        let opener = visibleTab ?? tabs.last
-        if disposition == .popup { return adoptPopup(browser: browser, bounds: bounds, opener: opener) }
-        let tab = CEFTab(id: .random(), profile: key.profile, host: self, runtime: runtime)
-        // Same window, same store: a popup of a remote machine's localhost
-        // page keeps its store and navigation guard.
-        tab.machineStore = opener?.machineStore
-        tab.navigationGuard = opener?.navigationGuard ?? .none
-        tab.isCreationPending = true
-        add(tab)
-        runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground), and
-        // Chromium, not us, drives its document, so its page area is its own.
-        tab.reachedFirstRealPage(settled: true)
-        tab.inheritDelegates(from: opener)
-        opener?.emit(.adoptTab(tab, disposition))
-    }
-
     func removed(_ tab: CEFTab) {
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
@@ -451,6 +441,7 @@ final class CEFPaneHost {
         if tabs.isEmpty {
             window = .none
             hostView.layerHosting.stop()
+            hostedPageView?.show(contextID: 0)
             hostView.removeFromSuperview()
             if isPopupHost { runtime.hosts[key] = nil }
         }

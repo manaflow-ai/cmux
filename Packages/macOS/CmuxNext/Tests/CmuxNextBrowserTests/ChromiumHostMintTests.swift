@@ -30,7 +30,9 @@ import Testing
         #expect(MintSpyShim.activated.isEmpty, "one activation source: tab_add's")
         #expect(host.deferredCreations.isEmpty, "nothing waits for the frame to commit")
         #expect(host.lastActivated == minted)
-        #expect(host.hostView.layerHosting.browser == minted, "layer hosting follows the shown page")
+        // Host mode: the pane's ChromiumHostPageView shows the page; no fork layer hosting (task 023).
+        #expect(!host.hostView.layerHosting.isForkBacked)
+        #expect(host.hostedPageView != nil)
 
         // The host's AFTER_CREATED for the minted id, a batch later: the same tab, no orphan.
         runtime.handle(.afterCreated(browser: minted, request: 0, window: 1))
