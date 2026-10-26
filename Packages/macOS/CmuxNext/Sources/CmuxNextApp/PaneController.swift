@@ -343,7 +343,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if selectNew {
             // A tab this window created: show it now (focus is the
             // coordinator's expectation, not decided here).
-            showSelected()
+            showSelectionNow()
         } else if let selectedID, selectedID.rawValue != currentTabKey {
             presentSelection() // a close selected the neighbor
         } else {
@@ -437,9 +437,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     // MARK: Content
 
-    func showSelected() {
+    /// Shows the selection now, also while the launch holds this pane (``showSelected()`` is the held path):
+    /// for an action that needs the tab's live content, a CLI, socket or agent target or a tab this window created.
+    func showSelectionNow() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
-        guard !holdsForLaunch else { return waitForLaunchEnd() }
         let key = stripModel.selectedID?.rawValue, previous = currentTabKey, buildsAtLaunch = buildsContentAtLaunch
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))

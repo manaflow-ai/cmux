@@ -11,7 +11,8 @@ public import CmuxNextWakeups
 ///
 /// ``viewsBuilt`` counts the pane content views made before startup completed; at completion it is
 /// sent once as the value mark ``viewsBuiltMark`` (bench-startup.py's `VALUE_MARKS`), whose
-/// acceptance is "views built == visible panes".
+/// acceptance is "views built == visible panes". It goes out before `startup_complete`
+/// (``StartupScheduler/whenCompleteFirst(_:)``), so a bench run that waits for that mark has it.
 ///
 /// The app makes one at its composition root with the launch's ``StartupScheduler`` when the feature
 /// is on, and with none otherwise (then it holds nothing and counts nothing).
@@ -38,7 +39,7 @@ public final class LaunchPaneGate {
         self.startup = startup
         // A gate made after completion measured nothing: it reports nothing.
         guard let startup, startup.completion == nil else { return }
-        startup.whenComplete { [weak self] _ in
+        startup.whenCompleteFirst { [weak self] _ in
             guard let self else { return }
             report(viewsBuilt)
         }

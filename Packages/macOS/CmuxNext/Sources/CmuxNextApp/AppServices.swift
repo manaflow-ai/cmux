@@ -237,7 +237,8 @@ final class AppServices {
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // built by its first reader
     private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
     /// Panes off screen make no content until startup completes (`launchVisiblePanesOnly`, p08-startup-065): holds nothing while off.
-    private(set) lazy var launchPanes = LaunchPaneGate(startup: features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
+    /// Made in init, so its `launch.views_built` report is registered before startup can complete.
+    let launchPanes: LaunchPaneGate
     private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -725,6 +726,7 @@ final class AppServices {
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
+        launchPanes = LaunchPaneGate(startup: self.features.isEnabled(.launchVisiblePanesOnly) ? launchStartup : nil)
         crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)

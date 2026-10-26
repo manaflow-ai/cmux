@@ -51,6 +51,17 @@ import Testing
         #expect(reports == [2])
     }
 
+    /// The bench reads until `startup_complete`: the count goes out before it, though `LaunchOrder` registered first.
+    @Test func theCountIsReportedBeforeTheCompletionMark() {
+        let scheduler = StartupTestScheduler()
+        var written: [String] = []
+        scheduler.startup.whenComplete { _ in written.append("startup_complete") }
+        let gate = LaunchPaneGate(startup: scheduler.startup, report: { written.append("\(LaunchPaneGate.viewsBuiltMark) \($0)") })
+        gate.noteBuilt()
+        scheduler.complete()
+        #expect(written == ["launch.views_built 1", "startup_complete"])
+    }
+
     @Test func aHeldPanesPostRunsOnlyAfterCompletion() {
         let scheduler = StartupTestScheduler()
         let gate = LaunchPaneGate(startup: scheduler.startup, report: { _ in })

@@ -204,6 +204,35 @@ class ValueSummaryTests(unittest.TestCase):
                          ["temperature cold", "page-ins 4100", "interrupted"])
 
 
+class ViewsBuiltTests(unittest.TestCase):
+    """p08-startup-065: `launch.views_built` (the pane views made before startup_complete) is a value, sent before
+    startup_complete: printed per run and as a spread, never a time row or an --order term."""
+
+    def test_a_run_with_views_built_prints_the_value_and_never_a_row(self):
+        run = {"main_start": 3.0, bs.VIEWS_BUILT: 2.0, "startup_complete.launchPhaseSettled": 900.0,
+               bs.STARTUP_COMPLETE: 900.0}
+        self.assertEqual(bs.run_values(run), ["views built 2", "startup complete launchPhaseSettled"])
+        self.assertNotIn(bs.VIEWS_BUILT, [row[1] for row in bs.table([run])])
+        self.assertIn("  launch.views_built: p50 2  p95 2  p99 2  max 2  n 1 (== the visible panes)",
+                      bs.value_summary([run]))
+        with self.assertRaises(ValueError):
+            bs.parse_order(f"main_start<{bs.VIEWS_BUILT}")
+
+    def test_a_build_without_it_prints_no_line_for_it(self):
+        lines = bs.value_summary([{"startup_complete.launchPhaseSettled": 900.0}])
+        self.assertFalse([line for line in lines if bs.VIEWS_BUILT in line], lines)
+
+    def test_a_startup_complete_wait_reads_it_from_before_the_completion(self):
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b"launch.views_built 2\nstartup_complete.launchPhaseSettled 900.0\nstartup_complete 900.0\n")
+        launch = bs.Launch.__new__(bs.Launch)
+        launch.read_fd, launch.buffer, launch.marks = read_fd, b"", {}
+        self.assertTrue(launch.wait_for(bs.STARTUP_COMPLETE, 2))
+        os.close(write_fd)
+        os.close(read_fd)
+        self.assertEqual(launch.marks[bs.VIEWS_BUILT], 2.0)
+
+
 class CompletionReasonTests(unittest.TestCase):
     """p08-startup-012: `startup_complete.<reason>` comes before `startup_complete`; the bench counts reasons."""
 

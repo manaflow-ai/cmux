@@ -79,8 +79,10 @@ scripts/perf-lab/stories.d/launch-cold.json, launch-cold-realistic.json,
 launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 
 Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_run_loop_start`,
-`launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`
-arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
+`launch.pageins_first_frame`, `launch.main_cpu_ms`, `launch.interrupted` and
+`launch.views_built` (p08-startup-065: the pane content views made before
+startup_complete, sent just before it; == the visible panes; --startup-complete
+waits for it) arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
 They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
@@ -271,6 +273,7 @@ PAGEINS = "launch.pageins_first_frame"
 MAIN_CPU = "launch.main_cpu_ms"
 INTERRUPTED = "launch.interrupted"
 # The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
+# The app sends it just before startup_complete, so a --startup-complete run has it.
 VIEWS_BUILT = "launch.views_built"
 VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, VIEWS_BUILT)
 # Percentiles printed after p50 (perf_stats.summary).
@@ -944,6 +947,8 @@ def run_values(marks):
         shown.append(f"page-ins {marks[PAGEINS]:.0f}")
     if is_number(marks.get(MAIN_CPU)):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
+    if is_number(marks.get(VIEWS_BUILT)):
+        shown.append(f"views built {marks[VIEWS_BUILT]:.0f}")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
@@ -990,6 +995,10 @@ def value_summary(runs, temperature=None):
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
+    built = [run[VIEWS_BUILT] for run in runs if is_number(run.get(VIEWS_BUILT))]
+    if built:  # only a launchVisiblePanesOnly build sends it
+        cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(built).items())
+        lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
     lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
@@ -1218,7 +1227,8 @@ def parse_args(argv):
                              "lacks one or has a MILESTONE_ORDER pair out of order")
     parser.add_argument("--startup-complete", action="store_true",
                         help="after the first content, keep each launch until startup_complete (within --timeout) "
-                             "and print its reason per run and as counts, the failsafe ones counted")
+                             "and print its reason per run and as counts, the failsafe ones counted, and "
+                             "launch.views_built (sent just before it)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--purge", action="store_true",

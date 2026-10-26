@@ -35,6 +35,14 @@ extension PaneController {
 /// turn the layout reports it and the other visible panes queue behind it, one new surface a frame,
 /// as Chrome's `TabLoader` loads the active tab before the others (chrome/browser/sessions/tab_loader.cc).
 extension PaneController {
+    /// Shows the selection for presentation (the layout, a frame, a model change): while the launch holds
+    /// this pane it makes nothing and waits for the end of startup instead. An action that needs the
+    /// content calls ``showSelectionNow()``.
+    func showSelected() {
+        guard !holdsForLaunch else { return waitForLaunchEnd() }
+        showSelectionNow()
+    }
+
     /// True when showing the selection needs no new surface or page: it exists, or the launch holds
     /// it, so showing it makes nothing (``holdsForLaunch``).
     var selectedContentIsAlive: Bool { selectedContentExists || holdsForLaunch }

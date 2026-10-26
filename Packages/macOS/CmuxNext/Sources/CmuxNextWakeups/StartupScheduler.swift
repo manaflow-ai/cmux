@@ -115,6 +115,8 @@ public final class StartupScheduler {
     private var idleTasks: [Pending?] = []
     private var idleHead = 0
     private var observers: [@MainActor (Completion) -> Void] = []
+    /// ``whenCompleteFirst(_:)`` observers: they run before ``observers``.
+    private var firstObservers: [@MainActor (Completion) -> Void] = []
     /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
     private var firstFrameWaiters: [CheckedContinuation<Void, Never>] = []
     /// Built in init (lazy because its callback captures self).
@@ -265,6 +267,7 @@ public final class StartupScheduler {
         idleHead = 0
         idleClient.deactivate()
         observers = []
+        firstObservers = []
         resumeFirstFrameWaiters()
     }
 
@@ -273,6 +276,14 @@ public final class StartupScheduler {
         if let completion { return body(completion) }
         guard !isQuitting else { return }
         observers.append(body)
+    }
+
+    /// As ``whenComplete(_:)``, but before every ``whenComplete(_:)`` observer: for a launch value that a reader
+    /// of the completion's own mark (`LaunchOrder`'s `startup_complete`) must already have on the same pipe.
+    public func whenCompleteFirst(_ body: @escaping @MainActor (Completion) -> Void) {
+        if let completion { return body(completion) }
+        guard !isQuitting else { return }
+        firstObservers.append(body)
     }
 
     /// Returns once the afterFirstFrame tasks are released (the first frame, ``firstFrameMissed(_:)``
@@ -331,8 +342,8 @@ public final class StartupScheduler {
         for task in held { dispatch(task) }
         log.close()
         completed.store(true, ordering: .releasing)
-        let waiting = observers
-        observers = []
+        let waiting = firstObservers + observers
+        (firstObservers, observers) = ([], [])
         for observer in waiting { observer(done) }
     }
 
