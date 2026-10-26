@@ -173,6 +173,10 @@ def main_binary(app):
 
 
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
+# Key-press flows for a recording that wraps a bench (`trace.py record --bundle APP -- BENCH`, input-hotspots.py): the
+# app gets CMUX_NEXT_TRACE_FLOWS=<this folder>, as `trace.py record --app` gives its own launch. The app's environment is
+# built here, not inherited, so the wrapper passes it under this name.
+TRACE_FLOWS_KEY = "BENCH_LAUNCH_TRACE_FLOWS"
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
 
@@ -1036,6 +1040,8 @@ class BenchApp:
             env["CMUX_NEXT_TEST_WINDOW_FRAME"] = ",".join(str(v) for v in self.window)
         if self.screen is not None:
             env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = str(self.screen)
+        if os.environ.get(TRACE_FLOWS_KEY):
+            env["CMUX_NEXT_TRACE_FLOWS"] = os.environ[TRACE_FLOWS_KEY]  # a bench's own env below wins
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)
