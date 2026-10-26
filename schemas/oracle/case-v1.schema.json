@@ -567,8 +567,8 @@
       "properties": {
         "action": {
           "type": "string",
-          "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$",
-          "description": "An action id of the app's ActionRegistry."
+          "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z0-9][A-Za-z0-9]*)*$",
+          "description": "An action id of the app's ActionRegistry. A later segment may be a number (browser.keepNeighborTabsAwake.0)."
         },
         "params": {"$ref": "#/$defs/valueObject"},
         "entrypoint": {

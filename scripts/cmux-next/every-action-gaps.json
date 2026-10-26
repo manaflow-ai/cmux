@@ -7,6 +7,7 @@
   "accounts.remove": "sign-in, accounts or credentials",
   "accounts.show": "sign-in, accounts or credentials",
   "agent.harness.updateAll": "installs or updates from the network",
+  "agentPane.revealCwdInFinder": "opens another app, a web site or changes system defaults",
   "app.shareCmux": "opens another app, a web site or changes system defaults",
   "appStore.show": "installs or updates from the network",
   "appStore.showInstalled": "installs or updates from the network",
