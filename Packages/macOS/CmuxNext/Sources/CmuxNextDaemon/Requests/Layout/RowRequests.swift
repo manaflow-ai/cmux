@@ -15,7 +15,7 @@ public struct NewRowRequest: TerminalSpawningRequest {
         self.heightPermille = height
         self.options = options
     }
-    enum CodingKeys: String, CodingKey { case pane, heightPermille }
+    enum CodingKeys: String, CodingKey { case pane, heightPermille = "height_permille" }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(pane, forKey: .pane)

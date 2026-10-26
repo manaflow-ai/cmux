@@ -579,6 +579,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
 | 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
 | 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
+| 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -969,6 +970,22 @@ facet field returns: terminal.copy and terminal.screen.read read the terminal's 
 reports each terminal's view scrollbar {offset, total, len} (Surface::view_scrollbar), and the scroll success case
 settles on offset = total - len - 5 after the call; its gap goes away. Test: VM, the scroll success case green twice on
 both holder arms, and red when the handler scrolls 0 rows or the other way (negative control).
+
+**247 Driver: a call that ends the daemon, expect.result references.** Files: `driver_daemon.py`,
+`driver_daemon_test.py`, `case_values.py`, `case_checks.py`, `case-v1.schema.json`, `case-v1-mutations.json`. Found by
+063 (session.shutdown and the graceful restart). (1) case-v1 step `ends: daemon` (a mutating resource.call only):
+after an ok reply the runner waits for the daemon's exit in that step, records it as the step's exit and checks it
+against allow_crashes (I17), and fails the step unless the exit is a normal termination (exit 0;
+`base/process/kill.h` TERMINATION_STATUS_NORMAL_TERMINATION). A later restart finds no running daemon, so it starts
+one and never sends shutdown-daemon to a daemon that is exiting; case_checks.py counts the step as one that ends a
+daemon. (2) `expect.result` resolves its `$step:` references before the comparison (case-v1 stepRef: the runner
+substitutes it), so `"$step:<id>#"` holds a reply equal to an earlier one, compared with JSON types (a bool never
+equals a number). (3) `expect.resultExcept`: JSON pointers, `*` for every item or member, removed from both values
+first (case_values.without_pointers), for what a new daemon generation changes. Implemented with 063's fixer, which
+needs all three: without (1) session-shutdown-ok races the exiting daemon at the restart (a Crash). Test:
+driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
+and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
+VM, the 22 session cases green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

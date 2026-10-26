@@ -1,4 +1,4 @@
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// One wait on the main actor until a condition over observable state holds
 /// (plans/cmux-next/chrome-parity/p06-scheduler.md, recipe R-wait): a `ServiceObservation` reads the

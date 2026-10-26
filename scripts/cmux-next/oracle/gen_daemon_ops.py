@@ -20,6 +20,13 @@ for each operation with class `mutation`,
   Rules that live in a handler, not in that check, are HANDLER_FIELDS; preconditions the standard fixture
   cannot meet are KNOWN_GAPS.
 
+Each success case of an operation the catalog marks `idempotency: required` ends with step `retry`: the call
+again, same method, target, params and idempotency key, after the `after` steps settle the state the call left.
+invariants.py I10 holds it to the first call's reply (replayed true on the retry), the same journal head and the
+same facets; a handler that runs again on a replay (a double create) breaks all three. coverage.json names each
+retry step. An operation whose success ends the daemon (UNRETRIED, for example session.shutdown) gets no retry:
+no daemon is left to answer it. coverage.json `unretried` names each one with its reason.
+
 The standard fixture is FIXTURE: named objects (a terminal workspace, a split, a browser tab, a tab group, ...),
 each made by one catalog mutation and read from its result by a JSON pointer that the generator resolves in the
 catalog's result type. A case has only the fixture steps its handles need, in FIXTURE order.
@@ -28,18 +35,21 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 (`suite/case[/step]`) name a case by one path segment. The families of tasks 061-070 tune their operations in
 `<family>/_tuning.json` (oracle.py skips `_` files), which this generator reads, so regeneration keeps the tuning
 and stays byte-stable. A tuning changes params and target, the error code and the error details the error case
-asserts, and adds `before` steps (a mutation, a readOnly read, or a waitFor settle between the fixture and the call),
-`after` steps (waitFor settles, or readOnly reads with their exact reply, after the call, that check the state it
-left, for example the split tree or a terminal's screen; the error case does not inherit the success case's),
-`requires` capabilities (`chromium` for a daemon-rendered browser, which needs a cmux-browser provider), `switches`
-(the refactor switches the case runs on both arms of, as the daemon names them), `untested` reasons and a `gap`:
-why no product can run the success case yet, naming the task that closes it, and a `repo`: the generated git
-repository (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under $CASE_ROOT/repos
-before the first step; a `remote` is then a plain name of that repository's remotes, and a path under
-$CASE_ROOT/repos one of its folders. Such a case requires the `git_repo` capability, which no product has until its
-driver builds the repository, so its operation is excluded (REPO_GAP). `expectations` record a known failure of
-the case on one arm of its switches ({arm, results, reason}, the reason naming the task that fixes it; the error case
-inherits the success case's); the generated block of the suite's expectations file carries them as `[ arm ]` lines.
+asserts, and adds `before` steps (a mutation, a readOnly read whose reply a `$step:` reference uses, or a waitFor
+settle between the fixture and the call), `after` steps (the same after the call: a waitFor that asserts the state
+it left, for example the split tree or a terminal's screen, a read with its exact reply or with a reply that must
+equal an earlier read's, a replay of the call, and a graceful restart of the daemon on the same state root; the
+error case does not inherit the success case's), the call's `checkpoint`s and `ends` (a call that stops the daemon
+on purpose), `allow_crashes`, `fixture` handles no field names, `requires` capabilities (`chromium` for a
+daemon-rendered browser, which needs a cmux-browser provider; `restart`), `switches` (the refactor switches the
+case runs on both arms of, as the daemon names them), `untested` reasons and a `gap`: why no product can run the
+success case yet, naming the task that closes it, and a `repo`: the generated git repository
+(tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under $CASE_ROOT/repos before the
+first step; a `remote` is then a plain name of that repository's remotes, and a path under $CASE_ROOT/repos one of
+its folders. Such a case requires the `git_repo` capability, which no product has until its driver builds the
+repository, so its operation is excluded (REPO_GAP). `expectations` record a known failure of the case on one arm
+of its switches ({arm, results, reason}, the reason naming the task that fixes it; the error case inherits the
+success case's); the generated block of the suite's expectations file carries them as `[ arm ]` lines.
 coverage.json lists every
 operation with its family, cases, fixture steps, broken field, placeholders (fields with a fixed id, not a fixture
 object: the tuning work), known gap, tuning, switches and the capabilities of cases that need more than
@@ -145,6 +155,17 @@ ERROR_CODE = "validation.invalid"
 REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 # case-v1 capability of a case with fixture.repo: the product's driver builds the repository first.
 REPO_CAPABILITY = "git_repo"
+# The call step's snapshots unless a tuning says otherwise (a call that stops the daemon has no settled one).
+CALL_CHECKPOINTS = ("before", "settled")
+# p15-oracle-206: the success case's same-key retry of its call, checked by invariants.py I10.
+CALL_STEP = "call"
+RETRY_STEP = "retry"
+# Operations whose success ends the daemon process, so no daemon is left to answer a same-key retry.
+UNRETRIED = {
+    "session.shutdown": "its success ends the daemon: the reply is sent, then complete_daemon_shutdown_after_ack "
+                        "(cmux-tui-core/src/server/disconnect.rs) disconnects every client and exits, so no daemon "
+                        "answers a retry",
+}
 # case-v1 $defs/stepRef: a value from an earlier step's reply.
 STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 
@@ -574,6 +595,12 @@ class Request:
     repo: Optional[str] = None
     # Known failures on one arm of the case's switches ({arm, results, reason}): expectation lines, not case steps.
     expectations: List[Dict[str, Any]] = field(default_factory=list)
+    # Fixture handles to make although no field names them, the call's snapshots, the process the call ends on
+    # purpose (case-v1 step `ends`), and the case-v1 allow_crashes entries for that exit.
+    fixture: List[str] = field(default_factory=list)
+    checkpoint: List[str] = field(default_factory=lambda: list(CALL_CHECKPOINTS))
+    ends: Optional[str] = None
+    allow_crashes: List[Dict[str, Any]] = field(default_factory=list)
 
     def before_methods(self) -> Dict[str, str]:
         """The before steps that call an operation: step id to method (what a `$step:` reference reads)."""
@@ -916,16 +943,21 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
              note: str, catalog: Catalog, gap: Optional[str] = None) -> Dict[str, Any]:
     """One case; `gap` is the untested line that says why its success cannot be checked yet."""
     steps = []
-    used = [*handles_in(request.target), *handles_in(request.params), *handles_in(request.before),
+    used = [*request.fixture, *handles_in(request.target), *handles_in(request.params), *handles_in(request.before),
             *handles_in(request.details), *handles_in(request.after)]
     if request.details is not None:
         expect = {**expect, "errorDetails": refs(request.details)}
     for step_id in fixture_closure(used):
         fx = FIXTURE_BY_ID[step_id]
         steps.append(call_step(case_id, fx.id, fx.operation, {s: Handle(h) for s, h in fx.target}, fx.params, OK))
-    steps.extend(tuned_step(case_id, spec, catalog) for spec in request.before)
-    steps.append(call_step(case_id, "call", operation, request.target, request.params, expect, ["before", "settled"], note))
-    steps.extend(tuned_step(case_id, spec, catalog) for spec in request.after)
+    steps.extend(tuned_step(case_id, spec, catalog, request) for spec in request.before)
+    call = call_step(case_id, CALL_STEP, operation, request.target, request.params, expect, list(request.checkpoint), note)
+    if request.ends:
+        call["ends"] = request.ends
+    steps.append(call)
+    steps.extend(tuned_step(case_id, spec, catalog, request) for spec in request.after)
+    if kind == "success" and retried(catalog, operation):
+        steps.append(retry_step(call))
     for index, step in enumerate(steps):
         earlier = {s["id"] for s in steps[:index]}
         dangling = sorted(set(STEP_REF_IN_TEXT.findall(json.dumps(step))) - earlier)
@@ -959,6 +991,13 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         "invariants": [f"generated by {GENERATOR} from the catalog type of {operation} (family {family})"],
         "teardown": ["stop the case daemon", "verify the socket and state root are gone"],
     }
+    if request.allow_crashes:
+        doc["allow_crashes"] = copy.deepcopy(request.allow_crashes)
+    equal = [step["id"] for step in steps
+             if isinstance(step.get("expect", {}).get("result"), str) and step["expect"]["result"].startswith("$step:")]
+    if equal:
+        doc["invariants"].append(f"{', '.join(equal)} reply what the step each names replied, but for the "
+                                 "pointers its resultExcept lists")
     untested = [f"{path} is a fixed placeholder, not a fixture object; {family}/{TUNING} tunes it"
                 for path in request.placeholders] + request.untested
     if gap:
@@ -968,12 +1007,41 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     return doc
 
 
-def tuned_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[str, Any]:
-    """A tuning `before` or `after` step: a call (method, target, params) or a settle that waits (waitFor). A read
-    call is a readOnly step (no idempotency key: reads forbid one; the runner fails it when the facet moves) whose
-    reply must equal the tuning's `result` when it gives one; a later step names its reply with
-    `$step:<id>#<pointer>`. A read of a terminal's screen comes after a settle on what the program printed last, so
-    no output moves the facet while it reads."""
+def retried(catalog: Catalog, operation: str) -> bool:
+    """The success case of an operation that requires an idempotency key retries its call (I10), unless its success
+    ends the daemon (UNRETRIED)."""
+    return catalog.operations[operation].get("idempotency") == "required" and operation not in UNRETRIED
+
+
+def retry_step(call: Mapping[str, Any]) -> Dict[str, Any]:
+    """The call again with its own idempotency key, recorded before and settled for I10."""
+    step = copy.deepcopy(dict(call))
+    step["id"] = RETRY_STEP
+    step["checkpoint"] = ["before", "settled"]
+    step["note"] = (f"I10: step {call['id']} again with its idempotency key; the daemon replays its reply, adds no "
+                    "journal record and changes no facet")
+    return step
+
+
+def tuned_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog, request: Request) -> Dict[str, Any]:
+    """A tuning `before` or `after` step (TUNED_STEP_SHAPES): a graceful restart of the daemon, a replay of the
+    call, a call (method, target, params) or a settle that waits (waitFor). A read call is a readOnly step that
+    expects ok, with no idempotency key (reads forbid one; the runner fails it when the facet moves); its reply must
+    equal the tuning's `result` when it gives one, or, with `equals`, an earlier read's reply but for the `except`
+    pointers; a later step names its reply with `$step:<id>#<pointer>`. A read of a terminal's screen comes after a
+    settle on what the program printed last, so no output moves the facet while it reads."""
+    if "restart" in spec:
+        step = {"id": spec["id"], "op": "restart", "target": {"process": spec["restart"]},
+                "expect": {"outcome": "ok", "receipt": "identify"},
+                "checkpoint": list(spec.get("checkpoint") or CALL_CHECKPOINTS)}
+        if "waitFor" in spec:
+            step["waitFor"] = refs(spec["waitFor"])
+        return step
+    if "replays" in spec:
+        # The call again with its idempotency key: the daemon answers from its durable receipt.
+        step = call_step(case_id, "call", request.operation, request.target, request.params,
+                         {**OK, **equal_expect("call", spec)})
+        return {**step, "id": spec["id"]}
     if "waitFor" in spec:
         return {"id": spec["id"], "op": "settle", "waitFor": refs(spec["waitFor"]), "settleMaxMs": spec["waitFor"]["maxMs"]}
     method = spec["method"]
@@ -981,10 +1049,20 @@ def tuned_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[
         expect: Dict[str, Any] = {"outcome": "ok"}
         if "result" in spec:
             expect["result"] = copy.deepcopy(spec["result"])
+        elif "equals" in spec:
+            expect.update(equal_expect(spec["equals"], spec))
         return {"id": spec["id"], "op": "resource.call", "target": {**SCOPE, **refs(dict(spec.get("target") or {}))},
                 "args": {"method": method, "params": refs(dict(spec.get("params") or {}))}, "readOnly": True,
                 "expect": expect}
     return call_step(case_id, spec["id"], method, spec.get("target") or {}, spec.get("params") or {}, OK)
+
+
+def equal_expect(step_id: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
+    """case-v1 expect.result naming the whole reply of `step_id`, and expect.resultExcept from `except`."""
+    out: Dict[str, Any] = {"result": f"$step:{step_id}#"}
+    if spec.get("except"):
+        out["resultExcept"] = list(spec["except"])
+    return out
 
 
 # ---------------------------------------------------------------------------------------------- tuning
@@ -992,7 +1070,8 @@ def tuned_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[
 
 TUNING_KINDS = ("success", "error")
 TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "after", "requires", "switches", "untested",
-                         "gap", "details", "agent", "repo", "expectations"})
+                         "gap", "details", "agent", "repo", "expectations", "fixture", "checkpoint", "ends",
+                         "allow_crashes"})
 # case-v1 fixture.agent values a tuning may set: the mock agent (mock_chief.py), or none (the default).
 TUNING_AGENTS = frozenset({"mock", "none"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
@@ -1004,9 +1083,21 @@ WAIT_OPS = frozenset({"gt", "gte", "lt", "lte", "contains", "lengthEquals"})
 WAIT_MAX_MS = 30000
 # The capabilities a tuning may add (case-v1 capability); resource_api is every case's.
 TUNING_CAPABILITIES = frozenset({"chromium", "restart"})
-BEFORE_CALL_KEYS = frozenset({"id", "method", "target", "params", "result"})
-BEFORE_CLASSES = frozenset({"mutation", "read"})
-BEFORE_WAIT_KEYS = frozenset({"id", "waitFor"})
+# A tuned step's shape is named by its first marker key in this order (case-v1 step ops: restart, resource.call,
+# settle). A restart may wait (waitFor) until the restarted daemon shows a facet value; a replay sends the call
+# again with its idempotency key. A read gives its exact reply (`result`) or equals an earlier read's, not both.
+TUNED_STEP_SHAPES: Dict[str, frozenset] = {
+    "restart": frozenset({"id", "restart", "waitFor", "checkpoint"}),
+    "replays": frozenset({"id", "replays", "except"}),
+    "method": frozenset({"id", "method", "target", "params", "result", "equals", "except"}),
+    "waitFor": frozenset({"id", "waitFor"}),
+}
+STEP_CLASSES = frozenset({"mutation", "read"})
+ALLOW_CRASH_KEYS = frozenset({"kind", "reason", "steps", "max"})
+# The processes a call may end on purpose (case-v1 step `ends`).
+ENDS_PROCESSES = frozenset({"daemon"})
+# case-v1 $defs/resultExcept item: a JSON pointer whose segments may be `*` (every array item or object member).
+EXCEPT_POINTER = re.compile(r"^(/([^~/]|~[01])*)+$")
 STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 # The refactor switches a family's cases may list (case-v1 `switches`): the switches the daemon reports in its
 # `oracle-state` reply, as checked in by driver_daemon.py live-check (task 021). p15-oracle-232 registers them in
@@ -1074,19 +1165,25 @@ class TaskGraph:
 
 def load_tuning(out: Path, catalog: Catalog, tasks: Optional[TaskGraph] = None) -> Dict[str, Dict[str, Any]]:
     """`<out>/<family>/_tuning.json`: {"operations": {op: {"success"|"error": {params, target, error, details, note,
-    before, after, requires, switches, untested, gap, agent, repo, expectations}}}}. A params or target value null
-    removes the key; {"$fixture": NAME} is a fixture handle. `before` (steps between the fixture and the
-    call: {id, method, target, params} calls a mutation or a read, {id, waitFor} settles until a facet value holds)
-    and `after` (steps after the call that check its effect: {id, waitFor}, or {id, method, target, params, result}
-    a read whose reply must equal `result`), `requires` (capabilities beyond resource_api), `switches` (the
-    refactor switches whose both arms the case runs on), `untested` and `agent` (case-v1 fixture.agent: mock runs
-    the mock agent of mock_chief.py) replace the request's. The error case starts from the tuned success case
-    without its `after` steps, which check the success. `details` (error only) is the subset of the error's details
-    the case asserts; `gap` (success only) says why no product can check the success yet and names the task that
-    closes it (`tasks`, WORK.tsv by default), so coverage excludes the operation. `repo` names the generated
-    repository the case needs (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo); null drops it. A value
-    that looks like a real credential (CREDENTIAL_PATTERNS) is refused. `expectations` (check_expectations) are the
-    case's known failures on one arm; the error case inherits the success case's unless its own tuning sets them."""
+    before, after, fixture, checkpoint, ends, allow_crashes, requires, switches, untested, gap, agent, repo,
+    expectations}}}}. A params or target value null removes the key; {"$fixture": NAME} is a fixture handle. `before`
+    (steps between the fixture and the call) and `after` (steps after it, which check its effect) hold
+    TUNED_STEP_SHAPES: {id, method, target, params} calls a mutation or a read (an after step only reads), a read's
+    `result` is the exact reply it must give, and a read's `equals` names an earlier read whose reply this one must
+    equal but for the `except` pointers; {id, waitFor} settles until a facet value holds; in `after` only, {id,
+    replays: "call", except} sends the call again with its idempotency key and holds the reply equal to the call's,
+    and {id, restart: "daemon", waitFor, checkpoint} stops the daemon gracefully and starts it on the same state
+    root. `fixture` names fixture handles to make although no field uses them, `checkpoint` the call's snapshots,
+    `ends` the process the call stops on purpose (with an allow_crashes entry that lists the call), `allow_crashes`
+    the case-v1 entries, `requires` capabilities beyond resource_api, `switches` the refactor switches whose both
+    arms the case runs on; these, `untested` and `agent` (case-v1 fixture.agent: mock runs the mock agent of
+    mock_chief.py) replace the request's; the error case starts from the tuned success case, without its after
+    steps, which check the success. `details` (error only) is the subset of the error's details the case asserts;
+    `gap` (success only) says why no product can check the success yet and names the task that closes it (`tasks`,
+    WORK.tsv by default), so coverage excludes the operation. `repo` names the generated repository the case needs
+    (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo); null drops it. A value that looks like a real
+    credential (CREDENTIAL_PATTERNS) is refused. `expectations` (check_expectations) are the case's known failures
+    on one arm; the error case inherits the success case's unless its own tuning sets them."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -1165,9 +1262,11 @@ def credential_values(value: Any, path: str) -> Iterable[str]:
 
 
 def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> None:
-    """The before, after, requires, switches, untested and agent keys of one tuning kind. A before step calls a
-    mutation or a read, or settles on a waitFor; an after step settles, or reads with the exact reply it expects:
-    both check the state the call left."""
+    """The before, after, fixture, checkpoint, ends, allow_crashes, requires, switches, untested and agent keys of
+    one tuning kind. A before step calls a mutation, or a read whose reply a later `$step:` reference uses (an id
+    the fixture results do not give), or settles on a waitFor; an after step settles, reads (with the exact reply it
+    expects, or equal to an earlier read but for its `except` pointers), replays the call, or restarts the daemon:
+    each checks the state the call left."""
     if "agent" in spec and spec["agent"] not in TUNING_AGENTS:
         raise GenError(f"{where}: agent takes only {sorted(TUNING_AGENTS)}")
     requires = spec.get("requires", [])
@@ -1183,41 +1282,96 @@ def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> 
     untested = spec.get("untested", [])
     if not isinstance(untested, list) or not all(isinstance(item, str) and item for item in untested):
         raise GenError(f"{where}: untested is a list of reasons")
-    taken = {step.id for step in FIXTURE} | {"call"}
+    fixture = spec.get("fixture", [])
+    if not isinstance(fixture, list) or not all(isinstance(item, str) and item in HANDLES for item in fixture):
+        raise GenError(f"{where}: fixture is a list of fixture handles {sorted(HANDLES)}")
+    checkpoint = spec.get("checkpoint", list(CALL_CHECKPOINTS))
+    if checkpoint_problem(checkpoint):
+        raise GenError(f"{where}: checkpoint {checkpoint_problem(checkpoint)}")
+    taken = {step.id for step in FIXTURE} | {CALL_STEP, RETRY_STEP}
+    reads: set = set()
+    restarts = 0
     for part in ("before", "after"):
         steps = spec.get(part, [])
         if not isinstance(steps, list):
             raise GenError(f"{where}: {part} is a list of steps")
         for item in steps:
-            check_tuned_step(where, part, item, taken, catalog)
+            keys = set(item) if isinstance(item, dict) else set()
+            marker = next((marker for marker in TUNED_STEP_SHAPES if marker in keys), None)
+            if "id" not in keys or marker is None or not keys <= TUNED_STEP_SHAPES[marker]:
+                article = "an" if part == "after" else "a"
+                raise GenError(f"{where}: {article} {part} step is one of {{id, restart, waitFor, checkpoint}}, "
+                               f"{{id, replays, except}}, {{id, method, target, params, result | equals, except}}, "
+                               f"{{id, waitFor}}, not {item!r}")
+            step_id = item["id"]
+            if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
+                raise GenError(f"{where}: {part} step id {step_id!r} is not a new step id")
+            taken.add(step_id)
+            if "waitFor" in item:
+                problem = wait_for_problem(item["waitFor"])
+                if problem:
+                    raise GenError(f"{where}: {part} step {step_id} waitFor {problem}")
+            method = item.get("method")
+            classes = STEP_CLASSES if part == "before" else frozenset({"read"})
+            kind = catalog.operations.get(method, {}).get("class") if isinstance(method, str) else None
+            if marker == "method" and kind not in classes:
+                raise GenError(f"{where}: {part} step {step_id} calls {method!r}, not a "
+                               f"{' or '.join(sorted(classes))} of the catalog")
+            if "result" in item:
+                if kind != "read":
+                    raise GenError(f"{where}: {part} step {step_id} gives a result, which only a read checks")
+                if "equals" in item:
+                    raise GenError(f"{where}: {part} step {step_id} gives a result and equals: one reply check")
+            if marker in ("restart", "replays") and part != "after":
+                raise GenError(f"{where}: {part} step {step_id}: only an after step restarts or replays")
+            if marker == "restart":
+                if item["restart"] != "daemon":
+                    raise GenError(f"{where}: {part} step {step_id} restarts {item['restart']!r}: only the daemon")
+                if "checkpoint" in item and checkpoint_problem(item["checkpoint"]):
+                    raise GenError(f"{where}: {part} step {step_id} checkpoint {checkpoint_problem(item['checkpoint'])}")
+                restarts += 1
+            if marker == "replays" and item["replays"] != "call":
+                raise GenError(f"{where}: {part} step {step_id} replays {item['replays']!r}: only the call replays")
+            if "equals" in item:
+                if catalog.operations[method].get("class") != "read" or item["equals"] not in reads:
+                    raise GenError(f"{where}: {part} step {step_id} equals {item['equals']!r}: a read equals an "
+                                   f"earlier read step")
+            if "except" in item:
+                if marker == "method" and "equals" not in item:
+                    raise GenError(f"{where}: {part} step {step_id}: except needs equals")
+                pointers = item["except"]
+                if not (isinstance(pointers, list) and pointers and all(isinstance(p, str) and EXCEPT_POINTER.match(p)
+                                                                        for p in pointers)):
+                    raise GenError(f"{where}: {part} step {step_id} except is a non-empty list of JSON pointers")
+            if marker == "method" and catalog.operations[method].get("class") == "read":
+                reads.add(step_id)
+    if restarts and "restart" not in requires:
+        raise GenError(f"{where}: a restart step requires the restart capability")
+    crashes = spec.get("allow_crashes", [])
+    if not isinstance(crashes, list):
+        raise GenError(f"{where}: allow_crashes is a list of case-v1 allow_crashes entries")
+    for entry in crashes:
+        if (not isinstance(entry, dict) or not {"kind", "reason"} <= set(entry) <= ALLOW_CRASH_KEYS
+                or entry["kind"] != "daemon" or not set(entry.get("steps", [])) <= taken):
+            raise GenError(f"{where}: an allow_crashes entry is {{kind: daemon, reason, steps, max}} with steps of "
+                           f"this case, not {entry!r}")
+    ends = spec.get("ends")
+    if ends is not None:
+        if ends not in ENDS_PROCESSES:
+            raise GenError(f"{where}: ends takes only {sorted(ENDS_PROCESSES)}")
+        if "settled" in checkpoint:
+            raise GenError(f"{where}: a call that ends the {ends} has no settled checkpoint")
+        if not any(entry["kind"] == ends and "call" in entry.get("steps", []) for entry in crashes):
+            raise GenError(f"{where}: a call that ends the {ends} needs an allow_crashes entry of kind {ends} "
+                           f"that lists the call")
 
 
-def check_tuned_step(where: str, part: str, item: Any, taken: set, catalog: Catalog) -> None:
-    """One before or after step: its shape, a new step id, and the class of the operation it calls. A before step
-    calls a mutation or a read; an after step only reads; `result` (the exact reply) is for a read."""
-    keys = set(item) if isinstance(item, dict) else set()
-    shape = BEFORE_WAIT_KEYS if "waitFor" in keys else BEFORE_CALL_KEYS
-    if "id" not in keys or not keys <= shape or not keys & {"waitFor", "method"}:
-        article = "an" if part == "after" else "a"
-        raise GenError(f"{where}: {article} {part} step is {{id, method, target, params[, result]}} or "
-                       f"{{id, waitFor}}, not {item!r}")
-    step_id = item["id"]
-    if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
-        raise GenError(f"{where}: {part} step id {step_id!r} is not a new step id")
-    taken.add(step_id)
-    if "waitFor" in item:
-        problem = wait_for_problem(item["waitFor"])
-        if problem:
-            raise GenError(f"{where}: {part} step {step_id} waitFor {problem}")
-        return
-    method = item["method"]
-    classes = BEFORE_CLASSES if part == "before" else frozenset({"read"})
-    kind = catalog.operations.get(method, {}).get("class") if isinstance(method, str) else None
-    if kind not in classes:
-        raise GenError(f"{where}: {part} step {step_id} calls {method!r}, not a "
-                       f"{' or '.join(sorted(classes))} of the catalog")
-    if "result" in item and kind != "read":
-        raise GenError(f"{where}: {part} step {step_id} gives a result, which only a read checks")
+def checkpoint_problem(checkpoint: Any) -> Optional[str]:
+    """Why `checkpoint` is not a step's list of daemon checkpoints (case-v1 step checkpoint, no turn), or None."""
+    if (not isinstance(checkpoint, list) or not checkpoint or len(set(checkpoint)) != len(checkpoint)
+            or not set(checkpoint) <= set(CALL_CHECKPOINTS)):
+        return f"is a non-empty list of {list(CALL_CHECKPOINTS)}"
+    return None
 
 
 def daemon_switches() -> frozenset:
@@ -1354,6 +1508,13 @@ def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
         request.agent = None if spec["agent"] == "none" else spec["agent"]
     if "expectations" in spec:
         request.expectations = copy.deepcopy(spec["expectations"])
+    for part in ("fixture", "checkpoint"):
+        if part in spec:
+            setattr(request, part, list(spec[part]))
+    if "ends" in spec:
+        request.ends = spec["ends"]
+    if "allow_crashes" in spec:
+        request.allow_crashes = copy.deepcopy(spec["allow_crashes"])
     for part in ("params", "target"):
         into = request.params if part == "params" else request.target
         for key, value in (spec.get(part) or {}).items():
@@ -1375,6 +1536,7 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
     operations: Dict[str, Any] = {}
     families: Dict[str, int] = {family: 0 for family in FAMILIES}
     excluded: Dict[str, str] = {}
+    unretried: Dict[str, str] = {}
     seen: Dict[str, str] = {}
     for operation in catalog.mutations():
         family = family_of(operation)
@@ -1435,11 +1597,15 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         entry: Dict[str, Any] = {
             "family": family,
             "cases": {"success": f"{SUITE}/{ok_id}", "error": f"{SUITE}/{error_id}"},
-            "fixture": [s["id"] for s in itertools.takewhile(lambda step: step["id"] != "call",
+            "fixture": [s["id"] for s in itertools.takewhile(lambda step: step["id"] != CALL_STEP,
                                                              files[f"{ok_id}.json"]["steps"])],
             "error": {"code": code, **(broken or {})},
             "placeholders": sorted(set(success.placeholders)),
         }
+        if retried(catalog, operation):
+            entry["retry"] = f"{SUITE}/{ok_id}/{RETRY_STEP}"
+        elif operation in UNRETRIED:
+            unretried[operation] = UNRETRIED[operation]
         if gap:
             entry["gap"] = gap
         if tuned:
@@ -1475,6 +1641,10 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         # yet: driver_daemon.py on the VM gives the first one.
         "covered": total - len(excluded),
         "verdicts": "not run",
+        # Success cases with a same-key retry step (I10): every operation with `idempotency: required` but those
+        # in `unretried`, whose success ends the daemon.
+        "retries": sum(1 for entry in operations.values() if "retry" in entry),
+        "unretried": unretried,
         "excluded": excluded,
         "missing": [],
         "families": families,
@@ -1751,7 +1921,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             bad = files["pane-swap-error.json"]["steps"][-1]
             self.assertEqual(bad["expect"], {"outcome": "error", "error": "selector.not_found"})
             self.assertEqual(bad["target"]["pane"], "pane_" + "f" * 32)
-            self.assertEqual(files["pane-swap-ok.json"]["steps"][-1]["note"], "swap with the split")
+            ok = files["pane-swap-ok.json"]["steps"]
+            self.assertEqual(next(step for step in ok if step["id"] == CALL_STEP)["note"], "swap with the split")
             self.assertEqual(generate(self.catalog, load_tuning(out, self.catalog)), files)
 
     def test_bad_tuning_is_refused(self) -> None:
@@ -1785,6 +1956,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
              "not a mutation or read of the catalog"),
             ({"operations": {"pane.close": {"success": {"after": [{"id": "x", "method": "pane.split"}]}}}},
              "after step x calls 'pane.split', not a read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"after": [{"id": "x", "method": "screen.get", "waitFor": {}}]}}}},
+             "an after step is one of"),
             ({"operations": {"pane.close": {"success": {"after": {"id": "x"}}}}}, "after is a list of steps"),
             ({"operations": {"pane.close": {"success": {
                 "before": [{"id": "x", "method": "screen.get"}],
@@ -1914,7 +2087,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                       "error": "operation.failed"}}}
         files = generate(self.catalog, tuned)
         ok, bad = files["browser-back-ok.json"], files["browser-back-error.json"]
-        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "fx-browser", "wait-live", "nav", "call"])
+        self.assertEqual([s["id"] for s in ok["steps"]],
+                         ["fx-workspace", "fx-browser", "wait-live", "nav", "call", "retry"])
         self.assertEqual(ok["steps"][2], {"id": "wait-live", "op": "settle", "waitFor": wait, "settleMaxMs": 15000})
         self.assertEqual(ok["steps"][3]["target"]["browser"], "$step:fx-browser#/value/browser_id")
         self.assertEqual(ok["steps"][3]["args"]["idempotencyKey"], "browser-back-ok.nav")
@@ -1941,9 +2115,9 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                         "params": {"destination_pane": "$step:split#/value/pane_id"}, "after": [settle, read]},
             "error": {"before": [], "params": {"destination_pane": "pane_" + "0" * 32}, "error": "selector.not_found"}}})
         ok, bad = files["terminal-move-ok.json"], files["terminal-move-error.json"]
-        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "split", "call", "printed", "screen"])
+        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "split", "call", "printed", "screen", "retry"])
         # A read is readOnly, takes no idempotency key and expects its exact reply.
-        self.assertEqual(ok["steps"][-1], {
+        self.assertEqual(ok["steps"][-2], {
             "id": "screen", "op": "resource.call",
             "target": {**SCOPE, "pane": "$step:split#/value/pane_id", "terminal": "$step:fx-workspace#/value/terminal_id"},
             "readOnly": True, "args": {"method": "terminal.copy", "params": {"mode": "screen"}},
@@ -2029,7 +2203,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             "terminal.input.write": "selector.not_found", "terminal.move": "selector.not_found",
             "terminal.project": "selector.not_found", "terminal.viewport.scroll": ERROR_CODE})
         # The exit record of the keys success: exit 7 typed into the shell.
-        keys = files["terminal-input-keys-ok.json"]["steps"][-1]
+        keys = files["terminal-input-keys-ok.json"]["steps"][-2]
         self.assertEqual(keys["waitFor"]["equals"], {"kind": "exit", "code": 7})
         # The move and project destination is a split of the fixture pane that prints nothing.
         for name in ("terminal-move-ok.json", "terminal-project-ok.json"):
@@ -2124,7 +2298,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         files = generate(self.catalog, tuned)
         ok, bad = files["sidebar-group-ungroup-ok.json"], files["sidebar-group-ungroup-error.json"]
         # A fixture handle in a before step pulls its fixture steps in first.
-        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "split", "settled", "group", "call"])
+        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "split", "settled", "group", "call", "retry"])
         self.assertEqual(ok["steps"][1]["target"]["pane"], "$step:fx-workspace#/value/pane_id")
         self.assertEqual(ok["steps"][1]["args"]["idempotencyKey"], "sidebar-group-ungroup-ok.split")
         self.assertEqual(ok["steps"][1]["expect"], OK)
@@ -2149,7 +2323,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         files = generate(self.catalog, tuned)
         ok, bad = files["pane-split-ratio-set-ok.json"], files["pane-split-ratio-set-error.json"]
         # A fixture handle in an after step pulls its fixture step in; after steps follow the call.
-        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "fx-split", "read-layout", "call", "ratio", "kept"])
+        self.assertEqual([s["id"] for s in ok["steps"]],
+                         ["fx-workspace", "fx-split", "read-layout", "call", "ratio", "kept", "retry"])
         # A read is a readOnly step with no idempotency key (reads forbid one) and no receipt.
         self.assertEqual(ok["steps"][2], {
             "id": "read-layout", "op": "resource.call",
@@ -2175,6 +2350,177 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         with self.assertRaisesRegex(GenError, "fails the catalog check"):
             generate(self.catalog, tuned)
 
+    def test_after_steps_restart_replay_and_step_references_shape_the_case(self) -> None:
+        wait = {"pointer": "/daemon/session/terminals/0/lifecycle", "equals": "running", "maxMs": 15000}
+        tuned = {"session.journal.segment.seal": {
+            "success": {"fixture": ["terminal"], "requires": ["restart"],
+                        "before": [{"id": "cp", "method": "session.journal.checkpoint.create"}],
+                        "params": {"through_sequence": "$step:cp#/value/source_sequence"},
+                        "after": [{"id": "segs", "method": "session.journal.segment.list"},
+                                  {"id": "restart", "restart": "daemon", "waitFor": wait},
+                                  {"id": "segs-again", "method": "session.journal.segment.list", "equals": "segs",
+                                   "except": ["/segments/*/sealed_at_ms"]},
+                                  {"id": "again", "replays": "call", "except": ["/generation", "/replayed"]},
+                                  {"id": "ws", "method": "workspace.get",
+                                   "target": {"workspace": {"$fixture": "workspace"}}}]},
+            "error": {"fixture": [], "before": [], "requires": []}},
+            "session.shutdown": {"success": {
+                "checkpoint": ["before"], "ends": "daemon", "requires": ["restart"],
+                "after": [{"id": "restart", "restart": "daemon", "checkpoint": ["settled"]}],
+                "allow_crashes": [{"kind": "daemon", "reason": "the call stops the daemon on purpose",
+                                   "steps": ["call"]}]},
+                "error": {"ends": None, "checkpoint": ["before", "settled"], "allow_crashes": [], "requires": []}}}
+        files = generate(self.catalog, tuned)
+        ok, bad = files["session-journal-segment-seal-ok.json"], files["session-journal-segment-seal-error.json"]
+        steps = {step["id"]: step for step in ok["steps"]}
+        self.assertEqual(list(steps), ["fx-workspace", "cp", "call", "segs", "restart", "segs-again", "again", "ws",
+                                       "retry"])
+        self.assertEqual(steps["call"]["args"]["params"], {"through_sequence": "$step:cp#/value/source_sequence"})
+        self.assertEqual(steps["restart"], {"id": "restart", "op": "restart", "target": {"process": "daemon"},
+                                            "expect": {"outcome": "ok", "receipt": "identify"},
+                                            "checkpoint": ["before", "settled"], "waitFor": wait})
+        self.assertEqual(steps["segs"], {"id": "segs", "op": "resource.call", "target": SCOPE,
+                                         "args": {"method": "session.journal.segment.list", "params": {}},
+                                         "readOnly": True, "expect": {"outcome": "ok"}})
+        self.assertEqual(steps["segs-again"]["expect"], {"outcome": "ok", "result": "$step:segs#",
+                                                         "resultExcept": ["/segments/*/sealed_at_ms"]})
+        self.assertNotIn("idempotencyKey", steps["segs-again"]["args"])
+        # The replay is the call again, with the call's idempotency key, held equal to the call's reply.
+        self.assertEqual(steps["again"]["args"], steps["call"]["args"])
+        self.assertEqual(steps["again"]["expect"], {"outcome": "ok", "receipt": "mutation_result",
+                                                    "result": "$step:call#", "resultExcept": ["/generation", "/replayed"]})
+        self.assertEqual(steps["ws"]["target"]["workspace"], "$step:fx-workspace#/value/workspace_id")
+        self.assertEqual(ok["requires"], ["resource_api", "restart"])
+        self.assertIn("segs-again, again reply what the step each names replied, but for the pointers its "
+                      "resultExcept lists", ok["invariants"])
+        self.assertEqual(files[COVERAGE]["operations"]["session.journal.segment.seal"]["fixture"], ["fx-workspace", "cp"])
+        # The error case drops the after steps; its tuning resets the fixture and the before call.
+        self.assertEqual([s["id"] for s in bad["steps"]], ["call"])
+        shutdown, refused = files["session-shutdown-ok.json"], files["session-shutdown-error.json"]
+        call = next(step for step in shutdown["steps"] if step["id"] == "call")
+        self.assertEqual((call["ends"], call["checkpoint"]), ("daemon", ["before"]))
+        self.assertEqual(shutdown["steps"][-1]["checkpoint"], ["settled"], "no daemon runs at the restart's before")
+        self.assertEqual(shutdown["allow_crashes"][0]["steps"], ["call"])
+        self.assertNotIn("ends", refused["steps"][-1])
+        self.assertNotIn("allow_crashes", refused)
+        sys.path.insert(0, str(HERE))
+        normalize = __import__("normalize")
+        checks = __import__("case_checks")
+        schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+        rules = checks.Rules(schema)
+        for case in (ok, bad, shutdown, refused):
+            self.assertEqual(normalize.validate(case, schema), [], case["id"])
+            self.assertEqual(checks.check_case(case, rules), [], case["id"])
+
+    def test_bad_after_steps_are_refused(self) -> None:
+        wait = {"pointer": "/daemon/session/terminals/0/lifecycle", "equals": "running", "maxMs": 1}
+        restart = {"id": "r", "restart": "daemon"}
+        stop = {"kind": "daemon", "reason": "the call stops the daemon", "steps": ["call"]}
+        bad = [
+            ({"before": [restart], "requires": ["restart"]}, "only an after step restarts or replays"),
+            ({"before": [{"id": "x", "replays": "call"}]}, "only an after step restarts or replays"),
+            ({"after": [{"id": "r", "restart": "app"}], "requires": ["restart"]}, "only the daemon"),
+            ({"after": [{"id": "r", "restart": "daemon", "checkpoint": ["turn"]}], "requires": ["restart"]},
+             "checkpoint is a non-empty list"),
+            ({"after": [restart]}, "requires the restart capability"),
+            ({"after": [{"id": "x", "replays": "fx-workspace"}]}, "only the call replays"),
+            ({"after": [{"id": "x", "method": "session.get", "equals": "y"}]}, "a read equals an earlier read step"),
+            ({"before": [{"id": "y", "method": "session.open"}], "after": [{"id": "x", "method": "session.get", "equals": "y"}]},
+             "a read equals an earlier read step"),
+            ({"after": [{"id": "y", "method": "session.get"}, {"id": "x", "method": "session.get", "equals": "y",
+                                                               "result": {}}]},
+             "gives a result and equals"),
+            ({"after": [{"id": "x", "method": "session.get", "except": ["/a"]}]}, "except needs equals"),
+            ({"after": [{"id": "y", "method": "session.get"},
+                        {"id": "x", "method": "session.get", "equals": "y", "except": ["a"]}]},
+             "except is a non-empty list of JSON pointers"),
+            ({"after": [{"id": "x", "method": "session.get", "waitFor": wait}]}, "an after step is one of"),
+            ({"after": [{"id": "call", "method": "session.get"}]}, "not a new step id"),
+            ({"fixture": ["nowhere"]}, "fixture is a list of fixture handles"),
+            ({"checkpoint": ["turn"]}, "checkpoint is a non-empty list"),
+            ({"checkpoint": []}, "checkpoint is a non-empty list"),
+            ({"allow_crashes": [{"kind": "renderer", "reason": "not the daemon"}]}, "an allow_crashes entry is"),
+            ({"allow_crashes": [{"kind": "daemon", "reason": "a step it lacks", "steps": ["gone"]}]},
+             "an allow_crashes entry is"),
+            ({"ends": "holder", "checkpoint": ["before"], "allow_crashes": [stop]}, "ends takes only"),
+            ({"ends": "daemon", "allow_crashes": [stop]}, "has no settled checkpoint"),
+            ({"ends": "daemon", "checkpoint": ["before"]}, "needs an allow_crashes entry"),
+        ]
+        for spec, message in bad:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp)
+                (out / "session").mkdir()
+                (out / "session" / TUNING).write_text(json.dumps({"operations": {"session.open": {"success": spec}}}),
+                                                      encoding="utf-8")
+                with self.assertRaisesRegex(GenError, message):
+                    load_tuning(out, self.catalog)
+
+    def test_the_session_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/session/_tuning.json (p15-oracle-063): every session success case restarts
+        the daemon gracefully on the same root after the operation (session.shutdown is that stop itself, a call that
+        ends the daemon) and then reads the same durable lists and session.snapshot, each equal to its read before
+        (the snapshot but for what a new daemon generation changes), and gets the fixture workspace, pane, tab and
+        terminal by their ids from before the restart. The error cases stay the catalog-type refusal."""
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        session = sorted(op for op in self.catalog.mutations() if family_of(op) == "session")
+        self.assertEqual(len(session), 11)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "session"), session)
+        for operation in session:
+            entry = files[COVERAGE]["operations"][operation]
+            ok = files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
+            bad = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]
+            ids = [step["id"] for step in ok["steps"]]
+            steps = {step["id"]: step for step in ok["steps"]}
+            with self.subTest(operation=operation):
+                self.assertEqual(steps["call"]["args"]["method"], operation)
+                self.assertIn("restart", ok["requires"])
+                self.assertLess(ids.index("call"), ids.index("restart"))
+                self.assertEqual(steps["restart"]["waitFor"]["pointer"], "/daemon/session/terminals/0/lifecycle")
+                compared = [step for step in ok["steps"] if "result" in step["expect"]]
+                self.assertGreaterEqual({step["args"]["method"] for step in compared},
+                                        {"workspace.list", "pane.list", "tab.list", "session.snapshot"})
+                for step in compared:
+                    earlier = steps[step["expect"]["result"][len("$step:"):-1]]
+                    self.assertEqual(earlier["args"]["method"], step["args"]["method"])
+                    self.assertLess(ids.index(earlier["id"]), ids.index("restart"))
+                    self.assertGreater(ids.index(step["id"]), ids.index("restart"))
+                self.assertEqual(steps["snapshot-after"]["expect"]["resultExcept"],
+                                 ["/cursor", "/session/generation", "/session/revision",
+                                  "/terminals/*/stream_revision", "/terminals/*/extra"])
+                for kind in ("workspace", "pane", "tab", "terminal"):
+                    get = steps[f"{kind}-get"]
+                    self.assertGreater(ids.index(get["id"]), ids.index("restart"))
+                    self.assertTrue(get["target"][kind].startswith("$step:fx-workspace#/value/"))
+                self.assertEqual(entry["placeholders"], [])
+                self.assertNotIn(operation, files[COVERAGE]["excluded"])
+                self.assertEqual(([s["id"] for s in bad["steps"]], bad["requires"]), (["call"], ["resource_api"]))
+                self.assertEqual(bad["steps"][-1]["expect"], {"outcome": "error", "error": ERROR_CODE})
+                self.assertNotIn("ends", bad["steps"][-1])
+        hooks = {step["id"]: step for step in files["session-journal-hook-put-ok.json"]["steps"]}
+        self.assertEqual(hooks["hooks-after"]["expect"], {"outcome": "ok", "result": "$step:hooks-before#",
+                                                          "resultExcept": ["/hooks/*/cursor"]})
+        for name in ("session-terminal-defaults-update-ok", "session-window-title-set-ok",
+                     "session-window-title-clear-ok"):
+            replay = next(step for step in files[f"{name}.json"]["steps"] if step["id"] == "call-replayed")
+            self.assertEqual(replay["expect"]["result"], "$step:call#", name)
+        stop = files["session-shutdown-ok.json"]
+        steps = {step["id"]: step for step in stop["steps"]}
+        self.assertEqual((steps["call"]["ends"], steps["call"]["checkpoint"]), ("daemon", ["before"]),
+                         "a stopped daemon has no settled snapshot")
+        self.assertEqual(steps["restart"]["checkpoint"], ["settled"], "no daemon runs at the restart's before point")
+        self.assertEqual([entry["steps"] for entry in stop["allow_crashes"]], [["call"]])
+        self.assertNotIn("allow_crashes", files["session-open-ok.json"])
+        sys.path.insert(0, str(HERE))
+        normalize = __import__("normalize")
+        checks = __import__("case_checks")
+        schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+        rules = checks.Rules(schema)
+        for name, case in files.items():
+            if name.startswith("session-"):
+                self.assertEqual(normalize.validate(case, schema), [], name)
+                self.assertEqual(checks.check_case(case, rules), [], name)
+
     def test_the_layout_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/layout/_tuning.json (p15-oracle-066): the 25 pane, column, layout, screen
         and screen_group mutations. Every case ends with settle steps whose waitFor asserts the split tree (or the
@@ -2194,7 +2540,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             for kind in ("success", "error"):
                 steps = files[entry["cases"][kind].split("/", 1)[1] + ".json"]["steps"]
                 ids = [step["id"] for step in steps]
-                after = steps[ids.index("call") + 1:]
+                after = [step for step in steps[ids.index(CALL_STEP) + 1:] if step["id"] != RETRY_STEP]
                 self.assertTrue(after, f"{operation} {kind}: no after step asserts the tree")
                 for step in after:
                     self.assertEqual(step["op"], "settle", f"{operation} {kind}")
@@ -2207,7 +2553,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         # Ids the fixture results do not give come from a screen.get read before the call.
         column = files["column-update-ok.json"]["steps"]
         self.assertEqual([s["id"] for s in column], ["fx-workspace", "viewport-split", "read-layout", "call", "docked",
-                                                     "first-free"])
+                                                     "first-free", "retry"])
         self.assertEqual(column[3]["args"]["params"]["column"], "$step:read-layout#/layout/root/columns/1/column_id")
         self.assertEqual(files["screen-layout-undo-error.json"]["steps"][-2]["expect"],
                          {"outcome": "error", "error": "confirmation.required"})
@@ -2240,7 +2586,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                 self.assertEqual(checks.check_case(case, rules), [], name)
                 self.assertNotIn("untested", case, name)
                 ids = [step["id"] for step in case["steps"]]
-                self.assertEqual(ids[-1], "call", name)
+                self.assertEqual(ids[-1], RETRY_STEP if kind == "success" else CALL_STEP, name)
                 self.assertEqual(case["steps"][-1]["args"]["method"], operation, name)
                 # The fixture view would start before the plugin is configured.
                 self.assertNotIn("fx-sidebar-view", ids, name)
@@ -2252,7 +2598,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             if operation.startswith("sidebar_view.") and operation != "sidebar_view.ensure":
                 ok = files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
                 self.assertEqual(ok["steps"][-1]["target"]["sidebar_view"], "$step:ensure-view#/value/id")
-                self.assertEqual(ok["steps"][-2]["args"]["method"], "sidebar_view.ensure")
+                self.assertEqual(ok["steps"][-3]["args"]["method"], "sidebar_view.ensure")
                 bad = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]
                 self.assertEqual(bad["steps"][-1]["target"]["sidebar_view"], "sidebar")
         write = files["sidebar-view-ensure-ok.json"]["steps"][0]["args"]["params"]["argv"]
@@ -2335,7 +2681,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         for operation, setup in (("keybindings.remove", "keybindings.set"), ("window_record.delete", "window_record.put")):
             ok = files[coverage["operations"][operation]["cases"]["success"].split("/", 1)[1] + ".json"]["steps"]
             bad = files[coverage["operations"][operation]["cases"]["error"].split("/", 1)[1] + ".json"]["steps"]
-            self.assertEqual([step["args"]["method"] for step in ok], [setup, operation], operation)
+            self.assertEqual([step["args"]["method"] for step in ok], [setup, operation, operation], operation)
             self.assertEqual([step["args"]["method"] for step in bad], [operation], operation)
         self.assertEqual(call("settings.reset_all", "success")["args"]["params"]["origin"], "user")
         self.assertEqual(call("settings.reset_all", "error")["expect"]["error"], "settings.agent_refused")
@@ -2383,7 +2729,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                 self.assertEqual("errorDetails" in expect, kind == "error" and operation != "tab.create_browser",
                                  f"{operation} {kind}")
                 before = [step["args"]["method"] for step in doc["steps"]
-                          if step["id"] != "call" and not step["id"].startswith("fx-")]
+                          if step["id"] not in (CALL_STEP, RETRY_STEP) and not step["id"].startswith("fx-")]
                 setup = round_trips.get(operation) if kind == "success" else None
                 expected = [setup] if setup else (["tab.pin"] if (operation, kind) == ("tab_group.add_tabs", "error") else [])
                 self.assertEqual(before, expected, f"{operation} {kind}")
@@ -2400,7 +2746,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         # tab the before step closed.
         self.assertEqual(case("closed.reopen", "error")["steps"][-1]["expect"]["errorDetails"],
                          {"scope": "closed", "id": "newest"})
-        self.assertEqual(case("closed.reopen", "success")["steps"][-2]["target"]["tab"],
+        self.assertEqual(case("closed.reopen", "success")["steps"][-3]["target"]["tab"],
                          "$step:fx-split#/value/tab_id")
 
     def test_the_chief_family_tuning(self) -> None:
@@ -2449,10 +2795,10 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         adopt = files["chief-profile-adopt-ok.json"]["steps"][-1]["args"]["params"]
         self.assertEqual(adopt["participant_id"], _sibling_module("mock_chief").ADOPTABLE)
         undo = [step["id"] for step in files["chief-profile-undo-ok.json"]["steps"]]
-        self.assertEqual(undo, ["fx-chief", "rename", "call"])
+        self.assertEqual(undo, ["fx-chief", "rename", "call", "retry"])
         self.assertNotIn("rename", [step["id"] for step in files["chief-profile-undo-error.json"]["steps"]])
         unpin = [step["id"] for step in files["room-unpin-ok.json"]["steps"]]
-        self.assertEqual(unpin, ["fx-workspace", "fx-room", "pin", "call"])
+        self.assertEqual(unpin, ["fx-workspace", "fx-room", "pin", "call", "retry"])
 
     def test_each_excluded_success_case_is_a_skip_line_naming_its_task(self) -> None:
         files = generate(self.catalog, load_tuning(DEFAULT_OUT, self.catalog))
@@ -2611,12 +2957,12 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                                  ("operation.failed", handler_errors[operation]), operation)
         self.assertIn("p15-oracle-244", coverage["excluded"]["project.add"])
         remove = files["git-worktree-remove-ok.json"]["steps"]
-        self.assertEqual([s["id"] for s in remove], ["worktree", "call"])
+        self.assertEqual([s["id"] for s in remove], ["worktree", "call", "retry"])
         self.assertEqual(remove[-1]["args"]["params"], {"path": "$step:worktree#/value/root"})
         # fx-stash stashes a web page, as state/stash.rs requires: the app-drawn http page of the fixture.
         stash = files["stash-delete-ok.json"]["steps"]
         self.assertEqual([s["id"] for s in stash], ["fx-workspace", "fx-browser-profile", "fx-app-browser", "fx-stash",
-                                                    "call"])
+                                                    "call", "retry"])
         self.assertEqual(stash[3]["args"]["params"], {"tabs": ["$step:fx-app-browser#/value/tab_id"]})
         # The repository the cases name: its only remote is its bare origin beside the checkout.
         self.assertEqual(repo_fixture("oracle", "test").tokens()["origin"], f"{REPOS_ROOT}/oracle.git")
@@ -2701,7 +3047,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         send = self.files["agent-message-send-ok.json"]
         self.assertEqual(send["steps"][-1]["args"]["params"]["recipients"], ["$step:fx-workspace#/value/terminal_id"])
         self.assertEqual([s["id"] for s in self.files["agent-message-unsend-ok.json"]["steps"]],
-                         ["fx-workspace", "fx-message", "call"])
+                         ["fx-workspace", "fx-message", "call", "retry"])
         self.assertEqual(self.files["closed-delete-ok.json"]["steps"][-1]["args"]["params"], {"all": True})
         for name, group, item in (("tab-group-remove-tabs-ok.json", "fx-tab-group", "tab_ids"),
                                   ("screen-group-remove-screens-ok.json", "fx-screen-group", "screen_ids")):
@@ -2727,11 +3073,45 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertNotIn("closed.reopen", tuned["excluded"])
         self.assertEqual(tuned["covered"], coverage["covered"] + 1)
 
+    def test_each_success_case_retries_its_call_with_the_same_key(self) -> None:
+        """p15-oracle-206: one same-key retry per `idempotency: required` operation, generated, never hand-written,
+        and found as a retry by invariants.py I10."""
+        invariants = _sibling_module("invariants")
+        coverage = self.files[COVERAGE]
+        required = [name for name in self.catalog.mutations()
+                    if self.catalog.operations[name].get("idempotency") == "required"]
+        self.assertEqual(len(required), 201)
+        self.assertEqual(coverage["unretried"], UNRETRIED)
+        self.assertEqual(coverage["retries"], len(required) - len(UNRETRIED))
+        for operation in self.catalog.mutations():
+            entry = coverage["operations"][operation]
+            if operation in UNRETRIED:
+                self.assertIn(operation, required, "an unretried operation requires a key: else it needs no entry")
+                self.assertNotIn("retry", entry, operation)
+                ok = self.files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
+                self.assertEqual(ok["steps"][-1]["id"], CALL_STEP, operation)
+                continue
+            ok = self.files[entry["cases"]["success"].split("/", 1)[1] + ".json"]
+            bad = self.files[entry["cases"]["error"].split("/", 1)[1] + ".json"]
+            self.assertNotIn(RETRY_STEP, [step["id"] for step in bad["steps"]], operation)
+            self.assertEqual(entry["retry"], f"{entry['cases']['success']}/{RETRY_STEP}", operation)
+            call = next(step for step in ok["steps"] if step["id"] == CALL_STEP)
+            retry = ok["steps"][-1]
+            self.assertEqual(retry["id"], RETRY_STEP, operation)
+            self.assertEqual(retry["checkpoint"], ["before", "settled"], operation)
+            own = ("id", "checkpoint", "note")
+            self.assertEqual({key: value for key, value in retry.items() if key not in own},
+                             {key: value for key, value in call.items() if key not in own}, operation)
+            trace = invariants.load_trace({"schema": invariants.TRACE_SCHEMA, "case": ok["id"],
+                                           "steps": [{"id": step["id"]} for step in ok["steps"]]}, ok)
+            checker = invariants.Checker(trace, None)
+            self.assertEqual([(a.id, b.id) for a, b in checker.retries()], [(CALL_STEP, RETRY_STEP)], operation)
+
     def test_a_split_targets_the_fixture_pane_as_the_example_case_does(self) -> None:
         """schemas/oracle/fixtures/case-example-daemon.json splits the pane of a workspace it created."""
         case = self.files["pane-split-ok.json"]
-        self.assertEqual([step["id"] for step in case["steps"]], ["fx-workspace", "call"])
-        call = case["steps"][-1]
+        self.assertEqual([step["id"] for step in case["steps"]], ["fx-workspace", "call", "retry"])
+        call = case["steps"][1]
         self.assertEqual(call["args"]["params"], {"direction": "left"}, "the first value of the catalog enum")
         self.assertEqual(call["target"], {**SCOPE, "pane": "$step:fx-workspace#/value/pane_id"})
         self.assertEqual(call["args"]["idempotencyKey"], "pane-split-ok.call")

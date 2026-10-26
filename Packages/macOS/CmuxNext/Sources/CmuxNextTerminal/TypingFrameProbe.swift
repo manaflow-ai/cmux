@@ -56,7 +56,11 @@ enum TypingFrameProbe {
     @MainActor static func install(on layer: CALayer, gate: TerminalContentsGate,
                                    keyFlows: TypingLatencyProbe.SurfaceKey? = nil) {
         #if DEBUG || CMUX_BENCH_HOOKS
-        if let keyFlows { objc_setAssociatedObject(layer, keyFlowsKey, SurfaceBox(keyFlows), .OBJC_ASSOCIATION_RETAIN) }
+        if let keyFlows {
+            // SAFETY: the key is an address the runtime only compares (`keyFlowsKey`); the runtime
+            // retains the box on `layer` (OBJC_ASSOCIATION_RETAIN).
+            unsafe objc_setAssociatedObject(layer, keyFlowsKey, SurfaceBox(keyFlows), .OBJC_ASSOCIATION_RETAIN)
+        }
         let layerClass: AnyClass = type(of: layer)
         guard layerClass != CALayer.self else { return }
         if let hooked = installed[ObjectIdentifier(layerClass)] {
@@ -66,9 +70,14 @@ enum TypingFrameProbe {
         installed[ObjectIdentifier(layerClass)] = gate
         guard let superclass = class_getSuperclass(layerClass) else { return }
         let selector = #selector(setter: CALayer.contents)
-        guard let inherited = class_getInstanceMethod(superclass, selector) else { return }
+        // SAFETY: the runtime's handle of the superclass's `setContents:`, which lives as long as
+        // its class (the process); it is only passed back to the runtime below.
+        guard let inherited = unsafe class_getInstanceMethod(superclass, selector) else { return }
         let hook = override(calling: superclass, selector, gate: gate)
-        class_addMethod(layerClass, selector, imp_implementationWithBlock(hook), method_getTypeEncoding(inherited))
+        // SAFETY: `inherited` as above; its type encoding is a C string the runtime owns for the
+        // process and class_addMethod copies. The block IMP has that encoding's signature,
+        // (id, SEL, id) -> void, and the runtime keeps the block for the process.
+        unsafe class_addMethod(layerClass, selector, imp_implementationWithBlock(hook), method_getTypeEncoding(inherited))
         #endif
     }
 
@@ -78,14 +87,18 @@ enum TypingFrameProbe {
     private nonisolated static func override(calling superclass: AnyClass, _ selector: Selector,
                                              gate: TerminalContentsGate) -> @convention(block) (AnyObject, AnyObject?) -> Void {
         { layer, contents in
-            if let imp = class_getMethodImplementation(superclass, selector) {
+            // SAFETY: the runtime's IMP of the superclass's `setContents:`, valid for the process;
+            // called only through its own signature below.
+            if let imp = unsafe class_getMethodImplementation(superclass, selector) {
                 // SAFETY: `imp` is the superclass's `setContents:`, an Objective-C method of type
                 // (id, SEL, id) -> void, which SetContents is; it is called with that selector.
                 unsafe unsafeBitCast(imp, to: SetContents.self)(layer, selector, contents)
             }
             if gate.isOpen { TerminalEchoStage.attached(to: layer)?.contentsSet() }
+            // SAFETY: the key is an address the runtime only compares (`keyFlowsKey`); the value is
+            // an object the layer retains, and the cast checks its type.
             if TypingLatencyProbe.isEnabled,
-               let box = objc_getAssociatedObject(layer, keyFlowsKey) as? SurfaceBox {
+               let box = unsafe objc_getAssociatedObject(layer, keyFlowsKey) as? SurfaceBox {
                 TypingLatencyProbe.shared.mark(.contents, surface: box.key)
             }
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }

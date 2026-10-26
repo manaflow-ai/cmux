@@ -21,6 +21,7 @@ final class GhosttyMouseSink: TerminalMouseSink {
 
     /// `surface` is the owning view's (TerminalSurfaceView.mouse).
     init(surface: ghostty_surface_t?) {
+        // SAFETY: the owning view's surface, handed to this sink for the view's life (`surface`'s note).
         self.surface = unsafe surface
     }
 

@@ -54,6 +54,7 @@ extension GhosttyRuntime {
         // first 16 are in bounds.
         let paletteColors: [GhosttyThemeColors.RGB] = unsafe Self.configGet(config, &palette, key: "palette")
             ? withUnsafeBytes(of: &palette.colors) { raw in
+                // SAFETY: as above.
                 unsafe raw.bindMemory(to: ghostty_config_color_s.self).prefix(16).map { GhosttyThemeColors.RGB(r: $0.r, g: $0.g, b: $0.b) }
             }
             : []

@@ -132,9 +132,14 @@ struct GhosttyKeyClaims {
     static func claimed(_ probes: [GhosttyKeyProbe], configText text: String) -> [Bool] {
         // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
         let claims = unsafe GhosttyRuntime.withScratchConfig(load: {
+            // SAFETY: as above.
             unsafe GhosttyRuntime.loadKeybindDefaults(into: $0)
+            // SAFETY: as above.
             unsafe GhosttyRuntime.loadConfigLine(text, into: $0, source: "test")
-        }, read: { unsafe claimed(probes, user: $0, texts: [text]) })
+        }, read: {
+            // SAFETY: as above.
+            unsafe claimed(probes, user: $0, texts: [text])
+        })
         return claims ?? probes.map { _ in false }
     }
 }

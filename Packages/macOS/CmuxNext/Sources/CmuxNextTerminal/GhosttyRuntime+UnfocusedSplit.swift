@@ -40,13 +40,22 @@ public nonisolated struct GhosttyUnfocusedSplit: Hashable, Sendable {
         _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
         // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
         return unsafe GhosttyRuntime.withScratchConfig(load: {
+            // SAFETY: as above.
             unsafe loadDefault(into: $0)
+            // SAFETY: as above.
             unsafe GhosttyRuntime.loadConfigLine(text, into: $0, source: "test")
-        }, read: { unsafe GhosttyUnfocusedSplit(config: $0) })
+        }, read: {
+            // SAFETY: as above.
+            unsafe GhosttyUnfocusedSplit(config: $0)
+        })
     }
 }
 
 extension GhosttyRuntime {
     /// The unfocused-split keys of the applied config; no dim when none loaded.
-    public var unfocusedSplit: GhosttyUnfocusedSplit { config.map(GhosttyUnfocusedSplit.init(config:)) ?? GhosttyUnfocusedSplit() }
+    public var unfocusedSplit: GhosttyUnfocusedSplit {
+        guard let config else { return GhosttyUnfocusedSplit() }
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyUnfocusedSplit(config: config)
+    }
 }

@@ -84,8 +84,10 @@ struct FilesPrompts {
         await CmuxDialogCenter.shared.present(spec, in: window().map(CmuxDialogScope.window) ?? .app)
     }
 
+    /// Shows `alert` as a sheet on the Files window. With no window there is nothing to attach it to, and
+    /// no nested modal loop stands in for one (p02-threads-132): the answer is Cancel.
     private func run(_ alert: NSAlert) async -> NSApplication.ModalResponse {
-        guard let window = window() else { return alert.runModal() }
+        guard let window = window() else { return .cancel }
         return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
         }

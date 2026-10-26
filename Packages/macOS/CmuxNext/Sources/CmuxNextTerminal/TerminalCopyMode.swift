@@ -55,7 +55,8 @@ final class TerminalCopyMode {
     }
 
     private func enter() -> Bool {
-        guard let surface = view.surface, placeCursorAtTerminalCursor(surface) else { return false }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface), used for this call.
+        guard let surface = view.surface, unsafe placeCursorAtTerminalCursor(surface) else { return false }
         // Copy mode swallows keys, so an unfinished IME composition would
         // otherwise sit on screen until it ends.
         view.inputContext?.discardMarkedText()

@@ -89,11 +89,13 @@ extension TerminalSession {
             drawing: surface.lastOcclusionVisible,
             pause: surface.pause,
             grid: surface.currentGrid,
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface), read for this call.
             fitGrid: unsafe surface.surface.map { surface in
                 // SAFETY: the view's live surface (TerminalSurfaceView.surface).
                 let size = unsafe ghostty_surface_size(surface)
                 return TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
             },
+            // SAFETY: as above.
             drawnGrid: unsafe surface.surface.flatMap { surface in
                 var columns: UInt16 = 0, rows: UInt16 = 0
                 // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty writes one
@@ -111,6 +113,7 @@ extension TerminalSession {
             localHistoryMismatches: localHistoryMismatches,
             localSnapshots: localSnapshots,
             skippedImages: skippedImages,
+            // SAFETY: as above.
             renderCounters: unsafe surface.surface.map { surface in
                 // SAFETY: the view's live surface (TerminalSurfaceView.surface).
                 let counters = unsafe ghostty_surface_render_counters(surface)

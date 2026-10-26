@@ -44,6 +44,7 @@ nonisolated struct GhosttyTextRead {
         // SAFETY: the text Ghostty filled for this read on the caller's live surface, freed once,
         // after the copy below.
         defer { unsafe ghostty_surface_free_text(surface, &text) }
+        // SAFETY: the text Ghostty filled (above); only its address is read here.
         if let pointer = unsafe text.text, text.text_len > 0 {
             // SAFETY: Ghostty's text is text_len bytes at `text.text`, valid until the free above;
             // Array copies them.

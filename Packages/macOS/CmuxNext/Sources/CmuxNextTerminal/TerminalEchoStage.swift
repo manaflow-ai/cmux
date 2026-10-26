@@ -252,12 +252,16 @@ public nonisolated final class TerminalEchoStage: Sendable {
 
     /// Ties this stage to the layer Ghostty presents the surface's frames in.
     func attach(to layer: AnyObject) {
-        objc_setAssociatedObject(layer, Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN)
+        // SAFETY: the key is an address the runtime only compares (`associationKey`); the runtime
+        // retains this stage on `layer` (OBJC_ASSOCIATION_RETAIN).
+        unsafe objc_setAssociatedObject(layer, Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN)
     }
 
     /// The stage tied to `layer`, if any (read only while the gate is open).
     static func attached(to layer: AnyObject) -> TerminalEchoStage? {
-        objc_getAssociatedObject(layer, associationKey) as? TerminalEchoStage
+        // SAFETY: the key is an address the runtime only compares (`associationKey`); the value is
+        // an object the layer retains, and the cast checks its type.
+        unsafe objc_getAssociatedObject(layer, associationKey) as? TerminalEchoStage
     }
 }
 

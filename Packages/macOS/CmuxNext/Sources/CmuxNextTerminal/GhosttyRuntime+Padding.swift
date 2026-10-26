@@ -27,7 +27,7 @@ public struct TerminalPadding: Equatable, Sendable {
     }()
 
     /// Config lines for `cmuxDefault`, loaded before the user's files.
-    static var cmuxDefaultConfigLines: [String] {
+    nonisolated static var cmuxDefaultConfigLines: [String] {
         let inset = Int(PaneChromeMetrics.terminalTextInset)
         return ["window-padding-x = \(inset)", "window-padding-y = \(inset)", "window-padding-balance = false"]
     }
@@ -66,7 +66,7 @@ extension GhosttyRuntime {
 
     /// Loads cmux's padding default into `config`; call before the user's
     /// files so their `window-padding-*` lines win.
-    static func loadPaddingDefault(into config: ghostty_config_t) {
+    nonisolated static func loadPaddingDefault(into config: ghostty_config_t) {
         for line in TerminalPadding.cmuxDefaultConfigLines {
             // SAFETY: the caller passes a live config.
             unsafe loadConfigLine(line, into: config, source: "cmux-next")
@@ -78,8 +78,13 @@ extension GhosttyRuntime {
     static func terminalPadding(configText text: String) -> TerminalPadding? {
         // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
         unsafe withScratchConfig(load: {
+            // SAFETY: as above.
             unsafe loadPaddingDefault(into: $0)
+            // SAFETY: as above.
             unsafe loadConfigLine(text, into: $0, source: "test")
-        }, read: { unsafe terminalPadding(of: $0) })
+        }, read: {
+            // SAFETY: as above.
+            unsafe terminalPadding(of: $0)
+        })
     }
 }

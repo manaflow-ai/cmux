@@ -446,8 +446,13 @@ extension VNCPeerLink {
         let selector = NSSelectorFromString("setCodecPreferences:error:")
         guard transceiver.responds(to: selector) else { return }
         typealias Setter = @convention(c) (AnyObject, Selector, NSArray, UnsafeMutablePointer<NSError?>?) -> Bool
-        let method = unsafeBitCast(transceiver.method(for: selector), to: Setter.self)
-        _ = method(transceiver, selector, codecs as NSArray, nil)
+        // SAFETY: responds(to:) above proves the IMP exists, and Setter is the C signature of
+        // -[RTCRtpTransceiver setCodecPreferences:error:] (id self, SEL, NSArray *, NSError **)
+        // returning BOOL, so the cast IMP is called with the types it was compiled for.
+        let method = unsafe unsafeBitCast(transceiver.method(for: selector), to: Setter.self)
+        // SAFETY: the IMP's own signature (above); a nil error pointer is allowed by the
+        // method and makes it write nothing back.
+        _ = unsafe method(transceiver, selector, codecs as NSArray, nil)
     }
 
     /// Receive codec names, in the factory's order (diagnostics).

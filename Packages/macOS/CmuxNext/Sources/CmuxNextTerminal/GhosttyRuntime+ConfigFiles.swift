@@ -8,7 +8,8 @@ import GhosttyNextKit
 extension GhosttyRuntime {
     public var loadedConfigFiles: [String] {
         guard let config else { return [] }
-        return Self.loadedFiles(of: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe Self.loadedFiles(of: config)
     }
 
     /// The files that can change which Ghostty config is loaded. The finalized

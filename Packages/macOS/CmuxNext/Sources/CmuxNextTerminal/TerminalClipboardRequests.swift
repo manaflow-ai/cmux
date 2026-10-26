@@ -70,8 +70,10 @@ final class TerminalClipboardRequests {
         }
         let served = wantsText ? text : nil
         if served == nil, !listAvailable { return GHOSTTY_CLIPBOARD_READ_UNAVAILABLE }
-        Self.complete(surface, text: served, available: listAvailable && text != nil ? ["text/plain"] : [],
-                      state: state, confirmed: false)
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the pending request's
+        // state, answered once, here (UncheckedPointer).
+        unsafe Self.complete(surface, text: served, available: listAvailable && text != nil ? ["text/plain"] : [],
+                             state: state, confirmed: false)
         return GHOSTTY_CLIPBOARD_READ_STARTED
     }
 

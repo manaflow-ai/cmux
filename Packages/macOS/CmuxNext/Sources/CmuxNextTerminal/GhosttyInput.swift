@@ -150,7 +150,8 @@ nonisolated enum GhosttyInput {
     /// The selected keyboard input source (one `TISCopyCurrentKeyboardInputSource`): its ID and whether it
     /// is a plain keyboard layout. `TerminalInputSources` calls it, never once per typed key.
     static func currentInputSource() -> TerminalInputSource? {
-        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+        // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
+        guard let source = unsafe TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
               let id = stringProperty(source, kTISPropertyInputSourceID) else { return nil }
         let isLayout = stringProperty(source, kTISPropertyInputSourceType).map { CFEqual($0, kTISTypeKeyboardLayout) } ?? false
         return TerminalInputSource(id: id as String, isKeyboardLayout: isLayout)
@@ -161,7 +162,8 @@ nonisolated enum GhosttyInput {
     /// yields ASCII, else the ASCII-capable source (Korean 두벌식 has layout data but still translates
     /// to Hangul). `TerminalInputSources` builds it once per layout.
     static func asciiKeyMap() -> [UInt16: String] {
-        let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+        // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
+        let current = unsafe TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
         var asciiCapable: TISInputSource?
         var map: [UInt16: String] = [:]
         for keyCode in UInt16(0)..<128 {
@@ -169,7 +171,10 @@ nonisolated enum GhosttyInput {
                 map[keyCode] = typed
                 continue
             }
-            if asciiCapable == nil { asciiCapable = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue() }
+            if asciiCapable == nil {
+                // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
+                asciiCapable = unsafe TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+            }
             if let asciiCapable, let typed = character(in: asciiCapable, keyCode: keyCode) { map[keyCode] = typed }
         }
         return map

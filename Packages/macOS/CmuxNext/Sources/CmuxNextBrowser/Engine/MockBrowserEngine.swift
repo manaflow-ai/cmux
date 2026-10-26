@@ -252,8 +252,8 @@ public final class MockBrowserTab: BrowserTab {
         guard !isClosed else { throw BrowserTabError.closed }
         snapshotCount += 1
         let size = 4
-        let context = CGContext(
-            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+        let context = CGContext.ownedBitmap(
+            width: size, height: size,
             space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )

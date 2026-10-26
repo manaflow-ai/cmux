@@ -92,6 +92,7 @@ extension GhosttyRuntime {
     /// The bell keys of the applied config; Ghostty's defaults when none loaded.
     public var bellSettings: GhosttyBellSettings {
         guard let config else { return GhosttyBellSettings() }
-        return GhosttyBellSettings(config: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyBellSettings(config: config)
     }
 }

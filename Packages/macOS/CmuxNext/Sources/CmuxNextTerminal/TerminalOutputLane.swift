@@ -60,7 +60,9 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
-         hangs: (any HangWatchScoping)? = nil, parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) }) {
+         hangs: (any HangWatchScoping)? = nil,
+         // SAFETY: the lane calls `parse` only with its live surface (`parse`'s note).
+         parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) }) {
         // SAFETY: the view's surface, which the lane reaches only through ``liveSurface``; the view
         // closes the lane before it frees the surface (TerminalSurfaceView.deinit).
         self.surface = unsafe UncheckedPointer(raw: surface)

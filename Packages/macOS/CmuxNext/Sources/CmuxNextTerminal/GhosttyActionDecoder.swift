@@ -58,6 +58,7 @@ nonisolated enum GhosttyActionDecoder {
             return .host(payload.prompt_title == GHOSTTY_PROMPT_TITLE_WINDOW ? .promptWindowTitle : .promptTitle)
         case GHOSTTY_ACTION_SET_WINDOW_TITLE:
             // Same payload layout as set_title (apprt SetTitle).
+            // SAFETY: the payload's title pointer, valid for this callback; cString copies it.
             return .host(.setWindowTitle(unsafe cString(payload.set_title.title) ?? ""))
         case GHOSTTY_ACTION_TOGGLE_VISIBILITY: return .host(.toggleVisibility)
         case GHOSTTY_ACTION_TOGGLE_TAB_OVERVIEW: return .host(.toggleTabOverview)
@@ -69,9 +70,12 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_REDO: return .host(.redo)
 
         case GHOSTTY_ACTION_SET_TITLE, GHOSTTY_ACTION_SET_TAB_TITLE:
+            // SAFETY: reads the payload's title pointer, valid for this callback (copied below).
             let title = unsafe action.tag == GHOSTTY_ACTION_SET_TITLE ? payload.set_title.title : payload.set_tab_title.title
+            // SAFETY: as above; cString copies the title.
             return .setTitle(unsafe cString(title) ?? "")
         case GHOSTTY_ACTION_PWD:
+            // SAFETY: the payload's pwd pointer, valid for this callback; cString copies it.
             return .pwd(unsafe cString(payload.pwd.pwd) ?? "")
         case GHOSTTY_ACTION_RING_BELL: return .ringBell
         // GHOSTTY_ACTION_DESKTOP_NOTIFICATION stays unhandled: the daemon
@@ -79,12 +83,14 @@ nonisolated enum GhosttyActionDecoder {
         // and posts it with source `terminal` (notification-source-v1).
         case GHOSTTY_ACTION_OPEN_URL:
             let open = payload.open_url
+            // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
             guard let url = string(unsafe open.url, length: Int(open.len)) else { return nil }
             return .openURL(url)
         case GHOSTTY_ACTION_MOUSE_SHAPE: return .mouseShape(payload.mouse_shape)
         case GHOSTTY_ACTION_MOUSE_VISIBILITY: return .mouseVisible(payload.mouse_visibility == GHOSTTY_MOUSE_VISIBLE)
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let link = payload.mouse_over_link
+            // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
             return .mouseOverLink(link.len > 0 ? string(unsafe link.url, length: Int(link.len)) : nil)
         case GHOSTTY_ACTION_CELL_SIZE:
             return .cellSize(width: payload.cell_size.width, height: payload.cell_size.height)
@@ -128,6 +134,7 @@ nonisolated enum GhosttyActionDecoder {
             let bar = payload.scrollbar
             return .scrollbar(TerminalScrollbar(totalRows: bar.total, offsetRows: bar.offset, visibleRows: bar.len))
         case GHOSTTY_ACTION_START_SEARCH:
+            // SAFETY: the payload's needle pointer, valid for this callback; cString copies it.
             return .startSearch(unsafe cString(payload.start_search.needle) ?? "")
         case GHOSTTY_ACTION_END_SEARCH: return .endSearch
         case GHOSTTY_ACTION_SEARCH_TOTAL:
@@ -158,6 +165,7 @@ nonisolated enum GhosttyActionDecoder {
     /// `length` bytes at `pointer`, the payload's string and its length.
     @safe
     private static func string(_ pointer: UnsafePointer<CChar>?, length: Int) -> String? {
+        // SAFETY: only the address is read here; the bytes are read below, with their length.
         guard let pointer = unsafe pointer, length > 0 else { return nil }
         // SAFETY: Ghostty's payload pairs the pointer with its byte count; both come from the
         // same payload, and the bytes live for the callback (above).

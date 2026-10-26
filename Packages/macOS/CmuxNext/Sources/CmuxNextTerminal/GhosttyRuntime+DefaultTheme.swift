@@ -20,7 +20,7 @@ extension GhosttyRuntime {
     /// Loads the default before the user's files.
     /// `themesFolder` names the themes by absolute path (tests: Ghostty
     /// reads its resources folder once, at `ghostty_init`).
-    static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
+    nonisolated static func loadThemeDefault(into config: ghostty_config_t, themesFolder: URL? = nil) {
         let spec = themesFolder.map { "light:\($0.appending(path: defaultLightThemeName).path),dark:\($0.appending(path: defaultDarkThemeName).path)" }
         let line = "theme = \(spec ?? defaultThemeSpec)"
         // SAFETY: the caller passes a live config.
@@ -34,9 +34,14 @@ extension GhosttyRuntime {
     static func themeColors(configText text: String, themesFolder: URL? = nil) -> GhosttyThemeColors? {
         // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
         let colors = unsafe withScratchConfig(load: {
+            // SAFETY: as above.
             unsafe loadThemeDefault(into: $0, themesFolder: themesFolder)
+            // SAFETY: as above.
             unsafe loadConfigLine(text, into: $0, source: "test")
-        }, read: { unsafe themeColors(of: $0, backgroundOpacity: 1) })
+        }, read: {
+            // SAFETY: as above.
+            unsafe themeColors(of: $0, backgroundOpacity: 1)
+        })
         return colors ?? nil
     }
 }
@@ -88,7 +93,9 @@ extension TerminalSurfaceView {
         // SAFETY: `samples` is a C array of GHOSTTY_COLOR_TRANSITION_MAX_SAMPLES floats, so its
         // bytes bind to Float, and `count` is at most that many (clamped above).
         unsafe withUnsafeMutableBytes(of: &spec.samples) { raw in
+            // SAFETY: as above.
             let floats = unsafe raw.bindMemory(to: Float.self)
+            // SAFETY: as above.
             for index in 0..<count { unsafe floats[index] = Float(samples[index]) }
         }
         // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty copies `spec`,

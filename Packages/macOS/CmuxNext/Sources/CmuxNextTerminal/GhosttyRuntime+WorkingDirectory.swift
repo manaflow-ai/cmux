@@ -60,6 +60,7 @@ extension GhosttyRuntime {
     /// The inherit keys of the applied config; Ghostty's defaults when none loaded.
     public var workingDirectoryInheritance: GhosttyWorkingDirectoryInheritance {
         guard let config else { return GhosttyWorkingDirectoryInheritance() }
-        return GhosttyWorkingDirectoryInheritance(config: config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe GhosttyWorkingDirectoryInheritance(config: config)
     }
 }

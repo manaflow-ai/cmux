@@ -141,6 +141,7 @@ extension GhosttyRuntime {
         let invalid = (0..<count).compactMap { index in
             // SAFETY: as above.
             unsafe ghostty_config_get_diagnostic(config, index).message.map {
+                // SAFETY: as above.
                 GhosttyConfigDiagnostic(kind: .invalid, name: unsafe String(cString: $0))
             }
         }

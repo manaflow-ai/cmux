@@ -23,7 +23,7 @@ extension GhosttyRuntime {
     ]
 
     /// Loads the defaults into `config`; call before the user's files.
-    static func loadKeybindDefaults(into config: ghostty_config_t) {
+    nonisolated static func loadKeybindDefaults(into config: ghostty_config_t) {
         for line in cmuxDefaultKeybindLines {
             // SAFETY: the caller passes a live config.
             unsafe loadConfigLine(line, into: config, source: "cmux-next")
@@ -36,7 +36,9 @@ extension GhosttyRuntime {
     static func isBound(_ action: String, configText text: String) -> Bool {
         // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
         let read = unsafe withScratchConfig(load: {
+            // SAFETY: as above.
             unsafe loadKeybindDefaults(into: $0)
+            // SAFETY: as above.
             unsafe loadConfigLine(text, into: $0, source: "test")
         }, read: { config in
             // SAFETY: as above; Swift passes a NUL-terminated copy of `action` for the call.

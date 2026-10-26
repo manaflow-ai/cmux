@@ -167,6 +167,7 @@ fn respond(
     };
     let Ok(body) = read_file(&file) else { return plain(404, "Not Found") };
     let content_type = content_type(&file);
+    let body = with_shared_chunks_here(body, content_type);
     let mut response = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
          X-Content-Type-Options: nosniff\r\nCache-Control: no-store\r\n\
@@ -233,6 +234,35 @@ fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     let file = files::canonicalize(file).ok()?;
     let is_file = files::metadata(&file).is_ok_and(|metadata| metadata.is_file());
     (file.starts_with(&root) && is_file).then_some(file)
+}
+
+/// The origin the app's pages import their shared chunks from (build-pages.mjs
+/// `SHARED_ORIGIN`, CmuxNextPages `PageID.sharedOrigin`), and the path of the
+/// same chunks (the bundle's `_shared/`) on this listener.
+const SHARED_CHUNK_ORIGIN: &[u8] = b"cmux-page://cmux.shared/";
+const SHARED_CHUNK_PATH: &[u8] = b"/pages/_shared/";
+
+/// `body` with every shared chunk URL of a page or script named by its path
+/// on this listener, since a browser has no cmux-page:// scheme; any other
+/// file unchanged.
+fn with_shared_chunks_here(body: Vec<u8>, content_type: &str) -> Vec<u8> {
+    let names_chunks =
+        content_type.starts_with("text/html") || content_type.starts_with("text/javascript");
+    if !names_chunks || !body.windows(SHARED_CHUNK_ORIGIN.len()).any(|w| w == SHARED_CHUNK_ORIGIN) {
+        return body;
+    }
+    let mut served = Vec::with_capacity(body.len());
+    let mut rest = body.as_slice();
+    while let Some(at) =
+        rest.windows(SHARED_CHUNK_ORIGIN.len()).position(|w| w == SHARED_CHUNK_ORIGIN)
+    {
+        let (before, after) = rest.split_at(at);
+        served.extend_from_slice(before);
+        served.extend_from_slice(SHARED_CHUNK_PATH);
+        rest = after.get(SHARED_CHUNK_ORIGIN.len()..).unwrap_or_default();
+    }
+    served.extend_from_slice(rest);
+    served
 }
 
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {

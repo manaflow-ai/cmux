@@ -268,7 +268,7 @@ private nonisolated final class PendingInput: Sendable {
                 // SAFETY: offset < data.count (the loop's condition), so base + offset and the
                 // raw.count - offset bytes after it lie inside the buffer, alive for the closure.
                 let written = unsafe data.withUnsafeBytes { [offset] raw -> Int in
-                    // offset < data.count, so the buffer has a base address; without one, drop the data.
+                    // SAFETY: offset < data.count, so the buffer has a base address; without one, drop the data.
                     guard let base = unsafe raw.baseAddress else { return 0 }
                     // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
                     // SAFETY: as above.

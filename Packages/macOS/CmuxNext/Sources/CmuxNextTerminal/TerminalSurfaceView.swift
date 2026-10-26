@@ -156,7 +156,8 @@ public final class TerminalSurfaceView: NSView {
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil) {
-        let bridge = SurfaceBridge(input: input)
+        let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -167,7 +168,7 @@ public final class TerminalSurfaceView: NSView {
         gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
-        createSurface(mode: mode, echoStages: echoStages)
+        createSurface(mode: mode, echoStage: echoStage, contentsGate: echoStages.contentsGate)
     }
 
     @available(*, unavailable)
@@ -195,8 +196,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
-    /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
-    private func createSurface(mode: ghostty_surface_io_mode_e, echoStages: TerminalEchoStages) {
+    /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY. The bridge carries `echoStage` to ``GhosttyTraceHook``.
+    private func createSurface(mode: ghostty_surface_io_mode_e, echoStage: TerminalEchoStage?, contentsGate: TerminalContentsGate) {
         let timings = TerminalTimings()
         let signpost = timings.surfaceCreateBegan()
         defer { timings.surfaceCreated(signpost) }
@@ -223,6 +224,7 @@ public final class TerminalSurfaceView: NSView {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
             return
         }
+        // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
         self.surface = unsafe surface
         // The drawable follows the size this view sets (`setFrameSize`), not
         // its layer's bounds: one synchronous frame per size change at the
@@ -232,14 +234,13 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        let echoStage = echoStages.makeStage()
         // SAFETY: the lane owns the off-main uses of the surface until `deinit` closes it, before
         // the free (TerminalOutputLane).
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
-                                  keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
+                                         keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
         if let layer {
             echoStage?.attach(to: layer)
-            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: bridgeObject.typingSurface)
+            TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()

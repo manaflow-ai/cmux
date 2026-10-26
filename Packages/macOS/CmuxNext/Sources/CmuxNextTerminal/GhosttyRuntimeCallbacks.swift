@@ -40,6 +40,7 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
     // SAFETY: Ghostty targets a live surface of this app during the callback; its userdata is
     // the surface's SurfaceBridge (above).
     let bridge: SurfaceBridge? = if target.tag == GHOSTTY_TARGET_SURFACE, let surface = unsafe target.target.surface {
+        // SAFETY: as above.
         unsafe SurfaceBridge.from(ghostty_surface_userdata(surface))
     } else {
         nil
@@ -81,6 +82,7 @@ nonisolated func ghosttyReadClipboard(
     // SAFETY: Ghostty passes mimeCount NUL-terminated MIME strings, valid for this callback;
     // String(cString:) copies each.
     if let mimes = unsafe mimes {
+        // SAFETY: as above.
         for index in 0..<mimeCount where unsafe mimes[index].map({ unsafe String(cString: $0) }) == "text/plain" {
             wantsText = true
         }
@@ -163,6 +165,7 @@ nonisolated func ghosttyWriteClipboard(
     for index in 0..<count {
         // SAFETY: as above.
         let item = unsafe contents[index]
+        // SAFETY: as above.
         guard unsafe item.data != nil else { continue }
         // SAFETY: as above.
         let mime = unsafe item.mime.map { unsafe String(cString: $0) } ?? "text/plain"

@@ -27,7 +27,8 @@ extension GhosttyRuntime {
     /// nil when libghostty failed to load a config.
     public var shellIntegrationSettings: GhosttyShellIntegrationSettings? {
         guard let config else { return nil }
-        return Self.shellIntegrationSettings(config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe Self.shellIntegrationSettings(config)
     }
 
     /// Shell-integration settings of the file at `path` loaded alone, with
@@ -41,7 +42,10 @@ extension GhosttyRuntime {
             unsafe ghostty_config_load_file(config, path)
             // SAFETY: as above.
             unsafe ghostty_config_load_recursive_files(config)
-        }, read: { unsafe shellIntegrationSettings($0) })
+        }, read: {
+            // SAFETY: as above.
+            unsafe shellIntegrationSettings($0)
+        })
     }
 
     /// `config` is a live handle the caller holds for the call.
