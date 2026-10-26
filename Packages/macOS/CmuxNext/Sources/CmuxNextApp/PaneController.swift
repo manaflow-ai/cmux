@@ -307,7 +307,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
-        if force { view.stripView.discardPendingReorder() }
+        if force {
+            view.stripView.discardPendingReorder()
+            view.stripView.discardPendingDrop()
+        }
         snapshotHidesStrip = snapshot.hidesStrip
         if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }

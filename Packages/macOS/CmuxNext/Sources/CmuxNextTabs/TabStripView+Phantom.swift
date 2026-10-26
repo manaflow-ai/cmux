@@ -79,6 +79,24 @@ extension TabStripView {
         relayout(animated: !reduceMotion)
     }
 
+    /// Rolls back a drop that was committed optimistically but rejected by
+    /// the daemon. The target may already have restored its model order, so
+    /// waiting for another model delta would leave the pending slot (and its
+    /// ghost geometry) stuck in the strip.
+    public func discardPendingDrop() {
+        let hadDrop = pendingDrop != nil || dropPlaceholderIndex != nil || groups.phantomWidth != nil
+        let hadOrder = orderOverride != nil || multiReorderTarget != nil || !groups.membershipOverride.isEmpty
+        guard hadDrop || hadOrder else { return }
+        pendingDrop = nil
+        dropPlaceholderIndex = nil
+        dropPlaceholderGroup = nil
+        groups.phantomWidth = nil
+        orderOverride = nil
+        multiReorderTarget = nil
+        groups.membershipOverride = [:]
+        sync(fromModel: false)
+    }
+
     // MARK: - Shared
 
     func showPhantom(atScreenPoint screenPoint: CGPoint, groupWidth: CGFloat?) -> TabStripDropTarget? {

@@ -26,8 +26,9 @@ struct TabDropRollbackTests {
         #expect(strip.dropPlaceholderIndex == target.index)
 
         // The daemon rejected the move: its model still contains only the
-        // original tab. A normal model sync must roll back the optimistic gap.
-        strip.sync(fromModel: true)
+        // original tab. The owning pane's forced resync rolls back the
+        // optimistic gap before it applies that model.
+        strip.discardPendingDrop()
         #expect(strip.pendingDrop == nil)
         #expect(strip.dropPlaceholderIndex == nil)
         #expect(strip.dropPlaceholderGroup == nil)
