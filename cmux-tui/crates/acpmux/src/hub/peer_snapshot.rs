@@ -603,3 +603,7 @@ impl Store {
         self.wake_by(due);
     }
 }
+
+#[cfg(test)]
+#[path = "peer_snapshot_tests.rs"]
+mod tests;
