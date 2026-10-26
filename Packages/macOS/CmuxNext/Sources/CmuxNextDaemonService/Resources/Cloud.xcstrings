@@ -1051,133 +1051,133 @@
       }
     },
     "cloud.failed.noAddress": {
-      "comment": "Copy Machine Port before the machine has a private address. `cmux cloud machine-status --target machine:<id>` is a command; keep it as is.",
+      "comment": "Copy Machine Port while the machine has no private address (still starting, paused, or failed). `cmux cloud machine-status --target machine:<id>` and `cmux cloud resume-machine` are commands; keep them as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine has no private address yet: it is still starting. Check it with `cmux cloud machine-status --target machine:<id>`."
+            "value": "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine` first."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンにはまだプライベートアドレスがありません。まだ起動中です。`cmux cloud machine-status --target machine:<id>` で確認してください。"
+            "value": "このマシンにはまだプライベートアドレスがありません。`cmux cloud machine-status --target machine:<id>` で状態を確認してください。一時停止中の場合は、先に `cmux cloud resume-machine` を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ليس للجهاز عنوان خاص بعد: لا يزال قيد التشغيل. تحقق منه باستخدام `cmux cloud machine-status --target machine:<id>`."
+            "value": "ليس للجهاز عنوان خاص بعد. تحقق من حالته باستخدام `cmux cloud machine-status --target machine:<id>`؛ وإذا كان متوقفًا مؤقتًا، فشغّل `cmux cloud resume-machine` أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mašina još nema privatnu adresu: još se pokreće. Provjerite je pomoću `cmux cloud machine-status --target machine:<id>`."
+            "value": "Mašina još nema privatnu adresu. Provjerite njeno stanje pomoću `cmux cloud machine-status --target machine:<id>`; ako je pauzirana, prvo pokrenite `cmux cloud resume-machine`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har endnu ingen privat adresse: den starter stadig. Tjek den med `cmux cloud machine-status --target machine:<id>`."
+            "value": "Maskinen har endnu ingen privat adresse. Tjek dens tilstand med `cmux cloud machine-status --target machine:<id>`. Hvis den er sat på pause, så kør `cmux cloud resume-machine` først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Maschine hat noch keine private Adresse: Sie startet noch. Prüfe sie mit `cmux cloud machine-status --target machine:<id>`."
+            "value": "Die Maschine hat noch keine private Adresse. Prüfe ihren Zustand mit `cmux cloud machine-status --target machine:<id>`; ist sie pausiert, führe zuerst `cmux cloud resume-machine` aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La máquina aún no tiene dirección privada: todavía se está iniciando. Revísala con `cmux cloud machine-status --target machine:<id>`."
+            "value": "La máquina aún no tiene dirección privada. Revisa su estado con `cmux cloud machine-status --target machine:<id>`; si está en pausa, ejecuta primero `cmux cloud resume-machine`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La machine n’a pas encore d’adresse privée : elle démarre encore. Vérifiez-la avec `cmux cloud machine-status --target machine:<id>`."
+            "value": "La machine n’a pas encore d’adresse privée. Vérifiez son état avec `cmux cloud machine-status --target machine:<id>` ; si elle est en pause, exécutez d’abord `cmux cloud resume-machine`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La macchina non ha ancora un indirizzo privato: si sta ancora avviando. Controllala con `cmux cloud machine-status --target machine:<id>`."
+            "value": "La macchina non ha ancora un indirizzo privato. Controlla il suo stato con `cmux cloud machine-status --target machine:<id>`; se è in pausa, esegui prima `cmux cloud resume-machine`."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ៖ វានៅតែកំពុងចាប់ផ្ដើម។ ពិនិត្យវាដោយប្រើ `cmux cloud machine-status --target machine:<id>`។"
+            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ។ ពិនិត្យស្ថានភាពរបស់វាដោយប្រើ `cmux cloud machine-status --target machine:<id>`។ ប្រសិនបើវាត្រូវបានផ្អាក សូមដំណើរការ `cmux cloud resume-machine` ជាមុនសិន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 기기에는 아직 사설 주소가 없습니다. 아직 시작 중입니다. `cmux cloud machine-status --target machine:<id>`로 확인하십시오."
+            "value": "이 기기에는 아직 사설 주소가 없습니다. `cmux cloud machine-status --target machine:<id>`로 상태를 확인하십시오. 일시 정지된 경우 먼저 `cmux cloud resume-machine`을 실행하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har ingen privat adresse ennå: den starter fortsatt. Sjekk den med `cmux cloud machine-status --target machine:<id>`."
+            "value": "Maskinen har ingen privat adresse ennå. Sjekk tilstanden med `cmux cloud machine-status --target machine:<id>`. Hvis den er satt på pause, kjør `cmux cloud resume-machine` først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyna nie ma jeszcze adresu prywatnego: wciąż się uruchamia. Sprawdź ją za pomocą `cmux cloud machine-status --target machine:<id>`."
+            "value": "Maszyna nie ma jeszcze adresu prywatnego. Sprawdź jej stan za pomocą `cmux cloud machine-status --target machine:<id>`; jeśli jest wstrzymana, najpierw uruchom `cmux cloud resume-machine`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A máquina ainda não tem endereço privado: ela ainda está iniciando. Verifique com `cmux cloud machine-status --target machine:<id>`."
+            "value": "A máquina ainda não tem endereço privado. Verifique o estado dela com `cmux cloud machine-status --target machine:<id>`; se estiver pausada, execute `cmux cloud resume-machine` primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У машины пока нет частного адреса: она еще запускается. Проверьте ее командой `cmux cloud machine-status --target machine:<id>`."
+            "value": "У машины пока нет частного адреса. Проверьте ее состояние командой `cmux cloud machine-status --target machine:<id>`; если она приостановлена, сначала выполните `cmux cloud resume-machine`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว เพราะยังเริ่มทำงานอยู่ ตรวจสอบด้วย `cmux cloud machine-status --target machine:<id>`"
+            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว ตรวจสอบสถานะด้วย `cmux cloud machine-status --target machine:<id>` หากเครื่องหยุดชั่วคราวอยู่ ให้เรียกใช้ `cmux cloud resume-machine` ก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makinenin henüz özel adresi yok: hâlâ başlatılıyor. `cmux cloud machine-status --target machine:<id>` ile kontrol edin."
+            "value": "Makinenin henüz özel adresi yok. Durumunu `cmux cloud machine-status --target machine:<id>` ile kontrol edin; duraklatılmışsa önce `cmux cloud resume-machine` komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина ще не має приватної адреси: вона ще запускається. Перевірте її командою `cmux cloud machine-status --target machine:<id>`."
+            "value": "Машина ще не має приватної адреси. Перевірте її стан командою `cmux cloud machine-status --target machine:<id>`; якщо її призупинено, спершу виконайте `cmux cloud resume-machine`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chưa có địa chỉ riêng: máy vẫn đang khởi động. Hãy kiểm tra bằng `cmux cloud machine-status --target machine:<id>`."
+            "value": "Máy chưa có địa chỉ riêng. Hãy kiểm tra trạng thái bằng `cmux cloud machine-status --target machine:<id>`; nếu máy đang tạm dừng, hãy chạy `cmux cloud resume-machine` trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器还没有私有地址：它仍在启动。请用 `cmux cloud machine-status --target machine:<id>` 查看。"
+            "value": "此机器还没有私有地址。请用 `cmux cloud machine-status --target machine:<id>` 查看其状态；如果它已暂停，请先运行 `cmux cloud resume-machine`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器尚無私人位址：它仍在啟動。請用 `cmux cloud machine-status --target machine:<id>` 查看。"
+            "value": "此機器尚無私人位址。請用 `cmux cloud machine-status --target machine:<id>` 查看其狀態；如果它已暫停，請先執行 `cmux cloud resume-machine`。"
           }
         }
       }
@@ -3807,132 +3807,133 @@
       }
     },
     "cloud.unavailable.noClient": {
+      "comment": "This cmux has no bundled cmux-tui client, so Cloud machines cannot connect.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download."
+            "value": "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同梱の cmux-tui クライアントがないため、Cloud マシンに接続できません。cmux.com/download から cmux を再インストールしてください。"
+            "value": "同梱の cmux-tui クライアントがないため、Cloud マシンに接続できません。cmux.com/download から cmux を再インストールするか、ローカルビルドを cmux-tui 同梱で再ビルドしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عميل cmux-tui المضمّن مفقود، لذا لا يمكن لأجهزة Cloud الاتصال. أعد تثبيت cmux من cmux.com/download."
+            "value": "عميل cmux-tui المضمّن مفقود، لذا لا يمكن لأجهزة Cloud الاتصال. أعد تثبيت cmux من cmux.com/download، أو أعد بناء النسخة المحلية مع تضمين cmux-tui."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nedostaje ugrađeni cmux-tui klijent, pa se Cloud mašine ne mogu povezati. Ponovo instalirajte cmux sa cmux.com/download."
+            "value": "Nedostaje ugrađeni cmux-tui klijent, pa se Cloud mašine ne mogu povezati. Ponovo instalirajte cmux sa cmux.com/download ili ponovo izgradite lokalnu verziju s ugrađenim cmux-tui."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den medfølgende cmux-tui-klient mangler, så Cloud-maskiner kan ikke oprette forbindelse. Geninstaller cmux fra cmux.com/download."
+            "value": "Den medfølgende cmux-tui-klient mangler, så Cloud-maskiner kan ikke oprette forbindelse. Geninstaller cmux fra cmux.com/download, eller byg en lokal version igen med cmux-tui inkluderet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der mitgelieferte cmux-tui-Client fehlt, daher können sich Cloud-Maschinen nicht verbinden. Installiere cmux neu von cmux.com/download."
+            "value": "Der mitgelieferte cmux-tui-Client fehlt, daher können sich Cloud-Maschinen nicht verbinden. Installiere cmux neu von cmux.com/download oder baue einen lokalen Build mit mitgeliefertem cmux-tui neu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Falta el cliente cmux-tui incluido, por lo que las máquinas de Cloud no pueden conectarse. Reinstala cmux desde cmux.com/download."
+            "value": "Falta el cliente cmux-tui incluido, por lo que las máquinas de Cloud no pueden conectarse. Reinstala cmux desde cmux.com/download, o vuelve a compilar una versión local con cmux-tui incluido."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le client cmux-tui intégré est manquant : les machines Cloud ne peuvent pas se connecter. Réinstallez cmux depuis cmux.com/download."
+            "value": "Le client cmux-tui intégré est manquant : les machines Cloud ne peuvent pas se connecter. Réinstallez cmux depuis cmux.com/download, ou recompilez une version locale avec cmux-tui intégré."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il client cmux-tui incluso manca, quindi le macchine Cloud non possono connettersi. Reinstalla cmux da cmux.com/download."
+            "value": "Il client cmux-tui incluso manca, quindi le macchine Cloud non possono connettersi. Reinstalla cmux da cmux.com/download, o ricompila una build locale con cmux-tui incluso."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្មវិធីភ្ញៀវ cmux-tui ដែលភ្ជាប់មកជាមួយបាត់ ដូច្នេះម៉ាស៊ីន Cloud មិនអាចភ្ជាប់បានទេ។ ដំឡើង cmux ឡើងវិញពី cmux.com/download។"
+            "value": "កម្មវិធីភ្ញៀវ cmux-tui ដែលភ្ជាប់មកជាមួយបាត់ ដូច្នេះម៉ាស៊ីន Cloud មិនអាចភ្ជាប់បានទេ។ ដំឡើង cmux ឡើងវិញពី cmux.com/download ឬបង្កើតកំណែក្នុងម៉ាស៊ីនឡើងវិញដោយភ្ជាប់ cmux-tui មកជាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "번들된 cmux-tui 클라이언트가 없어 Cloud 기기에 연결할 수 없습니다. cmux.com/download에서 cmux를 다시 설치하십시오."
+            "value": "번들된 cmux-tui 클라이언트가 없어 Cloud 기기에 연결할 수 없습니다. cmux.com/download에서 cmux를 다시 설치하거나, 로컬 빌드를 cmux-tui를 포함해 다시 빌드하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den medfølgende cmux-tui-klienten mangler, så Cloud-maskiner kan ikke koble til. Installer cmux på nytt fra cmux.com/download."
+            "value": "Den medfølgende cmux-tui-klienten mangler, så Cloud-maskiner kan ikke koble til. Installer cmux på nytt fra cmux.com/download, eller bygg en lokal versjon på nytt med cmux-tui inkludert."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brakuje dołączonego klienta cmux-tui, więc maszyny Cloud nie mogą się połączyć. Zainstaluj ponownie cmux ze strony cmux.com/download."
+            "value": "Brakuje dołączonego klienta cmux-tui, więc maszyny Cloud nie mogą się połączyć. Zainstaluj ponownie cmux ze strony cmux.com/download albo przebuduj lokalną wersję z dołączonym cmux-tui."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cliente cmux-tui incluído está ausente, então as máquinas Cloud não podem se conectar. Reinstale o cmux em cmux.com/download."
+            "value": "O cliente cmux-tui incluído está ausente, então as máquinas Cloud não podem se conectar. Reinstale o cmux em cmux.com/download, ou recompile uma build local com o cmux-tui incluído."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Встроенный клиент cmux-tui отсутствует, поэтому машины Cloud не могут подключиться. Переустановите cmux с cmux.com/download."
+            "value": "Встроенный клиент cmux-tui отсутствует, поэтому машины Cloud не могут подключиться. Переустановите cmux с cmux.com/download или пересоберите локальную сборку со встроенным cmux-tui."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่พบไคลเอนต์ cmux-tui ที่มาพร้อมแอป เครื่อง Cloud จึงเชื่อมต่อไม่ได้ ติดตั้ง cmux ใหม่จาก cmux.com/download"
+            "value": "ไม่พบไคลเอนต์ cmux-tui ที่มาพร้อมแอป เครื่อง Cloud จึงเชื่อมต่อไม่ได้ ติดตั้ง cmux ใหม่จาก cmux.com/download หรือบิลด์เวอร์ชันในเครื่องใหม่โดยรวม cmux-tui มาด้วย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paketle gelen cmux-tui istemcisi eksik, bu nedenle Cloud makineleri bağlanamıyor. cmux'ı cmux.com/download adresinden yeniden yükleyin."
+            "value": "Paketle gelen cmux-tui istemcisi eksik, bu nedenle Cloud makineleri bağlanamıyor. cmux'ı cmux.com/download adresinden yeniden yükleyin veya yerel derlemeyi cmux-tui ile birlikte yeniden derleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Бракує вбудованого клієнта cmux-tui, тому машини Cloud не можуть підключитися. Перевстановіть cmux із cmux.com/download."
+            "value": "Бракує вбудованого клієнта cmux-tui, тому машини Cloud не можуть підключитися. Перевстановіть cmux із cmux.com/download або перезберіть локальну збірку з вбудованим cmux-tui."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thiếu ứng dụng khách cmux-tui đi kèm nên máy Cloud không thể kết nối. Hãy cài lại cmux từ cmux.com/download."
+            "value": "Thiếu ứng dụng khách cmux-tui đi kèm nên máy Cloud không thể kết nối. Hãy cài lại cmux từ cmux.com/download, hoặc build lại bản cục bộ có kèm cmux-tui."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "缺少内置的 cmux-tui 客户端，因此无法连接 Cloud 机器。请从 cmux.com/download 重新安装 cmux。"
+            "value": "缺少内置的 cmux-tui 客户端，因此无法连接 Cloud 机器。请从 cmux.com/download 重新安装 cmux，或重新构建包含 cmux-tui 的本地版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "缺少內建的 cmux-tui 用戶端，因此無法連線至 Cloud 機器。請從 cmux.com/download 重新安裝 cmux。"
+            "value": "缺少內建的 cmux-tui 用戶端，因此無法連線至 Cloud 機器。請從 cmux.com/download 重新安裝 cmux，或重新建置包含 cmux-tui 的本機版本。"
           }
         }
       }
@@ -4590,6 +4591,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "請用 --public-key \"$(cat ~/.ssh/id_ed25519.pub)\" 傳入 Ed25519 SSH 公開金鑰。"
+          }
+        }
+      }
+    },
+    "cloud.failed.tunnelKeyRequired": {
+      "comment": "Rotate Cloud Tunnel Key without a key. --public-key is the flag; keep it as is. WireGuard is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル用のこの Mac の新しい WireGuard 公開鍵を --public-key <key> で指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر مفتاح WireGuard العام الجديد لهذا الـ Mac الخاص بالنفق باستخدام --public-key <key>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite novi WireGuard javni ključ ovog Maca za tunel pomoću --public-key <key>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv denne Macs nye offentlige WireGuard-nøgle til tunnelen med --public-key <key>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergib den neuen öffentlichen WireGuard-Schlüssel dieses Macs für den Tunnel mit --public-key <key>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la nueva clave pública de WireGuard de este Mac para el túnel con --public-key <key>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez la nouvelle clé publique WireGuard de ce Mac pour le tunnel avec --public-key <key>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa la nuova chiave pubblica WireGuard di questo Mac per il tunnel con --public-key <key>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនសោសាធារណៈ WireGuard ថ្មីរបស់ Mac នេះសម្រាប់ផ្លូវរូងដោយប្រើ --public-key <key>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널에 사용할 이 Mac의 새 WireGuard 공개 키를 --public-key <key>로 지정하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi denne Macens nye offentlige WireGuard-nøkkel for tunnelen med --public-key <key>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj nowy publiczny klucz WireGuard tego Maca dla tunelu za pomocą --public-key <key>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe a nova chave pública WireGuard deste Mac para o túnel com --public-key <key>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите новый открытый ключ WireGuard этого Mac для туннеля через --public-key <key>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุคีย์สาธารณะ WireGuard ใหม่ของ Mac เครื่องนี้สำหรับทันเนลด้วย --public-key <key>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in tünel için yeni WireGuard ortak anahtarını --public-key <key> ile iletin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте новий відкритий ключ WireGuard цього Mac для тунелю через --public-key <key>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền khóa công khai WireGuard mới của máy Mac này cho đường hầm bằng --public-key <key>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --public-key <key> 传入这台 Mac 用于隧道的新 WireGuard 公钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --public-key <key> 傳入這台 Mac 用於通道的新 WireGuard 公開金鑰。"
           }
         }
       }

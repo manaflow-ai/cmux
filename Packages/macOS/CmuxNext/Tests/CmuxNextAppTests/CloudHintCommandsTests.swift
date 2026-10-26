@@ -15,7 +15,7 @@ struct CloudHintCommandsTests {
             (CloudStrings.signInFirst, nil), (CloudStrings.noMachine, nil), (CloudStrings.notConnected, nil),
             (CloudStrings.alreadySignedIn, "palette.auth.signIn"), (CloudStrings.noAddress, "cloudCopyPort"),
             (CloudStrings.commandRequired, "cloudExec"), (CloudStrings.fileContentsRequired, "cloudFileWrite"),
-            (CloudStrings.publicKeyRequired, "cloudPrepareSCP"), (CloudStrings.snapshotRequired, "palette.cloud.restore"),
+            (CloudStrings.publicKeyRequired, "cloudPrepareSCP"), (CloudStrings.tunnelKeyRequired, "cloudTunnelRotateKey"), (CloudStrings.snapshotRequired, "palette.cloud.restore"),
             (CloudStrings.snapshotRequired, "palette.cloud.deleteSnapshot"),
             (CloudMoveStrings.moveFailed("x"), nil), (CloudBringBackStrings.failed("x"), nil),
             (CloudStrings.gitHubMissing, nil), (CloudStrings.gitHubFailed, nil),
@@ -48,6 +48,7 @@ struct CloudHintCommandsTests {
             }
         }
         #expect(Self.verbs(in: CloudStrings.notConnected) == ["resume-machine"])
+        #expect(!CloudStrings.tunnelKeyRequired.contains("ssh"), "a tunnel key is a WireGuard key")
     }
 
     @Test func everyNamedFlagIsAnArgumentOfItsAction() throws {

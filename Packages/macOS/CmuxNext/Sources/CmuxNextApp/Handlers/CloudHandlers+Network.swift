@@ -14,7 +14,7 @@ extension CloudHandlers {
             runTracked("detach Cloud tunnel network", context) { try await cloud.api.detachTunnelNetwork(deviceFingerprint: cloud.localDeviceID(), networkID: networkID) }
         }
         bind("cloudTunnelRotateKey", registry, reason: reason) { invocation in
-            guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.publicKeyRequired) }
+            guard let key = invocation["publicKey"]?.stringValue else { throw ActionFailure(message: CloudStrings.tunnelKeyRequired) }
             runTracked("rotate Cloud tunnel key", context) { _ = try await cloud.api.rotateTunnelKey(deviceFingerprint: cloud.localDeviceID(), publicKey: key) }
         }
         bind("cloudNetworkList", registry, reason: reason) { invocation in
