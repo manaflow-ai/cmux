@@ -24,11 +24,11 @@ struct LaneWaitCountsTests {
         #expect(CoarseCounts.waitBucket(nanos: 4_000_000) == "4-8")
         #expect(CoarseCounts.waitBucket(nanos: 63_000_000) == "32-64")
         #expect(CoarseCounts.waitBucket(nanos: UInt64.max) == "64+")
-        #expect((0..<200).map { CoarseCounts.waitBucket(nanos: UInt64($0) * 1_000_000) }.allSatisfy(CoarseCounts.waitLabels.contains))
+        #expect((0..<200).map { CoarseCounts.waitBucket(nanos: UInt64($0) * 1_000_000) }.allSatisfy { CoarseCounts.waitLabels.contains($0) })
     }
 
     /// A user-blocking item held 3 ms behind another: the counts the app fills (`WatchdogReporting.counts`) carry
-    /// `2-4` in a schema-3 report, and a schema-2 report leaves the key out.
+    /// the p99's label in a schema-3 report, and a schema-2 report leaves the key out.
     @Test func aReportBuiltAfterASlowUserBlockingWaitCarriesIt() async throws {
         let clock = ManualNanos()
         let work = BackgroundWork(cpuWidth: 1, label: "test.hang-report.lane-wait", uptimeNanos: { clock.read() })
@@ -47,10 +47,12 @@ struct LaneWaitCountsTests {
         context.counts = CoarseCounts(windows: 1, workspaces: 24, panes: 12, tabs: 72, userBlockingWaitP99Nanos: p99)
         let stall = StallAggregate()
 
+        // Waits of 0 and 3 ms: the p99's rank is the 3 ms item, interpolated to the top of its 2-4 ms bucket.
+        #expect(p99 == 4_000_000)
         let v3 = HangReportFixtures.builder(wireSchema: .v3).build(context: context, watchdog: stall, metricKit: [])
-        #expect(v3.counts.userBlockingWaitP99Ms == "2-4")
+        #expect(v3.counts.userBlockingWaitP99Ms == "4-8")
         let v3JSON = String(decoding: try HangReport.encoder.encode(v3), as: UTF8.self)
-        #expect(v3JSON.contains(#""userBlockingWaitP99Ms":"2-4""#), "\(v3JSON)")
+        #expect(v3JSON.contains(#""userBlockingWaitP99Ms":"4-8""#), "\(v3JSON)")
 
         let v2 = HangReportFixtures.builder(wireSchema: .v2).build(context: context, watchdog: stall, metricKit: [])
         #expect(v2.counts.userBlockingWaitP99Ms == nil)

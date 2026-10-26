@@ -86,7 +86,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// ``CoarseCounts/waitLabels``.
     func safeCounts(_ counts: CoarseCounts) -> CoarseCounts {
         var counts = counts
-        if !wireSchema.carriesLaneWait || !(counts.userBlockingWaitP99Ms.map(CoarseCounts.waitLabels.contains) ?? false) {
+        if !wireSchema.carriesLaneWait || !(counts.userBlockingWaitP99Ms.map { CoarseCounts.waitLabels.contains($0) } ?? false) {
             counts.userBlockingWaitP99Ms = nil
         }
         return counts
