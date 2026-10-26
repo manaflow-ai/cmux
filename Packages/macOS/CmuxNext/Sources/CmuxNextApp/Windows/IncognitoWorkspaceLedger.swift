@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -13,40 +15,59 @@ import os
 /// off into a new workspace).
 final class IncognitoWorkspaceLedger {
     private let url: URL
+    /// The ids the last run left, read once on a launch lane (``startLaunchRead(at:on:)``): the launch
+    /// window's check and the restore read it, so the main thread never touches the file at launch.
+    private let leftovers: LaunchRead<[String]>
     private var written: Set<String>?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
 
-    init(url: URL) {
+    init(url: URL, leftovers: LaunchRead<[String]>) {
         self.url = url
+        self.leftovers = leftovers
     }
 
-    /// `<Application Support>/<bundle id>/incognito-workspaces.json`.
-    static func forApplication(bundleIdentifier: String?) -> IncognitoWorkspaceLedger {
+    /// The ledger at ``standardURL(bundleIdentifier:)``. `leftovers` is the launch read `main` started
+    /// (`AppEnvironment.incognitoLeftovers`); without one (tests that build `AppServices`) it starts on `work`.
+    static func forApplication(bundleIdentifier: String?, leftovers: LaunchRead<[String]>?, work: BackgroundWork) -> IncognitoWorkspaceLedger {
+        let url = standardURL(bundleIdentifier: bundleIdentifier)
+        return IncognitoWorkspaceLedger(url: url, leftovers: leftovers ?? startLaunchRead(at: url, on: work))
+    }
+
+    /// `<Application Support>/<bundle id>/incognito-workspaces.json` (a path, no disk call).
+    static func standardURL(bundleIdentifier: String?) -> URL {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return IncognitoWorkspaceLedger(url: support.appending(path: bundle).appending(path: "incognito-workspaces.json"))
+        return support.appending(path: bundle).appending(path: "incognito-workspaces.json")
+    }
+
+    /// Reads the ids the last run left at `url` on `work`'s files lane, at once (`main`, before
+    /// `NSApplication.run`). Quit lets it finish: the restore awaits it.
+    static func startLaunchRead(at url: URL, on work: BackgroundWork) -> LaunchRead<[String]> {
+        LaunchRead(on: work, shutdown: .blockShutdown) { read(url) }
     }
 
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
     }
 
-    /// True when the last run left incognito workspaces: the file exists
-    /// only while it lists some (an existence check, no read).
-    var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
+    /// The ids in the file at `url`; none when it is missing or unreadable. Runs on a lane.
+    nonisolated private static func read(_ url: URL) -> [String] {
+        // concurrency-allow: called only from the launch read, on the files lane
+        guard let data = try? Data(contentsOf: url),
+              let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [] }
+        return document.workspaces
+    }
 
-    /// The ids the last run left (read off the main thread).
+    /// Whether the last run may have left incognito workspaces: what the launch read found, and true
+    /// while it still runs, so a launch window never lists workspaces that may be incognito. No disk call.
+    var mayHaveLeftovers: Bool { leftovers.value.map { !$0.isEmpty } ?? true }
+
+    /// The ids the last run left (the launch read's; the caller suspends until it ends).
     func load() async -> [String] {
-        let url = url
-        return await Task.detached(priority: .userInitiated) {
-            // concurrency-allow: runs in a detached task, off the main actor
-            guard let data = try? Data(contentsOf: url),
-                  let document = try? JSONDecoder().blockingDecode(Document.self, from: data) else { return [String]() }
-            return document.workspaces
-        }.value
+        await leftovers.finished()
     }
 
     /// Records `ids` when they changed (written off the main thread).

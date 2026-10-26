@@ -72,6 +72,10 @@ public struct CmuxNextApp {
         // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
+        // The incognito workspaces a crashed run left, before the settings read on the same serial lane: the
+        // launch window (made after that read lands) knows whether it may list every workspace (p08-startup 038).
+        environment.incognitoLeftovers = IncognitoWorkspaceLedger.startLaunchRead(
+            at: IncognitoWorkspaceLedger.standardURL(bundleIdentifier: Bundle.main.bundleIdentifier), on: work)
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work)

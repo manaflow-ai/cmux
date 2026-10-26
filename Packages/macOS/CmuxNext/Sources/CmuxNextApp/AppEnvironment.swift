@@ -51,6 +51,10 @@ struct AppEnvironment: Sendable {
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).
     var sidebarSnapshotFile: SidebarSnapshotFile?
+    /// The incognito workspaces the last run left (`IncognitoWorkspaceLedger`), read on a launch lane from
+    /// `main`: the launch window's check never reads the file on the main thread. Only the real app process
+    /// starts it; without it the ledger starts its own read when first used (tests that build `AppServices`).
+    var incognitoLeftovers: LaunchRead<[String]>?
     /// This Mac's layout templates (`LayoutTemplateRepository`): only the real app process sets
     /// it; without it templates live in memory only (tests that build `AppServices`).
     var layoutTemplatesFile: URL?
