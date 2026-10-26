@@ -30,6 +30,13 @@ import Darwin
 /// - a class that yielded to input in one frame does not yield again in the next one (a person
 ///   typing at 30 keys a second never starves the sidebar).
 ///
+/// A discrete input whose turn expects a frame opens an input response
+/// (``noteDiscreteInput(expectsFrame:)``): automation and background wait until the first
+/// display-link tick after it has rendered (``noteTickRenderEnded()``), at most 100 ms. For 500 ms
+/// after a discrete input they start at most one task per 100 ms, and one each 100 ms even under
+/// pending input, at the first frame without an open input response (``InputResponse``), in place
+/// of the every-other-frame rule, which visible keeps.
+///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
 /// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
@@ -46,6 +53,9 @@ public final class MainFrameBudget {
     public let board: MainTaskBoard
     public let budgets: Budgets
     public private(set) var stats = Stats()
+    /// The main run loop's turns: each task this budget runs is a scheduled span in the turn
+    /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
+    public let turns: MainTurnMeter
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
@@ -80,16 +90,26 @@ public final class MainFrameBudget {
     /// The input check's last answer and when (a frame asks several times; the answer is reused
     /// for a quarter millisecond).
     private var inputAnswer: (at: UInt64, pending: Bool) = (0, false)
+    private var response = InputResponse()
+    private var responseYieldThisFrame: [Bool] = [false, false, false]
+    private var burstWaitThisFrame: [Bool] = [false, false, false]
+    /// Set by the ``MainWorkScheduler``: asks its display link for a tick, so an open input
+    /// response gets the tick render that closes it even while no budgeted client is active.
+    var requestTick: (@MainActor () -> Void)?
 
     /// - Parameters:
     ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
     ///   - input: The pending-input check (the app: ``SessionInputPending``; tests: a fake).
     ///   - board: Where the running task is published for the watchdog.
-    ///   - signposts: Whether each task opens a `stall.main_task` interval (the app: true).
+    ///   - signposts: Whether each task opens a `stall.main_task` interval and a long turn emits
+    ///     `stall.main_turn` (the app: true).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
+    ///   - turns: The run-loop turn meter (default: one on this clock).
     public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+                turns: MainTurnMeter? = nil) {
         self.budgets = budgets
+        self.turns = turns ?? MainTurnMeter(signposts: signposts, uptimeNanos: uptimeNanos)
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
@@ -109,6 +129,7 @@ public final class MainFrameBudget {
     public func beginFrame(timestamp: CFTimeInterval?, refreshInterval: Double?) {
         if let timestamp, timestamp == lastTimestamp { return }
         lastTimestamp = timestamp
+        response.noteTick()
         if let refreshInterval, refreshInterval > 0 { windowLength = UInt64(refreshInterval * 1_000_000_000) }
         let now = uptimeNanos()
         if windowOpenedOffTick, now &- windowStart < windowLength {
@@ -129,6 +150,8 @@ public final class MainFrameBudget {
         }
         yieldedLastFrame = yieldedThisFrame
         yieldedThisFrame = [false, false, false]
+        responseYieldThisFrame = [false, false, false]
+        burstWaitThisFrame = [false, false, false]
         checkSpent = 0
         renderCharge = renderSinceRoll
         renderSinceRoll = 0
@@ -136,11 +159,47 @@ public final class MainFrameBudget {
 
     /// Records one render pass (the main run loop's before-waiting phase: layout, display and the
     /// Core Animation commit), in nanoseconds. The longest pass since a window opened is charged to
-    /// the next window: its scheduled work stops at ``Budgets/passTarget`` minus that pass.
+    /// the next window: its scheduled work stops at ``Budgets/passTarget`` minus that pass. The
+    /// pass also ends an input response that a link tick after the input rendered in
+    /// (``noteTickRenderEnded()``).
     public func noteRenderPass(nanos: UInt64) {
         renderSinceRoll = max(renderSinceRoll, nanos)
         stats.renderPasses += 1
         stats.maxRenderPassNanos = max(stats.maxRenderPassNanos, nanos)
+        noteTickRenderEnded()
+    }
+
+    /// A discrete input (key down, mouse down, an injected key) was dispatched in this turn. When
+    /// the turn expects a frame (its action changed what shows, a view asked for display, the
+    /// terminal asked for a draw), it opens the input response: automation and background wait
+    /// until ``noteTickRenderEnded()`` (Chrome `is_frame_expected_after_discrete_input`). Either
+    /// way it starts or extends the typing burst. An open response asks the scheduler's link for
+    /// the tick that closes it.
+    public func noteDiscreteInput(expectsFrame: Bool) {
+        record(response.noteInput(expectsFrame: expectsFrame, at: uptimeNanos()))
+        if expectsFrame { requestTick?() }
+    }
+
+    /// The render pass of a display-link tick of the budget's scheduler ended. It closes the input
+    /// response when that tick began after the latest frame-expecting input, so the input's own
+    /// turn (its commit runs before any tick) never closes it. ``noteRenderPass(nanos:)`` calls it
+    /// for every pass the scheduler measures.
+    public func noteTickRenderEnded() {
+        record(response.noteTickRenderEnded(at: uptimeNanos()))
+    }
+
+    /// A user-blocking task committed the input's result: the input response closes.
+    public func noteUserBlockingCommit() {
+        record(response.close(at: uptimeNanos()))
+    }
+
+    /// Whether an input response is open now: automation, background and idle work wait.
+    public var isInputResponseOpen: Bool { response.isOpen(at: uptimeNanos()) }
+
+    private func record(_ closed: InputResponse.Closed?) {
+        guard let closed else { return }
+        if closed.capped { stats.inputResponseCapHits += 1 }
+        stats.maxInputResponseNanos = max(stats.maxInputResponseNanos, closed.nanos)
     }
 
     /// The scheduled work this window may hold in all: ``Budgets/total``, less what the last render
@@ -150,12 +209,14 @@ public final class MainFrameBudget {
         return min(totalNanos, left)
     }
 
-    /// Whether a task of `workClass` may start now. Unbudgeted classes always may. A budgeted one
-    /// may not while input is pending (unless it yielded last frame). Otherwise its first task of
-    /// a frame always may, then it may while its own share is left, and past that, with no input
-    /// pending, on idle time the other classes left; never once the frame's scheduled work reached
-    /// its limit (``Budgets/total``, lowered by an expensive last render pass). A refusal is
-    /// counted: the caller keeps the task for the next frame.
+    /// Whether a task of `workClass` may start now. Unbudgeted classes always may. Automation and
+    /// background may not while an input response is open; in a typing burst they follow its rate
+    /// (``InputResponse/Burst``), and a due task runs under pending input. Otherwise a budgeted
+    /// class may not while input is pending (unless it yielded last frame). Past that, its first
+    /// task of a frame always may, then it may while its own share is left, and past that, with no
+    /// input pending and no input response open, on idle time the other classes left; never once
+    /// the frame's scheduled work reached its limit (``Budgets/total``, lowered by an expensive last
+    /// render pass). A refusal is counted: the caller keeps the task for the next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
         let now = uptimeNanos()
@@ -164,21 +225,43 @@ public final class MainFrameBudget {
         // never while a task runs (a long batch would reset its own budget and keep the main
         // thread past the frame).
         if open.isEmpty, !tickOwnsWindow, now &- windowStart >= windowLength { roll(at: now, offTick: true) }
+        record(response.expire(at: now))
+        let responseOpen = response.isOpen(at: now)
         let pending = inputPending(now)
-        if pending, !yieldedLastFrame[index] {
-            if !yieldedThisFrame[index] { stats.yieldedToInput[index] += 1 }
-            yieldedThisFrame[index] = true
-            return false
+        if workClass != .visible {
+            switch response.burst(index, at: now) {
+            case .due:
+                // The person's frame goes first: an open response holds a due task one frame.
+                if responseOpen, response.responseHoldsDue(index, at: now, frameNanos: windowLength) {
+                    return hold(index, \.yieldedToInputResponse, &responseYieldThisFrame)
+                }
+                return true
+            case .wait: return hold(index, \.waitedForBurstSlot, &burstWaitThisFrame)
+            case .free:
+                if responseOpen { return hold(index, \.yieldedToInputResponse, &responseYieldThisFrame) }
+                if pending { return hold(index, \.yieldedToInput, &yieldedThisFrame) }
+            case .outside:
+                // A response opens only on an input, and ``InputResponse/cap`` < ``InputResponse/burstLength``.
+                assert(!responseOpen, "an input response is open outside its typing burst")
+            }
         }
+        if pending, !yieldedLastFrame[index] { return hold(index, \.yieldedToInput, &yieldedThisFrame) }
         guard ranThisFrame[index] else { return true }
         let underLimit = frameSpentNow(now) < scheduledLimitNanos
         if underLimit, spentNow(index, workClass: workClass, now: now) < Self.nanos(budget) { return true }
         // Idle time: nothing a person waits on is pending, so the share only orders the classes.
-        if !pending, underLimit {
+        if !pending, !responseOpen, underLimit {
             stats.idleTasks[index] += 1
             return true
         }
         stats.deferredOverBudget[index] += 1
+        return false
+    }
+
+    /// Holds a task of class `index` for the next frame, counted in `stat` once per frame (`seen`).
+    private func hold(_ index: Int, _ stat: WritableKeyPath<Stats, [Int]>, _ seen: inout [Bool]) -> Bool {
+        if !seen[index] { stats[keyPath: stat][index] += 1 }
+        seen[index] = true
         return false
     }
 
@@ -205,8 +288,12 @@ public final class MainFrameBudget {
                             budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0)
         if let index { ranThisFrame[index] = true }
         open.append(task)
+        turns.beginSpan(.scheduled, at: task.start)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos)
-        let interval = signposts ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name) : nil
+        let interval = signposts
+            ? Signposter.stall.begin(.stallMainTask, taskClass: workClass.description, owner: owner.name,
+                                     classID: UInt8(truncatingIfNeeded: workClass.rawValue), ownerID: owner.index)
+            : nil
         defer {
             if let interval { Signposter.stall.end(.stallMainTask, interval) }
             finish(index: index)
@@ -214,14 +301,26 @@ public final class MainFrameBudget {
         return try body()
     }
 
+    /// The running task is a batch that runs requests as tasks of their own (a control drain): the
+    /// typing burst's one task per 100 ms counts those, so a drain that ran none takes no slot.
+    public func markRunningTaskAsBatch() {
+        if !open.isEmpty { open[open.count - 1].isBatch = true }
+    }
+
     private func finish(index: Int?) {
         let end = uptimeNanos()
         guard let task = open.popLast() else { return }
         let elapsed = end &- task.start
         let own = elapsed > task.childNanos ? elapsed - task.childNanos : 0
-        if !open.isEmpty { open[open.count - 1].childNanos &+= elapsed }
+        if !open.isEmpty {
+            open[open.count - 1].childNanos &+= elapsed
+            if open[open.count - 1].workClass == task.workClass { open[open.count - 1].isBatch = true }
+        }
+        turns.endTask(at: end, ownNanos: own)
         var over = false
         if let index {
+            // The typing burst's rate counts requests, not the batch that ran them (or ran none).
+            if !task.isBatch { response.noteTask(index, startedAt: task.start) }
             spent[index] &+= own
             stats.tasks[index] += 1
             stats.maxTaskNanos[index] = max(stats.maxTaskNanos[index], own)
@@ -251,6 +350,9 @@ public final class MainFrameBudget {
         var budgetNanos: UInt64
         /// Time spent in tasks nested in this one.
         var childNanos: UInt64 = 0
+        /// This one is a batch, not a request (``markRunningTaskAsBatch()``, or a task of its class
+        /// ran inside it): the typing burst does not count it.
+        var isBatch = false
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
@@ -274,9 +376,10 @@ public final class MainFrameBudget {
         return total
     }
 
-    /// Clears the counters (`debug.main_budget reset`).
+    /// Clears the counters and the turn meter's (`debug.main_budget reset`).
     public func resetStats() {
         stats = Stats()
+        turns.reset()
     }
 
     private func inputPending(_ now: UInt64) -> Bool {
@@ -299,12 +402,6 @@ public final class MainFrameBudget {
         case .automation: 1
         case .background: 2
         }
-    }
-
-    /// `duration` in whole nanoseconds (negative durations count as zero).
-    public static func nanos(_ duration: Duration) -> UInt64 {
-        let (seconds, attoseconds) = duration.components
-        return UInt64(clamping: seconds) &* 1_000_000_000 &+ UInt64(clamping: attoseconds / 1_000_000_000)
     }
 
     private static func milliseconds(_ nanos: UInt64) -> String {

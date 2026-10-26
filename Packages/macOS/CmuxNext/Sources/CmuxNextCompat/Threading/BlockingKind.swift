@@ -1,6 +1,6 @@
 /// The kind of wait a blocking call does, as the main-thread blocking detector names it.
 ///
-/// The detector (``assertBlockingAllowed(_:fileID:line:)``) is cmux's copy of Chrome's
+/// The detector (``blockingCall(_:fileID:line:_:)``) is cmux's copy of Chrome's
 /// `base::ScopedBlockingCall` and `base::ThreadRestrictions`: the main thread never waits on
 /// disk, a socket, another thread, another process or a child's exit
 /// (plans/cmux-next/threading-model.md). The raw values are the names the debug log and the
@@ -30,6 +30,10 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     case systemCall = "system-call"
     /// A sleep (`usleep`, `Thread.sleep`): the thread waits on purpose.
     case sleep
+    /// Any blocking seam inside a job of a lane that must not block (BackgroundWork's `.cpu` lane,
+    /// ``BlockingContext/cpuLane``), off the main thread: that lane is sized to the cores, so a wait there holds a
+    /// core's slot idle. Run the job on `.files` or `.system` (Chrome's task without `MayBlock`).
+    case wrongLane = "wrong-lane"
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows

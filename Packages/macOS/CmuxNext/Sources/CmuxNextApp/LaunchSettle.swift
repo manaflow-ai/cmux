@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLaunch
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -25,7 +26,8 @@ final class LaunchSettle {
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
 
-    init(reveal: LaunchReveal = .shared) {
+    /// - Parameter reveal: The app's launch load-in (`AppServices.launchReveal`).
+    init(reveal: LaunchReveal) {
         self.reveal = reveal
     }
 

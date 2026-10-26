@@ -29,10 +29,10 @@ public struct DaemonSocketMemory: Sendable {
 
     /// True when `path` is a Unix socket owned by this user that accepts a
     /// connection now. A stale file left by a killed daemon refuses at once.
-    public static func acceptsConnections(_ path: String) -> Bool {
+    public static func acceptsConnections(_ path: String, wireStats: DaemonWireStats?) -> Bool {
         var info = stat()
         guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
-        guard let transport = try? LineTransport(path: path) else { return false }
+        guard let transport = try? LineTransport(path: path, role: .socketProbe, stats: wireStats) else { return false }
         transport.close()
         return true
     }

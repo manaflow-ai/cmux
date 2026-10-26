@@ -55,7 +55,7 @@ import os
             // (another build's id is an invalid key here and would spend this Mac's monthly grant).
             keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest.\(bundle.bundleIdentifier ?? "unknown")",
                                          account: "key"),
-            logger: Logger(subsystem: "com.cmuxterm.next", category: "free-tier"))
+            logger: Logger(subsystem: "com.cmuxterm.app.next", category: "free-tier"))
         let settings = settings, signedIn = signedIn
         // task-owner: lives as long as the app (the provider's connection ends with the process); one provider start, then one update per setting or sign-in change
         Task {
