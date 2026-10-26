@@ -23,6 +23,10 @@
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
+`priorities()` reads each process's scheduling role for idle-budget.py's role audit (p14-energy-106): one
+`ps -o pid=,pri=,nice=,flags=` and the kernel's darwinbg bit (`proc_pidinfo(PROC_PIDTBSDINFO)` pbi_flags, the bit
+`taskinfo` prints). Neither read wakes the process.
+
 GPU time per process is the IORegistry's `accumulatedGPUTime` of each GPU user client (what Activity
 Monitor's GPU Time column reads): `gpu_ms_per_s`, None when the registry cannot be read.
 
@@ -38,7 +42,7 @@ process macOS counts the main pid responsible for (Safari's and cmux's
 WebKit XPC processes).
 
 The libraries load on first use, so the pure parts (`usage_from_words`, `rates`, `gpu_ns_from_registry`,
-`coalition_from_words`, `coalition_rates`, `window_totals`) import and test on any OS.
+`coalition_from_words`, `coalition_rates`, `window_totals`, `parse_priorities`) import and test on any OS.
 """
 from __future__ import annotations
 
@@ -306,6 +310,69 @@ def overhead(pid: int):
         return written, 0, 0, 0, 0
     return (written, info.threadnum, (info.messages_sent + info.messages_received) & 0xFFFFFFFF,
             (info.syscalls_mach + info.syscalls_unix) & 0xFFFFFFFF, info.csw & 0xFFFFFFFF)
+
+
+class _BSDInfo(ctypes.Structure):
+    """`struct proc_bsdinfo` (sys/proc_info.h), read with PROC_PIDTBSDINFO: same user, no root."""
+    _fields_ = [("pbi_flags", ctypes.c_uint32), ("pbi_status", ctypes.c_uint32), ("pbi_xstatus", ctypes.c_uint32),
+                ("pbi_pid", ctypes.c_uint32), ("pbi_ppid", ctypes.c_uint32), ("pbi_uid", ctypes.c_uint32),
+                ("pbi_gid", ctypes.c_uint32), ("pbi_ruid", ctypes.c_uint32), ("pbi_rgid", ctypes.c_uint32),
+                ("pbi_svuid", ctypes.c_uint32), ("pbi_svgid", ctypes.c_uint32), ("rfu_1", ctypes.c_uint32),
+                ("pbi_comm", ctypes.c_char * 16), ("pbi_name", ctypes.c_char * 32), ("pbi_nfiles", ctypes.c_uint32),
+                ("pbi_pgid", ctypes.c_uint32), ("pbi_pjobc", ctypes.c_uint32), ("e_tdev", ctypes.c_uint32),
+                ("e_tpgid", ctypes.c_uint32), ("pbi_nice", ctypes.c_int32), ("pbi_start_tvsec", ctypes.c_uint64),
+                ("pbi_start_tvusec", ctypes.c_uint64)]
+
+
+_PROC_PIDTBSDINFO = 3
+# sys/proc_info.h: the task runs darwin background now (PRIO_DARWIN_BG, a darwinbg role or a background QoS
+# ceiling: what `taskinfo` prints as darwinbg), and the part another process set on it.
+PROC_FLAG_DARWINBG = 0x8000
+PROC_FLAG_EXT_DARWINBG = 0x10000
+
+
+def darwinbg(pid: int) -> bool | None:
+    """Whether the kernel runs `pid` darwin background now; None when it cannot be read (gone, not macOS)."""
+    try:
+        libproc = _darwin().libproc
+    except OSError:
+        return None
+    info = _BSDInfo()
+    size = ctypes.sizeof(info)
+    if libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(_PROC_PIDTBSDINFO), ctypes.c_uint64(0),
+                            ctypes.byref(info), ctypes.c_int(size)) != size:
+        return None
+    return bool(info.pbi_flags & (PROC_FLAG_DARWINBG | PROC_FLAG_EXT_DARWINBG))
+
+
+def _leading_int(text: str, base: int = 10) -> int | None:
+    match = re.match(r"-?[0-9a-fA-F]+" if base == 16 else r"-?\d+", text)
+    return int(match.group(0), base) if match else None
+
+
+def parse_priorities(text: str) -> dict[int, dict]:
+    """`ps -o pid=,pri=,nice=,flags=` output -> {pid: {pri, nice, flags}}: the scheduling priority (31 default, 47
+    a foreground app, 46 a background-role app, below 31 suppressed: App Nap or task suppression; osfmk/kern/sched.h),
+    the nice value and the p_flag bits (ps prints them in hex). A column ps could not read is None."""
+    found = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].isdigit():
+            found[int(parts[0])] = {"pri": _leading_int(parts[1]), "nice": _leading_int(parts[2]),
+                                    "flags": _leading_int(parts[3], 16)}
+    return found
+
+
+def priorities(pids, ps_output: str | None = None, darwinbg_of=darwinbg) -> dict[int, dict]:
+    """{pid: {pri, nice, flags, darwinbg}} of `pids` now: one `ps` call plus the darwinbg bit per pid (None when
+    unreadable). Tests pass the `ps` output and the darwinbg read."""
+    wanted = set(pids)
+    if ps_output is None:
+        ps_output = subprocess.run(["ps", "-axo", "pid=,pri=,nice=,flags="], capture_output=True, text=True).stdout
+    found = {pid: values for pid, values in parse_priorities(ps_output).items() if pid in wanted}
+    for pid, values in found.items():
+        values["darwinbg"] = darwinbg_of(pid)
+    return found
 
 
 def _delta32(last: int, first: int) -> int:

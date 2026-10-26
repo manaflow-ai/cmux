@@ -4,11 +4,13 @@ assertions), the perf cron rows, the session table, energy per kind and tree, po
 saver/thermal guard; procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU time,
 the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the reference browser
 refusal, ratio rows and their noise floor; xbench's Chrome switches); and the shipping measurement mode (launch
-env, Debug refusal under --gate, the five report fields). Runs on any host (libproc loads only to measure)."""
+env, Debug refusal under --gate, the five report fields); the role and App Nap audit (task 106: `ps` priorities, D16's
+expected roles, pooled acpmux agents). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -467,8 +469,11 @@ class CountersTests(unittest.TestCase):
                          [("session", "saver_reason", "setting", "battery")])
         self.assertEqual(ib.over_line("x", ("session", "saver_reason", "setting", "battery")),
                          "IDLE-BUDGET-OVER x session saver_reason setting != battery")
+        # A budget role is judged per process (role_mismatches), not per kind.
         napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["foreground"]}}
-        self.assertEqual(ib.over_budget("minimized", napped, budget), [("app", "role", "foreground", "napped")])
+        self.assertEqual(ib.over_budget("minimized", napped, budget), [])
+        self.assertEqual(ib.role_mismatches("minimized", [{"pid": 7, "kind": "app", "role": "foreground"}], budget),
+                         [{"kind": "app", "pids": [7], "observed": "foreground", "expected": "napped"}])
         # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
         # their own limits.
         self.assertEqual(ib.over_budget("light", {"other:zsh": {"disk_bytes_per_s": 12.0}}, budget),
@@ -606,11 +611,16 @@ class MeasureOrderTests(unittest.TestCase):
         procs.thermal_state = lambda: "nominal"
         procs.power_assertions = lambda _pids: calls.append("pmset") or []
         ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
+        roles_saved = (procs.priorities, procs.process_table, ib.acpmux_homes)
+        procs.priorities = lambda _pids: calls.append("roles") or {1: {"pri": 4, "nice": 0, "flags": 0, "darwinbg": True}}
+        procs.process_table = lambda: []
+        ib.acpmux_homes = lambda _env: []
         try:
             result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0})
         finally:
             (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
              procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
+            (procs.priorities, procs.process_table, ib.acpmux_homes) = roles_saved
         probes = {"debug.energy", "pmset", "anim"}
         counters = [i for i, c in enumerate(calls) if c in ("debug.hangs", "debug.wakeups", "debug.cef", "debug.layers", "usage")]
         start_probes = [i for i, c in enumerate(calls) if c in probes and i < counters[0]]
@@ -620,6 +630,174 @@ class MeasureOrderTests(unittest.TestCase):
         self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
         self.assertEqual(result["ends"]["start"]["saver"], True)
         self.assertIn("anim", result["ends"]["end"])
+        # The roles are read once, after every counter and end read.
+        self.assertEqual(calls.count("roles"), 1)
+        self.assertGreater(calls.index("roles"), max(counters + end_probes))
+        self.assertEqual((result["processes"][0]["role"], result["processes"][0]["pooled"]), ("darwinbg", False))
+
+
+# `ps -axo pid=,pri=,nice=,flags=` on macOS: the app at foreground priority, the daemon and terminal host at the
+# default 31, two renderers at 47 (a foreground role), one at 4 (darwin background), the extension process suppressed.
+PS_PRIORITIES = """  501  47    0     4004
+  502  31    0     4004
+  503  31    0     4004
+  601  47    0     4004
+  602  47    0     4004
+  603   4    0     4004
+  604  28    0     4004
+  999  20    0        0
+  700  bogus
+"""
+DARWINBG = {603: True}
+
+
+def role_rows(kinds, hidden=None):
+    """Rows of `kinds` ({pid: kind}) with their roles from the fixture `ps` output."""
+    priority = procs.priorities(kinds, ps_output=PS_PRIORITIES, darwinbg_of=lambda pid: DARWINBG.get(pid, False))
+    rows = [{"pid": pid, "kind": kind} for pid, kind in kinds.items()]
+    for row_ in rows:
+        if hidden and row_["pid"] in hidden:
+            row_["hidden"] = hidden[row_["pid"]]
+    return ib.with_roles(rows, priority, pooled=set())
+
+
+TABS_KINDS = {501: "app", 502: "daemon", 503: "terminal-host", 601: "cef-renderer", 602: "cef-renderer",
+              603: "cef-renderer", 604: "cef-extension"}
+
+
+class RoleAuditTests(unittest.TestCase):
+    """Task 106: each process's role from `ps` and darwinbg, checked against D16."""
+
+    def test_fixture_ps_output_gives_a_role_per_process(self):
+        priority = procs.priorities(TABS_KINDS, ps_output=PS_PRIORITIES, darwinbg_of=lambda pid: DARWINBG.get(pid, False))
+        self.assertEqual(sorted(priority), sorted(TABS_KINDS))  # 999 is not of the set; the bogus line is skipped
+        self.assertEqual(priority[501], {"pri": 47, "nice": 0, "flags": 0x4004, "darwinbg": False})
+        roles = {row_["pid"]: row_["role"] for row_ in role_rows(TABS_KINDS)}
+        self.assertEqual(roles, {501: "foreground", 502: "default", 503: "default", 601: "foreground",
+                                 602: "foreground", 603: "darwinbg", 604: "suppressed"})
+        self.assertEqual(ib.observed_role({"pri": 46, "darwinbg": False}), "user-visible")
+        self.assertIsNone(ib.observed_role(None))
+        self.assertIsNone(ib.observed_role({"pri": None, "darwinbg": True}))
+
+    def test_parse_priorities_reads_hex_flags_and_negative_nice(self):
+        self.assertEqual(procs.parse_priorities(" 12  31  -5  1004004\n"),
+                         {12: {"pri": 31, "nice": -5, "flags": 0x1004004}})
+
+    def test_hidden_renderer_at_foreground_priority_is_flagged(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = role_rows(TABS_KINDS, hidden={601: False, 602: True, 603: True})
+        mismatches = ib.role_mismatches("tabs-static", rows, budget)
+        self.assertEqual(mismatches, [{"kind": "cef-renderer", "pids": [602], "observed": "foreground",
+                                       "expected": "best-effort"}])
+        self.assertEqual(ib.role_over_line("tabs-static", mismatches[0]),
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=602 observed=foreground "
+                         "expected=best-effort")
+
+    def test_renderers_of_unknown_visibility_beyond_the_shown_tabs(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        # tabs-static shows one Chromium tab: two renderers above best-effort are one too many.
+        self.assertEqual(ib.role_mismatches("tabs-static", role_rows(TABS_KINDS), budget),
+                         [{"kind": "cef-renderer", "pids": [601, 602], "observed": "2-above-best-effort",
+                           "expected": "best-effort-beyond-1-shown"}])
+        one = {pid: kind for pid, kind in TABS_KINDS.items() if pid != 602}
+        self.assertEqual(ib.role_mismatches("tabs-static", role_rows(one), budget), [])
+        # light does not count its shown Chromium pages (Home): renderers are not judged there.
+        self.assertEqual(ib.role_mismatches("light", role_rows(TABS_KINDS), budget), [])
+
+    def test_minimized_app_must_nap_and_every_renderer_is_best_effort(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        mismatches = ib.role_mismatches("minimized", role_rows(TABS_KINDS), budget)
+        self.assertEqual([(m["kind"], m["pids"], m["observed"], m["expected"]) for m in mismatches],
+                         [("app", [501], "foreground", "napped"),
+                          ("cef-renderer", [601], "foreground", "best-effort"),
+                          ("cef-renderer", [602], "foreground", "best-effort")])
+        napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"})
+        napped[0]["role"] = "suppressed"
+        self.assertEqual(ib.role_mismatches("minimized", napped, budget), [])
+
+    def test_daemon_and_terminal_host_never_background_while_a_terminal_shows(self):
+        rows = role_rows({502: "daemon", 603: "terminal-host"})
+        self.assertEqual(ib.role_mismatches("light", rows, ib.load_budget(ib.BUDGET_FILE)),
+                         [{"kind": "terminal-host", "pids": [603], "observed": "darwinbg", "expected": "not-background"}])
+        self.assertEqual(ib.role_mismatches("minimized", rows, ib.load_budget(ib.BUDGET_FILE)), [])
+
+    def test_pooled_agents_are_darwin_background(self):
+        rows = role_rows({502: "acpmux", 603: "acpmux"})
+        for row_ in rows:
+            row_["pooled"] = True
+        self.assertEqual(ib.role_mismatches("light", rows, ib.load_budget(ib.BUDGET_FILE)),
+                         [{"kind": "acpmux", "pids": [502], "observed": "default", "expected": "background"}])
+
+    def test_busy_and_reference_sessions_are_not_judged(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = role_rows({601: "cef-renderer", 602: "cef-renderer"}, hidden={601: True, 602: True})
+        self.assertEqual(ib.role_mismatches("stress", rows, budget), [])
+        self.assertEqual(ib.role_mismatches("chrome-static", rows, budget), [])
+
+    def test_budget_role_overrides_and_unknown_roles(self):
+        budget = {"kinds": {}, "sessions": {"light": {"kinds": {"app": {"role": "foreground"}}}}}
+        rows = role_rows({501: "app"})
+        self.assertEqual(ib.role_mismatches("light", rows, budget), [])
+        rows[0]["role"] = "suppressed"
+        self.assertEqual(ib.role_mismatches("light", rows, budget),
+                         [{"kind": "app", "pids": [501], "observed": "suppressed", "expected": "foreground"}])
+        self.assertEqual(ib.role_budget_errors(ib.load_budget(ib.BUDGET_FILE)), [])
+        typo = {"kinds": {"app": {"role": {"light": "naped"}}}, "sessions": {"x": {"kinds": {"daemon": {"role": "bg"}}}}}
+        self.assertEqual(len(ib.role_budget_errors(typo)), 2)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "budget.json")
+            with open(path, "w") as handle:
+                json.dump(typo, handle)
+            with self.assertRaises(SystemExit) as raised:
+                ib.main(["--budget", path, "--app", APP])
+        self.assertIn("kinds.app.role.light", str(raised.exception))
+
+    def test_summarize_counts_role_mismatches_as_overs(self):
+        rows = [{**row("app", 30, 0.1), "pid": 501, "role": "foreground"}]
+        result = {"processes": rows, "ends": ends(False, False)}
+        entry = ib.summarize("minimized", result, ib.load_budget(ib.BUDGET_FILE))
+        self.assertIn(["app", "role", "foreground", "napped"], entry["over"])
+        self.assertEqual(entry["role_mismatches"][0]["pids"], [501])
+
+    def test_pool_pids_trusts_only_live_hosts(self):
+        with tempfile.TemporaryDirectory() as home:
+            pool = os.path.join(home, "hosts", "pool")
+            os.makedirs(pool)
+            records = {"live": {"session_id": "s1", "start_nonce": "ab12", "host_pid": 70},
+                       "stale": {"session_id": "s2", "start_nonce": "cd34", "host_pid": 80},
+                       "bad": {"session_id": "../x", "start_nonce": "ab", "host_pid": 90}}
+            for name, record in records.items():
+                with open(os.path.join(pool, f"{name}.json"), "w") as handle:
+                    json.dump(record, handle)
+            for record in records.values():
+                open(os.path.join(pool, f"{os.path.basename(record['session_id'])}.{record['start_nonce']}.live"), "w").close()
+            table = [(70, 1, "/x/bin/acpmux __agent-host s1"), (71, 70, "claude"), (72, 71, "node"),
+                     (80, 1, "/x/bin/acpmux __agent-host s2"), (90, 1, "/x/bin/acpmux __agent-host x"), (5, 1, "zsh")]
+            held = os.open(os.path.join(pool, "s1.ab12.live"), os.O_RDONLY)
+            try:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                # flock locks belong to the open file: another open of it from this process is refused too.
+                self.assertTrue(ib.live_lock_held(os.path.join(pool, "s1.ab12.live")))
+                self.assertFalse(ib.live_lock_held(os.path.join(pool, "s2.cd34.live")))
+                found = ib.pool_pids({70, 71, 72, 80, 90, 5}, table, [home, os.path.join(home, "missing")])
+            finally:
+                os.close(held)
+        self.assertEqual(found, {70, 71, 72})
+
+    def test_acpmux_homes_resolve_as_the_app_does(self):
+        with tempfile.TemporaryDirectory() as home:
+            os.makedirs(os.path.join(home, ".acpmux", "builds", "k1"))
+            os.makedirs(os.path.join(home, ".cmux", "chief", "c1", "acpmux"))
+            homes = ib.acpmux_homes({"ACPMUX_HOME": "/e/acp", "CMUX_NEXT_CHIEF_HOME": "/chief"}, user_home=home)
+        self.assertEqual(homes, [os.path.join(home, ".acpmux"), os.path.join(home, ".acpmux", "builds", "k1"),
+                                 "/e/acp", "/chief/acpmux", os.path.join(home, ".cmux", "chief", "c1", "acpmux")])
+        self.assertEqual(ib.acpmux_homes({"CMUX_NEXT_ACPMUX_ROOT": "/r"}, user_home="/nohome")[0], "/r")
+
+    def test_table_shows_roles(self):
+        kinds = ib.aggregate({"processes": [{**row("app", 30, 0.1), **r} for r in role_rows({501: "app"})]})
+        text = ib.table("minimized", kinds, [("app", "role", "foreground", "napped")])
+        self.assertIn("| roles |", text)
+        self.assertTrue(text.rstrip().endswith("| **foreground** |"))
 
 
 class EnergyTests(unittest.TestCase):
