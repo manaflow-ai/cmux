@@ -41,7 +41,7 @@ final class CEFFileDragRelay {
         }
         files = urls
         self.tab = tab
-        tab.pageFilesDragged?(urls)
+        tab.pageEvents?.filesDragged?(urls)
         lastPoint = point
         send("dragEnter", at: point)
         return .copy

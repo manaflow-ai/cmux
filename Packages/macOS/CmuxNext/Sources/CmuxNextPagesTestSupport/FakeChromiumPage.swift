@@ -56,14 +56,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Whether the page is on the fork's renderer paths (no DevTools session).
+    public var usesRendererPaths: Bool
     /// Every script ``evaluate(_:)`` ran, in order, whichever path answered it.
     public private(set) var evaluations: [String] = []
     /// Runs after each evaluation (tests wait on it).
     public var onEvaluate: (() -> Void)?
     /// The renderer path (`tabEvaluate`, fork API 29): when set, ``evaluate(_:)`` answers with it,
     /// as `tabEvaluate`'s text (`CEFEvaluationResult`): the value as JSON, empty for undefined;
-    /// throw ``PageScriptError/exception(_:)`` for an exception. It makes no DevTools call. Nil: the
-    /// DevTools path, a `Runtime.evaluate` in ``calls`` answered as any call is (``answer``).
+    /// throw ``PageScriptError/exception(_:)`` for an exception. It makes no DevTools call. Nil: `null`
+    /// on renderer paths (``usesRendererPaths``), else the DevTools path, a `Runtime.evaluate` in
+    /// ``calls`` answered as any call is (``answer``).
     public var rendererEvaluate: ((_ script: String) throws -> String)?
 
     /// What ``copySurface(maxPixelSize:done:)`` answers; nil: no picture.
@@ -72,7 +75,21 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var surfaceCopies: [CGSize] = []
 
     /// Makes a page with no calls yet.
-    public init() {}
+    ///
+    /// - Parameter usesRendererPaths: The page is on the fork's renderer paths.
+    public init(usesRendererPaths: Bool = false) {
+        self.usesRendererPaths = usesRendererPaths
+    }
+
+    /// Posts `message` on the page channel from the page's main frame (renderer paths), as the
+    /// channel world does: inside `{url, message}`, with ``senderURL`` as the document's URL.
+    ///
+    /// - Parameter message: The page's text.
+    public func post(_ message: String) {
+        let envelope: [String: String] = ["url": senderURL, "message": message]
+        let data = (try? JSONSerialization.data(withJSONObject: envelope)) ?? Data()
+        onEvent?(.hostMessage(String(decoding: data, as: UTF8.self)))
+    }
 
     /// Records the size in ``surfaceCopies`` and answers ``surfaceCopy`` at once; makes no DevTools call.
     public func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) {
@@ -80,13 +97,14 @@ public final class FakeChromiumPage: PageChromiumPage {
         done(surfaceCopy)
     }
 
-    /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate``, or through
-    /// the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``) when that is nil.
+    /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate`` (`null` on renderer
+    /// paths without one), or through the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``).
     public func evaluate(_ script: String) async throws -> Any? {
         evaluations.append(script)
         defer { onEvaluate?() }
-        guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
-        let text = try rendererEvaluate(script)
+        let renderer: ((String) throws -> String)? = rendererEvaluate ?? (usesRendererPaths ? { _ in "null" } : nil)
+        guard let renderer else { return try await devToolsEvaluate(script) }
+        let text = try renderer(script)
         guard !text.isEmpty else { return nil }
         guard let value = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: [.fragmentsAllowed]) else {
             throw PageScriptError.noResult

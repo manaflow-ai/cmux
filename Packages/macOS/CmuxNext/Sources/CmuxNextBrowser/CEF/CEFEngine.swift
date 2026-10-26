@@ -32,6 +32,8 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
+    /// The App's cmux page host scripts for every renderer (fork API 29, ``CEFPageSchemes/HostScript``).
+    let pageHostScripts: [CEFPageSchemes.HostScript]
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -83,6 +85,7 @@ public final class CEFEngine: BrowserEngine {
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
     ///   - prefetchWork: The app's lanes, whose startup fence holds a predicted start's framework read (feature
     ///     `cefPrefetchBehindFence`, ``CEFFrameworkPrefetch``). Nil: a preload reads and maps at once.
+    ///   - pageHostScripts: The cmux page host's scripts, installed in every renderer on fork API 29.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
@@ -90,7 +93,7 @@ public final class CEFEngine: BrowserEngine {
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
                 pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                prefetchWork: BackgroundWork? = nil) {
+                prefetchWork: BackgroundWork? = nil, pageHostScripts: [CEFPageSchemes.HostScript] = []) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -104,6 +107,7 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
         CEFRuntime.shared.prefetchWork = prefetchWork
+        self.pageHostScripts = pageHostScripts
     }
 
     public var availability: BrowserEngineAvailability {
@@ -451,13 +455,13 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
-    /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
-    /// Chromium's first use, not at launch).
+    /// Hands the stores, sign-in tabs, wait deadlines, page host scripts and host supervisor
+    /// (``CEFRuntimeSource/backend``) to the process's runtime before it starts or makes a tab (not in
+    /// `init`: the runtime is built on Chromium's first use, not at launch).
     private func adoptStores() {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
-                      hostSupervisor: runtimeSource.hostSupervisor)
+                      hostSupervisor: runtimeSource.hostSupervisor, pageHostScripts: rendererPageHost)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
@@ -466,6 +470,10 @@ public final class CEFEngine: BrowserEngine {
     func startRuntime(trigger: String = "tab") async throws(BrowserEngineError) {
         adoptStores()
         try await CEFRuntime.shared.start(layout: layout, trigger: trigger)
+    }
+
+    private var rendererPageHost: [CEFDocumentScripts.Script] {
+        pageHostScripts.map { CEFDocumentScripts.Script(world: $0.world, source: $0.source, allFrames: $0.allFrames) }
     }
 
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {

@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// The scripts every Chromium document gets at its start, and the channels they report on: one
 /// list for both ways of installing them. Before fork API 29 each tab installs them over its
@@ -45,8 +46,18 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     /// The first contentful paint report (its own world, main frame); the page-channel path only:
     /// the DevTools path reads Page.lifecycleEvent instead (`CEFFirstPaintBridge`).
     var firstPaint: [Script]
+    /// The cmux page host (the App's ``CEFPageSchemes/HostScript``s); the page-channel path only: before it,
+    /// each page installs its host over its own DevTools session. Each script returns outside a
+    /// `cmux-page:` main frame. Chrome binds WebUI only in WebUI renderers; the shim's document
+    /// scripts are for every browser, so a web page's main frame runs these two scripts up to
+    /// their first line. Their channel shares the first-paint world, so it adds no isolated world.
+    var pageHost: [Script]
 
-    init(post: Post) {
+    /// - Parameters:
+    ///   - post: How the scripts report.
+    ///   - pageHost: The cmux page host's scripts, installed on the page-channel path only.
+    init(post: Post, pageHost: [Script] = []) {
+        self.pageHost = post == .pageChannel ? pageHost : []
         let mediaChannel = BrowserMediaState.channel
         let protectedChannel = BrowserProtectedMedia.channel
         media = [
@@ -75,19 +86,40 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
     }
 
     /// Every script, in install order.
-    var all: [Script] { media + verification + firstPaint }
+    var all: [Script] { media + verification + firstPaint + pageHost }
+
+    /// The channels the scripts post on; the page host's only with its scripts.
+    var channels: [CEFPageMessage.Channel] { CEFPageMessage.Channel.allCases.filter { $0 != .pageHost || !pageHost.isEmpty } }
 
     /// Installs every script and channel for every browser (fork API 29). Returns the names the
     /// shim refused (empty when all went in).
-    @MainActor func installInRenderer(_ shim: CEFShimLibrary) -> [String] {
-        guard let addPageChannel = shim.addPageChannel, let addDocumentScript = shim.addDocumentScript else { return ["shim has no renderer paths"] }
-        var refused: [String] = []
-        for channel in CEFPageMessage.Channel.allCases where addPageChannel(channel.world, channel.name) != 1 {
-            refused.append("channel \(channel.name)")
+    @MainActor func installInRenderer(_ shim: CEFShimLibrary) -> [String] { installAll(shim).refused }
+
+    /// Installs them (``installInRenderer(_:)``) and logs what the shim refused.
+    ///
+    /// - Returns: True when the cmux page host went in whole (its channel and every script), so a
+    ///   cmux page may skip DevTools; false without page host scripts.
+    @MainActor func install(_ shim: CEFShimLibrary, logger: Logger) -> Bool {
+        let result = installAll(shim)
+        if !result.refused.isEmpty { logger.error("document scripts refused by the shim: \(result.refused.joined(separator: ", "), privacy: .public)") }
+        return !pageHost.isEmpty && result.pageHostWhole
+    }
+
+    @MainActor private func installAll(_ shim: CEFShimLibrary) -> (refused: [String], pageHostWhole: Bool) {
+        guard let addPageChannel = shim.addPageChannel, let addDocumentScript = shim.addDocumentScript else {
+            return (["shim has no renderer paths"], false)
         }
+        var refused: [String] = []
+        var pageHostWhole = true
+        for channel in channels where addPageChannel(channel.world, channel.name) != 1 {
+            refused.append("channel \(channel.name)")
+            if channel == .pageHost { pageHostWhole = false }
+        }
+        let firstPageHost = all.count - pageHost.count
         for (index, script) in all.enumerated() where addDocumentScript(script.world, script.source, script.allFrames ? 1 : 0, 1) != 1 {
             refused.append("script \(index) (\(script.world.isEmpty ? "page" : script.world))")
+            if index >= firstPageHost { pageHostWhole = false }
         }
-        return refused
+        return (refused, pageHostWhole)
     }
 }

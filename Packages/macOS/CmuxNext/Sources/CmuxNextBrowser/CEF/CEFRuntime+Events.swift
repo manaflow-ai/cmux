@@ -115,7 +115,7 @@ extension CEFRuntime {
         case .evaluateResult(let token, let status, let value):
             evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
         case .pageDragEnter(let browser, let pathsJSON):
-            if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
+            if let tab = tabsByBrowser[browser], let entered = tab.pageEvents?.filesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(_, let dialogID, _, _, _):
             // Only after the host turned choosers on (setFileDialogs): until a handler answers, cancel, so a page never waits.
             _ = shim?.fileDialogAnswer(dialogID, 0, nil)
@@ -224,7 +224,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.onGesture = { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             tab.automaticDownloads.userGesture()
-            tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
+            tab.pageEvents?.userInput?(ProcessInfo.processInfo.systemUptime)
         }
         startInput()
         tabsByBrowser[browser] = tab

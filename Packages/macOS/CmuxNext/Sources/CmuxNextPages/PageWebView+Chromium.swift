@@ -10,8 +10,8 @@ import Foundation
 // WebKit view stays as an unloaded, hidden subview, so a page that fails in Chromium reopens in
 // WebKit at once (``fallBackToWebKit(_:)``) and WebKit-only hosts keep compiling.
 extension PageWebView {
-    /// The handlers the page scripts post to without a reply, in Chromium mode.
-    static let chromiumFireAndForget = [
+    /// The handlers the page scripts post to without a reply, in Chromium mode (every page has them).
+    public static let chromiumFireAndForget = [
         PagePaintProbe.handlerName, PageInputReadiness.handlerName, ConsoleErrorCapture.handlerName,
         PageChromiumDocumentScripts.navigateHandler, PageChromiumDocumentScripts.hostDropHandler,
     ]
@@ -117,15 +117,12 @@ extension PageWebView {
 
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
-        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
+        let bridge = ChromiumPageHostBridge(page: page, descriptor: descriptor, fireAndForget: handlers)
         let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
-            for (method, params) in ChromiumPageHostBridge.setupCalls(handlers: handlers,
-                                                                       documentScripts: scripts.sources) {
-                _ = try await page.devTools(method, params: params)
-            }
+            try await bridge.setUp(documentScripts: page.usesRendererPaths ? scripts.perView : scripts.sources)
         } catch {
             session.end()
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
@@ -202,6 +199,7 @@ extension PageWebView {
             guard !chromiumSession.bridge.receive(devToolsMessage: json),
                   let event = ChromiumPageHostWire.documentEvent(json) else { return }
             chromiumEvent(event)
+        case .hostMessage(let envelope): chromiumSession.bridge.receive(hostMessage: envelope)
         case .committed(let url):
             guard let url, url.scheme != "about" else { return }
             guard PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: onNavigate) == .allow else {
@@ -312,8 +310,8 @@ extension PageWebView {
         return try? await page.evaluate(expression)
     }
 
-    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``).
-    private static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
+    /// Makes `edit` in the focused editable element of a Chromium page (``PageInputReadiness``); no DevTools on renderer paths.
+    static func apply(_ edit: PageInputReadiness.Edit, token: String?, expectedEpoch: Int?, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function () {\n\(PageInputReadiness.editScript(edit, token: token, expectedEpoch: expectedEpoch))\n})()"
         return (try? await page.evaluate(expression)) as? Bool == true
     }

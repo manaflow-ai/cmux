@@ -197,7 +197,7 @@ final class CEFRuntime {
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
     private(set) var stores = BrowserSharedStores.inMemory()
-    /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
+    /// The App's sign-in tabs, which get the shim's AUTH_CALLBACK events, and its page host scripts (`adopt`).
     private(set) var signInCallbacks = CEFSignInCallbacks()
     /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
     /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
@@ -207,6 +207,9 @@ final class CEFRuntime {
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
     /// Chromium's Energy Saver from the start (``CEFEnergySaver/following(_:)``); nil before it and on an older fork.
     private(set) var energySaver: CEFEnergySaver?
+    private(set) var pageHostScripts: [CEFDocumentScripts.Script] = []
+    /// Every renderer got ``pageHostScripts`` at start (fork API 29); else cmux pages keep DevTools.
+    private(set) var pageHostInRenderer = false
 
     private init() {
         makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
@@ -219,15 +222,15 @@ final class CEFRuntime {
         self.makePumpTimer = makePumpTimer ?? CEFInProcessPump.wakeUpQueueTimer
     }
 
-    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
-    /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
-    /// same stores.
+    /// Takes the engine's stores, sign-in tabs, wait deadlines and page host scripts (the process has one
+    /// Chromium, so the App's one engine hands them over before its first start or tab), and its host
+    /// supervisor, which puts a runtime that has not started in host mode. Without `waitDeadlines` the
+    /// runtime keeps its own queue; the pump made at the start runs on the queue adopted before it.
+    /// Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, pageHostScripts: [CEFDocumentScripts.Script] = []) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
-        self.signInCallbacks = signInCallbacks
+        (self.signInCallbacks, self.pageHostScripts) = (signInCallbacks, pageHostScripts)
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
@@ -498,12 +501,8 @@ final class CEFRuntime {
         let refusedPages = CEFPageSchemes.add(CEFPageSchemes.firstParty, to: shim)
         if !refusedPages.pages.isEmpty { logger.error("cmux-page refused by the shim: \(refusedPages.pages.joined(separator: ", "), privacy: .public)") }
         if !refusedPages.groups.isEmpty { logger.error("cmux-page groups refused by the shim: \(refusedPages.groups.joined(separator: ", "), privacy: .public)") }
-        // Every document's start scripts and report channels, once for every browser, in the
-        // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
-        if CEFForkFeatures(shim).rendererPaths {
-            let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(shim)
-            if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
-        }
+        // Document scripts, channels and the page host, once for every browser (fork API 29, `CEFDocumentScripts`).
+        if CEFForkFeatures(shim).rendererPaths { pageHostInRenderer = CEFDocumentScripts(post: .pageChannel, pageHost: pageHostScripts).install(shim, logger: logger) }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {
             _ = shim.addNativeMessagingDir(folder.path, folder.isUserLevel ? 1 : 0)
