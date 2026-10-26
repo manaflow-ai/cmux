@@ -117,7 +117,7 @@ export async function runBaseRoute(input: {
     throw err;
   }
 
-  const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(input.request) : undefined;
+  const providerMetadata = gcpProviderMetadataFromRequest(input.request, provider);
   const programInput = {
     userId: user.id,
     billingCustomerType: entitlements.billingCustomerType,
@@ -139,7 +139,7 @@ export async function runBaseRoute(input: {
   };
   // Allocated at the call: the workflow owns the credential and wipes it when
   // it ends, including work that continues after the route answers.
-  const providerCredential = provider === "gcp" ? gcpCredentialFromRequest(input.request) : undefined;
+  const providerCredential = gcpCredentialFromRequest(input.request, provider);
   const run = await runVmRoute(
     input.operation === "reset"
       ? resetBaseVm({ ...programInput, providerCredential, reason: parsed.body.reason })

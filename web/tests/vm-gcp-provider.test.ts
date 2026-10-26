@@ -64,6 +64,9 @@ describe("GCP Labs provider", () => {
     expect(parsed?.accessToken.wiped).toBe(true);
     expect(parsed?.accessToken.utf8()).not.toContain("local-token");
     expect(parsed?.accessToken.utf8()).toMatch(/^\0+$/);
+    expect(gcpCredentialFromRequest(new Request("https://cmux.test", {
+      headers: { "x-cmux-gcp-access-token": "local-token" },
+    }), "freestyle")).toBeUndefined();
   });
 
   test("a workflow holds the credential until it ends, then wipes it", async () => {

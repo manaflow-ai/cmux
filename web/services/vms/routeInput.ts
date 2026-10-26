@@ -137,7 +137,8 @@ export function providerField(body: Record<string, unknown>): ProviderFieldResul
  * intentionally separate from VM JSON so request-body logging cannot retain a
  * service credential. The workflow it is handed to wipes it when it ends.
  */
-export function gcpCredentialFromRequest(request: Request): ProviderCredential | undefined {
+export function gcpCredentialFromRequest(request: Request, provider: ProviderId = "gcp"): ProviderCredential | undefined {
+  if (provider !== "gcp") return undefined;
   const token = request.headers.get("x-cmux-gcp-access-token")?.trim();
   if (!token) return undefined;
   if (token.length > 16_384) return undefined;
@@ -159,7 +160,8 @@ export function gcpCredentialFromRequest(request: Request): ProviderCredential |
 export { wipeProviderCredential } from "./drivers/types";
 
 /** Non-secret GCP placement knobs handed off by the local Labs UI. */
-export function gcpProviderMetadataFromRequest(request: Request): Record<string, unknown> | undefined {
+export function gcpProviderMetadataFromRequest(request: Request, provider: ProviderId = "gcp"): Record<string, unknown> | undefined {
+  if (provider !== "gcp") return undefined;
   const fields: Array<[string, string]> = [
     ["project", "x-cmux-gcp-project"],
     ["zone", "x-cmux-gcp-zone"],

@@ -434,7 +434,7 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
-      const providerMetadata = provider === "gcp" ? gcpProviderMetadataFromRequest(request) : undefined;
+      const providerMetadata = gcpProviderMetadataFromRequest(request, provider);
 
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
@@ -471,7 +471,7 @@ export async function POST(request: Request): Promise<Response> {
         // Allocated last, after every early return and every other input:
         // createVm owns it from here and wipes it when the workflow ends,
         // including a create that continues past its answer deadline.
-        providerCredential: provider === "gcp" ? gcpCredentialFromRequest(request) : undefined,
+        providerCredential: gcpCredentialFromRequest(request, provider),
       }), {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),
