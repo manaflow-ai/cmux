@@ -27,10 +27,6 @@ enum CloudStartSessionStrings {
         String(format: String(localized: "cloud.startSession.createFailed", defaultValue: "Couldn't create Cloud machine `%1$@` (%4$@), so no agent started. Run `cmux cloud start-session --name %2$@ --agent %3$@` again, or pick a machine from `cmux cloud list-machines`.", table: "CloudSessions", bundle: .module), name, quoted, agent, reason)
     }
 
-    /// A run that answered `pending`: the same command again answers its end.
-    static var stillStarting: String {
-        String(localized: "cloud.startSession.stillStarting", defaultValue: "The session is still starting. Run the same `cmux cloud start-session` command again to get its machine_id and session_id.", table: "CloudSessions", bundle: .module)
-    }
 
     static func notConnected(_ name: String, id: String, agent: String) -> String {
         String(format: String(localized: "cloud.startSession.notConnected", defaultValue: "Machine `%1$@` didn't connect, so no agent started there. Check it with `cmux cloud machine-status --target machine:%2$@`, then run `cmux cloud start-session --target machine:%2$@ --agent %3$@` again.", table: "CloudSessions", bundle: .module), name, id, agent)
@@ -62,23 +58,40 @@ enum CloudStartSessionStrings {
 
     static var start: String { String(localized: "cloud.startSession.start", defaultValue: "Start", table: "CloudSessions", bundle: .module) }
 
-    static var notInChat: String {
-        String(localized: "cloud.startSession.notInChat", defaultValue: "Couldn't find the chat this agent runs in, so there is nowhere to ask the person. Run `cmux cloud start-session` from an agent's shell in a cmux chat, or ask the person to run it.", table: "CloudSessions", bundle: .module)
+    /// What a refusal of an agent's ask names: the machine, the agent and the command to run again.
+    struct Asked: Equatable {
+        var machine: String
+        var agent: String
+        var command: String
     }
 
-    static var noPage: String {
-        String(localized: "cloud.startSession.noPage", defaultValue: "Couldn't show the question in the chat, so nothing started. Run `cmux cloud start-session` again once the chat is open.", table: "CloudSessions", bundle: .module)
+    /// A run that answered `pending`: the same command again answers its end.
+    static func stillStarting(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.stillStarting", defaultValue: "%2$@ is still starting on %1$@. Run `%3$@` again to get its machine_id and session_id.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 
-    static var askOpen: String {
-        String(localized: "cloud.startSession.askOpen", defaultValue: "This chat already shows a question to start a Cloud session. Wait for the person's answer before you run `cmux cloud start-session` again.", table: "CloudSessions", bundle: .module)
+    static func notInChat(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.notInChat", defaultValue: "Couldn't find the chat this agent runs in, so nobody can be asked to start %2$@ on Cloud machine %1$@. Run `%3$@` from an agent's shell in a cmux chat, or ask the person to run it.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 
-    static var declined: String {
-        String(localized: "cloud.startSession.declined", defaultValue: "The person chose Not now, so nothing started. Ask them in the chat before you run `cmux cloud start-session` again.", table: "CloudSessions", bundle: .module)
+    static func noPage(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.noPage", defaultValue: "Couldn't show the question in the chat, so %2$@ didn't start on %1$@. Run `%3$@` again once the chat is open.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 
-    static var expired: String {
-        String(localized: "cloud.startSession.expired", defaultValue: "Nobody answered the question in the chat within 2 minutes, so nothing started. Run `cmux cloud start-session` again when the person is there.", table: "CloudSessions", bundle: .module)
+    static func askOpen(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.askOpen", defaultValue: "This chat already asks the person to start a Cloud session. Wait for their answer, then run `%3$@` again if %2$@ still isn't running on %1$@.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
+    static func declined(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.declined", defaultValue: "The person chose Not now, so %2$@ didn't start on %1$@. Ask them in the chat before you run `%3$@` again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
+    static func expired(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.expired", defaultValue: "Nobody answered the question in the chat within 2 minutes, so %2$@ didn't start on %1$@. Run `%3$@` again when the person is there.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
+    }
+
+    /// The machine list could not be read, so a machine by that name may exist.
+    static func listUnread(_ asked: Asked) -> String {
+        String(format: String(localized: "cloud.startSession.listUnread", defaultValue: "Couldn't read your Cloud machines, so %2$@ didn't start: a machine named %1$@ may already exist. Check `cmux cloud list-machines`, then run `%3$@` again.", table: "CloudSessions", bundle: .module), asked.machine, asked.agent, asked.command)
     }
 }

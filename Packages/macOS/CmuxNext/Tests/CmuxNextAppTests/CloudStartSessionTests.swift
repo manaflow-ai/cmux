@@ -18,6 +18,8 @@ struct CloudStartSessionTests {
         return (services, MachineIconTests.cloudMachine(services, id: "vm-start-\(UUID().uuidString.prefix(8))"))
     }
 
+    static let asked = CloudStartSession.Request(machineID: "vm-x", name: nil, agent: "claude", cwd: nil).asked(machine: "dev")
+
     static func invocation(target: String? = nil, _ arguments: [String: ActionValue], origin: ActionOrigin = .cli, agent: String? = nil) -> ActionInvocation {
         var invocation = ActionInvocation(target: target.map { ActionTargetRef(kind: .machine, id: $0) }, arguments: arguments, origin: origin)
         invocation.callerAgentSession = agent
@@ -75,9 +77,28 @@ struct CloudStartSessionTests {
     @Test func anAgentOutsideAChatIsRefusedBeforeAnyCard() throws {
         let f = Self.fixture()
         let refusal = try Self.refusal(f.services, Self.invocation(target: f.session.machineID, ["agent": .string("claude")], agent: "session-not-here"))
-        #expect(refusal == CloudStartSessionStrings.notInChat)
-        let mcp = try Self.refusal(f.services, Self.invocation(["agent": .string("claude"), "name": .string("dev")], origin: .mcp))
-        #expect(mcp == CloudStartSessionStrings.notInChat)
+        let byID = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
+        #expect(refusal == CloudStartSessionStrings.notInChat(byID.asked(machine: f.session.machine.title)))
+        #expect(refusal?.contains("`cmux cloud start-session --target machine:\(f.session.machineID) --agent claude`") == true)
+        let mcp = try Self.refusal(f.services, Self.invocation(["agent": .string("claude"), "name": .string("my dev")], origin: .mcp))
+        let byName = CloudStartSession.Request(machineID: nil, name: "my dev", agent: "claude", cwd: nil)
+        #expect(mcp == CloudStartSessionStrings.notInChat(byName.asked(machine: "my dev")))
+        #expect(mcp?.contains("`cmux cloud start-session --name 'my dev' --agent claude`") == true)
+    }
+
+    /// A nested run inside an MCP run is the agent's too: it asks, never starts.
+    @Test func aNestedRunOfAnMCPRunIsAnAgentsRun() {
+        let inner = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-a"), arguments: ["agent": .string("claude")])
+        #expect(!CloudStartSession.isAgent(inner))
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .mcp, allowsViewChange: false)) {
+            #expect(CloudStartSession.isAgent(inner))
+        }
+    }
+
+    @Test func theCommandToRunAgainKeepsEveryArgument() {
+        #expect(CloudStartSession.Request(machineID: "vm-a", name: nil, agent: "codex", cwd: "/home/cmux/my work").command
+                == "cmux cloud start-session --target machine:vm-a --agent codex --cwd '/home/cmux/my work'")
+        #expect(CloudStartSession.Request(machineID: nil, name: "dev", agent: "claude", cwd: nil).command == "cmux cloud start-session --name dev --agent claude")
     }
 
     /// An agent in a chat on a Cloud machine (one this command started) asks in that chat too.
@@ -94,10 +115,11 @@ struct CloudStartSessionTests {
 
     @Test func aRunStillStartingAnswersPendingWithWhatToRunNext() async throws {
         let request = CloudStartSession.Request(machineID: "vm-a", name: nil, agent: "claude", cwd: nil)
-        let pending = CloudStartSession.pending(request)
+        let pending = CloudStartSession.pending(request, Self.fixture().services)
         #expect(pending["pending"] == .bool(true))
         #expect(pending["machine_id"] == .string("vm-a"))
-        #expect(pending["text"] == .string(CloudStartSessionStrings.stillStarting))
+        #expect(pending["text"] == .string(CloudStartSessionStrings.stillStarting(request.asked(machine: "vm-a"))))
+        #expect(pending["text"]?.stringValue?.contains("`cmux cloud start-session --target machine:vm-a --agent claude`") == true)
         // Through the race: the caller's wait ends before the run.
         let runs = CloudStartSessionRuns()
         runs.sleep = { _ in }
@@ -114,8 +136,8 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let asks = CloudStartSessionAsks()
         for _ in 0..<2 {
-            await #expect(throws: ActionFailure(message: CloudStartSessionStrings.noPage)) {
-                try await asks.ask(tab: "tab-without-page", text: "ask", services: services)
+            await #expect(throws: ActionFailure(message: CloudStartSessionStrings.noPage(Self.asked))) {
+                try await asks.ask(tab: "tab-without-page", text: "ask", asked: Self.asked, services: services)
             }
         }
     }
@@ -141,11 +163,12 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let messages = [
             CloudStartSessionStrings.needsMachine(agent: "claude"), CloudStartSessionStrings.noSuchMachine(id: "vm-x", agent: "claude"),
-            CloudStartSessionStrings.agentInvalid, CloudStartSessionStrings.cwdInvalid, CloudStartSessionStrings.stillStarting,
+            CloudStartSessionStrings.agentInvalid, CloudStartSessionStrings.cwdInvalid, CloudStartSessionStrings.stillStarting(Self.asked),
+            CloudStartSessionStrings.listUnread(Self.asked),
             CloudStartSessionStrings.createFailed("dev", quoted: "dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentFailed("dev", id: "vm-x", agent: "claude", reason: "x"), CloudStartSessionStrings.needsFolder("dev", id: "vm-x", agent: "claude"),
-            CloudStartSessionStrings.notInChat, CloudStartSessionStrings.noPage, CloudStartSessionStrings.askOpen,
-            CloudStartSessionStrings.declined, CloudStartSessionStrings.expired,
+            CloudStartSessionStrings.notInChat(Self.asked), CloudStartSessionStrings.noPage(Self.asked), CloudStartSessionStrings.askOpen(Self.asked),
+            CloudStartSessionStrings.declined(Self.asked), CloudStartSessionStrings.expired(Self.asked),
         ]
         let offered = Set(services.registry.descriptors.filter(\.cli).map(\.cliName))
         for message in messages {
@@ -211,15 +234,15 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
-        let first = Task { try await asks.ask(tab: "chat-1", text: "first", services: services) }
+        let first = Task { try await asks.ask(tab: "chat-1", text: "first", asked: Self.asked, services: services) }
         await cards.shownIn("chat-1")
         #expect(cards.shown["chat-1"]?.first?.state == .ask)
         cards.click("chat-1", "start")
         let token = try await first.value
         // Started: the run goes on, and the chat's card is still the first ask's.
         asks.show(tab: "chat-1", token: token, .working, "starting", services: services)
-        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.askOpen)) {
-            _ = try await asks.ask(tab: "chat-1", text: "second", services: services)
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.askOpen(Self.asked))) {
+            _ = try await asks.ask(tab: "chat-1", text: "second", asked: Self.asked, services: services)
         }
         #expect(cards.shown["chat-1"]?.first?.text == "starting")
         // Another ask's token changes nothing.
@@ -236,10 +259,10 @@ struct CloudStartSessionTests {
         let services = Self.fixture().services
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
-        let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", services: services) }
+        let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", asked: Self.asked, services: services) }
         await cards.shownIn("chat-2")
         cards.click("chat-2", "notNow")
-        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined)) { _ = try await ask.value }
+        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined(Self.asked))) { _ = try await ask.value }
         #expect(cards.shown["chat-2"] == nil)
         #expect(asks.open["chat-2"] == nil)
     }

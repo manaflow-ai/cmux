@@ -19,14 +19,14 @@ final class CloudStartSessionAsks {
 
     /// Shows the card in chat tab `tab` and returns its token once the person clicks Start. Throws
     /// when they choose Not now, when nobody answers within ``wait``, or when the chat has no page.
-    func ask(tab: String, text: String, services: AppServices) async throws -> UUID {
-        guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen) }
+    func ask(tab: String, text: String, asked: CloudStartSessionStrings.Asked, services: AppServices) async throws -> UUID {
+        guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen(asked)) }
         let token = UUID()
         let (answers, continuation) = AsyncStream<Bool?>.makeStream(bufferingPolicy: .bufferingOldest(1))
         guard set([Self.askCard(tab: tab, text: text)], tab: tab, services: services, answer: { _, action, _ in continuation.yield(action == "start") }) else {
             continuation.finish()
             _ = set([], tab: tab, services: services) { _, _, _ in }
-            throw ActionFailure(message: CloudStartSessionStrings.noPage)
+            throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
         }
         open[tab] = token
         // task-owner: the card's one-shot deadline; cancelled below once the person answers.
@@ -46,7 +46,7 @@ final class CloudStartSessionAsks {
         }
         guard answer == true else {
             finish(tab: tab, token: token, failure: nil, services: services)
-            throw ActionFailure(message: answer == false ? CloudStartSessionStrings.declined : CloudStartSessionStrings.expired)
+            throw ActionFailure(message: answer == false ? CloudStartSessionStrings.declined(asked) : CloudStartSessionStrings.expired(asked))
         }
         return token
     }
@@ -125,6 +125,18 @@ final class CloudStartSessionRuns {
     static let kept: Duration = .seconds(600)
     static let limit = 32
     private var runs: [Key: Run] = [:]
+    /// Creations of a machine by name: two asks for one new name create one machine.
+    private var creations: [String: Task<CloudMachineSession, any Error>] = [:]
+
+    /// The machine `create` makes for `name`, or the one a creation already going on makes.
+    func creating(_ name: String, _ create: @escaping @MainActor () async throws -> CloudMachineSession) async throws -> CloudMachineSession {
+        if let running = creations[name] { return try await running.value }
+        // task-owner: one creation per name; removed when it ends.
+        let task = Task<CloudMachineSession, any Error> { @MainActor in try await create() }
+        creations[name] = task
+        defer { if creations[name] == task { creations[name] = nil } }
+        return try await task.value
+    }
     var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     /// The caller's wait: a one-shot sleep, cancelled when the run ends first.
     var sleep: @MainActor (Duration) async -> Void = { duration in

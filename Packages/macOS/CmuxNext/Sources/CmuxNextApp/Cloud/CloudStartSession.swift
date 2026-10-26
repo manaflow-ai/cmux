@@ -29,6 +29,19 @@ struct CloudStartSession {
         var agent: String
         /// A folder on the machine; nil starts in the workspace's folder there.
         var cwd: String?
+
+        /// The command that asks for this again, every word as the shell reads it back.
+        var command: String {
+            var words = ["cmux cloud start-session"]
+            if let machineID { words.append("--target machine:" + CloudStartSession.shellQuoted(machineID)) } else { words.append("--name " + CloudStartSession.shellQuoted(name ?? "")) }
+            words.append("--agent " + agent)
+            if let cwd { words.append("--cwd " + CloudStartSession.shellQuoted(cwd)) }
+            return words.joined(separator: " ")
+        }
+
+        func asked(machine: String) -> CloudStartSessionStrings.Asked {
+            CloudStartSessionStrings.Asked(machine: machine, agent: agent, command: command)
+        }
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
@@ -36,36 +49,48 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
-            guard CloudMoveAsks.isAgent(invocation) else {
-                // A person's palette or menu run without a machine means the one they look at.
-                if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
-                    request.machineID = try CloudHandlers.machine(invocation, context).machineID
-                }
-                if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-                return CloudHandlers.result("start cloud session", context) {
-                    try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: Self.answerWithin, pending: Self.pending(request)) {
-                        try await start.run(request, invocation, context)
-                    }
-                }
+            guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
+            // A person's palette or menu run without a machine means the one they look at.
+            if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
+                request.machineID = try CloudHandlers.machine(invocation, context).machineID
             }
-            guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-            guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
-                throw ActionFailure(message: CloudStartSessionStrings.notInChat)
-            }
-            let shown = request.machineID.flatMap { services.machines.session($0)?.machine.title }
-            if let id = request.machineID, shown == nil { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
-            let named = shown ?? request.name ?? ""
-            let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
-            let asks = services.cloud.startSessionAsks
-            let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
-            // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
-            var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
-            asPerson.callerAgentSession = nil
-            // The same ask again (the agent's run answered pending) joins the one that runs.
-            let key = CloudStartSessionRuns.Key(request, caller: caller)
+            if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
             CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request)) {
-                    let token = try await asks.ask(tab: tab.id, text: text, services: services)
+                try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: Self.answerWithin, pending: Self.pending(request, services)) {
+                    try await start.run(request, invocation, context)
+                }
+            }
+        }
+    }
+
+    /// Whether the run is an agent's: a cmux MCP run (by its outermost caller, ``ActionRunScope``),
+    /// or one naming the agent chat that sent it.
+    static func isAgent(_ invocation: ActionInvocation) -> Bool {
+        CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
+    }
+
+    /// An agent's run: a card in its own chat, and only the person's Start starts anything.
+    private static func agentAsk(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        let services = context.services, start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
+        guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
+        let shown = request.machineID.flatMap { services.machines.session($0)?.machine.title }
+        if let id = request.machineID, shown == nil { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
+        let named = shown ?? request.name ?? ""
+        let asked = request.asked(machine: named)
+        guard let caller = invocation.callerAgentSession, let tab = Self.chat(caller, services: services) else {
+            throw ActionFailure(message: CloudStartSessionStrings.notInChat(asked))
+        }
+        let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
+        let asks = services.cloud.startSessionAsks
+        let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
+        // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
+        var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+        asPerson.callerAgentSession = nil
+        // The same ask again (the agent's run answered pending) joins the one that runs.
+        let key = CloudStartSessionRuns.Key(request, caller: caller)
+        CloudHandlers.result("start cloud session", context) {
+            try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
+                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, services: services)
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
                     do {
                         let fields = try await start.run(request, asPerson, context, askedBy: caller, revealing: false)
@@ -75,7 +100,6 @@ struct CloudStartSession {
                         asks.finish(tab: tab.id, token: token, failure: (error as? ActionFailure)?.message ?? Self.startFailure(error, name: named, id: request.machineID ?? named, agent: request.agent), services: services)
                         throw error
                     }
-                }
             }
         }
     }
@@ -84,8 +108,10 @@ struct CloudStartSession {
     /// answers `pending` (the work goes on, and the session's tab opens in the machine's workspace).
     static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
 
-    static func pending(_ request: Request) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["pending": .bool(true), "agent": .string(request.agent), "text": .string(CloudStartSessionStrings.stillStarting)]
+    static func pending(_ request: Request, _ services: AppServices) -> [String: ActionResultValue] {
+        let machine = request.machineID.flatMap { services.machines.session($0)?.machine.title } ?? request.name ?? request.machineID ?? ""
+        var fields: [String: ActionResultValue] = ["pending": .bool(true), "agent": .string(request.agent),
+                                                   "text": .string(CloudStartSessionStrings.stillStarting(request.asked(machine: machine)))]
         if let id = request.machineID { fields["machine_id"] = .string(id) }
         if let name = request.name { fields["machine_name"] = .string(name) }
         return fields
@@ -198,9 +224,17 @@ struct CloudStartSession {
             return session
         }
         let name = request.name ?? ""
+        let cloud = services.cloud
+        // A list read just now: a machine by this name made elsewhere is taken, never made again.
+        await cloud.refresh(ifOlderThan: .seconds(15))
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+        guard cloud.hasLoadedMachines else { throw ActionFailure(message: CloudStartSessionStrings.listUnread(request.asked(machine: name))) }
         do {
-            return try await services.cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
+            return try await cloud.startSessionRuns.creating(name) { [machines] in
+                // Another ask's creation may have ended first.
+                if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
+                return try await cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
