@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextErrorJournal
 import CmuxNextInput
+import CmuxNextInputDiagnostics
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal

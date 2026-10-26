@@ -1,4 +1,5 @@
 public import CmuxNextControl
+public import CmuxNextInput
 public import CmuxNextInputCore
 
 /// `debug.input` section `tap` from the app's one input tap: one main-actor copy of its subscription

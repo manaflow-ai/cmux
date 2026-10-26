@@ -74,7 +74,7 @@ extension SessionInputPending.Dispatched.Kind {
             let phases = Self.phases(record.scrollPhase)
             self = .scroll(phase: phases.phase, momentum: phases.momentum)
         case .keyUp, .flagsChanged, .rightMouseUp, .otherMouseUp, .mouseMoved, .rightMouseDragged, .otherMouseDragged,
-             .magnify, .rotate, .swipe, .smartMagnify, .pressure:
+             .magnify, .rotate, .swipe, .smartMagnify, .pressure, .mouseEntered, .mouseExited:
             self = .other
         }
     }

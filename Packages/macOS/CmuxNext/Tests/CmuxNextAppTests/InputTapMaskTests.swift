@@ -10,7 +10,7 @@ import Testing
     static let allTypes: [InputEventType] = [
         .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown,
         .otherMouseUp, .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel,
-        .magnify, .rotate, .swipe, .smartMagnify, .pressure,
+        .magnify, .rotate, .swipe, .smartMagnify, .pressure, .mouseEntered, .mouseExited,
     ]
 
     /// What one subscription heard.

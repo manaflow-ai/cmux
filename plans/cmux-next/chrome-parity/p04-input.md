@@ -690,7 +690,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   - No sink is installed here: 094 installs it. The GUI bench comparison runs after 094.
 
 #### p04-input-007 debug.input
-- Files: `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
+- Files: `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
   registration line), `T/CmuxNextInputTests/DebugInputTests.swift`.
 - Change: JSON sections latency, interactions, gate (held_by_origin{main,offMain}, exempt_by_rule,
   max_input_wait_behind_jobs_ms, jobs_deferred_over_one_frame, nonswift_blocks_while_input_pending), coalescer,
@@ -711,7 +711,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 004.
 
 #### p04-input-009 Action Latency HUD input rows
-- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextFocusUI/ActionLatency/ActionLatencyHUD.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: newest 16 input events: kind, target, total ms, dominant stage; rows over 8.3 ms in the danger color;
   no reader while the HUD is closed.
 - Acceptance: subscribe in show, unsubscribe in hide (diff); strings in the localization catalog.
@@ -854,7 +854,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 007.
 
 #### p04-input-022 Input-turn hop recorder (Debug)
-- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextWakeups/MainJobGate+Diagnostics.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-turn-hops.py`.
 - Change: records each main-actor job enqueued while input is pending or dispatching (8 return addresses, resolved
   off main with the existing image+offset resolver, first frame outside the Swift runtime and libdispatch), plus a
@@ -1135,7 +1135,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M. Depends: 045.
 
 #### p04-input-048 Responsive-scroll audit
-- Files: `S/CmuxNextInput/Diagnostics/ScrollViewAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/ScrollViewAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: `debug.input scroll_views` walks live windows on request and lists each NSScrollView: class, document
   view class, isCompatibleWithResponsiveScrolling for both, SwiftUI hosting, window, and whether a scrollWheel
   override exists. Rows go to p03-110's owner.
@@ -1622,7 +1622,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 
 #### p04-input-091 Chromium EventLatency and ScrollJank through CDP
 - Files: `S/CmuxNextBrowser/CEF/CEFHistogramReader.swift`, `Packages/macOS/CmuxNext/CEFShim/src/shim_devtools_protocol.mm`,
-  `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
+  `S/CmuxNextInputDiagnostics/DebugInput.swift`, `S/CmuxNextControl/InputBudget/InputLatencyReporter.swift`,
   `T/CmuxNextBrowserTests/CEFHistogramReaderTests.swift`.
 - Change: on debug.input or report build, Browser.getHistograms query 'EventLatency.' plus
   Event.ScrollJank.DelayedFramesPercentage.FixedWindow and Event.Latency.ScrollUpdate.*; fold into ledger rows with
@@ -1651,7 +1651,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size M.
 
 #### p04-input-093 Input-turn dirty-view recorder (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`,
+- Files: `S/CmuxNextInputDiagnostics/InputDirtyRecorder.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`,
   `scripts/cmux-next/input-dirty-views.py`.
 - Change: on request, swizzle setNeedsDisplay/setNeedsLayout/needsUpdateConstraints and CALayer
   setNeedsLayout/setNeedsDisplay during an input dispatch and its commit; record view class, backtrace (resolved off
@@ -1713,7 +1713,7 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Size S. Depends: 002, 010.
 
 #### p04-input-098 Hit-test cost audit (Debug)
-- Files: `S/CmuxNextInput/Diagnostics/HitTestAudit.swift`, `S/CmuxNextInput/Diagnostics/DebugInput.swift`.
+- Files: `S/CmuxNextInputDiagnostics/HitTestAudit.swift`, `S/CmuxNextInputDiagnostics/DebugInput.swift`.
 - Change: on request, count views visited and time per event in window hit testing; after STRESS scroll and click
   benches, list overrides with p99 > 20 us or > 32 views per event (75 overrides today, for example
   ScreenContentView+Dock.swift:185, SidebarListView+Blocks.swift:85). Each row is one task (region cache or early
