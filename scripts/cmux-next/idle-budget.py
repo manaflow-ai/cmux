@@ -71,8 +71,12 @@ Sessions (--sessions):
                 that then hides behind the launch workspace, one in the launch pane; plus one pooled entry
                 (_acpmux/prewarm). Settled past p14-energy-117's harness freeze (HARNESS_FREEZE_S). Its hidden chat's
                 harness rows are `hidden` (under that chat's agent host, from its `hosts/<session>.json` record).
+                The window is refused (IDLE-BUDGET-REFUSED) when no measured harness row is under the hidden chat's
+                host or under a pooled host: a harness that exited would pass its rows with nothing measured.
   agent-working-visible  the launch pane's chat in a turn that sends nothing (the fake agent's `gate:` blocks on a
-                FIFO until the session ends): the pane's working state is what moves
+                FIFO until the session ends): the pane's working state is what moves. The chat must show in
+                Chromium (`debug.agent_pane engine` == cef): its row sums the cef kinds, and a WebKit chat's work
+                would fall outside them
   busy-hidden   the launch terminal prints one line every 100 ms, then a new workspace shows over it
   Every process under an acpmux agent host (`__agent-host`, pooled entries included) is kind agent-harness
   (procs.agent_harness_pids); the host itself is acpmux.
@@ -201,14 +205,6 @@ def process_set(instance):
     return found
 
 
-def agent_harness(commands):
-    """{pid: host pid} of the agent harness processes of `commands` ({pid: command}, process_set): the descendants of
-    its agent hosts, read from one process table. A set with no agent host reads nothing and has none."""
-    if not any(procs.is_agent_host(cmd) for cmd in commands.values()):
-        return {}
-    return {pid: host for pid, host in procs.agent_harness_pids(procs.process_table()).items() if pid in commands}
-
-
 # ---------------------------------------------------------------------------------------------------------
 # One window
 
@@ -250,8 +246,9 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, hidden_host
     outside every counter bracket, the app's own counters included, so the bench's reads are never counted. With
     `attribute`, `power` has the window's power owners: power_attribution.PowerWindow's subprocesses (ps, sudo)
     run before `first` and after `last`, outside this bracket and its own; only its libproc reads sit inside.
-    The agent harness processes (agent_harness, read after `last`) are kind agent-harness; those under one of
-    `hidden_hosts` (the agent host pids of hidden panes) are `hidden` rows."""
+    The agent harness processes (procs.Instance.harness of the last process_set read, the table that named
+    `last_pids`) are kind agent-harness; those under one of `hidden_hosts` (the agent host pids of hidden panes) are
+    `hidden` rows."""
     pids = process_set(instance)
     start = window_end(app, pids, read_anim)
     window = power_attribution.PowerWindow(instance.pid, lambda: process_set(instance), kind) if attribute else None
@@ -275,8 +272,8 @@ def measure(app, instance, seconds, read_anim=None, attribute=False, hidden_host
         window.end()
     gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
+    harness = {pid: host for pid, host in instance.harness.items() if pid in last_pids}
     last = snapshot(last_pids)
-    harness = agent_harness(last_pids)  # its ps read sits after `last`, outside the bracket
     power = window.finish() if window else None
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
@@ -320,7 +317,7 @@ def snapshot(commands):
 def process_rows(first, last, elapsed, gpu0, gpu1, classify, harness=None, hidden_hosts=()):
     """One row per process alive at the window's end, from two snapshots and two GPU reads `elapsed` seconds
     apart, its kind from `classify`; a process that started inside the window counts from its start (`partial`).
-    `harness` ({pid: agent host pid}, agent_harness) names the agent harness processes: kind agent-harness, with
+    `harness` ({pid: agent host pid}, procs.Instance.harness) names the agent harness processes: kind agent-harness, with
     `agent_host`, and `hidden` when that host is one of `hidden_hosts`."""
     harness = harness or {}
     rows = []
@@ -567,7 +564,7 @@ def summarize(session, result, budget):
         entry["over"], entry["not_judged"] = [], []
         return entry
     entry["over"] = [list(o) for o in over_budget(session, kinds, budget, window_facts(entry))]
-    entry["not_judged"] = sum_notes(session, kinds, budget)
+    entry["not_judged"] = sum_notes(session, kinds, budget) + deferred_notes(session, kinds, budget)
     return entry
 
 
@@ -595,6 +592,22 @@ def refusals(entry):
         out.append(("saver", entry["saver"]["mismatch"]))
     if "error" in (entry.get("anim") or {}):
         out.append(("anim", f"no page rAF rate: {entry['anim']['error']}"))
+    return out + agent_refusals(entry.get("agents"), (entry.get("result") or {}).get("processes") or [])
+
+
+def agent_refusals(agents, rows):
+    """[(what, why)] for an agent session (build_agents's record) whose window did not measure the harnesses it
+    built: no agent-harness row under the hidden chat's host, or none under a pooled host. A harness that exited
+    has no row, and a limit on a kind with no row passes, so the D14 hidden-harness row would pass unmeasured."""
+    if not agents:
+        return []
+    plan = agents.get("plan") or {}
+    hosts = {row.get("agent_host") for row in rows if row.get("kind") == procs.AGENT_HARNESS}
+    out = []
+    if plan.get("hidden") and not hosts & set(agents.get("hidden_hosts") or ()):
+        out.append(("agents", f"no agent-harness row under the hidden chat's host {agents.get('hidden_hosts')}"))
+    if plan.get("pool") and not hosts & set(agents.get("pool_hosts") or ()):
+        out.append(("agents", f"no agent-harness row under a pooled host {agents.get('pool_hosts')}"))
     return out
 
 
@@ -799,6 +812,20 @@ def sum_notes(session, kinds, budget):
     return [f"{session} {selector} {field}: not judged: unknown"
             for selector, limits in (session_budget(budget, session).get("sums") or {}).items()
             for field, limit in limits.items() if limit is not None and unknown_sum(kinds, selector, field)]
+
+
+def deferred_notes(session, kinds, budget):
+    """The session's kind limits set to null with a `_<field>` reason (a row a later task turns on): reported as
+    not judged, with the measured value and that reason, so the gap shows in every run."""
+    notes = []
+    for name, limits in sorted((session_budget(budget, session).get("kinds") or {}).items()):
+        for field, limit in sorted(limits.items()):
+            reason = limits.get("_" + field)
+            if field.startswith("_") or limit is not None or not reason:
+                continue
+            value = (kinds.get(name) or {}).get(field, "not measured")
+            notes.append(f"{session} {name} {field}: not judged: {value} measured; {reason}")
+    return notes
 
 
 def xbench_overs(budget, result):
@@ -1289,8 +1316,10 @@ def chat_session(reply):
 
 
 def turn_done(entry):
-    """Whether an acpmux session entry (`_acpmux/sessions`) finished a turn and runs none."""
-    return entry.get("status") in ("idle", "ready") and bool((entry.get("lastTurn") or {}).get("endedAt"))
+    """Whether an acpmux session entry (`_acpmux/sessions`) finished a turn, runs none and still has its harness:
+    `ready` (store.rs SessionStatus::Ready, child alive). `idle` is no child process: a harness that exited, which
+    the session would then measure as nothing."""
+    return entry.get("status") == "ready" and bool((entry.get("lastTurn") or {}).get("endedAt"))
 
 
 def answered(reply):
@@ -1342,7 +1371,10 @@ class AgentHome:
                         line, buffer = buffer.split(b"\n", 1)
                         message = json.loads(line or b"{}")
                         if message.get("id") == 2:
-                            return {"error": message["error"]} if "error" in message else message.get("result")
+                            if "error" in message:
+                                return {"error": message["error"]}
+                            result = message.get("result")
+                            return {} if result is None else result  # a null result is an answer
             except (OSError, ValueError) as error:
                 return {"error": str(error)}
 
@@ -1360,10 +1392,40 @@ class AgentHome:
             return None
         return pid if isinstance(pid, int) and pid > 1 else None
 
-    def pool_entries(self):
-        """The pooled entries' host records (`hosts/pool/*.json`, agent_host::POOL_DIR_NAME)."""
+    def pool_ready(self, cwd):
+        """The ready pooled entries in `cwd` (`_acpmux/status` pool.entries, hub/pool pool_view_json): not an entry
+        the agent page hinted for its own folder."""
+        reply = self.call("_acpmux/status")
+        entries = ((reply.get("pool") or {}).get("entries") if answered(reply) else None) or []
+        folder = os.path.realpath(cwd)
+        return [e for e in entries if isinstance(e, dict) and e.get("state") == "ready"
+                and isinstance(e.get("cwd"), str) and os.path.realpath(e["cwd"]) == folder]
+
+    def pool_host_pids(self):
+        """The host pids of the pooled entries' records (`hosts/pool/*.json`, agent_host::POOL_DIR_NAME)."""
         folder = os.path.join(self.home, "hosts", "pool")
-        return sorted(name for name in os.listdir(folder) if name.endswith(".json")) if os.path.isdir(folder) else []
+        pids = []
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            if not name.endswith(".json"):
+                continue
+            try:
+                with open(os.path.join(folder, name)) as handle:
+                    pid = json.load(handle).get("host_pid")
+            except (OSError, ValueError, AttributeError):
+                continue
+            if isinstance(pid, int) and pid > 1:
+                pids.append(pid)
+        return pids
+
+    def trust(self, cwd):
+        """acp.trust.set `cwd` trusted; returns the refusal (an error reply), printed as AGENT-SESSION-TRUST-REFUSED,
+        or None."""
+        reply = self.call("acp.trust.set", {"cwd": cwd, "level": "trusted"})
+        if answered(reply):
+            return None
+        refusal = {"cwd": cwd, "error": reply.get("error") if isinstance(reply, dict) else reply}
+        print("AGENT-SESSION-TRUST-REFUSED " + json.dumps(refusal), flush=True)
+        return refusal
 
     def gate(self):
         """A FIFO the fake agent's `gate:` turn blocks on until release(): a turn that sends nothing meanwhile."""
@@ -1388,38 +1450,65 @@ class AgentHome:
 
 def open_agent_chat(app, home, stress, wait, pane, prompt):
     """An agent chat in `pane` on the fake harness in home.cwd with `prompt` sent, as a person opens one: the agent
-    tab (palette.newAgentChat), then the page's own new-chat and send verbs (debug.agent_pane). `stress` and `wait`
-    are perf-stress-session.py's builder and bounded poll. Returns its acpmux session id; SessionShapeError when a
-    step does not answer."""
+    tab (palette.newAgentChat), then the page's own new-chat and send verbs (debug.agent_pane), each sent once: a
+    retry after an error reply (a timeout after the page acted) would open a second chat or send the prompt twice.
+    Only read-only state (chat_state, acpmux status) is polled. `stress` and `wait` are perf-stress-session.py's
+    builder and bounded poll. Returns {session, engine (`debug.agent_pane engine`: cef or webkit:<reason>), trust
+    (acp.trust.set's refusal, or None)}; SessionShapeError when a step does not answer."""
     stress.action("palette.newAgentChat", target=f"pane:{pane}")
 
     def page(action, **args):
         return app.rpc("debug.agent_pane", {"action": action, "pane": pane, **args}, timeout=AGENT_STEP_S)
 
-    if not wait(lambda: answered(page("chat_state")), AGENT_STEP_S, step=1):
+    def once(action, **args):
+        reply = page(action, **args)
+        if not answered(reply):
+            raise SessionShapeError(f"pane {pane}: {action} refused: {json.dumps(reply)[:300]}")
+        return reply
+
+    def state():
+        reply = page("chat_state")
+        return reply if answered(reply) else None
+
+    before = wait(state, AGENT_STEP_S, step=1)
+    if not before:
         raise SessionShapeError(f"no agent page in pane {pane} (refusals: {stress.refusals[-3:]})")
     if not wait(lambda: answered(home.call("_acpmux/status", timeout=3)), AGENT_STEP_S, step=1):
         raise SessionShapeError(f"acpmux does not answer on {home.socket}")
-    home.call("acp.trust.set", {"cwd": home.cwd, "level": "trusted"})
-    if not wait(lambda: answered(page("new_chat", harness=AGENT_HARNESS_ID, cwd=home.cwd)), AGENT_STEP_S, step=2):
-        raise SessionShapeError(f"pane {pane}: new_chat on {AGENT_HARNESS_ID} refused")
-    if not wait(lambda: answered(page("send_prompt", text=prompt)), AGENT_STEP_S, step=2):
-        raise SessionShapeError(f"pane {pane}: send_prompt refused")
-    session = wait(lambda: chat_session(page("chat_state")), AGENT_STEP_S, step=1)
+    trust = home.trust(home.cwd)
+    started = once("new_chat", harness=AGENT_HARNESS_ID, cwd=home.cwd)
+    if started.get("pending"):
+        raise SessionShapeError(f"pane {pane}: new_chat waits on a question (folder trust: {trust or 'set'})")
+    sent = once("send_prompt", text=prompt)
+    prior = chat_session(before)
+
+    def new_session(candidate):
+        return candidate if candidate and candidate != prior else None
+
+    session = new_session(sent.get("sessionId")) or wait(lambda: new_session(chat_session(state())), AGENT_STEP_S, step=1)
     if not session:
-        raise SessionShapeError(f"pane {pane}: the chat has no session after its prompt")
-    return session
+        raise SessionShapeError(f"pane {pane}: the chat has no new session after its prompt")
+    engine = page("engine")
+    return {"session": session, "engine": engine.get("engine") if answered(engine) else None, "trust": trust}
 
 
-def build_agents(app, home, plan):
+def build_agents(app, home, plan, stress_module=None):
     """The agent panes of `plan` (SESSIONS `agents`): with `hidden`, a chat in a new workspace that then hides
     behind the launch workspace; with `visible`, a chat in the launch pane, its turn gated (sends nothing until
-    AgentHome.release) when `working`, else finished; `pool` pooled entries (_acpmux/prewarm). Returns what it
-    built, `hidden_hosts` the agent host pids of the hidden chats (measure's hidden rows)."""
-    module = load_stress()
+    AgentHome.release) when `working`, else finished, on `engine` when the plan names one; `pool` ready pooled
+    entries in home.pool_cwd (_acpmux/prewarm). Returns what it built: `plan`, `hidden_hosts` the agent host pids of
+    the hidden chats (measure's hidden rows), `pool_hosts` the pooled hosts' pids (agent_refusals), `trust` the
+    refused acp.trust.set calls. `stress_module`: perf-stress-session.py (load_stress) or a test's fake."""
+    module = stress_module or load_stress()
     stress, wait = module.Stress(app.rpc), module.wait
     shown = stress.focused_workspace()
-    built = {"shown_workspace": shown, "hidden_hosts": [], "chats": []}
+    built = {"plan": plan, "shown_workspace": shown, "hidden_hosts": [], "pool_hosts": [], "chats": [], "trust": []}
+
+    def opened(pane, prompt):
+        chat = open_agent_chat(app, home, stress, wait, pane, prompt)
+        if chat["trust"]:
+            built["trust"].append(chat["trust"])
+        return chat
 
     def first_pane(workspace):
         panes = stress.panes(stress.workspace(workspace))
@@ -1436,44 +1525,60 @@ def build_agents(app, home, plan):
         if not workspace:
             raise SessionShapeError("the hidden chat's workspace did not appear")
         stress.show(workspace)
-        session = open_agent_chat(app, home, stress, wait, first_pane(workspace), "hello")
+        chat = opened(first_pane(workspace), "hello")
+        session = chat["session"]
         finished(session)
         host = home.host_pid(session)
         if host is None:
             raise SessionShapeError(f"chat {session} has no agent host record in {home.home}/hosts")
         built["hidden_hosts"].append(host)
-        built["chats"].append({"session": session, "workspace": workspace, "visible": False, "host_pid": host})
+        built["chats"].append({"session": session, "workspace": workspace, "visible": False, "host_pid": host,
+                               "engine": chat["engine"]})
         stress.show(shown)
         if stress.window_showing(workspace):
             raise SessionShapeError(f"workspace {workspace} still shows after the launch workspace was shown")
     if plan.get("visible"):
         working = plan.get("working", False)
-        session = open_agent_chat(app, home, stress, wait, first_pane(shown), f"gate: {home.gate()}" if working else "hello")
+        chat = opened(first_pane(shown), f"gate: {home.gate()}" if working else "hello")
+        session = chat["session"]
+        if plan.get("engine") and chat["engine"] != plan["engine"]:
+            # The session's row sums the kinds of `engine` (agent-working-visible: cef); a chat on another engine
+            # does its work in kinds the row does not read.
+            raise SessionShapeError(f"chat {session} shows on {chat['engine']}, the session measures {plan['engine']}")
         if working:
             if not wait(lambda: (home.sessions().get(session) or {}).get("status") == "running", AGENT_STEP_S, step=1):
                 raise SessionShapeError(f"chat {session}: its gated turn does not run ({home.sessions().get(session)})")
         else:
             finished(session)
         built["chats"].append({"session": session, "workspace": shown, "visible": True, "working": working,
-                               "host_pid": home.host_pid(session)})
+                               "host_pid": home.host_pid(session), "engine": chat["engine"]})
     if plan.get("pool"):
-        home.call("acp.trust.set", {"cwd": home.pool_cwd, "level": "trusted"})
-        built["prewarm"] = home.call("_acpmux/prewarm", {"harness": AGENT_HARNESS_ID, "cwd": home.pool_cwd, "wait": True},
-                                     timeout=AGENT_STEP_S * 2)
-        if not wait(lambda: len(home.pool_entries()) >= plan["pool"], AGENT_STEP_S, step=1):
-            raise SessionShapeError(f"{plan['pool']} pooled entries wanted, {len(home.pool_entries())} in "
-                                    f"{home.home}/hosts/pool (prewarm: {json.dumps(built['prewarm'])[:300]})")
-        built["pool_entries"] = len(home.pool_entries())
+        trust = home.trust(home.pool_cwd)
+        if trust:
+            built["trust"].append(trust)
+        reply =home.call("_acpmux/prewarm", {"harness": AGENT_HARNESS_ID, "cwd": home.pool_cwd, "wait": True},
+                          timeout=AGENT_STEP_S * 2)
+        built["prewarm"] = reply
+        if not answered(reply) or reply.get("accepted") is not True:
+            raise SessionShapeError(f"_acpmux/prewarm in {home.pool_cwd} refused: {json.dumps(reply)[:300]}"
+                                    + (f" (trust: {json.dumps(trust)[:200]})" if trust else ""))
+        if not wait(lambda: len(home.pool_ready(home.pool_cwd)) >= plan["pool"], AGENT_STEP_S, step=1):
+            raise SessionShapeError(f"{plan['pool']} ready pooled entries in {home.pool_cwd} wanted, "
+                                    f"{len(home.pool_ready(home.pool_cwd))} (prewarm: {json.dumps(reply)[:300]})")
+        built["pool_entries"] = len(home.pool_ready(home.pool_cwd))
+        built["pool_hosts"] = home.pool_host_pids()
+        if not built["pool_hosts"]:
+            raise SessionShapeError(f"no pooled host record in {home.home}/hosts/pool")
     if stress.refusals:
         built["refusals"] = stress.refusals
     print("AGENT-SESSION " + json.dumps(built), flush=True)
     return built
 
 
-def build_busy_hidden(app, period_s):
+def build_busy_hidden(app, period_s, stress_module=None):
     """The launch terminal prints one line every `period_s`, then a new workspace shows over it: the printing
     terminal is hidden."""
-    stress = load_stress().Stress(app.rpc)
+    stress = (stress_module or load_stress()).Stress(app.rpc)
     printing = stress.focused_workspace()
     tabs = [tab for pane in stress.panes(stress.workspace(printing)) for tab in pane.get("tabs") or []]
     tab = next((t for t in tabs if t.get("selected")), tabs[0] if tabs else None)
@@ -1491,6 +1596,37 @@ def build_busy_hidden(app, period_s):
     built = {"printing_workspace": printing, "printing_tab": tab["id"], "period_s": period_s, "shown_workspace": shown}
     print("BUSY-HIDDEN-SESSION " + json.dumps(built), flush=True)
     return built
+
+
+def session_app(app_class, app_path, out, session, env):
+    """(app, agents) of one cmux session: an agent session's AgentHome (else None), whose ACPMUX_HOME and
+    ACPMUX_SOCKET join the launch `env`, so the app's acpmux and agent hosts run in it. `app_class`: BenchApp."""
+    agents = AgentHome(os.path.join(out, session), session) if SESSIONS[session].get("agents") else None
+    app = app_class(app_path, out=os.path.join(out, session), env={**env, **(agents.env() if agents else {})},
+                    config=session_config(session))
+    return app, agents
+
+
+def start_session(app, agents, spec, entry, stress_module=None):
+    """Writes the agent home before the launch (acpmux reads its config.json at start), launches, then builds the
+    agent panes and the printing hidden terminal of `spec` into `entry`."""
+    if agents:
+        agents.write()
+    app.launch()
+    if spec.get("agents"):
+        entry["agents"] = build_agents(app, agents, spec["agents"], stress_module)
+    if spec.get("busy_terminal"):
+        entry["busy_terminal"] = build_busy_hidden(app, spec["busy_terminal"], stress_module)
+
+
+def stop_session(app, agents):
+    """Ends the gated turns before the app stops (a turn blocked on its gate would outlive the teardown), and stops
+    the app whatever the release did."""
+    try:
+        if agents:
+            agents.release()
+    finally:
+        app.stop()
 
 
 # Both keep-awake settings off (D11): their shipping default is pluggedIn, and a session that asks for keep-awake
@@ -1533,7 +1669,7 @@ SESSIONS = {
     CHROME_POWER_SESSION: {"chrome": True, "tabs": ONE_TAB, "power": True, "settle_min": POWER_SETTLE_S},
     "agent-idle": {"agents": {"visible": True, "hidden": True, "pool": 1},
                    "settle_min": HARNESS_FREEZE_S + FREEZE_GRACE_S},
-    "agent-working-visible": {"agents": {"visible": True, "working": True}},
+    "agent-working-visible": {"agents": {"visible": True, "working": True, "engine": "cef"}},
     "busy-hidden": {"busy_terminal": BUSY_PERIOD_S},
 }
 
@@ -1985,9 +2121,7 @@ def main(argv=None):
         if spec.get("chrome"):
             report["sessions"][session] = chrome_static_entry(opts, out, session, markdown)
             continue
-        agents = AgentHome(os.path.join(out, session), session) if spec.get("agents") else None
-        app = BenchApp(opts.app, out=os.path.join(out, session), env={**env, **(agents.env() if agents else {})},
-                       config=session_config(session))
+        app, agents = session_app(BenchApp, opts.app, out, session, env)
         pages = IdlePages() if spec.get("tabs") else None
         try:
             entry = {"fresh_session": fresh_session(app)}
@@ -1995,13 +2129,7 @@ def main(argv=None):
             consent = bench_launch.seed_hang_report_consent(app.app)
             if consent:
                 print(f"IDLE-BUDGET-NO-HANG-CONSENT {session}: {consent}", flush=True)
-            if agents:
-                agents.write()
-            app.launch()
-            if spec.get("agents"):
-                entry["agents"] = build_agents(app, agents, spec["agents"])
-            if spec.get("busy_terminal"):
-                entry["busy_terminal"] = build_busy_hidden(app, spec["busy_terminal"])
+            start_session(app, agents, spec, entry)
             if spec.get("stress"):
                 entry["stress"] = build_stress(app, static=spec.get("static", False))
             if spec.get("tabs"):
@@ -2095,9 +2223,7 @@ def main(argv=None):
             if isinstance(error, KeyboardInterrupt):
                 raise
         finally:
-            if agents:
-                agents.release()  # a gated turn ends before the teardown ends its agent
-            app.stop()
+            stop_session(app, agents)
             if pages is not None:
                 pages.close()
     cross, cross_notes, chrome_refused = judge_across(report, budget, CHROME_SESSION in sessions)
