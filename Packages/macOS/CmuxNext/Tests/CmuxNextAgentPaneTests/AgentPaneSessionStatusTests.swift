@@ -30,7 +30,7 @@ struct AgentPaneSessionStatusTests {
         #expect(AgentPaneTunables.sessionStatus.defaultValue == false, "in-session status is on by default")
 
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         defer { view.close() }
         #expect(!view.sessionStatus)
         // The page's subscription to its host events, as the loaded page makes it.
@@ -50,7 +50,7 @@ struct AgentPaneSessionStatusTests {
         #expect(AgentPanePageHost.currentEvents(view).filter { $0.kind == "sessionStatus" } == [.sessionStatus(true)],
                 "a page that loads again would not get the toggle")
 
-        let later = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost()))
+        let later = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         defer { later.close() }
         #expect(later.sessionStatus, "a page made with the toggle on starts with it off")
 

@@ -20,7 +20,7 @@ struct AgentPaneScopeGlassTests {
 
     @Test func aChatInAScopeWithAPictureIsGlassNotTheOpaqueThemeColor() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
 
         // Outside any picture (the app's scope, background-opacity 1) the chat paints its theme color.
         try #require(ThemeScope.app.backdropSelection == nil, "the test's app scope has a picture")

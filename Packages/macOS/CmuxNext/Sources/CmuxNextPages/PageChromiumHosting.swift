@@ -47,6 +47,10 @@ public protocol PageChromiumPage: AnyObject {
     /// leaves these rects uncovered: the native view under them shows there and takes the mouse
     /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
     var occlusionRects: [CGRect] { get set }
+    /// Whether `window` is the Chromium window that draws this page now: a child of
+    /// ``contentView``'s window, over it. An event in that window is this page's input and no other
+    /// page's, even when another page's window sits at the same frame (a hidden tab of the same pane).
+    func isPageWindow(_ window: NSWindow) -> Bool
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
