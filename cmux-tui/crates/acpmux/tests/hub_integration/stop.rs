@@ -61,11 +61,16 @@ async fn session_cancel_as_a_request_is_answered() {
 
 /// A hub whose one profile is Claude Code (`fake_claude.py`).
 async fn claude_setup() -> (Arc<Hub>, TestClient) {
+    claude_setup_env(BTreeMap::new()).await
+}
+
+/// `claude_setup` with the fake's env (FAKE_CLAUDE_* switches).
+pub(super) async fn claude_setup_env(env: BTreeMap<String, String>) -> (Arc<Hub>, TestClient) {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let profile = HarnessProfile {
         kind: acpmux::config::HarnessKind::ClaudeStdio,
         argv: vec!["python3".into(), fake_claude.into()],
-        env: BTreeMap::new(),
+        env,
         description: None,
         fallback: None,
         family: None,
