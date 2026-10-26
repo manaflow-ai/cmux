@@ -184,16 +184,18 @@ the recorded one unless the tagged app was prepared with the same topology.
 
 ## 6. Model-based fuzzing
 
-Where it runs now: `oracle-input-walk` (`Packages/macOS/CmuxNext/Sources/OracleInputWalk/`,
-task p15-oracle-105 of [chrome-parity/p15-oracle.md](chrome-parity/p15-oracle.md)) rebuilds the
-walker below from `git show 36f2381bf1a^:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/InputModel/`
-as an executable on top of `CmuxNextInputModel`, which holds the attach machine, the invariants and
-replay after they move out of the app (tasks 102 and 103). It is not a test target and not in CI. It
-runs on the Linux VM: the same seed gives the same walk, and a failure writes its minimized journal.
-`oracle-replay` (task 104) replays saved journals against the same reducers, the Linux form of
-section 5. [oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both; the done check is
-1,000,000 steps on 200 workers with 0 violations on the green set. The text below describes the
-deleted walker that `oracle-input-walk` rebuilds.
+Planned, not landed: `oracle-input-walk` (`Packages/macOS/CmuxNext/Sources/OracleInputWalk/`,
+task p15-oracle-105 of [chrome-parity/p15-oracle.md](chrome-parity/p15-oracle.md)) will rebuild
+part of the walker below from `git show 36f2381bf1a^:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/InputModel/`
+as an executable, not a test target and not in CI. On the Linux VM it can run only the attach part:
+`TerminalAttachMachine`, `AttachOracle`, the input invariants and replay, after tasks 102 and 103
+move them into `CmuxNextInputModel`. The same seed gives the same walk, and a failure writes its
+minimized journal. `oracle-replay` (task 104) replays saved attach journals, the Linux form of
+section 5. The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
+`FocusCoordinator` and its reducers, which stay in `CmuxNextApp/Focus`, outside the Linux tier. They
+have no runner until those move out of the app, and no p15 task does that yet.
+[oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both executables. The text below
+describes the deleted walker.
 
 `InputWorld` composes the real `FocusCoordinator` per window (its queue and echo suppression),
 the real omnibar reducer per browser tab, a real `TerminalAttachMachine` per terminal view with
@@ -219,8 +221,9 @@ passed at landing.
 
 ## 7. Bugs the fuzzer found
 
-Each had a test in `InputBugRegressionTests` (deleted in `36f2381bf1a`); its minimal sequence
-returns as a seeded `oracle-input-walk` journal.
+Each had a test in `InputBugRegressionTests` (deleted in `36f2381bf1a`). These bugs are in focus,
+palette or Chromium key-window code, so the attach-only `oracle-input-walk` cannot replay them; they
+have no regression runner until `FocusCoordinator` leaves the app (section 6).
 
 | Id | Found as | Bug | Fix |
 | --- | --- | --- | --- |

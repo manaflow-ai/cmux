@@ -42,12 +42,12 @@ Paths are in chromium/src. Each row names what cmux takes from it.
 | The same tests under a flag: `VirtualTestSuites`, `--flag-specific`, `FlagExpectations/NAME` | `third_party/blink/web_tests/VirtualTestSuites`, `docs/testing/web_tests.md` | A switch arm is a virtual suite; the switch's `expected_differences` is its FlagExpectations (section 6) |
 | FeatureList frozen before the first read, passed to children on the command line; planned launch config of all studies at once; flags expire | `base/feature_list.h`, `testing/variations/fieldtrial_testing_config.json`, `chrome/browser/flag-metadata.json`, `tools/flags/generate_expired_list.py` | `RefactorSwitches` parsed once at launch and injected; `--arm launch-config`; 14-day expiry and `switches --expired` |
 | Kombucha UI journeys: Action, WaitFor, Check on element ids; `WaitForState` instead of sleeps; `RunUntilIdle` "can lead to flaky tests" | `chrome/test/interaction/README.md`, `ui/base/interaction/interactive_test.h`, `docs/threading_and_tasks_testing.md` | A step's `waitFor` and the `settle` barrier; no sleeps anywhere (section 3) |
-| One process per browser test, shards, serial retries, shuffle; the CQ blames a CL only after "with patch", "retry shards with patch" and "without patch" | `base/test/launcher/test_launcher.cc` | Shards, `--retry-limit`, `--shuffle --seed`, and `confirm` before a divergence reaches an owner (section 7) |
-| A renderer crash fails a browser test unless allowed; leak expectations | `content/public/test/browser_test_base.h` (`NoRendererCrashesAssertion`, `ScopedAllowRendererCrashes`), `content/public/test/browser_test_utils.h` | The `crashes` facet, `allow_crashes` on a case, invariants I17 and I18 |
+| One process per browser test, shards, serial retries, shuffle; the CQ blames a CL only after "with patch", "retry shards with patch" and "without patch" | `base/test/launcher/test_launcher.cc` (shards, retries, shuffle); the CQ retry and "without patch" steps are in the `chromium_tests` recipe module (`tools/build` repository, `recipes/recipe_modules/chromium_tests/`) | Shards, `--retry-limit`, `--shuffle --seed`, and `confirm` before a divergence reaches an owner (section 7) |
+| A renderer crash fails a browser test unless allowed; leak expectations | `content/public/test/no_renderer_crashes_assertion.h` (`NoRendererCrashesAssertion`, `ScopedAllowRendererCrashes`; `browser_test_base.h` holds the member), `content/public/test/browser_test_utils.h` | The `crashes` facet, `allow_crashes` on a case, invariants I17 and I18 |
 | Time controlled at the source, "without any test-specific seams in the product code" | `base/test/task_environment.h` (`TimeSource::MOCK_TIME`), `base/time/time_override.h` | Daemon virtual clock and seeded ids under the `oracle` cargo feature (185) |
 | Coverage-guided fuzzing; shared validation data read by every binding | `testing/libfuzzer/README.md`, `mojo/docs/mojolpm.md`, `mojo/public/interfaces/bindings/tests/data/validation` | Resource-op sequence fuzzer (186); pane-protocol vectors run by Rust, TS and Swift (213) |
 | Sanitizer bots run the same suites; incremental coverage per CL | `build/config/sanitizers/sanitizers.gni`, `docs/testing/code_coverage_in_gerrit.md` | `[ asan ]` and `[ tsan ]` modifiers (187); `oracle.py coverage` (190) |
-| browser_tests on `linux-rel` with `dcheck_always_on` | CQ builder config | App cases run in bench config: Release optimization plus `debug.*` methods |
+| browser_tests on `linux-rel` with `dcheck_always_on` | `infra/config/subprojects/chromium/try/tryserver.chromium.linux.star` (the `linux-rel` try builder) | App cases run in bench config: Release optimization plus `debug.*` methods |
 | Accessibility tree baselines per platform | `content/browser/accessibility/dump_accessibility_tree_browsertest.cc` | The `ax` facet and suite (216) |
 | One command path for accelerators, menus and buttons | `chrome/browser/ui/browser_commands.h` (`chrome::ExecuteCommand`, `CommandUpdater`) | The `entrypoints` suite: one case per entrypoint of an action, all compared to each other (210) |
 | History DB migrations tested from stored old versions | `components/test/data/history/history.N.sql`, `sql/test/test_helpers.h` | The `upgrades` suite: state roots written by older cmux-tui tags (208) |
@@ -77,7 +77,7 @@ Paths are in chromium/src. Each row names what cmux takes from it.
 | VT corpus cases | 7 | `git ls-files 'schemas/terminal-corpus/*.vt' \| wc -l` |
 | classic API compat fixture cases (the vectors live in the Rust test, 636 lines) | 0 | `jq '.cases\|length' cmux-tui/spec/api-compat-fixtures.json; wc -l < cmux-tui/crates/cmux-api-compat/tests/api_compat.rs` |
 | Rust tests in cmux-tui | 10,756 | `git grep -hE '#\[(tokio::)?test' -- cmux-tui \| wc -l` |
-| Rust integration test files | 771 | `git ls-files 'cmux-tui/crates/*/tests/*.rs' \| wc -l` |
+| Rust integration test crates (top level of `crates/<c>/tests/`); all `.rs` files under those folders | 393; 617 | `git ls-files ':(glob)cmux-tui/crates/*/tests/*.rs' \| wc -l; git ls-files ':(glob)cmux-tui/crates/*/tests/**/*.rs' \| wc -l` |
 | CmuxNext `@Test` functions | 9,168 | `git grep -cE '@Test\b' -- Packages/macOS/CmuxNext/Tests \| awk -F: '{s+=$2} END {print s}'` |
 | CmuxNext test directories | 57 | `ls -d Packages/macOS/CmuxNext/Tests/*/ \| wc -l` |
 | CmuxNext source directories | 120 | `ls Packages/macOS/CmuxNext/Sources \| wc -l` |
@@ -121,7 +121,7 @@ topology, daemon, focus, layout, sidebar, tabs, overlays, settings, intents, win
 agents, terminals, webviews, ax, crashes, liveObjects, invariants, switches. Every field names its wire source
 (`x-oracle-source`). A facet a build cannot give is `{"status": "not-comparable", ...}`, never a pass.
 
-App facets come from `debug.oracle.snapshot`, `settle`, `wait_for`, `turns`, `recorder` and `switch_hits` (030-044),
+App facets come from `debug.oracle.snapshot`, `settle`, `wait_for`, `turns`, `recorder` and `switch_hits` (027, 030-044),
 registered inside `#if DEBUG || CMUX_BENCH_HOOKS` next to the other `debug.*` methods, so
 `ControlRouter.debugMethodsAllowed` refuses them in Release by name. Facet providers are values registered once in
 AppServices; they build only on request and add no observer when nobody asks. The daemon facet is the public
@@ -217,7 +217,7 @@ meet a budget.
 6. **Select and bisect** (009): `tests/oracle/suite-map.json` maps changed paths to suites; `bisect` runs one
    divergent case over the commits of a batch.
 
-**Invariants** at every checkpoint (`invariants.py`, 110, 217, 236):
+**Invariants** at every checkpoint (`invariants.py`; I1-I7 110, I8 204, I9 205, I10 206, I11-I15 217, I16 236, I17-I18 188):
 
 | Id | Rule |
 | --- | --- |
@@ -276,8 +276,12 @@ and `swift-shared.sh` with the compiler-error queue (004), `tier-imports.py` (00
 - All pure `git mv` moves and their manifest edits land in one coordinated commit (119) that names every owner.
   If an owner refuses, that target leaves the tier for the push.
 - `oracle-replay` (104) and `oracle-input-walk` (105) are executables, not test targets (the 2026-10-10 ruling
-  deleted the in-process suites). `oracle-input-walk` rebuilds the model-based input fuzzer of
-  [input-spec.md](input-spec.md#6-model-based-fuzzing) on top of `CmuxNextInputModel` (102, 103).
+  deleted the in-process suites). Neither has landed. On Linux, `oracle-input-walk` can rebuild only the attach
+  part of the input fuzzer of [input-spec.md](input-spec.md#6-model-based-fuzzing): `TerminalAttachMachine`,
+  `AttachOracle`, the input invariants and replay, which 102 and 103 move into `CmuxNextInputModel`. The focus,
+  omnibar, `KeyRouter` and palette parts stay in `CmuxNextApp/Focus`, outside the tier, and so do the
+  regressions B1-B15. Linux does not cover them until `FocusCoordinator` and its reducers move out of the app,
+  and no p15 task does that yet.
 
 ## 9. Lifecycle of a refactor under the oracle
 
@@ -323,7 +327,7 @@ Which p15 tasks are on the branch: `git log --format=%s origin/perf/chrome-parit
 
 - [chrome-parity/p15-oracle.md](chrome-parity/p15-oracle.md): the program spec, task details and machine queues.
 - [ui-workflow-corpus.md](ui-workflow-corpus.md): journey manifests; the oracle case is their executable form.
-- [input-spec.md](input-spec.md): input invariants; `oracle-input-walk` and `oracle-replay` run its fuzzer and replay on Linux.
+- [input-spec.md](input-spec.md): input invariants; `oracle-input-walk` and `oracle-replay` (planned) run its attach-machine walk and replay on Linux.
 - [refactor-switches/README.md](refactor-switches/README.md), [schemas/oracle/README.md](../../schemas/oracle/README.md),
   [tests/oracle/README.md](../../tests/oracle/README.md).
 - [stability-DESIGN.md](stability-DESIGN.md): crash lab, sanitizers and the `cmux-tui/fuzz` workspace (PL-stability);
