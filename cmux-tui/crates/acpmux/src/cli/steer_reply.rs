@@ -110,47 +110,64 @@ impl SteerReply {
 }
 
 /// The end of turn `turn` of session `id`, from the daemon rather than the events. While the
-/// turn runs, `_acpmux/wait` (server side, never dropped) blocks until it ended
-/// (`turnEnded`, `server/wait.rs`), and the session's `lastTurn` gives the end; a turn that no
-/// longer runs has its end in the log. A failed request, a session on a machine that is
-/// unreachable, and a session that ended with no end of that turn are errors: the send never
-/// waits on a turn nobody can see end.
+/// turn runs, `_acpmux/wait` (server side, never dropped) blocks until it ended (`turnEnded`,
+/// `server/wait.rs`), and the session's `lastTurn` gives the end; a turn that no longer runs has
+/// its end in the log. Each wait is bounded (`RECHECK_MS`) and the session is read again after
+/// it, so a daemon older than `turnEnded` (which waits only for ready or closed) still ends it.
+/// A failed request, a session on a machine that is unreachable, and a session whose turn is
+/// over with no end of it recorded within `WRITING_END_MS` are errors: the send never waits on
+/// a turn nobody can see end.
 pub(crate) async fn wait_end(client: Arc<Client>, id: String, turn: String) -> Result<Value> {
-    let info = json!({"sessionId": id, "waitLogs": false});
-    let info = client.request(method::MUX_INFO, info).await?;
-    if info.get("stale").and_then(Value::as_bool) == Some(true) {
-        return Err(anyhow!(
-            "the machine of {id} is unreachable; the turn it steered into may run on"
-        ));
+    let mut gone_since: Option<std::time::Instant> = None;
+    loop {
+        let info = json!({"sessionId": id, "waitLogs": false});
+        let info = client.request(method::MUX_INFO, info).await?;
+        if info.get("stale").and_then(Value::as_bool) == Some(true) {
+            return Err(anyhow!(
+                "the machine of {id} is unreachable; the turn it steered into may run on"
+            ));
+        }
+        if let Some(end) = last_turn_end(&info, &turn) {
+            return end;
+        }
+        let running = info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn.as_str());
+        let mut wait_ms = RECHECK_MS;
+        if !running {
+            if let Some(end) = logged_end(&client, &id, &turn).await? {
+                return end;
+            }
+            // Its end is being written (`lastTurn` names it shortly), unless the session is
+            // closed or the time for that passed.
+            let since = *gone_since.get_or_insert_with(std::time::Instant::now);
+            let left = WRITING_END_MS.saturating_sub(since.elapsed().as_millis() as u64);
+            let status = info.get("status").and_then(Value::as_str).unwrap_or("ended");
+            if status == "closed" || left == 0 {
+                return Err(anyhow!(
+                    "{id} is {status} with no end of the turn the message steered into \
+                     (acpmux last {id})"
+                ));
+            }
+            wait_ms = wait_ms.min(left);
+        }
+        // Running: it ends after its start (`server/wait.rs`).
+        let started_at =
+            info.pointer("/turn/startedAt").and_then(Value::as_u64).filter(|_| running);
+        let wait = json!({
+            "sessions": [id],
+            "until": ["ready", "closed"],
+            "turnEnded": {"turnId": turn, "startedAt": started_at.unwrap_or(u64::MAX)},
+            "timeoutMs": wait_ms,
+        });
+        let waited = client.request(method::MUX_WAIT, wait).await?;
+        let row = waited.pointer("/resolved/0").cloned().unwrap_or(Value::Null);
+        if let Some(end) = last_turn_end(&row, &turn) {
+            return end;
+        }
     }
-    let running = info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn.as_str());
-    if !running && let Some(end) = logged_end(&client, &id, &turn).await? {
-        return end;
-    }
-    // Running: it ends at or after its start. Gone but not in the log yet: its end is being
-    // written, and `lastTurn` names it shortly; that wait is bounded.
-    let started_at = info.pointer("/turn/startedAt").and_then(Value::as_u64).filter(|_| running);
-    let mut wait = json!({
-        "sessions": [id],
-        "until": ["ready", "closed"],
-        "turnEnded": {"turnId": turn, "startedAt": started_at.unwrap_or(u64::MAX)},
-    });
-    if !running {
-        wait["timeoutMs"] = json!(WRITING_END_MS);
-    }
-    let resolved = client.request(method::MUX_WAIT, wait).await?;
-    let row = resolved.pointer("/resolved/0").cloned().unwrap_or(Value::Null);
-    if let Some(end) = last_turn_end(&row, &turn) {
-        return end;
-    }
-    if let Some(end) = logged_end(&client, &id, &turn).await? {
-        return end;
-    }
-    let status = row.get("status").and_then(Value::as_str).unwrap_or("ended");
-    Err(anyhow!(
-        "{id} is {status} with no end of the turn the message steered into (acpmux last {id})"
-    ))
 }
+
+/// How long one `_acpmux/wait` of `wait_end` lasts before it reads the session again.
+const RECHECK_MS: u64 = 10_000;
 
 /// How long a turn that no longer runs may take to record its end.
 const WRITING_END_MS: u64 = 30_000;
