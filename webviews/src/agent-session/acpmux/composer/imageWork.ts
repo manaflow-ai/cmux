@@ -25,40 +25,65 @@ export const FIT_STEPS = [
  * 12K x 8K photo (96 MP) is about 400 MB of pixels while it is scaled. */
 export const MAX_DECODE_PIXELS = 100_000_000;
 
-/// A PNG, GIF, JPEG or WebP's size from its header (the first 64 KiB), without decoding it;
-/// undefined for another type or a header it cannot read.
-export async function imageSize(file: Blob): Promise<{ width: number; height: number } | undefined> {
-  const bytes = new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer());
+/// How far into a JPEG its frame header is looked for: past its metadata segments (an iPhone's
+/// can pass 64 KiB), at most this far.
+const JPEG_SCAN_BYTES = 16 * 1024 * 1024;
+
+/// A PNG, GIF, JPEG or WebP's size from its header, without decoding it: `known` with no size when
+/// it is one of those but its size cannot be read (it is then not decoded either); undefined for
+/// another type.
+export async function imageSize(file: Blob): Promise<{ known: true; width?: number; height?: number } | undefined> {
+  const bytes = new Uint8Array(await file.slice(0, 64).arrayBuffer());
   const view = new DataView(bytes.buffer);
   const at = (offset: number, ...sig: number[]) => sig.every((byte, index) => bytes[offset + index] === byte);
-  if (bytes.length >= 24 && at(0, 0x89, 0x50, 0x4e, 0x47) && at(12, 0x49, 0x48, 0x44, 0x52))
-    return { width: view.getUint32(16), height: view.getUint32(20) };
-  if (bytes.length >= 10 && at(0, 0x47, 0x49, 0x46))
-    return { width: view.getUint16(6, true), height: view.getUint16(8, true) };
-  if (bytes.length >= 30 && at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) {
-    if (at(12, 0x56, 0x50, 0x38, 0x58))
-      return { width: 1 + (view.getUint32(24, true) & 0xffffff), height: 1 + (view.getUint32(27, true) & 0xffffff) };
-    if (at(12, 0x56, 0x50, 0x38, 0x4c)) {
+  const u24 = (offset: number) => bytes[offset]! | (bytes[offset + 1]! << 8) | (bytes[offset + 2]! << 16);
+  if (at(0, 0x89, 0x50, 0x4e, 0x47))
+    return bytes.length >= 24 && at(12, 0x49, 0x48, 0x44, 0x52)
+      ? { known: true, width: view.getUint32(16), height: view.getUint32(20) }
+      : { known: true };
+  if (at(0, 0x47, 0x49, 0x46))
+    return bytes.length >= 10
+      ? { known: true, width: view.getUint16(6, true), height: view.getUint16(8, true) }
+      : { known: true };
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) {
+    if (at(12, 0x56, 0x50, 0x38, 0x58) && bytes.length >= 30)
+      return { known: true, width: 1 + u24(24), height: 1 + u24(27) };
+    if (at(12, 0x56, 0x50, 0x38, 0x4c) && bytes.length >= 25) {
       const bits = view.getUint32(21, true);
-      return { width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
+      return { known: true, width: 1 + (bits & 0x3fff), height: 1 + ((bits >> 14) & 0x3fff) };
     }
-    if (at(12, 0x56, 0x50, 0x38, 0x20))
-      return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
-    return undefined;
+    if (at(12, 0x56, 0x50, 0x38, 0x20) && bytes.length >= 30)
+      return { known: true, width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+    return { known: true };
   }
-  if (bytes.length >= 4 && at(0, 0xff, 0xd8)) {
-    // A JPEG's frame header (SOF0..SOF15 but DHT, JPG and DAC) names its size.
-    for (let offset = 2; offset + 9 < bytes.length;) {
-      if (bytes[offset] !== 0xff) return undefined;
-      const marker = bytes[offset + 1]!;
-      if (marker === 0xff) {
-        offset += 1;
-        continue;
-      }
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
-        return { width: view.getUint16(offset + 7), height: view.getUint16(offset + 5) };
-      offset += 2 + view.getUint16(offset + 2);
+  if (at(0, 0xff, 0xd8)) return { known: true, ...(await jpegSize(file)) };
+  return undefined;
+}
+
+/// A JPEG's size from its frame header (SOF0..SOF15 but DHT, JPG and DAC), segment by segment from
+/// the file (reading only each segment's head), within JPEG_SCAN_BYTES.
+async function jpegSize(file: Blob): Promise<{ width: number; height: number } | undefined> {
+  let offset = 2;
+  const end = Math.min(file.size, JPEG_SCAN_BYTES);
+  while (offset + 9 <= end) {
+    const head = new Uint8Array(await file.slice(offset, offset + 9).arrayBuffer());
+    if (head.length < 4 || head[0] !== 0xff) return undefined;
+    const marker = head[1]!;
+    if (marker === 0xff) {
+      offset += 1;
+      continue;
     }
+    // Markers with no length: TEM and RST0..RST7.
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      offset += 2;
+      continue;
+    }
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      if (head.length < 9) return undefined;
+      return { width: (head[7]! << 8) | head[8]!, height: (head[5]! << 8) | head[6]! };
+    }
+    if (marker === 0xd9 || marker === 0xda) return undefined;
+    offset += 2 + ((head[2]! << 8) | head[3]!);
   }
   return undefined;
 }
@@ -87,8 +112,11 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
   try {
     // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
     // it goes as a file, linked or uploaded, which the agent opens itself.
+    // One whose size cannot be read is not decoded either: it may be any size.
     const size = await imageSize(file);
-    if (size && size.width * size.height > MAX_DECODE_PIXELS) return undefined;
+    if (size && (size.width === undefined || size.height === undefined)) return undefined;
+    if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
+      return undefined;
     bitmap = await createImageBitmap(file);
     const fitted = await fit(bitmap, file.type);
     if (!fitted) return undefined;

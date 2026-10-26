@@ -95,7 +95,7 @@ export async function uploadToMachine(
         // explicitly instead of rebuilding the removed composer cap as a connection reset.
         if (files.some((entry) => entry.size > LEGACY_FRAME_SAFE_BYTES))
           return { error: "This host cannot stream an attachment this large." };
-        return legacyUpload(files, call);
+        return legacyUpload(files, call, cancelled);
       }
       return { error: error instanceof Error ? error.message : String(error) };
     }
@@ -132,13 +132,26 @@ export async function uploadToMachine(
   return { paths };
 }
 
-async function legacyUpload(files: File[], call: Call): Promise<UploadResult> {
+/// An older host's one-frame upload (24 MiB at most): it cannot stop once sent, so a file cancelled
+/// before it goes is left out, and one cancelled while it goes gets no path (its copy stays unused).
+async function legacyUpload(
+  files: File[],
+  call: Call,
+  cancelled: (index: number) => boolean = () => false,
+): Promise<UploadResult> {
   try {
+    const sending = files.flatMap((file, index) => (cancelled(index) ? [] : [{ file, index }]));
+    if (!sending.length) return { paths: files.map(() => "") };
     const payload = await Promise.all(
-      files.map(async (file) => ({ name: file.name, data: base64(new Uint8Array(await file.arrayBuffer())) })),
+      sending.map(async ({ file }) => ({ name: file.name, data: base64(new Uint8Array(await file.arrayBuffer())) })),
     );
-    const paths = uploadedPaths(await call("chat.upload", { files: payload }));
-    return paths.length === files.length ? { paths } : undefined;
+    const sent = uploadedPaths(await call("chat.upload", { files: payload }));
+    if (sent.length !== sending.length) return undefined;
+    const paths = files.map(() => "");
+    sending.forEach(({ index }, at) => {
+      if (!cancelled(index)) paths[index] = sent[at]!;
+    });
+    return { paths };
   } catch (error) {
     if (notTaken(error)) return undefined;
     return { error: error instanceof Error ? error.message : String(error) };

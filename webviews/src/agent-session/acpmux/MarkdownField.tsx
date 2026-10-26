@@ -520,6 +520,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // 2026-10-25: "the composer should never ever freeze"). Smaller drops are ProseMirror's.
               drop: (editorView, event) => {
                 const data = event.dataTransfer;
+                // A drag from inside the field moves its own text, as ProseMirror does.
+                if (editorView.dragging) return false;
                 if (!data || data.files.length || [...data.types].includes("Files")) return false;
                 const whole = data.getData("text/plain");
                 if (whole.length <= PASTE_FILE_CHARS) return false;

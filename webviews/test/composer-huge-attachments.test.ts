@@ -34,9 +34,39 @@ function jpeg(width: number, height: number): Blob {
 }
 
 test("a picture's size comes from its header, without decoding it", async () => {
-  expect(await imageSize(png(14142, 14142))).toEqual({ width: 14142, height: 14142 });
-  expect(await imageSize(jpeg(6000, 4000))).toEqual({ width: 6000, height: 4000 });
+  expect(await imageSize(png(14142, 14142))).toEqual({ known: true, width: 14142, height: 14142 });
+  expect(await imageSize(jpeg(6000, 4000))).toEqual({ known: true, width: 6000, height: 4000 });
   expect(await imageSize(new Blob(["not a picture"]))).toBeUndefined();
+});
+
+// Review (Codex): an iPhone JPEG's metadata can pass 64 KiB before its frame header.
+test("a JPEG's size is found past metadata segments of any size", async () => {
+  // Two 40 KiB APP segments (a segment's length is 16 bits), so the frame header is past 80 KiB.
+  const body = new Uint8Array(40 * 1024);
+  const app = [0xff, 0xe1, ((body.length + 2) >> 8) & 0xff, (body.length + 2) & 0xff];
+  const sof = [0xff, 0xc0, 0x00, 0x11, 0x08, 9000 >> 8, 9000 & 0xff, 12000 >> 8, 12000 & 0xff, 3];
+  const file = new Blob(
+    [new Uint8Array([0xff, 0xd8]), new Uint8Array(app), body, new Uint8Array(app), body, new Uint8Array(sof)],
+    { type: "image/jpeg" },
+  );
+  expect(await imageSize(file)).toEqual({ known: true, width: 12000, height: 9000 });
+});
+
+test("a picture whose size cannot be read is known as one and never decoded", async () => {
+  // A WebP VP8X header cut short, and a PNG with no IHDR.
+  const webp = new Uint8Array(29);
+  webp.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58]);
+  expect(await imageSize(new Blob([webp]))).toEqual({ known: true });
+  let decoded = 0;
+  g.createImageBitmap = async () => {
+    decoded += 1;
+    throw new Error("decoded");
+  };
+  g.OffscreenCanvas = class {};
+  expect(
+    await prepareImage(new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: "image/png" })),
+  ).toBeUndefined();
+  expect(decoded).toBe(0);
 });
 
 test("a 200-megapixel picture is never decoded: it goes as a file", async () => {
