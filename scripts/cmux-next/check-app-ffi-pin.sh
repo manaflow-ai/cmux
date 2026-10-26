@@ -4,6 +4,12 @@
 #
 #   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF]
 #   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs
+#   scripts/cmux-next/check-app-ffi-pin.sh --batch REF...
+#
+# --batch is the pin lander's queue: it prints each REF whose commits since
+# its merge-base with HEAD change an FFI input, with those paths, so the
+# lander merges them together and republishes once per batch, not once per
+# change (plans/cmux-next/stability-DESIGN.md, rule 5).
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -16,12 +22,20 @@ set -euo pipefail
 verify=0
 list_inputs=0
 base_ref=""
+batch_refs=()
+usage="usage: $0 [--verify-release] [--base REF] | --list-inputs | --batch REF..."
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-release) verify=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
-    *) echo "usage: $0 [--verify-release] [--base REF]" >&2; exit 2 ;;
+    --batch)
+      shift
+      [[ $# -gt 0 ]] || { echo "$usage" >&2; exit 2; }
+      batch_refs=("$@")
+      break
+      ;;
+    *) echo "$usage" >&2; exit 2 ;;
   esac
   shift
 done
@@ -64,6 +78,26 @@ paths+=(cmux-tui/rust-toolchain.toml scripts/cmux-next/build-app-ffi.sh scripts/
 # release workflow's push paths in step with this list).
 if [[ "$list_inputs" -eq 1 ]]; then
   printf '%s\n' "${paths[@]}"
+  exit 0
+fi
+
+# The inputs are HEAD's: a REF that adds a path dependency to an FFI crate is
+# listed by its Cargo.toml change, which is itself an input.
+if [[ ${#batch_refs[@]} -gt 0 ]]; then
+  cd "$root"
+  touching=0
+  for ref in "${batch_refs[@]}"; do
+    commit="$(git rev-parse --verify --quiet "$ref^{commit}")" \
+      || { echo "error: --batch $ref is not a commit here" >&2; exit 2; }
+    fork="$(git merge-base HEAD "$commit")" \
+      || { echo "error: --batch $ref shares no history with HEAD" >&2; exit 2; }
+    changed="$(git diff --name-only "$fork" "$commit" -- "${paths[@]}")"
+    [[ -n "$changed" ]] || continue
+    touching=$((touching + 1))
+    echo "$ref ($(git rev-parse --short "$commit")): $(wc -l <<<"$changed" | tr -d ' ') FFI input file(s)"
+    while IFS= read -r path; do echo "  $path"; done <<<"$changed"
+  done
+  echo "app FFI batch: $touching of ${#batch_refs[@]} ref(s) change the FFI inputs"
   exit 0
 fi
 

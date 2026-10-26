@@ -71,4 +71,27 @@ if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh 2>&1)"; then
 fi
 [[ "$out" == *"cmux-remote-browser"* ]] || fail "the stale report does not name cmux-remote-browser: $out"
 
+# --batch lists the refs whose own commits change an FFI input (the pin
+# lander's queue), and not a ref that changes only other crates, nor a ref
+# that merely sits behind HEAD's FFI commits.
+trunk="$(git -C "$repo" symbolic-ref --short HEAD)"
+git -C "$repo" branch -q behind HEAD~1
+git -C "$repo" checkout -q -b ffi-change "$trunk"
+echo "// guard" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+git -C "$repo" commit -qam ffi-change
+git -C "$repo" checkout -q -b other-change "$trunk"
+echo "// other" >> "$repo/cmux-tui/crates/cmux-unrelated/src/lib.rs"
+git -C "$repo" commit -qam other-change
+git -C "$repo" checkout -q "$trunk"
+out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh --batch ffi-change other-change behind 2>&1)" \
+  || fail "--batch failed: $out"
+[[ "$out" == *"ffi-change ("*"1 FFI input file(s)"*"cmux-tui/crates/cmux-rd-core/src/lib.rs"* ]] \
+  || fail "--batch did not list ffi-change and its input: $out"
+[[ "$out" != *"other-change ("* ]] || fail "--batch listed a ref that changes no FFI input: $out"
+[[ "$out" != *"behind ("* ]] || fail "--batch listed a ref behind HEAD: $out"
+[[ "$out" == *"app FFI batch: 1 of 3 ref(s)"* ]] || fail "--batch summary is wrong: $out"
+if out="$(cd "$repo" && bash scripts/cmux-next/check-app-ffi-pin.sh --batch no-such-ref 2>&1)"; then
+  fail "--batch accepted a ref that is not a commit: $out"
+fi
+
 echo "check-app-ffi-pin.test.sh: ok"
