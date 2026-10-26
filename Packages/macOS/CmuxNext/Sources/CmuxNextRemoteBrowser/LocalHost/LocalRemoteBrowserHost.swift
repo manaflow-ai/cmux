@@ -2,7 +2,6 @@ public import CmuxNextRemoteView
 public import CmuxNextWakeups
 public import Foundation
 import Security
-import CmuxNextWakeups
 
 /// A remote browser host this app starts on loopback for one remote tab
 /// (remote-tab-r2.md, local host): `cmux-remote-browser-host --serve --listen
