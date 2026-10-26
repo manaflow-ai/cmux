@@ -137,8 +137,8 @@ final class CEFRuntime {
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
-    /// Recent renderer and helper process failures (`debug.crashes`).
-    let crashLog = BrowserCrashLog()
+    /// Recent renderer and helper process failures (`debug.crashes`) and the `cef.helper_exit` histogram they count in.
+    let crashLog = BrowserCrashLog(), helperExits = CEFHelperExitMetric()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
     /// Runs once CEF is initialized (the App re-installs its crash signal
