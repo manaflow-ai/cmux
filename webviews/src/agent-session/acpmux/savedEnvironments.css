@@ -3,6 +3,10 @@
    the pane's text tokens. */
 
 .acpmux-env-panel {
+  --glass-edge: var(--agent-border);
+  --glass-elevation: var(--elevation-1);
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup, var(--agent-input-bg));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -11,9 +15,8 @@
   box-sizing: border-box;
   margin: 10px auto 0;
   padding: 10px 12px;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  border: 0;
   border-radius: 10px;
-  background: var(--surface-popup, var(--agent-input-bg));
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);

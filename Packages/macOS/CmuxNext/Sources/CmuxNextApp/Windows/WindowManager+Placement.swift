@@ -10,7 +10,7 @@ struct PendingPlacement {
     var slot: WorkspaceSlot?
     /// `workspaces.newPlacement`, used when `slot` is nil.
     var byDefault: NewWorkspaceDefaultSlot?
-    var then: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+    var then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
     /// The action run that asked for the placement: `then` runs later,
     /// outside its task, and keeps its view-change permission.
     var run: ActionRunScope? = ActionRunScope.current
@@ -48,7 +48,7 @@ extension WindowManager {
     /// names it) at `slot` of window `windowID` (nil: `workspaces.newPlacement`).
     /// `then` runs after the placement, with the window's sidebar.
     func place(newWorkspace id: String, in windowID: String, at slot: WorkspaceSlot?,
-               then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) {
+               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) {
         NewWorkspacePlacements.expect(id, in: windowID, slot: slot, byDefault: slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: self) : nil,
                                       then: then, windows: self)
     }

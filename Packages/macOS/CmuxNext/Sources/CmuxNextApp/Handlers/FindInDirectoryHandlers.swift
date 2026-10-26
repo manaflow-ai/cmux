@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
+import CmuxNextFilesUI
 
 /// Find in Directory (⇧⌘F): ripgrep over the targeted terminal's working
 /// directory. The query is the action's text argument (the palette asks for

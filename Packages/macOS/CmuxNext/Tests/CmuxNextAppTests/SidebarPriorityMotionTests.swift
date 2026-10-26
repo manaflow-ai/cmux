@@ -10,6 +10,9 @@ import Testing
 /// With motion off (Reduce Motion, the master switch) every change lands in one frame.
 @MainActor
 struct SidebarPriorityMotionTests {
+    /// The motion-off check only needs a screen. A test that sees a row move needs a display
+    /// that draws frames (`GUIAnimationTestSupport`): a Blacksmith VM can have a screen whose
+    /// display draws none, and there every change snaps, so a slide check would fail.
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
     /// The rows `ids`; those in `previews` show a preview line, so they stand taller.
@@ -82,7 +85,9 @@ struct SidebarPriorityMotionTests {
         return try body()
     }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aReorderSlidesTheRowsToTheirNewPlaces() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
@@ -97,7 +102,9 @@ struct SidebarPriorityMotionTests {
         #expect(Self.near(a.frame.minY, rowHeight))
     }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aLeavingRowClosesItsSlotAndTheRowsBelowSlideUp() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
@@ -112,7 +119,9 @@ struct SidebarPriorityMotionTests {
         #expect(c.alphaValue == 1)
     }
 
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aNewRowOpensItsSlot() async throws {
         let (view, window) = try Self.shown(["a", "c"])
         defer { window.orderOut(nil) }
@@ -153,7 +162,9 @@ struct SidebarPriorityMotionTests {
 
     /// A second reorder while the rows still slide from the first retargets them: each ends at its
     /// place in the second order, not the first.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aReorderDuringASlideEndsAtTheNewPlaces() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
@@ -172,7 +183,9 @@ struct SidebarPriorityMotionTests {
 
     /// A change with motion off while the rows slide lands in one frame and stays: the slide in
     /// flight does not pull a row back toward its old target.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aChangeWithMotionOffDuringASlideLandsAndStays() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
@@ -191,7 +204,9 @@ struct SidebarPriorityMotionTests {
     /// A row that is still opening when its slot changes again (it gains a preview, so it stands
     /// taller) keeps clipping until it is whole: the first open's end must not unclip it while it
     /// grows, or its preview draws over the row below.
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aRowRetargetedWhileItOpensClipsUntilWhole() async throws {
         let (view, window) = try Self.shown(["a", "c"])
         defer { window.orderOut(nil) }
@@ -211,7 +226,9 @@ struct SidebarPriorityMotionTests {
 
     /// A row closing its slot takes no clicks: a right-click there must not open the menu of a
     /// chat that just left (nor a click open it).
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs a display that draws frames and animations on, or every change snaps anyway") {
+        await GUIAnimationTestSupport.animatesHere()
+    })
     func aClosingRowTakesNoClicks() throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }

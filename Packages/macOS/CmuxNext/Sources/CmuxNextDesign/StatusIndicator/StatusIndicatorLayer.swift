@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
 /// headers, sidebar section items, tabs, Home, pane headers). It owns one
@@ -46,8 +47,26 @@ public final class StatusIndicatorLayer {
                    working: Palette.accentFill.cgColor)
         }
 
-        /// The unread dot: ``Palette/notificationBlue``.
-        static var unread: CGColor { Palette.notificationBlue.cgColor }
+        /// The sidebar's status colors (Lawrence msg 11983: "blue, orange/yellow for needs attention,
+        /// and red for errors"): unread ``Palette/statusUnread``, needs attention
+        /// ``Palette/statusAttention`` and errors ``Palette/statusError``, the system colors, so
+        /// light and dark match and each color means one thing in every row. Call inside the
+        /// host's drawing appearance.
+        /// - Parameter color: Overrides the loading color (`appearance.statusIndicator.color`).
+        /// - Returns: The theme's colors with the three status colors replaced.
+        public static func status(loading color: ThemeRGB?) -> Colors {
+            var colors = current(loading: color)
+            colors.attention = Palette.statusAttention.cgColor
+            colors.danger = Palette.statusError.cgColor
+            colors.unread = Palette.statusUnread.cgColor
+            return colors
+        }
+
+        /// The unread dot's color; nil draws ``Palette/notificationBlue``.
+        public var unread: CGColor?
+
+        /// The default unread dot: ``Palette/notificationBlue``.
+        static var defaultUnread: CGColor { Palette.notificationBlue.cgColor }
 
         /// The color a plan's tint draws in.
         public func color(for tint: StatusIndicatorPlan.Tint) -> CGColor {
@@ -58,7 +77,7 @@ public final class StatusIndicatorLayer {
             case .success: success
             case .accent: accent ?? loading
             case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
-            case .unread: Self.unread
+            case .unread: unread ?? Self.defaultUnread
             case .working: working ?? accent ?? loading
             }
         }

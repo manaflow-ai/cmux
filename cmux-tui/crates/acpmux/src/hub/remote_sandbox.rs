@@ -48,7 +48,7 @@
 use super::*;
 
 /// The checked-in Seatbelt profile.
-pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
+pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).

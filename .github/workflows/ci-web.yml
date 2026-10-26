@@ -59,7 +59,7 @@ jobs:
   web-typecheck:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.typecheck == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     # Matches the 10-minute siblings in this workflow.
     timeout-minutes: 10
     defaults:
@@ -72,7 +72,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -110,7 +110,7 @@ jobs:
   web-production-build:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.production_build == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -124,7 +124,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -155,7 +155,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: ["1/4", "2/4", "3/4", "4/4"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -169,7 +169,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -207,7 +207,7 @@ jobs:
   web-instant-navigation:
     needs: web-subarea-scope
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.instant == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     defaults:
       run:
@@ -221,7 +221,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -303,7 +303,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
@@ -396,7 +396,7 @@ jobs:
             exit "$status"
           fi
           python3 ../scripts/ci/fast_gate_webviews_checks.py --no-install --repo .. --base "$BASE_REF" || status=1
-          for check in check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
+          for check in check:design-tokens check:layers check:type-scale check:motion-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys check:switch-fetches; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -434,14 +434,37 @@ jobs:
       # parent): the red files run again there, and the base's reds are warnings
       # (scripts/ci/webviews-tests-new-reds.sh). A push keeps every red.
       - name: Test webviews
+        id: webview-tests
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         if: ${{ !cancelled() }}
         working-directory: webviews
         env:
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
           CMUX_WEB_TEST_SHARD: ${{ matrix.shard }}
           CMUX_WEB_TEST_SHARD_COUNT: ${{ matrix.shard_count }}
+          CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json
+          CMUX_WEB_TEST_RAW_LOG_DIR: ${{ runner.temp }}/webviews-head-results/raw-logs
+          CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}
           BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
-        run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
+        run: |
+          # Replay uses this exact runner and result parser, with the base's tests and bun.
+          # Different deadline policies can otherwise turn an old named failure into a new timeout.
+          mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
+          cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py \
+            "$RUNNER_TEMP/webviews-head-results/runner/"
+          ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
+
+      - name: Upload head webview results
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Artifact names are stable across failed-job reruns: the rerun keeps
+          # the original head results while retrying only the base comparison.
+          name: react-apps-head-results-shard${{ matrix.shard }}
+          overwrite: true
+          path: ${{ runner.temp }}/webviews-head-results/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Fail on the gate checks
         if: ${{ !cancelled() }}
@@ -485,6 +508,107 @@ jobs:
           done
           exit "$failed"
 
+  # A pull request's base comparison is deliberately separate from the head
+  # shards. Replaying the base's failed files requires its own install and bundle
+  # build; doing that after the head suite in one 40-minute job made shard 3 hit
+  # the timeout before it could publish a verdict.
+  react-apps-base-check:
+    needs: [web-subarea-scope, react-apps-check-shard]
+    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    timeout-minutes: 40
+    name: react-apps-base-check (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+          - shard: 2
+          - shard: 3
+          - shard: 4
+    steps:
+      - name: Checkout base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download head webview results
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: react-apps-head-results-shard${{ matrix.shard }}
+          path: ${{ runner.temp }}/head-results
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.4.4"
+
+      # The base replays its reds with the bun its own webviews/package.json declares,
+      # so a PR that moves the pin (or a base whose bun check is exact) compares like
+      # with like; private-bun.sh is the base's copy and reads the base's devEngines.
+      - name: Use the base's bun
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.bun/install/cache
+          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24.22.1"
+
+      - name: Install webview dependencies
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
+      - name: Build base web bundles
+        run: ./scripts/cmux-next/build-web-bundles.sh --force
+
+      - name: Install headless engines
+        working-directory: webviews
+        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+
+      - name: Run base reds and compare
+        working-directory: webviews
+        env:
+          HEAD_RESULTS: ${{ runner.temp }}/head-results/webviews-head-results.json
+          BASE_RESULTS: ${{ runner.temp }}/base-results.json
+          CMUX_NEXT_STYLE_GUARDS: warn
+          CMUX_WEB_TEST_JOBS: "1"
+          CMUX_WEB_TEST_RETRIES: "0"
+        run: |
+          files="$RUNNER_TEMP/base-files"
+          python3 ../scripts/ci/webviews_test_results.py --failed-files "$HEAD_RESULTS" |
+            while IFS= read -r file; do
+              if [ -n "$file" ] && git cat-file -e "HEAD:webviews/$file" 2>/dev/null; then
+                printf '%s\n' "$file"
+              fi
+            done > "$files"
+          if [ ! -s "$files" ]; then
+            echo "no head reds to replay on the base"
+            # A head-red file that is absent from the base is a new failure.
+            # An empty base map makes guards_new_reds.py report it instead of
+            # incorrectly treating the head map as a base verdict.
+            printf '{}\n' > "$BASE_RESULTS"
+          else
+            CMUX_WEB_TEST_FILES="$(cat "$files")" \
+              CMUX_WEB_TEST_RESULTS="$BASE_RESULTS" \
+              env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
+              bash "$RUNNER_TEMP/head-results/runner/run-webviews-tests.sh" || true
+          fi
+          python3 ../scripts/ci/guards_new_reds.py --label "Webview test" "$HEAD_RESULTS" "$BASE_RESULTS"
+
   # The runner capability map (.github/runners.json), for jobs that pick a
   # size from it. Resolves in parallel with web-subarea-scope.
   runners:
@@ -514,7 +638,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -531,8 +655,8 @@ jobs:
   # Keep one stable required check name for branch protection while the test work
   # itself runs in independent file shards above.
   react-apps-check:
-    needs: [web-subarea-scope, react-apps-check-shard, react-doctor]
-    if: ${{ !cancelled() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
+    needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
+    if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -549,7 +673,9 @@ jobs:
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
           required = inputs["web"] == "true" and needs["web-subarea-scope"]["outputs"].get("react_apps") == "true"
-          required_jobs = ("react-apps-check-shard", "react-doctor")
+          required_jobs = ["react-apps-check-shard", "react-doctor"]
+          if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
+              required_jobs.append("react-apps-base-check")
           allowed = {"success"} if required else {"success", "skipped"}
           bad = {
               name: needs[name]["result"]
@@ -565,10 +691,10 @@ jobs:
           PY
 
   diff-sidecar-check:
-    # Generated protocol and streaming benchmarks only run for their owned inputs.
+    # Generated protocol checks and the sidecar tests only run for their owned inputs.
     needs: web-subarea-scope
     if: ${{ (inputs.macos == 'true' || inputs.web == 'true') && needs.web-subarea-scope.outputs.diff_sidecar == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -582,7 +708,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -612,10 +738,9 @@ jobs:
       - name: Verify generated protocol types
         run: ./scripts/generate-diff-sidecar-types.sh --check
 
-      - name: Enforce diff-viewer performance budgets
-        env:
-          CMUX_DIFF_WEB_BENCH_ITERATIONS: "10"
-        run: ./scripts/benchmark-diff-viewer.sh
+      # The diff-viewer performance budgets (scripts/benchmark-diff-viewer.sh) run in the perf cron
+      # (cmux-next-perf-budgets.yml), not here: no perf check on the push or pull request path (Lawrence
+      # 2026-10-23).
 
       # fmt and clippy are style for feat-cmux-next (Leo 2026-10-19): a warning there. The
       # sidecar tests above still compile and fail on their own.
@@ -661,7 +786,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
