@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextSettings
 
 /// A small transient surface of the page with no room in it shows past the window's edge
@@ -12,15 +13,26 @@ extension PageWebView {
             return .object([:])
         }
         guard let model = WebPopupHost.Model(params) else { return .object(["shown": .bool(false)]) }
-        let host = popupHost ?? WebPopupHost(
-            webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
-            send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
+        let host = popupHost ?? makePopupHost()
         popupHost = host
         if op == PageNativeOp.popupUpdate {
             host.update(model)
             return .object([:])
         }
         return JSONValue(foundation: host.show(model)) ?? .object(["shown": .bool(false)])
+    }
+
+    /// The page's popup host, made on first use: while its menu shows, the page holds its `popup`
+    /// keep reason (one begin at the show, one end at the hide, pick or dismiss).
+    private func makePopupHost() -> WebPopupHost {
+        let host = WebPopupHost(
+            webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
+            send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
+        let keep = keepReasons
+        host.onShownChange = { shown in
+            if shown { keep.begin(.popup) } else { keep.end(.popup) }
+        }
+        return host
     }
 
     /// A right-click menu of the page (`cmux.app.contextMenu.show`) as a standard macOS menu at the

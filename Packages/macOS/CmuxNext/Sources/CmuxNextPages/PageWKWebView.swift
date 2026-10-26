@@ -220,34 +220,25 @@ final class PageWKWebView: WKWebView {
         static let perform = WKWebView.instancesRespond(to: #selector(NSDraggingDestination.performDragOperation(_:)))
     }
 
-    /// A drag that carries files is over the page (`true`) or left it, ended or dropped (`false`):
-    /// the page's `fileDrop` keep reason. Called once per change.
-    var onFileDrag: (@MainActor (Bool) -> Void)?
-    private var fileDragOver = false
-
-    private func setFileDragOver(_ over: Bool) {
-        guard over != fileDragOver else { return }
-        fileDragOver = over
-        onFileDrag?(over)
-    }
+    /// The page's keep reasons (its ``PageWebView``'s): a drop the host takes holds `fileDrop`
+    /// until ``PageFileDrop/open`` has read it.
+    weak var keepReasons: PageKeepReasons?
+    /// The host's read of the last drop it took (tests wait on it).
+    private(set) var dropRead: Task<Void, Never>?
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragAnswer = nil
-        // The pasteboard's types, read once as the drag enters: no file URL is read here.
-        setFileDragOver(sender.draggingPasteboard.types?.contains(.fileURL) == true)
         if droppedFile(sender) != nil { return .copy }
         return WebKitDrag.entered ? super.draggingEntered(sender) : []
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         dragAnswer = nil
-        setFileDragOver(false)
         if WebKitDrag.exited { super.draggingExited(sender) }
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
         dragAnswer = nil
-        setFileDragOver(false)
         if WebKitDrag.ended { super.draggingEnded(sender) }
     }
 
@@ -263,8 +254,6 @@ final class PageWKWebView: WKWebView {
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let url = droppedFile(sender)
         dragAnswer = nil
-        // The drop is the page's from here: a page still reading it says so itself (`file_drop`).
-        setFileDragOver(false)
         guard let url, let fileDrop else {
             if let onFilesDropped {
                 let urls = readDroppedFileURLs(sender.draggingPasteboard)
@@ -272,7 +261,7 @@ final class PageWKWebView: WKWebView {
             }
             return WebKitDrag.perform ? super.performDragOperation(sender) : false
         }
-        fileDrop.open(url)
+        dropRead = fileDrop.take(url, keep: keepReasons)
         return true
     }
 

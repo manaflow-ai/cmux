@@ -105,19 +105,11 @@ export const CLAIM_OP = "cmux.page.claim";
  */
 export const KEEP_ALIVE_OP = "cmux.page.keepAlive";
 
-/** The keep reasons a page may set (the host's `PageKeepReasons.pageSettable`). */
-export type PageKeepReason =
-  | "user_edits"
-  | "form_interaction"
-  | "before_unload"
-  | "draft"
-  | "dictation"
-  | "capture"
-  | "file_drop"
-  | "audible"
-  | "web_rtc"
-  | "connected_device"
-  | "web_lock";
+/**
+ * The keep reasons a page may set (the host's `PageKeepReasons.pageSettable`): what only its
+ * document knows. The host observes the rest itself (a drop it reads, dictation, Web Inspector).
+ */
+export type PageKeepReason = "user_edits" | "form_interaction" | "before_unload" | "draft" | "capture";
 
 /**
  * The page's keep reasons as it last told the host: `set` sends `cmux.page.keepAlive` only when a

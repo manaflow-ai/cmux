@@ -380,11 +380,9 @@ final class FilePageService: InternalPageProvider {
         PageFileDrop(accepts: { url in url.isFileURL && !url.hasDirectoryPath }, open: { [weak self, weak provider, weak page] url in
             guard let self, let provider else { return }
             guard provider.isPicking, provider.kind.accepts(url) else { return self.openFile(url, from: key) }
-            // task-owner: one open of the dropped file; ends when the tab shows it or refuses it
-            Task {
-                guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
-                page?.reload()
-            }
+            // The page keeps its `fileDrop` reason until the open returns (PageFileDrop.take).
+            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
+            page?.reload()
         })
     }
 

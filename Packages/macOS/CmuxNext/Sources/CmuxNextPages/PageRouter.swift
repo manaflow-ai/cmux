@@ -35,6 +35,10 @@ public final class PageRouter {
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
     private var closed = false
+    /// The document the router serves: one more at every ``close()`` (a reload, a crash, a
+    /// navigation, a rebind). A call keeps the one it arrived in, so state it sets for its document
+    /// (``PageNativeOp/keepAlive``) never lands on the next one.
+    private var document: UInt64 = 0
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
     private(set) var builtIn: [UInt64: String] = [:]
@@ -93,7 +97,10 @@ public final class PageRouter {
                     opid = text
                 }
                 let params = message["params"] ?? .object([:])
-                let value = try await cancellable(id: id, op: op) { [self] in try await call(op, params: params, opid: opid) }
+                let document = document
+                let value = try await cancellable(id: id, op: op) { [self] in
+                    try await call(op, params: params, opid: opid, document: document)
+                }
                 return ["t": "ok", "id": .number(Double(id)), "value": value]
             } catch let error as PageError {
                 return Self.error(id: id, error)
@@ -142,9 +149,11 @@ public final class PageRouter {
     /// The page's `cmux.page.keepAlive`, checked: one of its own reasons, on or off (``PageKeepReasons``).
     package var keepAlive: (@MainActor (PageLifecyclePlanner.KeepReason, Bool) -> Void)?
 
-    private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
+    private func call(_ op: String, params: JSONValue, opid: String?, document: UInt64) async throws -> JSONValue {
         if op == PageNativeOp.keepAlive {
-            guard !closed else { throw PageError.closed }
+            // Its document ended before the call ran (its task was cancelled, but a cancelled task
+            // still runs): the next document's reasons are its own.
+            guard !closed, document == self.document, !Task.isCancelled else { throw PageError.closed }
             let request = try PageKeepReasons.pageRequest(params)
             keepAlive?(request.reason, request.on)
             return .object([:])
@@ -340,6 +349,7 @@ public final class PageRouter {
     /// itself stays: a hidden page that reloads is still hidden.
     public func close() {
         closed = true
+        document += 1
         didClose?()
         for stream in held.drain() { reportDropped(stream.events, sub: stream.sub) }
         for subscription in subscriptions.values { subscription.cancel() }

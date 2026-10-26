@@ -1,6 +1,5 @@
 import AppKit
 package import CmuxNextHibernation
-import WebKit
 package import CmuxNextWakeups
 
 /// A cmux page the lifecycle drives (``PageWebViewLifecycle`` for a ``PageWebView``).
@@ -38,34 +37,20 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
     /// page's loading state, which also ends while the page is hidden), focused while it holds its
-    /// window's first responder, popup while its menu past the window's edge shows, inspector while
-    /// Web Inspector is open on it, and the reasons of ``PageKeepReasons`` (its document's
-    /// `cmux.page.keepAlive`, a confirmation sheet, a context menu, a file drag, dictation).
+    /// window's first responder, and the reasons of ``PageKeepReasons``: its document's
+    /// `cmux.page.keepAlive` and the host's holds (a confirmation sheet, a menu or popup, a drop it
+    /// reads, Web Inspector, dictation), each of which tells the lifecycle when it starts or ends.
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
         var reasons = view.keepReasons.current
         if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
-        if view.popupHost?.shownFrame != nil { reasons.insert(.popup) }
-        if Self.inspectorIsOpen(view.webKitView) { reasons.insert(.inspector) }
         return reasons
     }
 
     package func reportsReasonChanges(to lifecycle: PageLifecycle) {
         view?.loadState.lifecycle = lifecycle
         view?.keepReasons.lifecycle = lifecycle
-    }
-
-    /// Whether Web Inspector is connected to `webView`, docked or in its own window. WebKit says so
-    /// only through `_WKInspector.isConnected` and posts no change, so it is read with the other
-    /// reasons at each pass.
-    static func inspectorIsOpen(_ webView: WKWebView) -> Bool {
-        // crash-allow: WebKit private selectors, each used only after responds(to:) confirms it exists (no unknown-selector exception).
-        let inspectorSelector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: inspectorSelector),
-              let inspector = webView.perform(inspectorSelector)?.takeUnretainedValue() as? NSObject,
-              inspector.responds(to: NSSelectorFromString("isConnected")) else { return false }
-        return (inspector.value(forKey: "isConnected") as? Bool) ?? false
     }
 
     package func freeze() {}

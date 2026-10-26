@@ -144,6 +144,9 @@ public final class AgentPaneView: NSView {
         })
         self.webView = webView
         super.init(frame: .zero)
+        // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
+        let keep = page.keepReasons
+        dictation.onRunning = { running in keep.dictation(running) }
         pageEvents.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }

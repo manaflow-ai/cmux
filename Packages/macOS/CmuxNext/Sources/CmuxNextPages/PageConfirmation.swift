@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextHibernation
 
 /// What a native confirmation sheet asks before a page call that grants or removes something
 /// (install, uninstall, update, grant; delete, billing, firewall, publication for other pages).
