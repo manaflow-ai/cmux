@@ -16,6 +16,21 @@ extension Array {
     }
 }
 
+extension UnsafeMutableBufferPointer {
+    /// Writes `value` at `index` when it is inside the buffer, else logs a fault once per call site and writes nothing
+    /// (`checkedIndex`'s rule). Nonmutating: the element changes, the buffer value does not, so threads writing distinct
+    /// elements of one buffer share no write.
+    func checkedWrite(_ value: Element, at index: Int, fileID: StaticString = #fileID, line: UInt = #line) {
+        // SAFETY: the caller lends a live buffer for the call (its own SAFETY argument); the write happens only for
+        // 0 <= index < count, inside it.
+        guard unsafe index >= 0 && index < count else {
+            CrashGuard.fault("write at \(index) outside the buffer", fileID: fileID, line: line)
+            return
+        }
+        unsafe self[index] = value
+    }
+}
+
 extension CGPath {
     /// `CGPath(roundedRect:cornerWidth:cornerHeight:transform: nil)`.
     static func roundedRect(_ rect: CGRect, cornerWidth: CGFloat, cornerHeight: CGFloat) -> CGPath {

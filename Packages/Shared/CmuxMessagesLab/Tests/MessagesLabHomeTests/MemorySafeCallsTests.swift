@@ -162,6 +162,20 @@ import Testing
         #expect(second.value(on: object) as? String == "two")
     }
 
+    @Test func checkedWritesFromManyThreadsLandEachInItsOwnElement() {
+        var values = [Int](repeating: -1, count: 64)
+        values.withUnsafeMutableBufferPointer { out in
+            DispatchQueue.concurrentPerform(iterations: 64) { i in
+                // SAFETY: the array's storage, lent for this closure, which concurrentPerform does not outlive.
+                unsafe out.checkedWrite(i * 2, at: i)
+            }
+            // SAFETY: as above; an index outside the buffer writes nothing.
+            unsafe out.checkedWrite(7, at: 64)
+            unsafe out.checkedWrite(7, at: -1)
+        }
+        #expect(values == (0..<64).map { $0 * 2 })
+    }
+
     @Test func sharedStorageIsBufferIdentity() {
         let a = [1, 2, 3]
         let b = a

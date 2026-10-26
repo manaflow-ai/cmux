@@ -242,12 +242,12 @@
 +                if let spec = specs[checked: i], let sc = scales[checked: i] {
 +                    let image = RowBitmaps.render(spec, scale: sc)
 +                    // SAFETY: out is the images array's storage, lent for this closure, which concurrentPerform does
-+                    // not outlive; `update(at:)` checks i against its bounds, and iteration i writes only element i,
-+                    // so no two threads touch one element.
-+                    unsafe out.update(at: i) { $0 = image }
++                    // not outlive; `checkedWrite` checks i against its bounds and changes only element i (the buffer
++                    // value itself is not written), and iteration i is the only writer of element i.
++                    unsafe out.checkedWrite(image, at: i)
 +                }
 +                // SAFETY: as above, for rowMs.
-+                unsafe ms.update(at: i) { $0 = (CACurrentMediaTime() - r0) * 1000 }
++                unsafe ms.checkedWrite((CACurrentMediaTime() - r0) * 1000, at: i)
              }
              }
          }
