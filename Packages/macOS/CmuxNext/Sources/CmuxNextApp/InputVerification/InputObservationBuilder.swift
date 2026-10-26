@@ -2,6 +2,18 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
+#if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextControl
+import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextFocusUI
+import CmuxNextOracle
+import CmuxNextPalette
+import CmuxNextTerminal
+import CmuxNextTerminalFind
+import CryptoKit
+import Foundation
+#endif
 
 /// Reads the live combined input state into an `InputObservation`: each
 /// window's focus model next to AppKit's first responder and key window,
@@ -61,3 +73,77 @@ enum InputObservationBuilder {
         return .other(kind)
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// The oracle's `overlays` facet (p15-oracle-038): what sits above each window's content, read from the controllers
+/// that own each layer, never from a view tree. The browser's find bar keeps its query in its view (`FindBarView`),
+/// so a browser pane reports the find bar closed.
+extension InputObservationBuilder {
+    static func oracleOverlaysFacet(_ services: AppServices, dialogs: CmuxDialogCenter, toasts: CmuxToastCenter) -> OracleOverlaysFacet {
+        OracleOverlaysFacet(hash: oracleSHA256) { [weak services] in
+            services.map { oracleOverlays($0, dialogs: dialogs, toasts: toasts) }
+        }
+    }
+
+    /// Per window in the window manager's order: its shown terminal find bars, visible dialogs, toasts (the
+    /// refusal HUD's as `refusalHud`), focus overlays in open order, then the hover card over it; after the
+    /// windows, the layers no cmux window owns (an app dialog, the palette or a card over no cmux window).
+    static func oracleOverlays(_ services: AppServices, dialogs: CmuxDialogCenter, toasts: CmuxToastCenter) -> OracleOverlaysFacet.Reading {
+        typealias Layer = OracleOverlaysFacet.Layer
+        var reading = OracleOverlaysFacet.Reading()
+        var unplaced = dialogs.records.filter(\.visible).map(\.id)
+        let card = services.hoverCards.machine.shownTarget
+        var cardPlaced = false
+        let palette = services.palette
+        for controller in services.windows.controllers {
+            let id = ControlWindowInfo.publicID(forKey: controller.state.id)
+            for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+                if case .terminal(let entry)? = pane.currentContent, entry.session.find.isPresented { reading.stack.append(Layer(.findBar, window: id)) }
+            }
+            let window = controller.window
+            if let window {
+                let shown = unplaced.filter { dialogs.window(of: $0) === window }
+                unplaced.removeAll { shown.contains($0) }
+                reading.stack += shown.map { _ in Layer(.dialog, window: id) }
+                reading.stack += toasts.toasts(in: window).map { Layer($0.id == RefusalHUD.toastID ? .refusalHud : .toast, window: id) }
+            }
+            reading.stack += controller.focus.state.overlays.map { Layer(oracleKind($0), window: id) }
+            if let card, let window, card.window == window.windowNumber {
+                cardPlaced = true
+                reading.stack.append(Layer(.hoverCard, window: id))
+            }
+        }
+        reading.stack += unplaced.map { _ in Layer(.dialog, window: nil) }
+        if palette.isVisible, !reading.stack.contains(where: { $0.kind == .palette }) { reading.stack.append(Layer(.palette, window: nil)) }
+        if card != nil, !cardPlaced { reading.stack.append(Layer(.hoverCard, window: nil)) }
+        if palette.isVisible {
+            let rows = palette.model.rows
+            reading.palette = .init(open: true, mode: palette.model.currentPageID, query: palette.model.query,
+                                    rowIDs: rows.prefix(OracleOverlaysFacet.topCount).map(\.id),
+                                    selectedIndex: palette.model.selectedRowID.flatMap { selected in rows.firstIndex { $0.id == selected } })
+        }
+        reading.dialogSpecID = dialogs.records.last(where: \.visible)?.spec.identifier
+        reading.hoverCardTarget = card.flatMap { target in
+            OracleOverlaysFacet.itemID(ofHoverTarget: target.id.rawValue) { services.workspace(id: $0)?.resourceID?.rawValue ?? $0 }
+        }
+        if let pane = services.windows.active?.focusedPane, case .terminal(let entry)? = pane.currentContent {
+            let find = entry.session.find
+            reading.findBar = .init(open: find.isPresented, pane: pane.pane.id, query: find.query, matches: find.total ?? 0, selected: find.selected)
+        }
+        return reading
+    }
+
+    static func oracleKind(_ overlay: FocusState.Overlay) -> OracleOverlaysFacet.Kind {
+        switch overlay {
+        case .palette: .palette
+        case .sheet: .sheet
+        // The group editor bubble and the rename prompt are panels on a control of the window.
+        case .groupEditor, .rename: .popover
+        }
+    }
+
+    nonisolated static func oracleSHA256(_ text: String) -> String {
+        "sha256:" + SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+#endif

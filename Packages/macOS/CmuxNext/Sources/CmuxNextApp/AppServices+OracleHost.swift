@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextOracle
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
@@ -15,6 +16,8 @@ extension AppServices: OracleHost {
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
             },
+            // The palette, dialogs, toasts, sheets, hover card and find bar, from the controllers that own them.
+            InputObservationBuilder.oracleOverlaysFacet(self, dialogs: .shared, toasts: .shared),
         ])
     }
 
