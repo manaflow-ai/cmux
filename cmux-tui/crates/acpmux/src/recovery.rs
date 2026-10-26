@@ -404,15 +404,49 @@ mod tests {
             RpcError::new(-32603, "simulated internal error"),
         ] {
             let mut typed = e.clone();
-            annotate(&mut typed, None);
+            annotate_as(&mut typed, None, dead_process(&e));
             assert_eq!(kind_of(&typed), Some(kind::AGENT_EXITED), "{e:?}");
         }
-        let mut answer = RpcError::new(
+        let answer = RpcError::new(
             -32603,
             "stream disconnected before completion: error sending request for url",
         );
-        annotate(&mut answer, None);
-        assert_eq!(kind_of(&answer), None);
+        let mut typed = answer.clone();
+        annotate_as(&mut typed, None, dead_process(&answer));
+        assert_eq!(kind_of(&typed), None);
+    }
+
+    /// A request's reply is not a turn: a short internal error there is the daemon's own
+    /// failure, not a dead agent, and keeps no kind.
+    #[test]
+    fn a_short_request_error_is_not_agent_exited() {
+        for e in [
+            RpcError::internal("no agent session"),
+            RpcError::internal("session/new returned no sessionId"),
+            RpcError::new(-32603, "Internal error"),
+        ] {
+            let mut typed = e.clone();
+            annotate(&mut typed, None);
+            assert_eq!(kind_of(&typed), None, "{e:?}");
+        }
+        let mut closed = RpcError::internal("agent process closed");
+        annotate(&mut closed, None);
+        assert_eq!(kind_of(&closed), Some(kind::AGENT_EXITED));
+    }
+
+    /// A full disk a peer reported names that peer, never this machine's disk.
+    #[test]
+    fn a_peers_full_disk_names_the_peer_not_this_disk() {
+        let mut e = RpcError::internal("write chat log: No space left on device (os error 28)");
+        annotate_peer(&mut e, "big-blue");
+        annotate(&mut e, None);
+        assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
+        let data = e.data.as_ref().unwrap();
+        assert_eq!(data["details"], json!({"peer": "big-blue"}), "{data}");
+        assert!(data["recovery"].as_str().unwrap().contains("big-blue"), "{data}");
+        let mut other = RpcError::internal("no agent session");
+        annotate_peer(&mut other, "big-blue");
+        assert!(other.data.is_none(), "{other:?}");
     }
 
     /// The finalizer adds the agent's last stderr line before typing: a dead process stays
