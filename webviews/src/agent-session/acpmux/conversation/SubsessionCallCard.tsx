@@ -73,6 +73,7 @@ function SessionCard({
     <AgentCard
       name={live?.name ?? name}
       harness={listed ?? harness}
+      sessionId={sessionId}
       model={live?.model ?? model}
       state={state}
       slot={live ? live.slot === true : fallback?.slot === true}
