@@ -17,6 +17,8 @@ public final class LayoutRootView: NSView {
     let context: LayoutViewContext
     var screenViews: [ScreenID: ScreenContentView] = [:]
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
+    /// The screen switch the render server still slides (`LayoutRootView+Screens.swift`).
+    var screenSwitch = ScreenSwitchFlight()
     let highlight = DropHighlightView()
     /// The root's render-server motion variants (screen switches, the drop highlight) and the
     /// `motion.renderServer` switch (`LayoutRootView+Motion.swift`).
@@ -162,7 +164,8 @@ public final class LayoutRootView: NSView {
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
-            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
+            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning,
+                  !self.screenSwitch.isInFlight else { return }
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
@@ -424,8 +427,11 @@ public final class LayoutRootView: NSView {
             screenFrames[id] = nil
         }
 
-        // Screen switch.
+        // Screen switch. One that does not spring shows its rest in this turn, the screens a switch
+        // on the render server still slides included.
+        var stoppedSwitch = false
         if previous?.activeScreen != snapshot.activeScreen {
+            if !animated { stoppedSwitch = stopScreenSwitch() }
             let switching = switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id),
                                           animated: animated)
             if endMotionTurn(needsFrames: switching) { needsFrames = true }
@@ -440,7 +446,7 @@ public final class LayoutRootView: NSView {
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
-        if needsFrames && driver.isRunning { setLayoutInMotion(true) }
+        if needsFrames && driver.isRunning { setLayoutInMotion(true) } else if stoppedSwitch { endLayoutMotionIfSettled() }
     }
 
     // MARK: Frames
@@ -449,6 +455,7 @@ public final class LayoutRootView: NSView {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
+            stopScreenSwitch()
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
             updateVisibility()
@@ -465,11 +472,14 @@ public final class LayoutRootView: NSView {
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
-        let screenSpring = policy.spring(.screen)
-        for id in Array(screenFrames.keys) {
-            if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
+        // Only a switch the CPU steps places screens per frame; one on the render server placed them once.
+        if screensStepping {
+            let screenSpring = policy.spring(.screen)
+            for id in Array(screenFrames.keys) {
+                if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
+            }
+            applyScreenFrames()
         }
-        applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
@@ -478,7 +488,8 @@ public final class LayoutRootView: NSView {
         // The frame that lands still syncs as part of the motion; observers hear it ended after it.
         if moving || gesturing { setLayoutInMotion(true) }
         flushOverlaySync()
-        if !moving && !gesturing { setLayoutInMotion(false) }
+        // A switch on the render server ends the motion when it lands (`screenSwitchLanded`).
+        if !moving && !gesturing && !screenSwitch.isInFlight { setLayoutInMotion(false) }
         // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
         // a gesture with a still pointer needs none after that.
         return moving || panning
@@ -594,7 +605,14 @@ public final class LayoutRootView: NSView {
         inputIntercept?.cancel()
         inputIntercept = nil
         driver.detach()
-        if !live { for view in screenViews.values { view.settleMotion() } }
+        if !live {
+            for view in screenViews.values { view.settleMotion() }
+            // No frame shows a parked root: a switch in flight lands now, its old screen hidden.
+            if stopScreenSwitch() {
+                applyScreenFrames()
+                endLayoutMotionIfSettled()
+            }
+        }
         if !live, let planeHost {
             planeHost.releasePlane(overlayPlane)
             self.planeHost = nil
@@ -607,7 +625,7 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
-            if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
+            if screenViews.values.contains(where: \.hasMotion) || screensStepping { driver.start() }
             inputIntercept = subscribeInput()
         }
         updateVisibility()
