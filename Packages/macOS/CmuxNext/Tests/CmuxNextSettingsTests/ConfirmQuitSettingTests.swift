@@ -2,17 +2,17 @@
 import Testing
 
 /// `app.confirmQuit`, the key classic cmux reads from the same cmux.json:
-/// "always", "dirty-only" or "never". Unset, cmux NEXT does not ask (Lawrence
-/// 2026-10-07). Like classic, it takes strings only.
+/// "always", "dirty-only" or "never". Unset, cmux NEXT asks, as classic does
+/// (#25567). Like classic, it takes strings only.
 struct ConfirmQuitSettingTests {
     private func snapshot(_ value: JSONValue?) -> CmuxConfigSnapshot {
         let root: JSONValue = value.map { .object(["app": .object(["confirmQuit": $0])]) } ?? .object([:])
         return CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
     }
 
-    @Test func absentNeverAsks() {
+    @Test func absentAlwaysAsks() {
         let parsed = snapshot(nil)
-        #expect(parsed.confirmQuit == .never)
+        #expect(parsed.confirmQuit == .always)
         #expect(!parsed.diagnostics.contains { $0.path == "app.confirmQuit" })
     }
 
@@ -26,14 +26,14 @@ struct ConfirmQuitSettingTests {
     /// boolean here is refused, as the Settings window refuses it.
     @Test func aBooleanIsRefused() {
         let parsed = snapshot(true)
-        #expect(parsed.confirmQuit == .never)
+        #expect(parsed.confirmQuit == .always)
         #expect(parsed.diagnostics.contains { $0.path == "app.confirmQuit" })
         #expect(SettingsSchema.descriptor(for: ConfirmQuitMode.configPath).map { $0.accepts(true) } == false)
     }
 
-    @Test func aBadValueNeverAsksWithADiagnostic() {
+    @Test func aBadValueAsksWithADiagnostic() {
         let parsed = snapshot("sometimes")
-        #expect(parsed.confirmQuit == .never)
+        #expect(parsed.confirmQuit == .always)
         #expect(parsed.diagnostics.contains { $0.path == "app.confirmQuit" })
     }
 
@@ -42,5 +42,6 @@ struct ConfirmQuitSettingTests {
         #expect(descriptor != nil)
         #expect(descriptor.map { $0.accepts(.string("dirty-only")) } == true)
         #expect(descriptor.map { $0.accepts(.string("sometimes")) } == false)
+        #expect(descriptor?.defaultValue == .string("always"))
     }
 }

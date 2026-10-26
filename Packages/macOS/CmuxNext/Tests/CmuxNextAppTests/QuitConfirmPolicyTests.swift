@@ -5,9 +5,9 @@ import Testing
 
 /// `app.confirmQuit` (classic cmux's key) puts "Quit cmux?" back on Cmd-Q,
 /// the Quit menu and the Dock: "always" asks every time, "dirty-only" when a
-/// program runs or an agent is in a turn, "never" (the default) does not ask.
-/// A scripted, signal or power-off quit never asks. A stray Cmd-Q quit
-/// NIGHTLY with no prompt on 2026-10-19.
+/// program runs or an agent is in a turn, "never" does not ask. Unset, it is
+/// "always", as in classic (#25567). A scripted, signal or power-off quit
+/// never asks. A stray Cmd-Q quit NIGHTLY with no prompt on 2026-10-19.
 struct QuitConfirmPolicyTests {
     private static let idle = QuitFacts(terminals: 2, programs: [], incognitoPrograms: [], remoteSessions: false)
     private static let busy = QuitFacts(terminals: 2, programs: [QuitProgram(name: "vim", cpuNanos: 5)],
@@ -20,7 +20,14 @@ struct QuitConfirmPolicyTests {
         return nil
     }
 
-    @Test func neverQuitsAtOnceAsBefore() {
+    /// #25567: with no setting, Cmd-Q asks "Quit cmux?" even with nothing running.
+    @Test func cmdQAsksByDefault() throws {
+        let prompt = try #require(asks(QuitPolicy.decide(.interactive, behavior: .ask, facts: Self.idle)))
+        #expect(QuitAlertContent.main(prompt).title == QuitStrings.title)
+        #expect(ConfirmQuitMode.fallback == .always)
+    }
+
+    @Test func neverQuitsAtOnce() {
         #expect(QuitPolicy.decide(.interactive, behavior: .ask, confirm: .never, facts: Self.busy) == .quit(.keep))
     }
 
