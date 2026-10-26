@@ -3,22 +3,19 @@
   "id": "long-day-soak",
   "tier": "T2",
   "status": "planned",
-  "planned": "Story task 122 records the loop once the three stories it composes are recorded.",
-  "description": "8 hours of agent-swarm, dev-loop and browse-heavy in a loop with idle gaps: hangs over 250 ms, footprint growth per hour at equal workspace count, idle wakeups in the gaps and browser crashes.",
+  "planned": "scripts/perf-lab/corpus/soak.py (task 122) plays it once agent-swarm, dev-loop and browse-heavy are recorded (tasks 117, 118 and 119, then a lab capture of their checkpoint digests). A compose story has no sources of its own: soak.py plays the composed stories' sources.",
+  "description": "8 hours of agent-swarm, dev-loop and browse-heavy in a loop in one bench launch, each followed by a reset to one workspace and a 5 minute idle gap: main hangs over 250 ms per hour, footprint growth per hour from the gaps (always one workspace, the warm-up pass left out), idle wakeups per second in each gap and Chromium process failures per hour. The checkpoints are the hour marks.",
   "owner": "PL-perf-lab",
   "duration_ms": 28800000,
   "layout": {
     "snapshot": null,
-    "workspaces": 40
+    "workspaces": 1
   },
   "input": {
-    "blob": null
+    "events": []
   },
   "pty": [],
-  "web_archive": {
-    "wprgo": null,
-    "spki": null
-  },
+  "web_archive": null,
   "agents": [],
   "checkpoints": [
     {
@@ -91,7 +88,7 @@
       "better": "lower"
     },
     {
-      "name": "corpus\\.long_day_soak\\.footprint_growth_per_hour",
+      "name": "corpus\\.long_day_soak\\.footprint_growth_per_hour\\.(total|app)",
       "unit": "bytes",
       "better": "lower"
     },
