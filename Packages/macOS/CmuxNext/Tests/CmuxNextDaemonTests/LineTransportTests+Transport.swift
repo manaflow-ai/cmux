@@ -13,6 +13,11 @@ extension LineTransportTests {
         Data(#"{"id":\#(id),"cmd":"\#(cmd)"}"#.utf8)
     }
 
+    /// One pipelined line per command. Built inside the task that sends them: a line is not Sendable.
+    private static func commandLines(_ commands: [String]) -> [PipelinedLine] {
+        commands.map { cmd in PipelinedLine(cmd: DaemonCommandName(wire: cmd)) { command($0, cmd) } }
+    }
+
     /// "ok", or the command and message of a refusal, or the error.
     private static func describe(_ outcome: Result<LineTransport.Response, any Error>) -> String {
         switch outcome {
@@ -37,8 +42,8 @@ extension LineTransportTests {
     }
 
     /// Three requests with deadlines 1 s, 2 s and 3 s out ask the clock for one sleep, the earliest; each fire
-    /// fails what is due and arms the next one. A reply before its deadline leaves the heap, so its fire finds
-    /// nothing due and only re-arms. A timer per request asked for three sleeps at once.
+    /// fails what is due and arms the next one. A reply to the request the timer is armed for moves the timer
+    /// to the next deadline at once, so no fire comes for it. A timer per request asked for three sleeps at once.
     @Test func oneTimerServesEveryDeadlineOfAConnection() async throws {
         let clock = ManualClock()
         let daemon = try FakeDaemon()
@@ -62,12 +67,11 @@ extension LineTransportTests {
 
         daemon.write([#"{"id":\#(ids[1]),"ok":true,"data":{}}"#])
         _ = try await tasks[1].value
-        clock.advance(by: .seconds(1))
         try await clock.waitForSleeper()
         #expect(clock.sleepRequests.map(\.deadline.offset) == [.seconds(1), .seconds(2), .seconds(3)])
-        #expect(clock.sleeperCount == 1)
+        #expect(clock.sleeperCount == 1, "only the 3 s sleep is left")
 
-        clock.advance(by: .seconds(1))
+        clock.advance(by: .seconds(2))
         let last = await tasks[2].result
         guard case .failure(let error) = last, case .timedOut(let detail)? = error as? DaemonError else {
             Issue.record("the 3 s request ended with \(last)")
@@ -77,15 +81,41 @@ extension LineTransportTests {
         #expect(clock.sleeperCount == 0, "nothing waits, so nothing is armed")
     }
 
+    /// Requests answered before their deadline leave no timer: the last reply cancels the one sleep, so the
+    /// connection gets no wakeup at the deadline.
+    @Test func answeredRequestsLeaveNoTimerArmed() async throws {
+        let clock = ManualClock()
+        let daemon = try FakeDaemon()
+        let transport = try open(daemon, clock: clock)
+        defer { transport.close() }
+        var tasks: [Task<LineTransport.Response, any Error>] = []
+        var ids: [UInt64] = []
+        for cmd in ["first", "second"] {
+            tasks.append(Task { try await transport.request(cmd: DaemonCommandName(wire: cmd), timeout: .seconds(2)) { Self.command($0, cmd) } })
+            ids.append(try daemon.readRequestID())
+        }
+        try await clock.waitForSleeper()
+        #expect(clock.sleepRequests.map(\.deadline.offset) == [.seconds(2)])
+
+        daemon.write([#"{"id":\#(ids[0]),"ok":true,"data":{}}"#])
+        _ = try await tasks[0].value
+        #expect(clock.sleeperCount == 1, "the second request still waits on the same deadline")
+
+        daemon.write([#"{"id":\#(ids[1]),"ok":true,"data":{}}"#])
+        _ = try await tasks[1].value
+        #expect(clock.sleeperCount == 0, "nothing waits, so nothing is armed")
+        clock.advance(by: .seconds(5))
+        #expect(clock.sleepRequests.count == 1, "no fire came to re-arm")
+    }
+
     /// A pipelined group shares one deadline: the clock is asked once and every member times out in its fire.
     @Test func aPipelinedGroupExpiresInOneFire() async throws {
         let clock = ManualClock()
         let daemon = try FakeDaemon()
         let transport = try open(daemon, clock: clock)
         defer { transport.close() }
-        let lines = ["a", "b", "c"].map { cmd in PipelinedLine(cmd: DaemonCommandName(wire: cmd)) { Self.command($0, cmd) } }
-        let results = Task { await transport.pipeline(lines, timeout: .seconds(5)) }
-        for _ in lines { _ = try daemon.readRequestID() }
+        let results = Task { await transport.pipeline(Self.commandLines(["a", "b", "c"]), timeout: .seconds(5)) }
+        for _ in 0..<3 { _ = try daemon.readRequestID() }
         try await clock.waitForSleeper()
         clock.advance(by: .seconds(5))
         let outcomes = await results.value
@@ -126,9 +156,8 @@ extension LineTransportTests {
         let daemon = try FakeDaemon()
         let transport = try open(daemon)
         defer { transport.close() }
-        let lines = ["a", "b", "c"].map { cmd in PipelinedLine(cmd: DaemonCommandName(wire: cmd)) { Self.command($0, cmd) } }
-        let results = Task { await transport.pipeline(lines, timeout: nil) }
-        let ids = try lines.map { _ in try daemon.readRequestID() }
+        let results = Task { await transport.pipeline(Self.commandLines(["a", "b", "c"]), timeout: nil) }
+        let ids = try (0..<3).map { _ in try daemon.readRequestID() }
         daemon.write([#"{"id":\#(ids[1]),"ok":true,"data":{}}"#, #"{"ok":false,"error":"bad request 1"}"#,
                       #"{"ok":false,"error":"bad request 2"}"#])
         let outcomes = await results.value

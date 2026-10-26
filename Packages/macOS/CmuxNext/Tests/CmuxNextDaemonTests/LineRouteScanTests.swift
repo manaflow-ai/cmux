@@ -40,7 +40,7 @@ import Testing
 
     /// Lines the scan could read differently from the decoder, or that are not one JSON object: given up.
     @Test(arguments: [
-        #"{"event":"x"}"#,
+        #"{"ev\u0065nt":"x"}"#,
         #"{"event":"a\"b"}"#,
         #"{"id":1,"id":2}"#,
         #"{"id":1.0,"ok":true}"#,

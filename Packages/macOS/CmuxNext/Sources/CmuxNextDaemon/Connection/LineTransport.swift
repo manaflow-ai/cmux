@@ -301,8 +301,26 @@ final class LineTransport: Sendable {
         deadlineTimer.schedule(after: max(at - now, .zero)) { [weak self] in self?.fireDeadlines() }
     }
 
+    /// Takes `id`'s deadline out, with the state lock held. When the timer was armed for it, the timer
+    /// moves to the next deadline, or is cancelled when none is left, so an answered request causes no
+    /// wakeup. Chrome does the same when a removed delayed task was the top of the queue's heap
+    /// (`TaskQueueImpl::RemoveCancelableTask` calls `UpdateWakeUp`, base/task/sequence_manager/task_queue_impl.cc).
+    /// The cancel stays under the state lock, as ``armDeadlineTimer(_:now:)`` does, so it never drops a
+    /// timer a later submit armed.
+    func removeDeadline(_ state: inout State, id: UInt64) {
+        guard state.deadlines.remove(id: id) != nil, let armedAt = state.armedAt else { return }
+        guard let next = state.deadlines.first?.deadline.at else {
+            state.armedAt = nil
+            deadlineTimer.cancel()
+            return
+        }
+        guard next > armedAt else { return }
+        state.armedAt = nil
+        armDeadlineTimer(&state, now: elapsed())
+    }
+
     /// Fails every pending request whose deadline passed with `timedOut`, then arms the timer for the
-    /// next deadline. A fire for a deadline whose reply came first finds nothing due and only re-arms.
+    /// next deadline.
     private func fireDeadlines() {
         let now = elapsed()
         let expired = state.withLock { state -> [Expired] in

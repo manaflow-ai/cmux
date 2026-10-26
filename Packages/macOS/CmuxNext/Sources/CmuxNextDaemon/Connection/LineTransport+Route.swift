@@ -64,7 +64,7 @@ extension LineTransport {
         }
         let routed: (UInt64, PendingRequest)? = state.withLock { state in
             guard let id = envelope.id ?? state.pending.oldestID(), let entry = state.pending.remove(id: id) else { return nil }
-            state.deadlines.remove(id: id)
+            removeDeadline(&state, id: id)
             return (state.eventCount, entry)
         }
         guard let (barrier, entry) = routed else {
