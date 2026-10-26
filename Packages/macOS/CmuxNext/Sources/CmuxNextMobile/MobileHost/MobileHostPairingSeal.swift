@@ -100,11 +100,12 @@ public struct MobileHostKeychainPairingSeal: MobileHostPairingSealStore {
 
 /// A seal held in memory: tests, and nothing else. `refuses`: a Keychain that refuses
 /// everything; `refuseRecords()`: one that then refuses only a new digest (as a crash between the
-/// file and its digest would leave it).
+/// file and its digest would leave it); `refuseClears()`: one that then keeps the digest it has.
 public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
     private struct State {
         var digest: Data?
         var refusesRecords = false
+        var refusesClears = false
     }
 
     private let state = Mutex(State())
@@ -116,6 +117,10 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
 
     public func refuseRecords() {
         state.withLock { $0.refusesRecords = true }
+    }
+
+    public func refuseClears() {
+        state.withLock { $0.refusesClears = true }
     }
 
     public func digest() -> Data? {
@@ -133,8 +138,11 @@ public final class MobileHostMemoryPairingSeal: MobileHostPairingSealStore {
 
     public func clearDigest() -> Bool {
         guard !refuses else { return false }
-        state.withLock { $0.digest = nil }
-        return true
+        return state.withLock { state in
+            guard !state.refusesClears else { return false }
+            state.digest = nil
+            return true
+        }
     }
 }
 

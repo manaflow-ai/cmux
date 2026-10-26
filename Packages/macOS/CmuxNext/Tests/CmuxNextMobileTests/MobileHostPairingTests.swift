@@ -197,7 +197,8 @@ import Testing
     }
 
     /// A list with no digest (one an older build wrote) or a Keychain that refuses trusts no phone;
-    /// a save the Keychain refuses throws and leaves the list as it was.
+    /// a save the Keychain refuses throws, and no list is trusted after it (review 29: the old one
+    /// may have been a phone the person just removed).
     @Test func aListWithoutItsDigestTrustsNoPhone() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -210,7 +211,7 @@ import Testing
         #expect(throws: MobileHostPairingSealError.keychainRefused) {
             try MobileHostPairedDevicesFile(directory: directory, seal: MobileHostMemoryPairingSeal(refuses: true)).save(devices)
         }
-        #expect(Self.relaunched(directory, seal: seal).approvers.count == 1, "a refused save changed the list")
+        #expect(Self.relaunched(directory, seal: seal).approvers.isEmpty, "the list before a refused save is trusted")
         try file.save(devices)
         #expect(Self.relaunched(directory, seal: seal).approvers.count == 2)
     }
@@ -232,6 +233,75 @@ import Testing
         let relaunched = Self.relaunched(directory, seal: seal)
         #expect(relaunched.approvers.isEmpty, "the removed phone came back as an approver: \(relaunched.approvers)")
         #expect(relaunched.hostd.isEmpty, "hostd pinned the removed phone: \(relaunched.hostd)")
+    }
+
+    /// Review 29: the person removes a phone and the Keychain keeps the old digest (it refuses the
+    /// delete and the new record): the save throws, and the old list, phone included, is not
+    /// trusted at the next launch.
+    @Test func aRemovalTheKeychainRefusesTrustsNoOlderList() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        seal.refuseClears()
+        seal.refuseRecords()
+        devices.remove(Self.request.phoneDeviceID)
+        #expect(throws: MobileHostPairingSealError.keychainRefused) { try file.save(devices) }
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty, "the removed phone is still an approver: \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd still pins the removed phone: \(relaunched.hostd)")
+    }
+
+    /// Review 29: a removal (a revoked or unpaired phone, a sign-out) takes the old digest away
+    /// before it returns, after the saves queued before it, so a crash right after it trusts no
+    /// older list; the new list is recorded on the queue.
+    @Test func aRemovalTakesTheOldDigestAwayBeforeItReturns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        let old = try Data(contentsOf: file.file)
+        var devices = saved
+        devices.remove(Self.request.phoneDeviceID)
+        // A save queued before it holds the queue for a moment.
+        let gated = GatedSeal()
+        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: elsewhere) }
+        MobileHostPairedDevicesFile(directory: elsewhere, seal: gated).saveInBackground(MobileHostPairedDevices(userID: "x"))
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { gated.gate.signal() }
+        file.saveRemovingTrust(devices)
+        #expect(seal.digest() != MobileHostPairingSeal.digest(old), "the old list still counts after the removal returned")
+        #expect(await file.loadInBackground(userID: "u") == devices)
+    }
+
+    /// Review 29: a sign-out while the list is read, then a sign-in of the same user: the read
+    /// from before the sign-out does not count.
+    @Test func aReadFromBeforeASignOutDoesNotCount() {
+        var load = MobileHostPairedLoad()
+        var list = MobileHostPairedDevices(userID: "u")
+        list.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        let before = load.begin(userID: "u")
+        _ = load.begin(userID: nil)
+        let after = load.begin(userID: "u")
+        #expect(load.finish(before, userID: "u", list: list) == nil, "a read from before the sign-out counted")
+        #expect(load.finish(after, userID: "u", list: MobileHostPairedDevices(userID: "u"))?.list == MobileHostPairedDevices(userID: "u"))
+    }
+
+    /// Review 29: a phone that signs out (or is removed) while the list is read is removed from it
+    /// once it is in, and the host saves and pushes that.
+    @Test func aPhoneForgottenWhileTheListIsReadIsRemovedFromIt() {
+        var load = MobileHostPairedLoad()
+        var list = MobileHostPairedDevices(userID: "u")
+        list.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        list.approve(Self.other, at: Date(timeIntervalSince1970: 6))
+        let read = load.begin(userID: "u")
+        load.forget(Self.request.phoneDeviceID)
+        let done = load.finish(read, userID: "u", list: list)
+        var expected = list
+        expected.remove(Self.request.phoneDeviceID)
+        #expect(done?.list == expected, "the forgotten phone is still in the list")
+        #expect(done?.forgot == true)
     }
 
     /// The iPhone host reads and writes off the main actor, in order: a read queued after a save
@@ -280,5 +350,16 @@ import Testing
         #expect(MobileHostMacIdentity.restore(first.privateKey) == first)
         #expect(MobileHostMacIdentity.restore(Data([1, 2])) == nil)
         #expect(first.fingerprint.count == 16)
+    }
+}
+
+/// A seal whose clear waits for `gate`: it holds the shared save queue (tests only).
+final class GatedSeal: MobileHostPairingSealStore, @unchecked Sendable {
+    let gate = DispatchSemaphore(value: 0)
+    func digest() -> Data? { nil }
+    func setDigest(_ digest: Data) -> Bool { true }
+    func clearDigest() -> Bool {
+        gate.wait()
+        return true
     }
 }

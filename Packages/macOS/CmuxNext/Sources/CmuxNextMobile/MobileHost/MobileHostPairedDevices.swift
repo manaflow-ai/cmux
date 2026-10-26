@@ -200,6 +200,11 @@ public struct MobileHostPairedDevicesFile: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
+    /// Red stub: as `saveInBackground`.
+    public func saveRemovingTrust(_ devices: MobileHostPairedDevices) {
+        saveInBackground(devices)
+    }
+
     /// The stored list when it is the one this app saved last (its digest matches the seal's) and
     /// belongs to `userID`, else an empty one for that user. Both consumers (hostd's pinned keys,
     /// acpmux's approvers) get only this result. Any other list (changed, an older copy put back,
@@ -229,5 +234,19 @@ public struct MobileHostPairedDevicesFile: Sendable {
         try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         _ = seal.setDigest(MobileHostPairingSeal.digest(data))
+    }
+}
+
+/// Red stub: as `loadPaired` decides today (the account matches, nothing forgotten meanwhile).
+public struct MobileHostPairedLoad: Sendable {
+    public private(set) var userID: String?
+    public init() {}
+    public mutating func begin(userID: String?) -> Int {
+        self.userID = userID
+        return 0
+    }
+    public mutating func forget(_ id: String) {}
+    public mutating func finish(_ generation: Int, userID: String, list: MobileHostPairedDevices) -> (list: MobileHostPairedDevices, forgot: Bool)? {
+        self.userID == userID ? (list, false) : nil
     }
 }
