@@ -179,7 +179,13 @@ export function IncomingMessageLine({
   // Closed, the compact line carries the first line of the text; open, today's full card.
   // The disclosure's card folds in place while its line stays anchored.
   // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
-  const minimalCard = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
+  const minimalCard = useAnchoredCollapse({
+    open,
+    onOpenChange: show,
+    // FindReveal opens without motion; reader gestures set played before toggling.
+    animates: () => minimal && played.current,
+    fadeIn: false,
+  });
   // Details folds under the open card, with its own anchor so the message line stays put.
   const cardDetails = useAnchoredCollapse({ open, onOpenChange: show, animates: () => !minimal && played.current });
   const collapse = minimal ? minimalCard : cardDetails;
