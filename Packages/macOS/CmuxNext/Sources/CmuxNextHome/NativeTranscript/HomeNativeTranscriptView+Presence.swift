@@ -8,17 +8,17 @@ import MessagesLabHome
 /// open, from the owner's presence (`HomeStore.viewing`), as faces beside the header's name pill,
 /// the same letters and colors as the agent chat's header (`PresenceStack`, Faces.tsx).
 extension HomeNativeTranscriptView {
-    /// Who else has `conversation` open, by name (the first in any row that names them, else
-    /// their id), without `me`, in name order.
-    static func others(viewing: Set<ParticipantID>, rows: [InboxRow], me: ParticipantID) -> [String] {
+    /// Who else has the conversation open, by name (from `participants`, the conversation's own,
+    /// else their id), without `me`, in name order.
+    static func others(viewing: Set<ParticipantID>, participants: [Participant], me: ParticipantID) -> [String] {
+        let others = viewing.subtracting([me])
+        guard !others.isEmpty else { return [] }
         var names: [ParticipantID: String] = [:]
-        for row in rows {
-            for person in row.summary.participants where names[person.id] == nil {
-                let name = person.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty { names[person.id] = name }
-            }
+        for person in participants where others.contains(person.id) && names[person.id] == nil {
+            let name = person.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty { names[person.id] = name }
         }
-        return viewing.subtracting([me]).map { names[$0] ?? $0.rawValue }
+        return others.map { names[$0] ?? $0.rawValue }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
@@ -32,8 +32,12 @@ extension HomeNativeTranscriptView {
     func followPresence() {
         guard !stopped else { return }
         let store = binding.store, id = binding.conversation, me = self.me
-        let names = withObservationTracking {
-            HomeNativeTranscriptView.others(viewing: store.viewing[id] ?? [], rows: store.rows, me: me)
+        // Reads the conversation's own summary (one lookup) only while someone else is here, so
+        // with nobody here a message or typing change does no work here at all.
+        let names = withObservationTracking { () -> [String] in
+            let viewing = store.viewing[id] ?? []
+            guard !viewing.subtracting([me]).isEmpty else { return [] }
+            return HomeNativeTranscriptView.others(viewing: viewing, participants: store.summary(id)?.participants ?? [], me: me)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followPresence() }
         }
@@ -41,9 +45,12 @@ extension HomeNativeTranscriptView {
         transcript.setHeaderFaces(names.map(HomeNativeTranscriptView.face), label: label)
     }
 
-    /// The header's faces as drawn now: each initial, and whether they show (`debug.home.drive` `faces`).
-    public var debugHeaderFaces: (initials: [String], shown: Bool) {
-        let drawn = transcript.headerFaces
-        return (drawn.faces.map(\.initial), drawn.shown)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now: each initial, whether they show, and what VoiceOver reads
+    /// (`debug.home.drive` `faces`, tests).
+    public var debugHeaderFaces: (initials: [String], shown: Bool, label: String) {
+        let drawn = transcript.debugHeaderFaces
+        return (drawn.faces.map(\.initial), drawn.shown, drawn.label)
     }
+    #endif
 }

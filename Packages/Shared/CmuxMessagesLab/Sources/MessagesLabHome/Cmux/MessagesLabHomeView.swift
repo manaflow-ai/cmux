@@ -281,11 +281,13 @@ public final class MessagesLabHomeView: NSView {
         controller.host.paneHeader.facesLabel = label
     }
 
-    /// The header's faces as drawn now (tests and `debug.home.drive`).
-    public var headerFaces: (faces: [PaneHeaderFace], shown: Bool) {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
         let header = controller.host.paneHeader
-        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0)
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
     }
+    #endif
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
