@@ -35,6 +35,7 @@ mod idle_policy_store;
 mod journal_extensions;
 mod public_projection_store;
 mod resource_store;
+mod root_identity;
 mod session_journal;
 mod terminal_exit_store;
 
