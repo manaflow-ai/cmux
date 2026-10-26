@@ -192,6 +192,7 @@ final class PaneContentView: NSView, PaneContentChrome {
             // Lay it out at its new size now, in this pass (a descendant).
             if hostChanged || resized {
                 content.needsLayout = true // invalidate: the host or the content changed size (the check above).
+                // sync-layout: a descendant in this pane's own pass (the comment above), not an extra pass.
                 content.layoutSubtreeIfNeeded()
             }
         }

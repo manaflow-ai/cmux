@@ -16,18 +16,23 @@
 // answers the shared origin's URLs at /pages/_shared/ (cmux-tui page_files.rs). --shiki resolves
 // `shiki` to the agent pane's trimmed copy (pages that render the pane's Markdown). Every import,
 // script and preload is checked to resolve on both (checkPageTree).
+//
+// React is not in these chunks: every web tree the app ships imports the one shared React
+// (scripts/shared/shared-react.mjs) by its cmux-page://cmux.shared/ URL, and this build writes that
+// file into <dir>/_shared/ with the chunks, so checkPageTree checks it like any shared chunk.
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appBundleOptions, reactCompilerPass, shikiAlias, sourcePlugins } from "../agent-pane/bundle.mjs";
+import { buildSharedReact, SHARED_ORIGIN, sharedReactEsbuildPlugin } from "../shared/shared-react.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagesRoot = path.resolve(here, "../../src/pages");
 const SHARED = "_shared";
 /** The origin the pages import the shared chunks from (PageID.sharedOrigin in CmuxNextPages). */
-export const SHARED_ORIGIN = "cmux-page://cmux.shared/";
+export { SHARED_ORIGIN };
 
 function parseArgs(argv) {
   const options = { pages: [], splitStrings: [], shiki: "-", out: undefined, report: undefined };
@@ -106,6 +111,7 @@ export async function buildPages(options) {
   const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "cmux-pages-"));
   try {
     const compiler = reactCompilerPass();
+    const shared = await buildSharedReact();
     const result = await build({
       ...appBundleOptions,
       entryPoints: options.pages.map((page) => path.join(root, page, "main.tsx")),
@@ -117,14 +123,15 @@ export async function buildPages(options) {
       entryNames: "[dir]/app-[hash]",
       chunkNames: `${SHARED}/[name]-[hash]`,
       alias: shikiAlias(options.shiki ?? "-"),
-      plugins: [compiler.plugin, ...sourcePlugins({ split: true })],
+      plugins: [sharedReactEsbuildPlugin(shared.url), compiler.plugin, ...sourcePlugins({ split: true })],
     });
     await compiler.finish(options.report);
     const outputPath = (file) => path.relative(work, path.resolve(file));
     const outputs = Object.fromEntries(
       Object.entries(result.metafile.outputs).map(([file, output]) => [outputPath(file), output]),
     );
-    for (const output of Object.values(outputs)) for (const item of output.imports) item.path = outputPath(item.path);
+    for (const output of Object.values(outputs))
+      for (const item of output.imports) if (!item.external) item.path = outputPath(item.path);
     // Each page's <style> is its entry's stylesheet, which holds every sheet the page imports,
     // through dynamic imports too; any other stylesheet would never load.
     const pageCss = new Set(
@@ -134,7 +141,10 @@ export async function buildPages(options) {
     if (strayCss.length) throw new Error(`stylesheets no page loads: ${strayCss.join(", ")}`);
 
     fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
-    fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    fs.mkdirSync(path.join(options.out, SHARED), { recursive: true });
+    if (fs.existsSync(path.join(work, SHARED)))
+      fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    fs.writeFileSync(path.join(options.out, SHARED, shared.name), shared.bytes);
     for (const page of options.pages) {
       const entryFile = Object.keys(outputs).find(
         (file) =>
@@ -165,6 +175,10 @@ export async function buildPages(options) {
         : "";
       const firstLoad = closure(outputs, entryFile, STATIC);
       const preload = firstLoad.slice(1).map(sharedUrl);
+      // React, when the first frame imports it.
+      const firstLoadImports = firstLoad.flatMap((file) => outputs[file].imports);
+      if (firstLoadImports.some((item) => item.external && STATIC.has(item.kind) && item.path === shared.url))
+        preload.push(shared.url);
       fs.writeFileSync(
         path.join(dir, "index.html"),
         pageHtml({ page, entry: path.basename(entryFile), preload, loader, css }),
