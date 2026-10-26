@@ -195,9 +195,6 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil) {
         if let ring { follow(ring: ring) }
-        // Turning it on downloads an update a check already found (it waited for a click).
-        let turnedOn = downloadAutomatically && !downloadSetting.enabled
-        defer { if turnedOn { downloadFoundUpdate() } }
         if let idleInstall {
             idleInstallQuiet = .seconds(idleInstall.quiet)
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
@@ -250,17 +247,16 @@ extension UpdaterService {
             tipCheck.refresh(self)
             stagedRefresh.policyChanged(updater: self)
         }
-        guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
-        controller.downloadsUpdatesInBackground = downloads
-        log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
-    }
-
-    /// Downloads the found update that waits for a click, once automatic downloads are on; a
-    /// metered link still defers it (``applyDownloadPolicy()``).
-    func downloadFoundUpdate() {
-        guard case .available = flow.phase, controller?.downloadsUpdatesInBackground ?? true else { return }
-        log.append("automatic downloads turned on: downloading the found update")
-        acceptAvailable()
+        let resumed = downloads && !downloadsFoundUpdates
+        downloadsFoundUpdates = downloads
+        if let controller, controller.downloadsUpdatesInBackground != downloads {
+            controller.downloadsUpdatesInBackground = downloads
+            log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
+        }
+        // Downloads came on (the setting, the link or the policy): an update a check found while they
+        // were off downloads now instead of waiting for a click (the driver's own state decides; a
+        // no-op when none waits).
+        if resumed { acceptAvailable() }
     }
 
     /// Follows the link's Low Data Mode and cost (path events, no polling).

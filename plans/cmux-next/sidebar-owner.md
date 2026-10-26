@@ -459,3 +459,4 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-24: `56206f8a2e4` (Lawrence msg 1334, "cloud workspaces in one group, maybe nested"): New Cloud Workspace and a new Cloud machine mark that machine's section a remote group (`SidebarDocStore.markHostGroup`), so its workspaces draw under one header and nested groups go inside. No look change: the remote-group header look is as a283 made it.
 - 2026-10-26: hotswap-opus (claude-sr2 relaying Leo, "maybe better as an opt in for normal users"): the titlebar row gains the quiet Update Available button (row above). Rows, rail and footer unchanged.
 - 2026-10-26: hotswap-opus: the Update Available button hides during the person's own check (the card shows it) and leaves a too-narrow row when Priority is off.
+- 2026-10-26: hotswap-opus: the Update Available button takes the bell's slot only when the bell clears the titlebar's leading reserve.

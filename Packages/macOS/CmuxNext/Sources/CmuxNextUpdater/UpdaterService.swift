@@ -156,7 +156,11 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
-    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
+    /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
+    /// by itself until the settings load (``configure``).
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
+    @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
@@ -209,9 +213,6 @@ public final class UpdaterService {
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
-        // The channel's default until the setting loads (``configure``): a launch check that wins
-        // the race never downloads on a channel where automatic downloads are opt-in.
-        downloadSetting = (identity.track.downloadsAutomaticallyByDefault, .deferLowData)
         automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
@@ -247,11 +248,12 @@ public final class UpdaterService {
             // waits once instead of downloading the full DMG. The tip feed lists an
             // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
             if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
-            // A downloaded update installs by itself once it is staged while
-            // `updates.downloadAutomatically` is on (``configure``, the channel's default until
-            // the setting loads); the daemon preserves agents, commands and turns while the app relaunches.
-            controller.installsUpdatesWhenIdle = identity.track.downloadsAutomaticallyByDefault
-            controller.downloadsUpdatesInBackground = identity.track.downloadsAutomaticallyByDefault
+            // Until the settings load (``configure``), a launch check's update waits: nothing
+            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
+            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
+            // agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = false
+            controller.downloadsUpdatesInBackground = false
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

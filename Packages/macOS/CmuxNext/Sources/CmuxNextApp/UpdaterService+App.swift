@@ -91,12 +91,13 @@ extension UpdaterService {
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
             for await (updates, downloads, announcements, tips) in ObservationStream({
-                (settings.snapshot.updates, settings.snapshot.root.value(at: UpdatesSettings.downloadAutomaticallyPath)?.boolValue,
+                // Written or not; a malformed value keeps the parsed default (off) and its diagnostic.
+                (settings.snapshot.updates, settings.snapshot.root.value(at: UpdatesSettings.downloadAutomaticallyPath) != nil,
                  settings.snapshot.announcements, settings.snapshot.sidebarSections.showsTips)
             }) {
-                self?.apply(updates, downloadsAutomatically: downloads)
+                self?.apply(updates, downloadsAutomatically: downloads ? updates.downloadAutomatically : nil)
                 // Opt-in on stable; the dogfood apps write their default while it is unset (Reset included).
-                if downloads == nil, let self, self.identity.track.downloadsAutomaticallyByDefault {
+                if !downloads, let self, self.identity.track.downloadsAutomaticallyByDefault {
                     // task-owner: one settings write that ends by itself; its change returns through this loop.
                     Task { _ = try? await settings.seedDownloadAutomatically(channelDefault: true) }
                 }

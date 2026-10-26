@@ -135,6 +135,11 @@ import Testing
         sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
         sidebar.layoutSubtreeIfNeeded()
         #expect(update.frame == .zero, "the update button crossed the leading reserve without a bell")
+        // A bell that crosses the reserve itself gives no slot either.
+        sidebar.showPriority(SidebarPriorityPanel(entries: [], shown: false))
+        sidebar.titlebarLeadingReserve = sidebar.newButton.frame.minX - 1
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(update.frame == .zero || update.frame.minX >= sidebar.titlebarLeadingReserve, "the update button took a bell slot across the reserve")
         sidebar.showUpdateAvailable(nil)
         #expect(update.isHidden)
     }

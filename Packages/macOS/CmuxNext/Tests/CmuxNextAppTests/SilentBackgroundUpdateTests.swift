@@ -103,19 +103,24 @@ import Testing
         #expect(updater.availableButton == nil, "the button stayed while the update downloads")
     }
 
-    /// Turning automatic downloads on downloads the update the button was waiting on ("On:
-    /// today's behaviour"); the person's own check shows the found update on the card only.
-    @Test func turningDownloadsOnDownloadsTheFoundUpdate() {
+    /// Whenever found updates start downloading by themselves (the setting turned on, a metered
+    /// link that cleared), the update a check found meanwhile downloads ("On: today's behaviour").
+    @Test func downloadsComingOnDownloadTheFoundUpdate() {
         let updater = Self.updater()
         var accepted = 0
         updater.acceptAvailable = { accepted += 1 }
-        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
-        updater.debugIndicatorPhase = .available(version: "2.0")
-        #expect(accepted == 0, "the update downloaded with automatic downloads off")
-        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 0, "an update downloaded before the settings loaded")
+        updater.downloadSetting = (true, .deferLowData)
+        updater.applyDownloadPolicy()
         #expect(accepted == 1, "turning automatic downloads on left the found update waiting for a click")
-        updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
-        #expect(accepted == 1, "an unchanged setting downloaded again")
+        updater.applyDownloadPolicy()
+        #expect(accepted == 1, "an unchanged policy downloaded again")
+        updater.network = (constrained: true, expensive: false)
+        updater.applyDownloadPolicy()
+        updater.network = (constrained: false, expensive: false)
+        updater.applyDownloadPolicy()
+        #expect(accepted == 2, "the found update kept waiting after Low Data Mode ended")
     }
 
     @Test func theUsersCheckShowsTheCardNotTheButton() {
@@ -145,12 +150,12 @@ import Testing
         #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
-    /// Before the setting loads, the updater follows the channel's default: a launch check on an
-    /// opt-in channel finds an update without downloading it.
-    @Test func theChannelDefaultHoldsUntilTheSettingLoads() {
+    /// Before the setting loads nothing downloads by itself, on any channel: a launch check's
+    /// update waits until ``UpdaterService/configure`` applies the person's choice.
+    @Test func nothingDownloadsUntilTheSettingLoads() {
         let updater = Self.updater()
-        #expect(updater.downloadSetting.enabled == updater.identity.track.downloadsAutomaticallyByDefault)
-        #expect(updater.automaticUpdates == updater.identity.track.downloadsAutomaticallyByDefault)
+        #expect(!updater.downloadSetting.enabled)
+        #expect(!updater.downloadsFoundUpdates)
     }
 
     @Test func theUsersCheckStillShowsAFoundUpdate() {
