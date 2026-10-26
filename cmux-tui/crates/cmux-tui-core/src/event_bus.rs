@@ -278,9 +278,12 @@ pub(crate) enum MuxEventKind {
 }
 
 // Every kind is one bit of `MuxEventKinds`.
-const _: () = assert!((MuxEventKind::Empty as u32) < u64::BITS);
+const _: () = assert!(MuxEventKind::COUNT <= u64::BITS as usize);
 
 impl MuxEventKind {
+    /// How many kinds there are (`Empty` is the last).
+    pub(crate) const COUNT: usize = Self::Empty as usize + 1;
+
     pub(crate) const fn of(event: &MuxEvent) -> Self {
         match event {
             MuxEvent::SurfaceOutput(_) => Self::SurfaceOutput,

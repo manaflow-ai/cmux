@@ -58,6 +58,8 @@ pub(super) fn subscribe_command(
         (None, Some(kinds)) => mux.subscribe_kinds(kinds),
         (None, None) => mux.subscribe(),
     };
+    #[cfg(test)]
+    let probe = mux.control_clients.subscribe_probe(client);
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
     // Conversation events go to the person's own clients: the Unix socket
@@ -102,11 +104,15 @@ pub(super) fn subscribe_command(
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
+            #[cfg(test)]
+            probe.received.note(&event);
             // A surface stream is not filtered on the bus: drop an unwanted
             // kind before any JSON is built.
             if interest.is_some_and(|kinds| !kinds.accepts(&event)) {
                 continue;
             }
+            #[cfg(test)]
+            probe.rendered.note(&event);
             let mut value = match &event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
@@ -310,6 +316,37 @@ pub(super) fn subscribe_command(
         }
     })?;
     Ok(json!({}))
+}
+
+/// What one connection's subscription took from the bus and what it
+/// started to render to JSON, per event kind: tests read it to see which
+/// events a filter kept out of a connection's stream.
+#[cfg(test)]
+#[derive(Default)]
+pub(super) struct SubscribeProbe {
+    pub(super) received: KindCounts,
+    pub(super) rendered: KindCounts,
+}
+
+#[cfg(test)]
+pub(super) struct KindCounts([std::sync::atomic::AtomicU64; MuxEventKind::COUNT]);
+
+#[cfg(test)]
+impl Default for KindCounts {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| std::sync::atomic::AtomicU64::new(0)))
+    }
+}
+
+#[cfg(test)]
+impl KindCounts {
+    fn note(&self, event: &MuxEvent) {
+        self.0[MuxEventKind::of(event) as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn of(&self, kind: MuxEventKind) -> u64 {
+        self.0[kind as usize].load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 /// The kinds a page relay hearing the subscribe events `names` needs, or

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{page_event_kinds, subscribed_event_json, wire_event_kinds};
+use super::{SubscribeProbe, page_event_kinds, subscribed_event_json, wire_event_kinds};
 use crate::event_bus::{MuxEventBroadcaster, MuxEventKind, MuxEventKinds};
 use crate::server::bounded_outbound::{BoundedOutbound, QueuedSink};
 use crate::server::*;
@@ -48,8 +48,13 @@ fn a_page_interest_queues_none_of_ten_thousand_surface_outputs() {
     assert!(!normal.overflowed());
 }
 
-/// A subscribed connection writing into a queue the test reads.
-fn subscribed(mux: &Arc<Mux>, page: Option<&str>) -> Arc<BoundedOutbound> {
+/// A subscribed connection writing into a queue the test reads, and its
+/// subscription's probe.
+fn subscribed(
+    mux: &Arc<Mux>,
+    page: Option<&str>,
+    surface: Option<SurfaceId>,
+) -> (Arc<BoundedOutbound>, Arc<SubscribeProbe>) {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -57,9 +62,13 @@ fn subscribed(mux: &Arc<Mux>, page: Option<&str>) -> Arc<BoundedOutbound> {
         origin_gate::set_role_for_test(mux, client, "page_relay");
         origin_gate::set_page(mux, client, page.to_owned());
     }
-    let command = tests::json_command(json!({"cmd": "subscribe"}));
+    let mut request = json!({"cmd": "subscribe"});
+    if let Some(surface) = surface {
+        request["surface"] = json!(surface);
+    }
+    let command = tests::json_command(request);
     assert_eq!(handle_command(mux, client, command, &writer).unwrap(), json!({}));
-    outbound
+    (outbound, mux.control_clients.subscribe_probe(client))
 }
 
 /// The event names `outbound` writes until one is `last`, or the deadline.
@@ -81,22 +90,56 @@ fn written_until(outbound: &BoundedOutbound, last: &str) -> Vec<String> {
     names
 }
 
+/// Emit `OUTPUT_EVENTS` outputs spread over `surfaces`, then one
+/// `history-changed`.
+fn emit_outputs_then_history(mux: &Mux, surfaces: &[SurfaceId]) {
+    for surface in surfaces.iter().cycle().take(OUTPUT_EVENTS as usize) {
+        mux.emit(MuxEvent::SurfaceOutput(*surface));
+    }
+    mux.emit(history_changed());
+}
+
 #[test]
 fn a_history_page_relay_hears_its_event_and_no_surface_output() {
     let mux = Mux::new_for_test("subscribe-interest", crate::SurfaceOptions::default());
-    let relay = subscribed(&mux, Some("history"));
-    let local = subscribed(&mux, None);
+    let (relay, relay_probe) = subscribed(&mux, Some("history"), None);
+    let (local, local_probe) = subscribed(&mux, None, None);
 
-    for surface in 0..OUTPUT_EVENTS {
-        mux.emit(MuxEvent::SurfaceOutput(surface % 64));
-    }
-    mux.emit(history_changed());
+    let surfaces: Vec<SurfaceId> = (0..64).collect();
+    emit_outputs_then_history(&mux, &surfaces);
 
     assert_eq!(written_until(&relay, "history-changed"), ["history-changed"]);
+    // The bus never queued a surface output for the relay: its stream
+    // neither received nor rendered one, and its own event came through.
+    assert_eq!(relay_probe.received.of(MuxEventKind::SurfaceOutput), 0);
+    assert_eq!(relay_probe.rendered.of(MuxEventKind::SurfaceOutput), 0);
+    assert_eq!(relay_probe.received.of(MuxEventKind::HistoryChanged), 1);
+    assert_eq!(relay_probe.rendered.of(MuxEventKind::HistoryChanged), 1);
+
     let heard = written_until(&local, "history-changed");
     assert_eq!(heard.last().map(String::as_str), Some("history-changed"), "{heard:?}");
     let outputs = heard.iter().filter(|name| *name == "surface-output").count();
     assert!(outputs > 0, "a normal subscriber still hears surface-output: {heard:?}");
+    assert!(local_probe.rendered.of(MuxEventKind::SurfaceOutput) >= outputs as u64);
+}
+
+/// A surface stream is not filtered on the bus: a page relay's interest
+/// still drops that surface's output before any JSON is built.
+#[test]
+fn a_history_page_relay_surface_stream_renders_no_surface_output() {
+    let mux = Mux::new_for_test("subscribe-interest-surface", crate::SurfaceOptions::default());
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap().id;
+    let (relay, relay_probe) = subscribed(&mux, Some("history"), Some(surface));
+
+    emit_outputs_then_history(&mux, &[surface]);
+
+    assert_eq!(written_until(&relay, "history-changed"), ["history-changed"]);
+    assert!(
+        relay_probe.received.of(MuxEventKind::SurfaceOutput) > 0,
+        "the surface stream's bus filter passes the surface's output"
+    );
+    assert_eq!(relay_probe.rendered.of(MuxEventKind::SurfaceOutput), 0);
+    assert_eq!(relay_probe.rendered.of(MuxEventKind::HistoryChanged), 1);
 }
 
 /// Every event a page may name (page-router.json and the Channels page's

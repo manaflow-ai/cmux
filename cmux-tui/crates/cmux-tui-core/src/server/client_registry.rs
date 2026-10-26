@@ -455,6 +455,8 @@ impl ClientRegistry {
                 person: false,
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(test)]
+                subscribe_probe: Arc::default(),
             },
         );
         drop(state);
@@ -464,6 +466,14 @@ impl ClientRegistry {
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
         self.state.lock().recover_poison().clients.keys().copied().collect()
+    }
+
+    /// The probe of `client`'s `subscribe` stream (a fresh one for an
+    /// unknown client, which no stream reports to).
+    #[cfg(test)]
+    pub(super) fn subscribe_probe(&self, client: u64) -> Arc<super::cmd_subscribe::SubscribeProbe> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.subscribe_probe.clone()).unwrap_or_default()
     }
 
     #[cfg(test)]
