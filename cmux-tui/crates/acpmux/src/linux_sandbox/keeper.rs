@@ -16,7 +16,6 @@ use super::{bwrap, proxy, rules};
 use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::future::Future;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -226,7 +225,8 @@ fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> 
         let mut header = libc::CMSG_FIRSTHDR(&msg);
         while !header.is_null() {
             if (*header).cmsg_level == libc::SOL_SOCKET && (*header).cmsg_type == libc::SCM_RIGHTS {
-                let length = (*header).cmsg_len as _;
+                let cmsg_len = (*header).cmsg_len;
+                let length: usize = cmsg_len as _;
                 if length < libc::CMSG_LEN(0) as usize {
                     return Err(io::Error::other("invalid handoff control length"));
                 }
@@ -434,6 +434,7 @@ async fn run(options: Options) -> Result<i32> {
         ("CLAUDE_PROJECT", &paths.claude_project),
     ]
     .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.clone()))
     .collect();
     let policy = rules::WritePolicy::from_profile(crate::hub::remote_sandbox::PROFILE, &params)
         .map_err(|e| e.to_string())?;
