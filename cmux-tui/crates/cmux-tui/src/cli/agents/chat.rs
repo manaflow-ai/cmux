@@ -741,7 +741,7 @@ fn extract_last_code_block(text: &str) -> Option<Value> {
             }
             continue;
         }
-        let rest = &trimmed[marker.len_utf8() * width..];
+        let rest = trimmed.get(marker.len_utf8() * width..).unwrap_or_default();
         if let Some((open_marker, open_width, language, code)) = open.as_mut() {
             if *open_marker == marker && width >= *open_width && rest.trim().is_empty() {
                 latest = Some(json!({"language": language, "code": std::mem::take(code)}));
