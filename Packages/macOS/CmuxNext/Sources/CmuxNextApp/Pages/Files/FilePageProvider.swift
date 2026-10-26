@@ -218,10 +218,13 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("changes"):
             let id = UUID()
             changeListeners[id] = onEvent
-            return PageSubscription { [weak self] in self?.changeListeners[id] = nil }
+            // Each event carries the file's whole text and hash (or its deletion): the newest replaces the rest.
+            return PageSubscription(frozenDelivery: .latest) { [weak self] in self?.changeListeners[id] = nil }
         case kind.op("look"):
             let stop = host.listenLook(onEvent)
-            return PageSubscription { stop() }
+            // Each event names only the look keys that changed (FilePageLook.publish), and the page merges
+            // them without a re-read on a gap: none may drop. They come only from settings changes.
+            return PageSubscription(frozenDelivery: .ordered) { stop() }
         default:
             throw PageError.unknownOp(stream)
         }
