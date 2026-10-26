@@ -8,7 +8,7 @@ use std::sync::Mutex;
 /// directory under the sessions root (no separator, `.`, `..` or root).
 static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
 
-fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
+pub(super) fn write_json_atomic(path: &Path, value: &Value) -> Result<()> {
     let tmp = path.with_extension(format!(
         "{}.importing",
         path.extension().and_then(|e| e.to_str()).unwrap_or("json")
@@ -115,8 +115,6 @@ impl Hub {
         name: Option<String>,
     ) -> Result<Arc<Session>, RpcError> {
         let session = self.import_into(bundle, name, false, None, false, false).await?;
-        self.finalize_harness_state(&session.meta())
-            .map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(session)
     }
 
@@ -320,6 +318,9 @@ impl Hub {
             return Ok(());
         }
         let Some(agent_id) = meta.agent_session_id.as_deref() else { return Ok(()) };
+        if !plain_agent_session(agent_id) {
+            return Err(anyhow::anyhow!("invalid cmux-harness ACP session id"));
+        }
         let Some(session_dir) = self.store.session_dir(&meta.id) else { return Ok(()) };
         let Some(root) = session_dir.parent() else { return Ok(()) };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));

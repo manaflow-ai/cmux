@@ -89,6 +89,15 @@ impl Hub {
         let Ok(entries) = std::fs::read_dir(root) else { return };
         for entry in entries.flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".durable-transfer-state.importing")
+                || name.ends_with(".replacement-state.json.importing")
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+        let Ok(entries) = std::fs::read_dir(root) else { return };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
             let Some(id) =
                 name.strip_prefix(".").and_then(|n| n.strip_suffix(".replacement-backup"))
             else {
@@ -128,16 +137,34 @@ impl Hub {
             }
             let Ok(marker) = std::fs::read(entry.path()) else { continue };
             let Ok(value) = serde_json::from_slice::<Value>(&marker) else { continue };
+            let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+            if phase == "prepared" {
+                let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+                let replace_durable =
+                    value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
+                if !replace_durable && super::transfer::is_plain_id(outer_id) {
+                    let _ = std::fs::remove_dir_all(root.join(outer_id));
+                }
+                let _ = std::fs::remove_file(entry.path());
+                continue;
+            }
+            if phase != "staged" && phase != "committed" {
+                continue;
+            }
             let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
             let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
             let replace_durable =
                 value.get("replaceDurable").and_then(Value::as_bool).unwrap_or(false);
-            let had_journal = value.get("hadJournal").and_then(Value::as_bool).unwrap_or(false);
-            let had_pi = value.get("hadPi").and_then(Value::as_bool).unwrap_or(false);
-            let dir_was_present =
-                value.get("journalDirWasPresent").and_then(Value::as_bool).unwrap_or(false);
-            let outer_committed =
-                std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
+            let Some(had_journal) = value.get("hadJournal").and_then(Value::as_bool) else {
+                continue;
+            };
+            let Some(had_pi) = value.get("hadPi").and_then(Value::as_bool) else { continue };
+            let Some(dir_was_present) = value.get("journalDirWasPresent").and_then(Value::as_bool)
+            else {
+                continue;
+            };
+            let outer_committed = phase == "committed"
+                || std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
                     .and_then(|v| {
@@ -405,14 +432,8 @@ impl Hub {
                     return Err(transfer_error("store", "source-store backup path is occupied"));
                 }
                 let state = backup.with_extension("replacement-state.json");
-                std::fs::write(
-                    &state,
-                    serde_json::to_vec(&json!({"id": id, "phase": "staged"})).unwrap_or_default(),
-                )
-                .map_err(|e| transfer_error("store", format!("write replacement state: {e}")))?;
-                std::fs::File::open(&state)
-                    .and_then(|f| f.sync_all())
-                    .map_err(|e| transfer_error("store", format!("sync replacement state: {e}")))?;
+                super::transfer::write_json_atomic(&state, &json!({"id": id, "phase": "staged"}))
+                    .map_err(|e| transfer_error("store", format!("write replacement state: {e}")))?;
                 std::fs::rename(source_store, &backup)
                     .map_err(|e| transfer_error("store", format!("stage source store: {e}")))?;
                 Some((source_store.clone(), backup))
@@ -433,18 +454,21 @@ impl Hub {
             Ok(session) => {
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
-                    let bytes = serde_json::to_vec(&json!({"id": id, "phase": "committed"}))
-                        .map_err(|e| {
-                            transfer_error("store", format!("encode commit state: {e}"))
-                        })?;
-                    std::fs::write(&state, bytes)
-                        .map_err(|e| transfer_error("store", format!("write commit state: {e}")))?;
-                    std::fs::File::open(&state)
-                        .and_then(|f| f.sync_all())
-                        .map_err(|e| transfer_error("store", format!("sync commit state: {e}")))?;
+                    let commit = serde_json::to_value(json!({"id": id, "phase": "committed"}))
+                        .map_err(|e| transfer_error("store", format!("encode commit state: {e}")))
+                        .and_then(|value| {
+                            super::transfer::write_json_atomic(&state, &value)
+                                .map_err(|e| transfer_error("store", format!("commit state: {e}")))
+                        });
+                    if let Err(error) = commit {
+                        let _ = self.kill(&session, true).await;
+                        self.recover_staged_replacements();
+                        return Err(error);
+                    }
                 }
-                self.finalize_harness_state(&session.meta())
-                    .map_err(|e| transfer_error("store", format!("finalize durable state: {e}")))?;
+                if let Err(error) = self.finalize_harness_state(&session.meta()) {
+                    tracing::warn!(session = %session.id, "durable transfer finalization deferred: {error:#}");
+                }
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
