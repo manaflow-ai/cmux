@@ -2862,6 +2862,23 @@
       ],
       "type": "object"
     },
+    "QueuedAuthor": {
+      "description": "The person who queued a prompt in a shared chat.",
+      "properties": {
+        "id": {
+          "description": "`tailnet:<login>` or `user_…`.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
     "QueuedImage": {
       "description": "An image a queued prompt sends.",
       "properties": {
@@ -2890,6 +2907,17 @@
     "QueuedPromptSummary": {
       "description": "A prompt waiting for the running turn to end.",
       "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueuedAuthor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
+        },
         "client": {
           "type": "string"
         },
@@ -2928,6 +2956,7 @@
         }
       },
       "required": [
+        "author",
         "client",
         "fromAgent",
         "held",
