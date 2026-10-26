@@ -176,27 +176,28 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstPartyDynamic = 166,
   kOpPageResourceRespond = 167,
   kOpMemoryPressureVote = 168,
-  kOpAddDocumentScript = 169,  // optional
-  kOpAddPageChannel = 170,  // optional
-  kOpTabEvaluate = 171,  // optional
-  kOpTabSetFrozen = 172,  // optional
-  kOpTabSendClick = 173,  // optional
-  kOpTabSetColorScheme = 174,  // optional
-  kOpPageSchemeSetGroup = 175,  // optional
-  kOpTabDiscard = 176,  // optional
-  kOpWidgetSetGeometry = 177,  // optional
-  kOpWidgetDismiss = 178,  // optional
-  kOpWidgetSendInput = 179,  // optional
+  kOpSetCursorEvents = 169,
+  kOpAddDocumentScript = 170,  // optional
+  kOpAddPageChannel = 171,  // optional
+  kOpTabEvaluate = 172,  // optional
+  kOpTabSetFrozen = 173,  // optional
+  kOpTabSendClick = 174,  // optional
+  kOpTabSetColorScheme = 175,  // optional
+  kOpPageSchemeSetGroup = 176,  // optional
+  kOpTabDiscard = 177,  // optional
+  kOpWidgetSetGeometry = 178,  // optional
+  kOpWidgetDismiss = 179,  // optional
+  kOpWidgetSendInput = 180,  // optional
 };
-inline constexpr uint16_t kOpCount = 179;
+inline constexpr uint16_t kOpCount = 180;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 53;
-inline constexpr char kShimAbiID[] = "240ddda47495e16aa6024d178a64c4d3c94c0e5b95e22b3fec6a6cdd4c1a6020";
+inline constexpr int kEventKindCount = 54;
+inline constexpr char kShimAbiID[] = "81bf245c93a55693f030934eaf207a3c9f565fbe9ac595b664cc4a95e5918a2c";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "daff2a1ce7fde9cd084a2c11b7c97c171b793f42989e082ffa247eab07d456a4";
+inline constexpr char kWireID[] = "b1c9bccd37ac5fa0bd72bf37512c3eee22aab45601fb889615e4a5bbdd75fcf7";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
