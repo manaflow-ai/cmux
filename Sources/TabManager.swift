@@ -795,12 +795,15 @@ class TabManager: ObservableObject {
 #endif
     }
 
+    private var agentPIDSweepTask: Task<Void, Never>?
+
     deinit {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
         observers.removeAll()
         agentPIDSweepTimer?.cancel()
+        agentPIDSweepTask?.cancel()
         // The sidebar git/PR services cancel their own poll, probe, snapshot,
         // and refresh tasks in their deinits; they deallocate with this
         // TabManager (the host back-references are weak).
@@ -885,15 +888,22 @@ class TabManager: ObservableObject {
     /// table on a utility queue, and clears the stale ones back on main. The
     /// `sysctl` per agent PID used to run on the main thread for every workspace.
     private func sweepStaleAgentPIDs() {
+        guard agentPIDSweepTask == nil else { return }
         let probesByWorkspace = tabs.map { ($0.id, $0.agentPIDLivenessProbes()) }
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            let staleByWorkspace = probesByWorkspace.map { workspaceId, probes in
+        let probeTask = Task.detached(priority: .utility) {
+            probesByWorkspace.map { workspaceId, probes in
                 (workspaceId, Workspace.staleAgentPIDProbes(probes))
             }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.clearStaleAgentPIDs(staleByWorkspace)
+        }
+        agentPIDSweepTask = Task { @MainActor [weak self] in
+            let staleByWorkspace = await withTaskCancellationHandler {
+                await probeTask.value
+            } onCancel: {
+                probeTask.cancel()
             }
+            guard !Task.isCancelled, let self else { return }
+            self.agentPIDSweepTask = nil
+            self.clearStaleAgentPIDs(staleByWorkspace)
         }
     }
 

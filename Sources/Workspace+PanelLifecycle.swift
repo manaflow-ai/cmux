@@ -227,12 +227,17 @@ extension Workspace {
         let key: String
         let pid: pid_t
         let recordedIdentity: AgentPIDProcessIdentity?
+        let panelId: UUID?
     }
 
     /// The recorded agent PIDs the periodic sweep checks off the main actor.
     func agentPIDLivenessProbes() -> [AgentPIDLivenessProbe] {
         agentPIDs.map { key, pid in
-            AgentPIDLivenessProbe(key: key, pid: pid, recordedIdentity: agentPIDProcessIdentitiesByKey[key])
+            AgentPIDLivenessProbe(
+                key: key, pid: pid,
+                recordedIdentity: agentPIDProcessIdentitiesByKey[key],
+                panelId: agentPIDPanelIdsByKey[key]
+            )
         }
     }
 
@@ -255,8 +260,9 @@ extension Workspace {
         var didChange = false
         for probe in probes
         where agentPIDs[probe.key] == probe.pid
-            && agentPIDProcessIdentitiesByKey[probe.key] == probe.recordedIdentity {
-            if clearAgentPID(key: probe.key, clearStatus: true, refreshPorts: false) {
+            && agentPIDProcessIdentitiesByKey[probe.key] == probe.recordedIdentity
+            && agentPIDPanelIdsByKey[probe.key] == probe.panelId {
+            if clearAgentPID(key: probe.key, panelId: probe.panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
         }

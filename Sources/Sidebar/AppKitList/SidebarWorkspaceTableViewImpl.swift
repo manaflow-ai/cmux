@@ -12,15 +12,6 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 
-#if DEBUG
-    /// Observes every row-height note the controller commits.
-    var noteHeightOfRowsProbe: ((IndexSet) -> Void)?
-
-    override func noteHeightOfRows(withIndexesChanged indexSet: IndexSet) {
-        noteHeightOfRowsProbe?(indexSet)
-        super.noteHeightOfRows(withIndexesChanged: indexSet)
-    }
-#endif
 
     /// Pointer location for hover recomputes that no event drove (content
     /// applies, menu close, viewport changes). Tracking events stop while a

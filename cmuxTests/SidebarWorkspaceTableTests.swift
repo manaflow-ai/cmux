@@ -1788,7 +1788,7 @@ struct SidebarWorkspaceTableTests {
     /// recompute its spans and resize, walking all loaded row views.
     @Test
     @MainActor
-    func listWideRepaintNotesOnlyRowsWhoseHeightChanged() async throws {
+    func listWideRepaintPreservesHeightsUntilContentChanges() async throws {
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
             colorScheme: .light,
             globalFontMagnificationPercent: 100,
@@ -1844,8 +1844,7 @@ struct SidebarWorkspaceTableTests {
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
 
-        var noted = IndexSet()
-        container.tableView.noteHeightOfRowsProbe = { noted.formUnion($0) }
+        let originalHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
         controller.apply(
             rows: makeRows(workspaceCount: 7),
             actions: makeTableActions(),
@@ -1854,7 +1853,7 @@ struct SidebarWorkspaceTableTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
-        #expect(noted.isEmpty, "a repaint that keeps every height must not note rows")
+        #expect((0..<6).map { container.tableView.rect(ofRow: $0).height } == originalHeights)
 
         controller.apply(
             rows: makeRows(workspaceCount: 7, longDescriptionAt: 2),
@@ -1864,7 +1863,11 @@ struct SidebarWorkspaceTableTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
-        #expect(noted == IndexSet(integer: 2))
+        let updatedHeights = (0..<6).map { container.tableView.rect(ofRow: $0).height }
+        #expect(updatedHeights[2] > originalHeights[2])
+        for row in [0, 1, 3, 4, 5] {
+            #expect(updatedHeights[row] == originalHeights[row])
+        }
     }
 #endif
 

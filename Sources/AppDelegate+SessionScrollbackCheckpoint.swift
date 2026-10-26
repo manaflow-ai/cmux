@@ -55,14 +55,15 @@ extension AppDelegate {
                     // before returning, after earlier queued writes, so a crash
                     // before the async batch runs cannot leave stale scrollback
                     // for the next unclean restore to merge.
+                    var failedRemovals = Set<UUID>()
                     if !batch.removals.isEmpty {
                         let removals = SessionScrollbackCheckpointWriteBatch(
                             captures: [],
                             removals: batch.removals,
                             livePanelIds: nil
                         )
-                        queue.sync {
-                            _ = store.apply(removals)
+                        failedRemovals = queue.sync {
+                            store.apply(removals).failedRemovalIds
                         }
                     }
                     let writes = SessionScrollbackCheckpointWriteBatch(
@@ -73,19 +74,23 @@ extension AppDelegate {
                     queue.async {
                         store.applyMarkingFailuresPending(writes, activity: activity)
                     }
+                    return failedRemovals
                 }
             ),
             activity: activity
         )
         // Until the files on disk are known every live terminal may have one, so
         // a checkpoint checks every terminal's eligibility. List them off main.
-        queue.async {
-            let existing = store.checkpointedPanelIds()
-            DispatchQueue.main.async { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.sessionScrollbackCheckpointCoordinator?.noteExistingCheckpoints(existing)
-                }
+        let listing = Task.detached(priority: .utility) { store.checkpointedPanelIds() }
+        sessionScrollbackCheckpointLoadTask = Task { @MainActor [weak self] in
+            let existing = await withTaskCancellationHandler {
+                await listing.value
+            } onCancel: {
+                listing.cancel()
             }
+            guard !Task.isCancelled, let self else { return }
+            self.sessionScrollbackCheckpointCoordinator?.noteExistingCheckpoints(existing)
+            self.sessionScrollbackCheckpointLoadTask = nil
         }
     }
 

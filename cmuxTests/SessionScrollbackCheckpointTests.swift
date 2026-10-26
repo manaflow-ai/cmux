@@ -99,6 +99,19 @@ struct SessionScrollbackCheckpointPolicyTests {
         #expect(evaluations == 3)
     }
 
+    @Test func olderIneligibleCandidatesDoNotConsumeTheCaptureBudget() {
+        let panels = (0..<1_000).map { _ in UUID() }
+        let captures = Set(panels[997...])
+        let plan = SessionScrollbackCheckpointPolicy.plan(
+            candidates: panels.reversed().map { .init(panelId: $0, hasPendingOutput: true) },
+            checkpointedPanelIds: [],
+            isEligible: { captures.contains($0) },
+            lastCapturedAt: Dictionary(uniqueKeysWithValues: panels.enumerated().map { ($0.element, Double($0.offset)) }),
+            maxCaptures: 3
+        )
+        #expect(plan.captures == Array(panels[997...]))
+    }
+
     @Test func planCapsCapturesAndPrefersLeastRecentlyCaptured() {
         let never = UUID()
         let old = UUID()
@@ -215,6 +228,7 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         var batches: [SessionScrollbackCheckpointWriteBatch] = []
         var captureCost: TimeInterval = 0.001
         var onCapture: ((UUID) -> Void)?
+        var persistBatch: ((SessionScrollbackCheckpointWriteBatch) -> Set<UUID>)?
         /// Runs before each deferred main-queue turn, standing in for the PTY read thread.
         var beforeMainTurn: (() -> Void)?
         let activity = TerminalScrollbackCheckpointActivity()
@@ -262,7 +276,10 @@ struct SessionScrollbackCheckpointCoordinatorTests {
                         self.beforeMainTurn?()
                         work()
                     },
-                    persist: { [unowned self] in self.batches.append($0) }
+                    persist: { [unowned self] batch in
+                        self.batches.append(batch)
+                        return self.persistBatch?(batch) ?? []
+                    }
                 ),
                 activity: activity
             )
@@ -410,6 +427,33 @@ struct SessionScrollbackCheckpointCoordinatorTests {
         #expect(coordinator.tickIfDue())
         #expect(try #require(harness.batches.last).removals == [restored])
         #expect(coordinator.checkpointedPanelIds == Set<UUID>())
+    }
+
+    @Test func failedCheckpointRemovalIsRetriedOnTheNextTick() throws {
+        let harness = Harness()
+        let panelId = harness.addTerminal(eligible: false)
+        _ = harness.activity.beginCapture(surfaceID: panelId)
+        let store = SessionScrollbackCheckpointStore(directoryURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("checkpoint-removal-\(UUID().uuidString)"))
+        defer { try? FileManager.default.removeItem(at: store.directoryURL) }
+        store.apply(.init(captures: [.init(
+            panelId: panelId, surfaceId: panelId, capturedAt: 1, finish: { "stale" }
+        )], removals: [], livePanelIds: nil))
+        let coordinator = harness.makeCoordinator()
+        coordinator.noteExistingCheckpoints(store.checkpointedPanelIds())
+        harness.persistBatch = { store.apply($0, fileManager: RefusingCheckpointRemoval()).failedRemovalIds }
+
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(coordinator.checkpointedPanelIds == [panelId])
+        #expect(store.loadRecords(panelIds: [panelId])[panelId]?.scrollback == "stale")
+
+        harness.persistBatch = { store.apply($0).failedRemovalIds }
+        harness.advanceToNextCheckpoint()
+        #expect(coordinator.tickIfDue())
+        #expect(try #require(harness.batches.last).removals == [panelId])
+        #expect(coordinator.checkpointedPanelIds?.isEmpty == true)
+        #expect(store.loadRecords(panelIds: [panelId]).isEmpty)
     }
 
     @Test func typingDuringCheckpointLeavesRemainingTerminalsPending() throws {
@@ -602,7 +646,7 @@ struct SessionScrollbackCheckpointStoreTests {
     @Test func listsPanelsThatHaveCheckpointFiles() throws {
         let store = makeStore()
         defer { cleanUp(store) }
-        #expect(store.checkpointedPanelIds().isEmpty)
+        #expect(store.checkpointedPanelIds()?.isEmpty == true)
         let written = UUID()
         let empty = UUID()
         store.apply(.init(
@@ -937,5 +981,12 @@ struct SessionScrollbackCheckpointStoreTests {
             filePreview: nil,
             rightSidebarTool: nil
         )
+    }
+}
+
+/// Stateless fault injection for a filesystem that refuses checkpoint unlink.
+private final class RefusingCheckpointRemoval: FileManager, @unchecked Sendable {
+    override func removeItem(at URL: URL) throws {
+        throw CocoaError(.fileWriteNoPermission)
     }
 }

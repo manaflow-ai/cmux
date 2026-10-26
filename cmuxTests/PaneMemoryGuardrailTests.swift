@@ -422,32 +422,21 @@ struct PaneMemoryGuardrailTests {
         #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
 
-    @MainActor
     @Test
-    func settingsCacheReadsDefaultsOnceUntilInvalidated() throws {
+    func guardrailSettingsReadTheCurrentPersistentValues() throws {
         let suiteName = "cmux.paneMemoryGuardrail.settings.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         defaults.set(true, forKey: "terminal.runawayMemoryGuardrail.enabled")
         defaults.set(4.0, forKey: "terminal.runawayMemoryGuardrail.thresholdGB")
+        #expect(PaneMemoryGuardrail.readSettings(in: defaults) ==
+            .init(isEnabled: true, thresholdBytes: 4 * gb))
 
-        var readCount = 0
-        let cache = PaneMemoryGuardrailSettingsCache(read: {
-            readCount += 1
-            return PaneMemoryGuardrail.readSettings(in: defaults)
-        })
-
-        // A poll tick every few seconds must not touch preferences each time.
-        for _ in 0..<100 {
-            #expect(cache.values == .init(isEnabled: true, thresholdBytes: 4 * gb))
-        }
-        #expect(readCount == 1)
-
-        defaults.set(false, forKey: "terminal.runawayMemoryGuardrail.enabled")
-        defaults.set(9_999.0, forKey: "terminal.runawayMemoryGuardrail.thresholdGB")
-        cache.invalidate()
-        #expect(cache.values == .init(isEnabled: false, thresholdBytes: 256 * gb))
-        #expect(cache.values.isEnabled == false)
-        #expect(readCount == 2)
+        defaults.setPersistentDomain([
+            "terminal.runawayMemoryGuardrail.enabled": false,
+            "terminal.runawayMemoryGuardrail.thresholdGB": 9_999.0,
+        ], forName: suiteName)
+        #expect(PaneMemoryGuardrail.readSettings(in: defaults) ==
+            .init(isEnabled: false, thresholdBytes: 256 * gb))
     }
 }

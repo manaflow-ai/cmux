@@ -16,13 +16,13 @@ import Observation
 final class PaneMemoryGuardrail {
     static let shared = PaneMemoryGuardrail()
 
-    private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
-    private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
+    nonisolated private static let enabledSetting = SettingCatalog().terminal.runawayMemoryGuardrailEnabled
+    nonisolated private static let thresholdGBSetting = SettingCatalog().terminal.runawayMemoryGuardrailThresholdGB
     private static let pollInterval: TimeInterval = 4
     private static let scopedScanInterval: TimeInterval = 15
-    private static let defaultThresholdGB: Double = 8
-    private static let thresholdRangeGB: ClosedRange<Double> = 1...256
-    private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
+    nonisolated private static let defaultThresholdGB: Double = 8
+    nonisolated private static let thresholdRangeGB: ClosedRange<Double> = 1...256
+    nonisolated private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
@@ -42,19 +42,8 @@ final class PaneMemoryGuardrail {
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
-    @ObservationIgnored
-    private let settingsCache = PaneMemoryGuardrailSettingsCache(read: { PaneMemoryGuardrail.readSettings(in: .standard) })
-    @ObservationIgnored
-    private var defaultsObserver: NSObjectProtocol?
-
     func start() {
         guard timer == nil else { return }
-        // Each tick used to read both settings from UserDefaults on the main
-        // actor, where a contended preferences lock stalls the UI (Sentry
-        // CMUXTERM-MACOS-1FSR). Read them once and again only after a change.
-        defaultsObserver = NotificationCenter.default.addUserDefaultsObserver(object: nil) { [weak self] in
-            self?.settingsCache.invalidate()
-        }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
             deadline: .now() + Self.pollInterval,
@@ -62,7 +51,7 @@ final class PaneMemoryGuardrail {
             leeway: .seconds(1)
         )
         timer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.tick() }
+            Task { @MainActor in await self?.tick() }
         }
         self.timer = timer
         timer.resume()
@@ -70,26 +59,40 @@ final class PaneMemoryGuardrail {
 
     // MARK: Settings
 
-    static func readSettings(in defaults: UserDefaults) -> PaneMemoryGuardrailSettingsCache.Values {
+    nonisolated static func readSettings(in defaults: UserDefaults) -> Settings {
         let rawThresholdGB = thresholdGBSetting.value(in: defaults)
         let gb = rawThresholdGB.isFinite
             ? min(max(rawThresholdGB, thresholdRangeGB.lowerBound), thresholdRangeGB.upperBound)
             : defaultThresholdGB
-        return PaneMemoryGuardrailSettingsCache.Values(
+        return Settings(
             isEnabled: enabledSetting.value(in: defaults),
             thresholdBytes: Int64(gb * bytesPerGB)
         )
     }
 
+    struct Settings: Equatable, Sendable {
+        let isEnabled: Bool
+        let thresholdBytes: Int64
+    }
+
     // MARK: Tick
 
-    private func tick() {
-        let settings = settingsCache.values
+    private func tick() async {
+        guard !isScanning else { return }
+        isScanning = true
+        // Read authoritative preferences off main on each tick. A notification
+        // cache misses writes by other processes, and preferences can block.
+        let settings = await Task.detached(priority: .utility) {
+            Self.readSettings(in: .standard)
+        }.value
         guard settings.isEnabled else {
             clearAll()
             return
         }
-        guard !isScanning, let paneProvider else { return }
+        guard let paneProvider else {
+            isScanning = false
+            return
+        }
         let descriptors = paneProvider()
         guard !descriptors.isEmpty else {
             clearAll()
@@ -376,37 +379,5 @@ final class PaneMemoryGuardrail {
         scanApplyTask = nil
         lastScopedOnlySamplesByKey.removeAll()
         lastScopedScanAt = .distantPast
-    }
-}
-
-// MARK: - Settings cache
-
-/// Holds the guardrail's settings between UserDefaults changes so the poll
-/// timer does not read preferences on the main actor every tick.
-@MainActor
-final class PaneMemoryGuardrailSettingsCache {
-    struct Values: Equatable {
-        let isEnabled: Bool
-        let thresholdBytes: Int64
-    }
-
-    private let read: @MainActor () -> Values
-    private var cached: Values?
-
-    init(read: @escaping @MainActor () -> Values) {
-        self.read = read
-    }
-
-    /// The cached settings, read from the source only when nothing is cached.
-    var values: Values {
-        if let cached { return cached }
-        let fresh = read()
-        cached = fresh
-        return fresh
-    }
-
-    /// Drops the cached settings; the next ``values`` read reloads them.
-    func invalidate() {
-        cached = nil
     }
 }

@@ -75,7 +75,6 @@ final class KeyboardShortcutSettingsObserver {
             object: nil,
             queue: nil
         ) { [weak self] _ in
-            ShortcutKeyCodeResolutionCache.shared.invalidate()
             Self.deliverOnMainActor { [weak self] in
                 self?.reloadCachedShortcuts()
             }

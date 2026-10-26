@@ -10707,7 +10707,7 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private var sharedBackdropCutoutView: NSView?
-    private let backgroundView: TerminalPaneBackgroundView
+    let backgroundView: TerminalPaneBackgroundView
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     let surfaceView: GhosttyNSView
@@ -10753,7 +10753,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
-    private let keyboardCopyModeBadgeLabel: NSTextField
+    let keyboardCopyModeBadgeLabel: NSTextField
     let linkHoverIndicatorView: LinkHoverIndicatorView
     let passwordInputIndicatorView: TerminalPasswordInputIndicatorView
     private let imageTransferIndicatorContainerView: NSView
@@ -10808,15 +10808,6 @@ final class GhosttySurfaceScrollView: NSView {
     /// Text last applied to the key-state badge; `.some(nil)` means hidden.
     /// Accessibility attribute writes are synchronous (CMUXTERM-MACOS-3MTT).
     private var appliedKeyStateIndicatorText: String??
-#if DEBUG
-    struct DebugAttachWorkCounts: Equatable {
-        var geometrySyncs = 0
-        var backgroundCommits = 0
-        var keyStateIndicatorWrites = 0
-    }
-    private(set) var debugAttachWorkCounts = DebugAttachWorkCounts()
-    func resetDebugAttachWorkCounts() { debugAttachWorkCounts = DebugAttachWorkCounts() }
-#endif
     weak var paneGeometryPortal: WindowTerminalPortal?
     private var pendingAutomaticFirstResponderApply = false
     private var pendingAutomaticFirstResponderFocusTransactionId: UUID?
@@ -11514,9 +11505,6 @@ final class GhosttySurfaceScrollView: NSView {
     ) -> Bool {
         let work = TerminalGeometryDiagnostics().begin(.layout, workspaceID: surfaceView.terminalSurface?.tabId, transition: TerminalGeometryDiagnostics().resizeTransition(in: window))
         defer { work.end() }
-#if DEBUG
-        debugAttachWorkCounts.geometrySyncs += 1
-#endif
         defer { lastSynchronizedGeometryInputs = currentAttachGeometryInputs() }
         let preservedReviewOriginY = preservedReviewOriginY ?? {
             guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
@@ -11945,9 +11933,6 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         appliedBackgroundFill = fill
-#if DEBUG
-        debugAttachWorkCounts.backgroundCommits += 1
-#endif
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         synchronizeSharedBackdropCutout(visible: clearsSharedWindowBackdrop)
@@ -12419,9 +12404,6 @@ final class GhosttySurfaceScrollView: NSView {
         // writes are synchronous, so only write when the badge text changes.
         let textChanged = appliedKeyStateIndicatorText != .some(indicatorText)
         appliedKeyStateIndicatorText = .some(indicatorText)
-#if DEBUG
-        if textChanged { debugAttachWorkCounts.keyStateIndicatorWrites += 1 }
-#endif
 
         if let text = indicatorText {
             if textChanged {

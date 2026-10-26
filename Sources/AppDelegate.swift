@@ -1317,12 +1317,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     )
     /// Crash-safe scrollback checkpoints; see `SessionScrollbackCheckpoint.swift`.
     var sessionScrollbackCheckpointCoordinator: SessionScrollbackCheckpointCoordinator?
+    var sessionScrollbackCheckpointLoadTask: Task<Void, Never>?
     let sessionScrollbackCheckpointQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionScrollbackCheckpoint",
         qos: .utility
     )
     /// Display geometry read once for one session snapshot; see `withSessionSnapshotDisplayGeometries`.
-    var sessionSnapshotDisplayGeometries: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)?
+    private(set) var sessionSnapshotDisplayGeometries: (available: [SessionDisplayGeometry], fallback: SessionDisplayGeometry?)?
     /// Holds back primary snapshot writes from a launch that restored less
     /// than it started from; installed by startup snapshot preparation or the
     /// first save, whichever comes first.
@@ -2574,6 +2575,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WebViewInspectorTeardown.closeAllInspectors(in: NSApp.windows)
     }
     func applicationWillTerminate(_ notification: Notification) {
+        sessionScrollbackCheckpointLoadTask?.cancel()
+        sessionScrollbackCheckpointLoadTask = nil
         cloudWorkspaceOperationController?.cancelAll()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         agentChatTranscriptService.shutdown()
