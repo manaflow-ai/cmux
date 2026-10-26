@@ -180,13 +180,28 @@ export function paneRoom(shell: HTMLElement): PaneRoom {
 /// the new width: the observer runs after that frame's layout and before its paint, and `flushSync`
 /// renders the panel's place there (state set plainly drew a frame or more later, the panel floating
 /// over the narrowed transcript before the chat jumped aside: "WHY DOES IT FLICKER").
-function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoom {
-  const [room, setRoom] = useState(UNMEASURED);
+type PaneRoomState = PaneRoom & { shellWidth: number; suppressShiftTransition: boolean };
+
+function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, beside: unknown): PaneRoomState {
+  const [room, setRoom] = useState<PaneRoomState>({ ...UNMEASURED, shellWidth: 0, suppressShiftTransition: false });
   useLayoutEffect(() => {
     if (!shell || !live) return;
+    let lastShellWidth = shell.clientWidth;
     const measure = () => {
       const next = paneRoom(shell);
-      setRoom((current) => (current.width === next.width && current.side === next.side ? current : next));
+      const shellWidth = shell.clientWidth;
+      setRoom((current) =>
+        current.width === next.width && current.side === next.side && current.shellWidth === shellWidth
+          ? current
+          : {
+              ...next,
+              shellWidth,
+              // A native pane changes the shell's own width. An artifact only changes `side`, so it
+              // keeps the Session Info shift transition and its normal floating motion.
+              suppressShiftTransition: lastShellWidth !== shellWidth,
+            },
+      );
+      lastShellWidth = shellWidth;
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
@@ -196,6 +211,15 @@ function usePaneRoom(shell: HTMLElement | null | undefined, live: boolean, besid
     if (side) observer.observe(side);
     return () => observer.disconnect();
   }, [shell, live, beside]);
+  useLayoutEffect(() => {
+    if (!room.suppressShiftTransition) return;
+    const frame = requestAnimationFrame(() =>
+      setRoom((current) =>
+        current.suppressShiftTransition ? { ...current, suppressShiftTransition: false } : current,
+      ),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [room]);
   return room;
 }
 
@@ -502,11 +526,9 @@ function InspectorPresence({
   const drawn = presence.present;
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
-  const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
+  const { width: paneWidth, side, suppressShiftTransition } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
-  // A side preview owns the pane's opening motion. Hold the floating panel's final room shift while
-  // that sibling enters, so its flex resize cannot animate a stale Session Info shift first.
-  const chatShift = push ? 0 : beside ? 0 : inspectorChatShift(paneWidth, width, column, wide);
+  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const tabRowHeight = useTabRow().height;
   // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
   // below it while open so the card never covers the chip; Right preserves the original header slot,
@@ -527,12 +549,15 @@ function InspectorPresence({
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
+    if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
+    else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift]);
+  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
+      delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
     };
   }, [shell]);
