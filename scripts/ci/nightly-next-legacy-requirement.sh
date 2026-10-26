@@ -38,12 +38,36 @@ if [ -z "$sha" ]; then
     exit 1
   fi
 fi
+# Whether $1 is in $2's history, from git: "identical", "ahead" or "diverged" (not an
+# ancestor), or nothing when git cannot tell. GitHub's compare API builds the whole diff to
+# answer, and between a required commit and a nightly-next build days apart it refuses with
+# "this diff is temporarily unavailable due to heavy server load" (2026-10-26, run
+# 40340830337); ancestry needs only the commit graph, fetched without trees or blobs, and
+# costs no API call. NIGHTLY_LEGACY_GIT_URL (default the repository on github.com) names
+# the remote; set empty, only the compare API answers.
+git_ancestry() {
+  local url="${NIGHTLY_LEGACY_GIT_URL-https://github.com/$repo.git}" dir rc
+  [ "$1" != "$2" ] || { echo identical; return 0; }
+  [ -n "$url" ] || return 1
+  dir="$(mktemp -d)" || return 1
+  if git init -q --bare "$dir" 2>/dev/null &&
+    git -C "$dir" -c protocol.version=2 fetch -q --no-tags --filter=tree:0 "$url" "$1" "$2" >/dev/null 2>&1; then
+    git -C "$dir" merge-base --is-ancestor "$1" "$2" 2>/dev/null
+    rc=$?
+  else
+    rc=2
+  fi
+  rm -rf "$dir"
+  case "$rc" in 0) echo ahead ;; 1) echo diverged ;; *) return 1 ;; esac
+}
 for required in "$@"; do
   if [[ ! "$required" =~ ^[0-9a-f]{40}$ ]]; then
     echo "error: required commit '$required' is not a full SHA"
     exit 1
   fi
-  if ! status="$(gh api "repos/$repo/compare/$required...$sha" --jq .status 2>&1)"; then
+  if status="$(git_ancestry "$required" "$sha")"; then
+    :
+  elif ! status="$(gh api "repos/$repo/compare/$required...$sha" --jq .status 2>&1)"; then
     echo "error: could not compare $required with $sha (${status//$'\n'/ })"
     exit 1
   fi

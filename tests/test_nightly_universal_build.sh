@@ -1250,7 +1250,7 @@ adopt_fix=1111111111111111111111111111111111111111
 requirement() {  # <run answer> <compare answer> [required...] -> "exit:first word"
   local run="$1" compare="$2"; shift 2
   local out code
-  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" \
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" NIGHTLY_LEGACY_GIT_URL="" \
     bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$@")"
   code=$?
   printf '%s:%s' "$code" "${out%% *}"
@@ -1279,11 +1279,45 @@ notes_sha=2222222222222222222222222222222222222222
 mkdir -p "$legacy_dir/notes"
 printf '{"build": "3850073942601", "head": "%s"}\n' "$notes_sha" > "$legacy_dir/notes/3850073942601.json"
 notes_out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$good_run" FAKE_COMPARE=ahead NOTES_BASE="file://$legacy_dir/notes" \
-  bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
+  NIGHTLY_LEGACY_GIT_URL="" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
 if [ "$notes_out" != "ok $notes_sha" ]; then
   echo "FAIL: the build commit must come from the build's release notes when they exist (got '$notes_out')"
   exit 1
 fi
+# Ancestry comes from git first (GitHub's compare refuses big diffs under load, run
+# 40340830337); the compare API answers only when git cannot. A local repository:
+# base -> adopt -> build on one line, side on another.
+anc_repo="$legacy_dir/ancestry"
+git init -q "$anc_repo"
+git -C "$anc_repo" config uploadpack.allowAnySHA1InWant true
+git -C "$anc_repo" config uploadpack.allowFilter true
+anc_commit() { git -C "$anc_repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m "$1" && git -C "$anc_repo" rev-parse HEAD; }
+anc_base="$(anc_commit base)"
+anc_adopt="$(anc_commit adopt)"
+anc_build="$(anc_commit build)"
+git -C "$anc_repo" checkout -q --detach "$anc_base"
+anc_side="$(anc_commit side)"
+ancestry() {  # <required> <compare answer> -> "exit:first word"
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$anc_build nightly-next .github/workflows/nightly.yml" FAKE_COMPARE="$2" \
+    NIGHTLY_LEGACY_GIT_URL="file://$anc_repo" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$1")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+for case in \
+  "0:ok|$anc_adopt|error|a build that contains the required commit is allowed from git, with the compare API down" \
+  "0:ok|$anc_build|error|a build at the required commit is allowed" \
+  "3:missing|$anc_side|ahead|a build on another line is refused from git, whatever the compare API says" \
+  "0:ok|3333333333333333333333333333333333333333|ahead|a commit git cannot fetch falls back to the compare API" \
+  "1:error:|3333333333333333333333333333333333333333|error|git and the compare API both failing fails closed"; do
+  IFS='|' read -r expected required compare message <<<"$case"
+  actual="$(ancestry "$required" "$compare")"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+done
 # The macOS job's refusal of an app that lacks a required commit is never
 # counted, and a continued submission of that build is retired.
 legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
