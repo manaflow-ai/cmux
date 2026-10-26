@@ -213,3 +213,41 @@ async fn an_agent_that_dies_of_a_refused_request_is_not_continued() {
     assert_eq!(records(&hub, &id, "user_message").len(), 1);
     assert_eq!(row(&hub, &id)["retry"], Value::Null);
 }
+
+/// A wait that resolves at the end of a turn a capacity error cut off answers once that turn's
+/// retry is scheduled, so its row says when the next attempt runs: a failed turn never reads as
+/// final (gui-push, 2026-10-20: "acpmux wait --print after a turn that failed (capacity) prints
+/// the previous turn's reply, not the error, so a failed turn reads as done").
+#[tokio::test]
+async fn a_wait_that_ends_with_a_cut_turn_answers_with_its_retry() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let id = new_session(&mut c, "cap-wait").await;
+    let seq0 = row(&hub, &id)["stateSeq"].as_u64().unwrap();
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "cap-fail-once: build it"}], "_meta": {"acpmux": {"promptId": "p-wait"}}}),
+    )
+    .await;
+    let w = c
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [id.clone()], "afterSeq": {id.clone(): seq0}, "timeoutMs": 10000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(w["timedOut"], false, "{w}");
+    let resolved = &w["resolved"][0];
+    assert_eq!(resolved["lastTurn"]["status"], "failed", "{w}");
+    assert_eq!(resolved["retry"]["reason"], "capacity", "{w}");
+    assert_eq!(resolved["retry"]["attempt"], 1, "{w}");
+    assert_eq!(resolved["retry"]["promptId"], "p-wait", "{w}");
+    // After Stop no retry waits: a wait answers at once, with none.
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let w = c
+        .request(method::MUX_WAIT, json!({"sessions": [id.clone()], "timeoutMs": 3000}))
+        .await
+        .unwrap();
+    assert_eq!(w["timedOut"], false, "{w}");
+    assert_eq!(w["resolved"][0]["retry"], Value::Null, "{w}");
+}
