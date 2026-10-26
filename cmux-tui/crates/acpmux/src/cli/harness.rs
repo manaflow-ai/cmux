@@ -560,6 +560,10 @@ pub struct Step {
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -613,7 +617,7 @@ impl Report {
     fn push(&mut self, step: &'static str, status: StepStatus, detail: &str, fix: Option<String>) {
         let detail = self.mask(detail);
         let fix = fix.map(|f| self.mask(&f));
-        self.steps.push(Step { step, status, detail, fix });
+        self.steps.push(Step { step, status, detail, fix, reason: None, data: None });
     }
     fn done(self) -> DoctorReport {
         let ok = self.steps.iter().all(|s| s.status != StepStatus::Fail);
@@ -1023,18 +1027,34 @@ async fn handshake(
     let session = match wire.call("session/new", new, opts.timeout).await {
         Ok(v) => v,
         Err(e) => {
-            let auth = e.contains("auth") || e.contains("-32000") || e.contains("login");
+            let lower = e.to_ascii_lowercase();
+            let protocol_mismatch = (lower.contains("unknown variant")
+                && lower.contains("session/new"))
+                || lower.contains("method not found");
+            let auth = !protocol_mismatch
+                && (e.contains("auth") || e.contains("-32000") || e.contains("login"));
             r.push(
                 "session",
                 StepStatus::Fail,
                 &e,
-                Some(if auth {
+                Some(if protocol_mismatch {
+                    "this command is a Codex app-server, not the acpmux bridge; verify readiness with `acpmux daemon harnesses`, then start a real session with `acpmux new --host HOST -m codex -d`".into()
+                } else if auth {
                     "the harness needs a login: run its login command once, then doctor again"
                         .into()
                 } else {
                     "session/new failed; see the harness output below".into()
                 }),
             );
+            if protocol_mismatch {
+                if let Some(step) = r.steps.last_mut() {
+                    step.reason = Some("harness_protocol_mismatch");
+                    step.data = Some(json!({
+                        "try": "acpmux daemon harnesses",
+                        "next": "acpmux new --host HOST -m codex -d"
+                    }));
+                }
+            }
             return false;
         }
     };

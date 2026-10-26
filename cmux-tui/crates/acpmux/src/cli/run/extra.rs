@@ -434,7 +434,41 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
                     p["wait"] = json!(true);
-                    client.request("_acpmux/peer_add", p).await?
+                    let reply = client.request("_acpmux/peer_add", p).await?;
+                    let connected = reply
+                        .get("peers")
+                        .and_then(Value::as_array)
+                        .and_then(|peers| {
+                            peers.iter().find(|peer| {
+                                peer.get("name").and_then(Value::as_str) == Some(name.as_str())
+                            })
+                        })
+                        .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
+                        .unwrap_or(false);
+                    if !connected {
+                        let host = url
+                            .strip_prefix("ssh://")
+                            .unwrap_or(&url)
+                            .split(':')
+                            .next()
+                            .unwrap_or(&name);
+                        return Err(crate::cli::errors::AppError::new(
+                            crate::cli::errors::Code::Runtime,
+                            "peer_unreachable",
+                            format!(
+                                "peer {name} is offline; verify the SSH alias, then run `ssh -o BatchMode=yes {host} true`, `acpmux host add {name} {url}`, and `acpmux host doctor {name} --json`"
+                            ),
+                        )
+                        .retryable()
+                        .with_data(json!({
+                            "reason": "peer_unreachable",
+                            "try": format!("ssh -o BatchMode=yes {host} true"),
+                            "then": format!("acpmux host add {name} {url}"),
+                            "doctor": format!("acpmux host doctor {name} --json")
+                        }))
+                        .into());
+                    }
+                    reply
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Status { name } => {
@@ -477,10 +511,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let requested_name =
+                        name.clone().unwrap_or_else(|| crate::cli::hosts::short_name(&host));
+                    let (_, _, port) = crate::cli::host_enroll::pick_target(&list, &requested_name);
                     let plan = crate::cli::host_enroll::Plan {
-                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                        name: requested_name,
                         host,
-                        port: crate::peer::SSH_PEER_PORT,
+                        port,
                         harnesses,
                         remote_binary,
                         reverse,
