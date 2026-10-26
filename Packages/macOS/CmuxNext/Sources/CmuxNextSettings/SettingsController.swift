@@ -60,6 +60,8 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored let applier: SettingsApplier
+    /// The design settings this controller applies to (`DesignSettings.shared` in the app).
+    public var design: DesignSettings { applier.design }
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
