@@ -1397,9 +1397,10 @@ def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None
     }
     if open_session is None and not options.dry_run:
         driver = load_sibling(f"driver_{options.product}")
-        if driver is None:
-            raise UsageError(f"driver_{options.product}.py is not on this branch yet ({DRIVER_TASKS[options.product]})")
-        open_session = driver.open_session
+        # driver_daemon.py has the facet capture (021) before its case runner (023).
+        open_session = getattr(driver, "open_session", None)
+        if open_session is None:
+            raise UsageError(f"driver_{options.product}.py runs no cases on this branch yet ({DRIVER_TASKS[options.product]})")
     return perform_run(options, cases, open_session, store.expected if store else None, deps)
 
 

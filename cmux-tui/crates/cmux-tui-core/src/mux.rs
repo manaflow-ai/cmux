@@ -902,6 +902,12 @@ impl Mux {
         f(&self.state.lock().unwrap())
     }
 
+    /// Live event subscriptions (`oracle-state`).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    pub(crate) fn live_event_subscriber_count(&self) -> usize {
+        self.subscribers.live_subscriber_count()
+    }
+
     pub fn surface_count(&self) -> usize {
         self.state.lock().unwrap().surfaces.len()
     }

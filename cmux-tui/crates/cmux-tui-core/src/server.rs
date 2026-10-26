@@ -117,6 +117,10 @@ use window_title::sanitize_window_title;
 pub use window_title::window_title_osc;
 #[path = "server/loopback_forward.rs"]
 mod loopback_forward;
+/// `oracle-state` (p15-oracle task 021): debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+#[path = "server/oracle_state_command.rs"]
+mod oracle_state_command;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };

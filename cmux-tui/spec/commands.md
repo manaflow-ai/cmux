@@ -675,6 +675,53 @@ stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
 
+### oracle-state
+
+| Field | Value |
+| --- | --- |
+| name | `oracle-state` |
+| status | implemented in debug builds and `--features oracle` builds only |
+| since | protocol 12, no capability |
+
+The correctness oracle's daemon facet
+(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 021). A release daemon
+has no such command and answers `bad request: unknown variant`, which the
+oracle reads as a build without it. Trusted local connections only.
+
+The facet is `session.snapshot`, `settings.snapshot` and the journal head of
+the snapshot's cut. This command returns that cut from the same snapshot
+builder as `session.snapshot` and adds only what the public reads lack.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  journal_head:uint64,
+  session:ResourceSnapshot,
+  switches:map<string,string>,
+  terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
+  liveObjects:map<string,uint64>,
+  panicLog:object{path:string|null,bytes:uint64}
+}
+```
+
+`journal_head` is the session journal head read under the same registry and
+state lock as `session`: every journal record at or below it is in `session`,
+and no later one is. `session` is the `session.snapshot` result.
+`switches` maps each refactor switch to the arm the owner start parsed from
+`CMUX_TUI_SWITCHES`. `terminalAttach` counts the terminal catalog: `dead`
+terminals have no process, `attached` ones are shown in at least one pane
+tab, `detached` ones are live with no placement. `liveObjects` counts runtime
+objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
+subscriptions), `terminals` (the terminal catalog), `views` (pane tab
+placements) and `workspaces`. `panicLog` is the owner's panic log
+(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
+`path` is null when there is no state root. Every map has sorted keys.
+
+Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
+
 ### browser-host-provider
 
 | Field | Value |
