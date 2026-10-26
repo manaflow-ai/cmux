@@ -113,6 +113,20 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
+/// A start with no folder that `peer_name` refused as outside its roots, from a peer of
+/// another build that names no `servedAs`: one older than the peer scratch folder (#24442),
+/// which treats an absent folder as the home folder. Its way out is updating it, then the
+/// same command. None for any other refusal.
+fn update_first(
+    e: &RpcError,
+    peer_name: &str,
+    build: Option<&str>,
+    params: &Value,
+) -> Option<RpcError> {
+    let _ = (e, peer_name, build, params);
+    None
+}
+
 /// `inner` as run on the peer's machine: through ssh to `dest` (an `ssh://` peer's checked
 /// destination, after `--` so it is never read as an option), else as it is, for that machine.
 fn on_host(dest: Option<&str>, inner: &str) -> String {
@@ -614,5 +628,34 @@ newlines')"#
         assert_eq!(reason_of(&e("no peer \"x\"")), None);
         let other = e("x").with_data(json!({"reason": "trust.remote"}));
         assert_eq!(reason_of(&other), None);
+    }
+
+    /// `acpmux new --host H -m claude hi` with no --cwd, refused by a peer from before the
+    /// peer scratch folder: the way out is `acpmux host update H`, then the same command.
+    #[test]
+    fn an_older_peer_refusing_a_start_with_no_folder_names_the_update() {
+        let refused = || {
+            RpcError::invalid_params(
+                "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder",
+            )
+        };
+        let argv = json!(["new", "--host", "gcp-codex-lane-1", "-m", "claude", "hi"]);
+        let params = json!({"_meta": {"acpmux": {"harness": "claude", "argv": argv}}});
+        let old = Some("972843ddd 2026-10-22");
+        let e = update_first(&refused(), "gcp-codex-lane-1", old, &params).expect("an update hint");
+        let data = e.data.clone().unwrap();
+        assert_eq!(data["reason"], "peer_version_skew");
+        assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
+        assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1");
+        assert_eq!(data["then"], "acpmux new --host gcp-codex-lane-1 -m claude hi");
+        assert!(e.message.contains("972843ddd"), "{}", e.message);
+        assert!(e.message.contains("`acpmux host update gcp-codex-lane-1`"), "{}", e.message);
+        // A folder named, a peer that says how it served us, or one of this build: as before.
+        let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});
+        assert!(update_first(&refused(), "gcp-codex-lane-1", old, &named).is_none());
+        let told = refused().with_data(json!({"reason": CWD_OUTSIDE_ROOTS, "servedAs": "remote"}));
+        assert!(update_first(&told, "gcp-codex-lane-1", old, &params).is_none());
+        let same = Some(crate::hub::BUILD);
+        assert!(update_first(&refused(), "gcp-codex-lane-1", same, &params).is_none());
     }
 }
