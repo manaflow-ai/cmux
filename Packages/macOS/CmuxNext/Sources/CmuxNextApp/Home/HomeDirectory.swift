@@ -21,7 +21,7 @@ final class HomeDirectory {
     typealias TeamCall = @MainActor (_ path: String, _ body: [String: Any], _ team: String) async throws -> [String: Any]
 
     var teamMembers: [HomeContact] = []
-    private(set) var chiefs: [HomeChiefRecord] = []
+    var chiefs: [HomeChiefRecord] = []
     /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
     var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs).union(archivedHere) }
     /// My cloud Chiefs that are archived or deleted (`chief.list` with its tombstones).
