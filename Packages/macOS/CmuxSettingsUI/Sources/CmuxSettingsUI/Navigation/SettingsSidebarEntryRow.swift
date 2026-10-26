@@ -21,7 +21,8 @@ struct SettingsSidebarEntryRow: View {
             // Cloudy") before every entry.
             Image(systemName: symbolName)
                 .foregroundStyle(.secondary)
-                .frame(width: 16, height: 16)
+                .fixedSize()
+                .frame(width: 16)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
