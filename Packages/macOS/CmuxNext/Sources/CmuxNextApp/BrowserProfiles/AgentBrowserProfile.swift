@@ -3,6 +3,8 @@ import CmuxNextControl
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// openBrowser's optional `profile` argument (plans/cmux-next/passwords.md,
 /// section 3.4). "agent" asks for the clean agent profile: one profile with a
@@ -43,18 +45,19 @@ enum AgentBrowserProfile {
         _ = try await profiles.createProfile(id: id, name: name, color: nil, icon: nil)
         if profiles.isKnown(id) { return id }
         let timer = DemandTimer(owner: "AgentBrowserProfile.ensure")
-        let once = ResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            once.begin(continuation)
+        // The record or the deadline, whichever comes first; the winner stops the other.
+        try await withOnceThrowingContinuation { (once: OnceContinuation<Void, any Error>) in
             // Event-driven: the profile list is observable state of the home store.
             let watch = Task { @MainActor in
                 for await known in ObservationStream({ profiles.isKnown(id) }) where known {
-                    if once.resume(.success(())) { timer.cancel() }
+                    // The deadline won and cancelled this watch: its resume is spent.
+                    guard !Task.isCancelled else { return }
+                    if once.resume(returning: ()) { timer.cancel() }
                     return
                 }
             }
             timer.schedule(after: deadline) {
-                if once.resume(.failure(NotReported())) { watch.cancel() }
+                if once.resume(throwing: NotReported()) { watch.cancel() }
             }
         }
         return id
@@ -62,17 +65,5 @@ enum AgentBrowserProfile {
 
     nonisolated struct NotReported: Error, CustomStringConvertible {
         var description: String { "the agent browser profile was created but not reported back by the home daemon" }
-    }
-
-    /// Resumes a continuation once: the record or the deadline, whichever comes first.
-    nonisolated final class ResumeOnce: Sendable {
-        private let state = Mutex<CheckedContinuation<Void, any Error>?>(nil)
-        func begin(_ continuation: CheckedContinuation<Void, any Error>) { state.withLock { $0 = continuation } }
-        @discardableResult
-        func resume(_ result: Result<Void, any Error>) -> Bool {
-            guard let continuation = state.withLock({ value -> CheckedContinuation<Void, any Error>? in defer { value = nil }; return value }) else { return false }
-            continuation.resume(with: result)
-            return true
-        }
     }
 }

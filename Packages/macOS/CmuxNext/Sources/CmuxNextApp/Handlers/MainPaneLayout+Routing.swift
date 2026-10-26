@@ -6,6 +6,9 @@ import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Main pane layout in the app (``MainPaneLayout``, `layout.mainPane`): what an agent chat opens from its
 /// pane goes beside it. ``LinkOpener`` (links, files, folders) and ``AgentTabStore``'s side and
@@ -47,11 +50,16 @@ extension MainPaneLayout {
         services.registry.trackWork(owner: "MainPaneLayout.dockChat", on: mainWork) { [weak controller] () -> (DockStep, PaneModel?) in
             // StoreWaiters: read again only when the store keys `surface`.
             let listed = await store.waitForTab(surface: surface, timeout: limit)
-            let step = await withCheckedContinuation { (done: CheckedContinuation<DockStep, Never>) in
+            // A step dropped before it ran opened nothing.
+            let step = (try? await withOnceContinuation { (done: OnceContinuation<DockStep, OnceContinuationError>) in
                 end.post(owner: "MainPaneLayout.dockChat.move") { [weak controller] in
-                    guard let tab = listed, let controller else { return done.resume(returning: .notOpened) }
+                    guard let tab = listed, let controller else {
+                        done.resume(returning: .notOpened)
+                        return
+                    }
                     guard let chat = anchor.tabs.first(where: { $0.id != tab.id && ChatColumnPlacement.isChat($0, services: services) }) else {
-                        return done.resume(returning: .noChat(tab))
+                        done.resume(returning: .noChat(tab))
+                        return
                     }
                     outbound?.hidden(whileHolding: chat.id)
                     // The chat stays where it shows; only the tab's pane comes in, from the right (as
@@ -63,7 +71,7 @@ extension MainPaneLayout {
                         done.resume(returning: docked ? .docked(tab, chat: chat.id) : .notDocked(tab))
                     }
                 }
-            }
+            }) ?? .notOpened
             // Selected once the store has the chat in its dock: until then the strip leaves the tab out.
             guard case .docked(_, let chat) = step else { return (step, nil) }
             return (step, await movedPane(of: chat, from: anchor, services: services))

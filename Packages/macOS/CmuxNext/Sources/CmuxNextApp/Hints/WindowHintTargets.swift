@@ -6,6 +6,9 @@ import CmuxNextWakeups
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
 import CmuxNextOracle
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 #endif
 
 /// The clickable controls hint mode labels (``WindowHintController``): the
@@ -99,7 +102,8 @@ enum WindowHintTargets {
     static func pageTargets(of pages: [WKWebView], clip: CGRect) async -> [Target] {
         guard !pages.isEmpty else { return [] }
         let collection = PageCollection(count: pages.count)
-        return await withCheckedContinuation { continuation in
+        // A collection dropped unfinished ends the wait abandoned: no page answered in time.
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<[Target], OnceContinuationError>) in
             collection.continuation = continuation
             for (index, page) in pages.enumerated() {
                 // task-owner: one page's answer; the collection resumes once, at the deadline at the latest.
@@ -113,7 +117,7 @@ enum WindowHintTargets {
             collection.deadline.scheduleOnMain(after: pageDeadline) {
                 collection.finish()
             }
-        }
+        }) ?? []
     }
 
     /// One page's script result (CSS pixels from its viewport's top left)
@@ -160,7 +164,7 @@ enum WindowHintTargets {
 /// kept in page order, and the one resume of its continuation.
 @MainActor
 private final class PageCollection {
-    var continuation: CheckedContinuation<[WindowHintTargets.Target], Never>?
+    var continuation: OnceContinuation<[WindowHintTargets.Target], OnceContinuationError>?
     let deadline = DemandTimer(owner: "WindowHintTargets.pageDeadline")
     private var answers: [[WindowHintTargets.Target]?]
 

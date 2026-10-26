@@ -10,6 +10,9 @@ import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
 /// hands every quit here: it takes the origin (`QuitOriginTracker`), reads
@@ -325,7 +328,8 @@ final class QuitCoordinator {
 
     /// Shows "Some sessions did not end" and waits for the answer.
     private func confirm(_ failures: [EndSessionsFailure]) async -> QuitFailureAnswer {
-        await withCheckedContinuation { continuation in
+        // An alert dropped unanswered quits anyway, as a coordinator gone does (`confirmFailures`).
+        let chosen = try? await withOnceContinuation { (continuation: OnceContinuation<QuitFailureAnswer, OnceContinuationError>) in
             let alert = QuitFailureAlert(failures: failures) { [weak self] answer in
                 self?.failureAlert = nil
                 self?.logger.info("quit end failures answer=\(String(describing: answer), privacy: .public)")
@@ -334,6 +338,7 @@ final class QuitCoordinator {
             failureAlert = alert
             alert.present(in: sheetWindow())
         }
+        return chosen ?? .quitAnyway
     }
 
     /// The active shell window when it can carry a sheet.
