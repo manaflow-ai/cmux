@@ -86,13 +86,13 @@ struct ColdCmdNRowSlotTests {
             let targetFrames = frames.filter { $0.contains(target) }
             let expected = anchor + 1
             let misplaced = targetFrames.filter { frame in
-                frame.firstIndex(of: target) != frame.firstIndex(of: current).map { $0 + 1 }
+                frame.firstIndex(of: target) != frame.firstIndex(of: current.id).map { $0 + 1 }
             }
             let final = Self.rows(list.displayed)
 
             #expect(!targetFrames.isEmpty, "no drawn frame contained the new workspace: \(frames)")
             #expect(misplaced.isEmpty, "cold Cmd-N row moved from after-current \(expected): \(misplaced)")
-            #expect(final.firstIndex(of: target) == final.firstIndex(of: current).map { $0 + 1 }, "final rows: \(final)")
+            #expect(final.firstIndex(of: target) == final.firstIndex(of: current.id).map { $0 + 1 }, "final rows: \(final)")
         } catch {
             await launched.stop()
             throw error
