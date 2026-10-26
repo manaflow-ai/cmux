@@ -30,6 +30,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
@@ -235,7 +236,7 @@ type Props = {
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
-  upload?(files: File[]): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
   /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -476,6 +477,7 @@ export function Composer({
     setAttachments,
     pending,
     loading,
+    unsettled,
     cancel,
     retry,
     attachError,
@@ -512,7 +514,7 @@ export function Composer({
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(loading, sessionId);
+  const holdForAttachments = useSendWhenAttached(loading, sessionId, unsettled);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -1644,6 +1646,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -1802,7 +1805,11 @@ export function Composer({
             )}
           </>
         }
-        chips={<Chips snapshot={snapshot} permissionAccess={permissionAccess} />}
+        chips={
+          <PromptFocus value={focusPrompt}>
+            <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+          </PromptFocus>
+        }
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting

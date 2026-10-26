@@ -804,6 +804,7 @@
               "agentPane.showContextUsage",
               "agentPane.showDictation",
               "agentPane.spellChecking",
+              "agentPane.attachmentView",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -36027,6 +36028,74 @@
       "title" : {
         "key" : "settings.agentPane.spellChecking",
         "text" : "Check Spelling While Typing"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "inline",
+        "strip"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatAttachmentInline",
+            "text" : "Inline"
+          },
+          "value" : "inline"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatAttachmentStrip",
+            "text" : "Strip"
+          },
+          "value" : "strip"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "inline",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.attachmentView.help",
+        "text" : "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.attachmentView",
+      "keywords" : [
+        "attachment",
+        "attachments",
+        "image",
+        "picture",
+        "file",
+        "inline",
+        "strip",
+        "composer",
+        "messages"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "attachmentView"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.attachmentView",
+        "text" : "Attachment View"
       },
       "validation" : "portable"
     },

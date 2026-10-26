@@ -9,8 +9,9 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
-/// deadline (the handshake gets three times it) and `ACPMUX_PEER_PING_SECS`
-/// the keepalive interval, for a host that is slow even when well.
+/// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
+/// the keepalive interval, for a host that is slow even when well, and
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
@@ -24,6 +25,8 @@ pub struct LinkTimings {
     pub ping_misses: u32,
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
+    /// How long one request waits for the peer's answer.
+    pub request: Duration,
 }
 
 impl Default for LinkTimings {
@@ -34,6 +37,7 @@ impl Default for LinkTimings {
             ping_every: Duration::from_secs(20),
             ping_misses: 4,
             stable_after: Duration::from_secs(60),
+            request: Duration::from_secs(600),
         }
     }
 }
@@ -50,6 +54,9 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_PING_SECS") {
             t.ping_every = Duration::from_secs(n);
+        }
+        if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
+            t.request = Duration::from_secs(n);
         }
         t
     }
