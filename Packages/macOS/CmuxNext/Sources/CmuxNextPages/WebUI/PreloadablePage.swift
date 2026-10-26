@@ -27,7 +27,11 @@ public protocol PreloadablePage: AnyObject {
     func preloadSetVisible(_ visible: Bool)
     /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory. Called only after
     /// `preloadSetVisible(false)`.
-    func preloadFreeze()
+    ///
+    /// - Returns: Whether the engine froze it, as p13-webui-028's `setFrozen(_:)`: false when it
+    ///   refuses (a shown page, a Chromium fork before `SetPageFrozen`); the page then waits hidden
+    ///   and running, and gets no thaw.
+    func preloadFreeze() -> Bool
     /// Frozen to running. Called before `preloadSetVisible(true)`, and only on a frozen page.
     func preloadThaw()
     /// Ends the page: the slot dropped it unclaimed (pressure, another preload).
@@ -46,6 +50,9 @@ public protocol PreloadParking: AnyObject {
 /// The parking for a window: transparent, far outside the window's content (a web view's tracking
 /// areas ignore alpha and hit testing), never hit by the mouse, and out of the accessibility tree.
 /// Add it to the window's content view; a claim reparents its page out of it.
+///
+/// The one parking of the program: p13-webui-044 and 045 move the New Tab and page spares onto the
+/// slot and delete `NewTabSpareParking` and `PageHostParking` with their pools.
 public final class PagePreloadParkingView: NSView, PreloadParking {
     /// The parking's frame in its superview's `bounds`: `size`, far outside the content.
     public static func frame(in bounds: NSRect, size: NSSize) -> NSRect {
@@ -68,6 +75,12 @@ public final class PagePreloadParkingView: NSView, PreloadParking {
         if view.superview !== self { addSubview(view) }
         view.frame = bounds
         layoutSubtreeIfNeeded()
+    }
+
+    /// Added after a hold: it goes far outside its new superview's content at the size it holds.
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let superview { frame = Self.frame(in: superview.bounds, size: frame.size) }
     }
 
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }

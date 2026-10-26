@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextCompat
 import CmuxNextSignposts
 import CmuxNextTrace
+package import CmuxNextWakeups
 import QuartzCore
 
 /// The app's one preloaded page document (plans/cmux-next/chrome-parity/p13-webui.md 3.D): at most
@@ -15,11 +16,17 @@ import QuartzCore
 /// - Park: the page loads visible in a ``PreloadParking`` at the size it will show at, waits for its
 ///   load and first paint, keeps that frame as its cover, then hides; with ``ParkState/frozenHidden``
 ///   it also freezes (hidden before freeze).
-/// - Refit: a new target size while parked thaws, lays the page out at the new size and parks again
-///   once it painted there (the old cover is dropped: it shows the old size).
-/// - Claim: in the key's turn the cover goes on top of the page, the page thaws, moves into the tab
+/// - Refit: a new target size only records the size and arms one quiet deadline (``refitQuiet``);
+///   each later refit pushes it back. Once the size has been still that long, a parked page thaws,
+///   lays out at the size once and parks again after it painted there. A resize drag of the target
+///   pane costs one thaw, layout, cover and freeze, not one per step (Chrome resizes a hidden
+///   WebContents only when it is shown again: content/browser/renderer_host/render_widget_host_impl.cc
+///   `WasShown`).
+/// - Claim: in the key's turn the cover goes on top of the page (only when the page parked at the
+///   claim's size: a cover of another size would show stretched), the page thaws, moves into the tab
 ///   at its frame and shows (thaw before visible); the cover goes in the turn of the page's first
-///   live frame. Nothing animates: every layer change runs with actions disabled.
+///   live frame, or at ``coverLimit`` when no frame comes (a renderer that died while parked).
+///   Nothing animates: every layer change runs with actions disabled.
 /// - Drop: any non-normal memory pressure (``memoryPressureDidChange(_:)``, through
 ///   ``WebUIHost``'s one subscription) closes the page, and no preload starts until normal.
 ///
@@ -48,7 +55,8 @@ public final class PagePreloadSlot {
         case capturing
         /// Hidden (and frozen with ``ParkState/frozenHidden``), with its cover.
         case parked
-        /// Thawed and shown in the parking at a new size, until it painted there.
+        /// Thawed and shown in the parking at a new size after the refit's quiet deadline, until it
+        /// painted there.
         case refitting
     }
 
@@ -63,9 +71,10 @@ public final class PagePreloadSlot {
     public struct Claim {
         /// The page, now in the claiming container at its frame and visible.
         public let page: any PreloadablePage
-        /// Its cover is on top until its first live frame (false: it was claimed before it parked).
+        /// Its cover is on top until its first live frame (false: it was claimed before it parked,
+        /// or it was laid out at another size than its frame).
         public let covered: Bool
-        /// It waited at another size than its frame: the claim resized it.
+        /// It was laid out at another size than its frame: the claim resized it.
         public let refit: Bool
         /// Main-thread time of the claim.
         public let milliseconds: Double
@@ -90,11 +99,23 @@ public final class PagePreloadSlot {
         let key: Key
         let page: any PreloadablePage
         var parking: any PreloadParking
+        /// The size the page is laid out at, which its cover shows.
         var size: NSSize
+        /// The size it will show at; differs from `size` until the refit's quiet deadline.
+        var target: NSSize
         var phase: Phase
         var cover: CGImage?
+        /// The engine took the freeze (``PreloadablePage/preloadFreeze()`` returned true).
         var frozen = false
     }
+
+    /// How long the target size must stay still before a refit lays the page out and parks it
+    /// again: the 750 ms of quiet input the preload selector waits for (p13-webui-042).
+    public static let refitQuiet: Duration = .milliseconds(750)
+    /// The longest a claimed cover stays up when the page shows no live frame: past D4's cold open
+    /// (150 ms p95), so a slow first frame keeps its cover and a dead renderer does not leave a
+    /// stale picture on top of the tab.
+    public static let coverLimit: Duration = .milliseconds(500)
 
     /// How a ready preload waits. Spike 090 (bench-webui.py) has not written its result yet; the
     /// composition root passes the park state it chooses.
@@ -108,20 +129,29 @@ public final class PagePreloadSlot {
     /// The last claim (`debug.webui`).
     public private(set) var lastClaim: ClaimRecord?
     private let trace: @MainActor (Move, UInt64) -> Void
+    /// Where the refit's quiet deadline and each cover's limit go (the app's `mainDeadlines`).
+    private let deadlines: MainDeadlineScheduler
+    /// The refit's one quiet deadline: work on a page nobody sees, so the background class.
+    private let settleDeadline: MainDeadline
 
-    /// - Parameter parkState: How a ready preload waits.
-    public convenience init(parkState: ParkState = .frozenHidden) {
-        self.init(parkState: parkState) { move, page in
+    /// - Parameters:
+    ///   - parkState: How a ready preload waits.
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`).
+    package convenience init(parkState: ParkState = .frozenHidden, deadlines: MainDeadlineScheduler) {
+        self.init(parkState: parkState, deadlines: deadlines) { move, page in
             TraceRuntime.shared.event(.webuiPreload, arg0: page, arg1: move.rawValue)
         }
     }
 
     /// - Parameters:
     ///   - parkState: How a ready preload waits.
+    ///   - deadlines: The deadline scheduler (a test passes one on a hand-fired queue).
     ///   - trace: Where the `webui.preload` moves go (a recorder in tests).
-    init(parkState: ParkState, trace: @escaping @MainActor (Move, UInt64) -> Void) {
+    init(parkState: ParkState, deadlines: MainDeadlineScheduler, trace: @escaping @MainActor (Move, UInt64) -> Void) {
         self.parkState = parkState
+        self.deadlines = deadlines
         self.trace = trace
+        settleDeadline = MainDeadline(owner: "webui.preload.refit", workClass: .background, scheduler: deadlines)
     }
 
     // MARK: Reading
@@ -134,6 +164,10 @@ public final class PagePreloadSlot {
     public var count: Int { held == nil ? 0 : 1 }
     /// The held page, left in the slot (`debug.webui`).
     public var page: (any PreloadablePage)? { held?.page }
+    /// Whether the held page is frozen: false when the engine refused the freeze (it waits hidden).
+    public var isFrozen: Bool { held?.frozen ?? false }
+    /// The size the held page will show at; nil while the slot is empty.
+    public var targetSize: NSSize? { held?.target }
     /// Whether a preload may start now: memory pressure is normal.
     public var allowsPreload: Bool { pressure == .normal }
 
@@ -165,29 +199,26 @@ public final class PagePreloadSlot {
         drop()
         guard let page = make(size) else { return false }
         generation &+= 1
-        held = Held(key: key, page: page, parking: parking, size: size, phase: .loading)
+        held = Held(key: key, page: page, parking: parking, size: size, target: size, phase: .loading)
         Self.withoutActions { parking.hold(page.preloadView, at: size) }
         page.preloadSetVisible(true)
         awaitPaint()
         return true
     }
 
-    /// The held page will show at `size` now (the target pane changed size or focus). A parked
-    /// page thaws, shows in the parking at `size` and parks again once it painted there.
+    /// The held page will show at `size` now (the target pane changed size or focus). The page is
+    /// not touched in this turn: once the size has been still for ``refitQuiet``, a parked page
+    /// thaws, lays out at `size` in the parking and parks again after it painted there. A refit
+    /// back to the size the page is laid out at cancels the pending one.
     public func refit(to size: NSSize) {
-        guard var held, held.size != size else { return }
-        held.size = size
-        held.cover = nil
-        if held.phase == .parked {
-            if held.frozen { held.page.preloadThaw() }
-            held.frozen = false
-            held.page.preloadSetVisible(true)
-        }
-        if held.phase != .loading { held.phase = .refitting }
-        generation &+= 1
+        guard var held, held.target != size else { return }
+        held.target = size
         self.held = held
-        Self.withoutActions { held.parking.hold(held.page.preloadView, at: size) }
-        awaitPaint()
+        guard held.size != size else {
+            settleDeadline.cancel()
+            return
+        }
+        settleDeadline.schedule(after: Self.refitQuiet) { [weak self] in self?.settle() }
     }
 
     /// Hands the held page to the open of `key` in this turn: its cover on top, thawed, moved into
@@ -203,12 +234,14 @@ public final class PagePreloadSlot {
         let start = ContinuousClock.now
         self.held = nil
         generation &+= 1
+        settleDeadline.cancel()
         let page = held.page, view = page.preloadView
         let refit = held.size != frame.size
         var cover: PagePreloadCoverView?
         Self.withoutActions {
-            // In the page view, on top: it moves with the page and goes with it if the page closes first.
-            if held.phase == .parked, let image = held.cover {
+            // In the page view, on top: it moves with the page and goes with it if the page closes
+            // first. Only at the size it was taken at: autoresized to another frame it would stretch.
+            if held.phase == .parked, !refit, let image = held.cover {
                 let made = PagePreloadCoverView(image: image, frame: view.bounds)
                 view.addSubview(made, positioned: .above, relativeTo: nil)
                 cover = made
@@ -219,6 +252,10 @@ public final class PagePreloadSlot {
         }
         page.preloadSetVisible(true)
         if let cover {
+            // Off at the first live frame, or at the limit when none comes (a renderer that died parked).
+            let limit = MainDeadline(owner: "webui.preload.cover", workClass: .visible, scheduler: deadlines)
+            cover.limit = limit
+            limit.schedule(after: Self.coverLimit) { [weak cover] in cover?.remove() }
             page.preloadWhenPainted { [weak cover] in cover?.remove() }
         }
         trace(.claim, page.preloadTraceID)
@@ -232,6 +269,7 @@ public final class PagePreloadSlot {
         guard let held else { return }
         self.held = nil
         generation &+= 1
+        settleDeadline.cancel()
         trace(.drop, held.page.preloadTraceID)
         held.page.preloadView.removeFromSuperview()
         held.page.close()
@@ -246,6 +284,30 @@ public final class PagePreloadSlot {
     }
 
     // MARK: Park
+
+    /// The refit's quiet deadline: lays the page out at its target size once and parks it again
+    /// there. A page still loading goes on loading at the new size; a cover being taken at the old
+    /// size is dropped (the generation moves on) and taken again.
+    private func settle() {
+        guard var held, held.target != held.size else { return }
+        held.size = held.target
+        held.cover = nil
+        switch held.phase {
+        case .parked:
+            if held.frozen { held.page.preloadThaw() }
+            held.frozen = false
+            held.page.preloadSetVisible(true)
+            held.phase = .refitting
+        case .capturing:
+            held.phase = .refitting
+        case .loading, .refitting:
+            break
+        }
+        generation &+= 1
+        self.held = held
+        Self.withoutActions { held.parking.hold(held.page.preloadView, at: held.size) }
+        awaitPaint()
+    }
 
     /// Takes the cover at the held page's next paint, then parks it.
     private func awaitPaint() {
@@ -274,8 +336,8 @@ public final class PagePreloadSlot {
         held.cover = cover
         held.page.preloadSetVisible(false)
         if parkState == .frozenHidden {
-            held.page.preloadFreeze()
-            held.frozen = true
+            // A refused freeze (a fork before SetPageFrozen, p13-webui-028) leaves it hidden and running.
+            held.frozen = held.page.preloadFreeze()
         }
         held.phase = .parked
         self.held = held
@@ -293,56 +355,5 @@ public final class PagePreloadSlot {
     private static func milliseconds(since start: ContinuousClock.Instant) -> Double {
         let (seconds, attoseconds) = (ContinuousClock.now - start).components
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
-    }
-}
-
-/// A claimed page's cover: the frame it painted while parked, on top of the page until its first
-/// live frame. Its layer never animates (p13-webui.md 4.4: layers this area adds run with actions
-/// disabled), and it is out of the mouse's and accessibility's way.
-final class PagePreloadCoverView: NSView {
-    /// The layer actions the cover turns off (a nil action for each, besides the view's own).
-    static let quietKeys = ["contents", "bounds", "position", "opacity", "hidden", "onOrderIn", "onOrderOut",
-                            "sublayers", "transform", "contentsScale"]
-
-    private let image: CGImage
-
-    init(image: CGImage, frame: NSRect) {
-        self.image = image
-        super.init(frame: frame)
-        wantsLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
-        autoresizingMask = [.width, .height]
-        if let layer {
-            var actions: [String: any CAAction] = [:]
-            for key in Self.quietKeys { actions[key] = NSNull() }
-            layer.actions = actions
-            layer.contentsGravity = .resize
-            // Now, so the picture is in the claim's frame; `updateLayer` sets it again on a redisplay.
-            layer.contents = image
-        }
-        setAccessibilityElement(false)
-        setAccessibilityHidden(true)
-    }
-
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        layer?.contents = image
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { nil }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if let scale = window?.backingScaleFactor { layer?.contentsScale = scale }
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override var acceptsFirstResponder: Bool { false }
-
-    /// Takes the cover off, with no animation.
-    func remove() {
-        PagePreloadSlot.withoutActions { removeFromSuperview() }
     }
 }
