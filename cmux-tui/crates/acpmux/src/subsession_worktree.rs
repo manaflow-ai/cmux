@@ -415,25 +415,11 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
         }
         #[cfg(test)]
         before_path_removal(&worktree.root);
-        // Only an empty folder goes by path. Its registration goes only once nothing is at its
-        // path, and only its own; the branch only then (git refuses to delete a branch a
-        // registered worktree is on).
-        let gone = match std::fs::remove_dir(&worktree.root) {
-            Ok(()) => true,
-            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-        };
-        if !gone {
+        // The made folder, emptied, stays at its path while its registration and branch go:
+        // nothing can be recreated there meanwhile (worktree care refuses a path that exists).
+        // Another folder at its path keeps everything it names.
+        if crate::cwd_pin::CwdPin::of(&worktree.root) != worktree.root_pin {
             tracing::warn!(root = %worktree.root.display(), "worktree registration kept: another folder is at its path");
-            return;
-        }
-        #[cfg(test)]
-        after_root_removal(&worktree.root);
-        // Something at its path again (recreated, a copy of its `.git` file) keeps what it names.
-        // This cleanup is a failed start's, so its branch has no work of its own to lose by being
-        // kept; and git refuses `branch -D` for a branch a registered worktree is on.
-        let reappeared = || worktree.root.symlink_metadata().is_ok();
-        if reappeared() {
-            tracing::warn!(root = %worktree.root.display(), "worktree registration kept: a folder is at its path again");
             return;
         }
         let Some(registration) = registration else {
@@ -444,16 +430,16 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
-        if reappeared() {
-            tracing::warn!(root = %worktree.root.display(), "worktree branch kept: a folder is at its path again");
-            return;
-        }
         if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
             let _ = git(
                 folder,
                 &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
             );
         }
+        #[cfg(test)]
+        before_root_rmdir(&worktree.root);
+        // Last, and only an empty folder: one that took its place keeps its files.
+        let _ = std::fs::remove_dir(&worktree.root);
         return;
     }
     let root = worktree.root.to_string_lossy();
@@ -851,14 +837,14 @@ fn before_registration_removal(admin: &Path) {
 
 #[cfg(test)]
 thread_local! {
-    /// Runs once on the next [`remove_worktree`], right after its root is gone from its path.
-    static AFTER_ROOT_REMOVAL: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+    /// Runs once on the next [`remove_worktree`], right before it removes its emptied root.
+    static BEFORE_ROOT_RMDIR: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
         const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(all(test, unix))]
-fn after_root_removal(root: &Path) {
-    if let Some(f) = AFTER_ROOT_REMOVAL.with(|h| h.borrow_mut().take()) {
+fn before_root_rmdir(root: &Path) {
+    if let Some(f) = BEFORE_ROOT_RMDIR.with(|h| h.borrow_mut().take()) {
         f(root);
     }
 }
@@ -1386,26 +1372,31 @@ mod tests {
         assert_ne!(sh(&repo, &["branch", "--list", "other"]), "", "its branch stays");
     }
 
-    /// A folder that appears at the root once it is gone (recreated, or a copy of its `.git`
-    /// file) keeps the registration and branch it names.
+    /// The emptied root stays at its path until its registration and branch are gone, so
+    /// nothing is recreated there meanwhile; a folder that takes its place before it is removed
+    /// keeps its files.
     #[cfg(unix)]
     #[test]
-    fn a_folder_that_appears_where_the_removed_root_was_keeps_its_registration_and_branch() {
-        let (_scratch, repo, home) = repo();
+    fn the_emptied_root_holds_its_path_until_last_and_a_folder_that_takes_it_stays() {
+        let (scratch, repo, home) = repo();
         let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
         let git_file = std::fs::read(made.root.join(".git")).unwrap();
-        AFTER_ROOT_REMOVAL.with(|h| {
+        let held_at_path = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let seen = held_at_path.clone();
+        let (pin, aside) = (made.root_pin, scratch.0.join("emptied-aside"));
+        BEFORE_ROOT_RMDIR.with(|h| {
             *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                *seen.lock().unwrap() = Some(crate::cwd_pin::CwdPin::of(root) == pin);
+                std::fs::rename(root, &aside).unwrap();
                 std::fs::create_dir(root).unwrap();
                 std::fs::write(root.join(".git"), git_file).unwrap();
                 std::fs::write(root.join("sentinel"), "theirs\n").unwrap();
             }))
         });
         remove_worktree(repo.as_path().into(), &made);
-        assert!(made.root.join("sentinel").exists(), "the folder that appeared stays");
-        assert!(branch_in(&repo, "task"), "the branch it names stays");
-        let worktrees = sh(&repo, &["worktree", "list", "--porcelain"]);
-        assert!(worktrees.contains(&*made.root.to_string_lossy()), "{worktrees}");
+        assert_eq!(*held_at_path.lock().unwrap(), Some(true), "the made folder held its path");
+        assert!(!branch_in(&repo, "task"), "its own branch removed");
+        assert!(made.root.join("sentinel").exists(), "the folder that took its place stays");
     }
 
     /// The descriptor removal reads a folder through never reaches a child another thread
