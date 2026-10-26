@@ -19,9 +19,9 @@ extension CEFPaneHost {
 
     /// What the shim's `parent_view` arguments name for this pane: the page view's token in host
     /// mode; in process ``hostView``, unretained, which the pane host keeps while its window uses it.
-    func pageParent() -> UnsafeMutableRawPointer? {
-        guard isHostMode else { return Unmanaged.passUnretained(hostView).toOpaque() }
-        return UnsafeMutableRawPointer(bitPattern: UInt(hostedPage().wireToken))
+    func pageParent() -> CEFParentView {
+        guard isHostMode else { return CEFParentView(view: hostView) }
+        return CEFParentView(token: hostedPage().wireToken)
     }
 
     /// Host mode: the pane's page view, made on first use at the bottom of ``hostView`` and filling

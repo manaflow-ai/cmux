@@ -18,16 +18,7 @@ extension CEFPaneHost {
                               capacity: Int32 = ChromiumHostAccessibilityToken.initialCapacity,
                               answered: @escaping ([UInt8]?) -> Void) {
         let sent: CEFShimAnswer<ChromiumHostAccessibilityToken> = runtime.sendAsync { shim in
-            var buffer = [UInt8](repeating: 0, count: Int(capacity))
-            let length = request.viewToken.withUnsafeBufferPointer { view in
-                request.windowToken.withUnsafeBufferPointer { window in
-                    buffer.withUnsafeMutableBufferPointer { out in
-                        shim.browserAccessibilityToken(request.browser, request.embedderPID, view.baseAddress, Int32(view.count),
-                                                       window.baseAddress, Int32(window.count), out.baseAddress, capacity)
-                    }
-                }
-            }
-            return ChromiumHostAccessibilityToken(length: length, buffer: buffer)
+            shim.browserAccessibilityToken(request.browser, request.embedderPID, request.viewToken, request.windowToken, capacity)
         }
         runtime.whenAnswered(sent, label: "page accessibility token") { [weak self] reply in
             if let self, let retry = reply?.retryCapacity, retry > capacity {

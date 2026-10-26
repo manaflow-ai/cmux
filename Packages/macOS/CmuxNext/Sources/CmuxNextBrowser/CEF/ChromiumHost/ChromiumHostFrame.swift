@@ -67,7 +67,7 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         var bytes = [UInt8]()
         bytes.reserveCapacity(Self.headerSize + payload.count)
         func put<T: FixedWidthInteger>(_ value: T) {
-            withUnsafeBytes(of: value.littleEndian) { bytes.append(contentsOf: $0) }
+            bytes.appendLittleEndian(value)
         }
         put(rawKind)
         put(UInt32(payload.count))

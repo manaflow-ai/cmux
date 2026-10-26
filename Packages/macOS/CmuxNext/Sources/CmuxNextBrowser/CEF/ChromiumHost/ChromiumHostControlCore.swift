@@ -79,11 +79,13 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var noSigPipe: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the one Int32 `noSigPipe` holds, the length given, during the call.
+        _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         var initial = State(fd: fd, outbox: ChromiumHostControlOutbox(quotaBytes: options.quotaBytes,
                                                                        quotaMessages: options.quotaMessages))
         var wake: [Int32] = [-1, -1]
-        if Darwin.pipe(&wake) == 0 {
+        // SAFETY: pipe writes two Int32 descriptors, the two elements `wake` holds, during the call.
+        if unsafe Darwin.pipe(&wake) == 0 {
             for end in wake {
                 _ = fcntl(end, F_SETFL, fcntl(end, F_GETFL) | O_NONBLOCK)
                 _ = fcntl(end, F_SETFD, FD_CLOEXEC)
@@ -195,7 +197,9 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                          pollfd(fd: wakeRead, events: Int16(POLLIN), revents: 0)]
             // Whole frames wait in `buffer` and the inbox has room: take them
             // now, whether or not the socket brings more.
-            let ready = Darwin.poll(&polls, 2, plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds)
+            let timeout = plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds
+            // SAFETY: poll reads and writes `polls.count` pollfd entries, the count given, during the call.
+            let ready = unsafe Darwin.poll(&polls, nfds_t(polls.count), timeout)
             if ready < 0, errno != EINTR {
                 end(.ioError)
                 break
@@ -419,7 +423,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     /// the host closed its end (the outbox is dropped; the reader reads to EOF).
     private static func flushLocked(_ state: inout State) -> Bool {
         let socket = ChromiumHostControlSocket(fd: state.fd)
-        switch state.outbox.flush({ bytes, fds in socket.send(bytes, fds: fds) }) {
+        // SAFETY: the outbox's view is valid for the call, and sendmsg only reads it during the call.
+        switch state.outbox.flush({ bytes, fds in unsafe socket.send(bytes, fds: fds) }) {
         case .drained, .blocked:
             if !state.outbox.isOverQuota { state.overSince = nil }
             return true
