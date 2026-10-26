@@ -239,23 +239,39 @@ fn cpu_ms(pid: u32) -> u64 {
     ((days.parse::<f64>().unwrap() * 86_400.0 + secs) * 1000.0) as u64
 }
 
-/// What the daemon spends while records land on one chat for `secs`, with `waiters`
-/// clients in `acpmux wait` on other chats: (records, CPU ms, RSS growth MB).
-fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) -> (u64, u64, i64) {
+/// Whether `w` has had no reply yet: its request (a wait) is still open.
+fn still_open(w: &mut Rpc) -> bool {
+    w.writer.set_nonblocking(true).unwrap();
+    let open = matches!(w.reader.fill_buf(), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock);
+    w.writer.set_nonblocking(false).unwrap();
+    open
+}
+
+/// What the daemon spends while records land on one chat for `secs`, with one client in
+/// `acpmux wait` on each of `waiting_on`: (records, CPU ms, RSS growth MB, the waits).
+/// Each wait is open before the first record and after the last; `release` ends them.
+fn under_waiters(
+    daemon: &Daemon,
+    chat: &str,
+    waiting_on: &[String],
+    secs: u64,
+) -> (u64, u64, i64, Vec<(String, Rpc)>) {
     let mut waits = Vec::new();
     for id in waiting_on {
         let mut w = Rpc::connect(&daemon.socket);
         w.next += 1;
-        // Each wait times out just after the records: its timed-out answer then proves it
-        // stayed open through all of them.
+        // Its own deadline is only a watchdog: `release` closes the chat it waits on.
         let line = json!({"jsonrpc": "2.0", "id": w.next, "method": "_acpmux/wait",
-                          "params": {"sessions": [id], "until": ["closed"], "timeoutMs": secs * 1000 + 3_000}});
+                          "params": {"sessions": [id], "until": ["closed"], "timeoutMs": secs * 1000 + 120_000}});
         w.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
-        waits.push(w);
+        waits.push((id.clone(), w));
     }
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("_acpmux/tag", json!({"sessionId": chat, "set": {"warm": "1"}}));
     std::thread::sleep(std::time::Duration::from_millis(500));
+    for (id, w) in &mut waits {
+        assert!(still_open(w), "the wait on {id} answered before the records began");
+    }
     let rss0 = daemon.rss_bytes() as i64;
     let cpu0 = cpu_ms(daemon.child.id());
     let start = std::time::Instant::now();
@@ -266,13 +282,26 @@ fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) 
     }
     let cpu = cpu_ms(daemon.child.id()) - cpu0;
     let grew = (daemon.rss_bytes() as i64 - rss0) / (1024 * 1024);
-    for mut w in waits {
+    for (id, w) in &mut waits {
+        assert!(still_open(w), "the wait on {id} answered before the records ended");
+    }
+    (records, cpu, grew, waits)
+}
+
+/// Close each waited chat: its wait, open through every other chat's records, answers
+/// that it closed.
+fn release(daemon: &Daemon, waits: Vec<(String, Rpc)>) {
+    let mut rpc = Rpc::connect(&daemon.socket);
+    for (id, _) in &waits {
+        rpc.call("_acpmux/kill", json!({"sessionId": id}));
+    }
+    for (id, mut w) in waits {
         let mut text = String::new();
         w.reader.read_line(&mut text).unwrap();
         let v: Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(v["result"]["timedOut"], true, "a wait ended before the records did: {v}");
+        assert_eq!(v["result"]["timedOut"], false, "the wait on {id} missed its chat closing: {v}");
+        assert_eq!(v["result"]["resolved"][0]["status"], "closed", "{v}");
     }
-    (records, cpu, grew)
 }
 
 /// huge-blue, 2026-10-22: 13 `acpmux wait` clients on a daemon with 460 chats and 40
@@ -296,9 +325,9 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
     let daemon = Daemon::start(&dir, &home);
     let mut rpc = Rpc::connect(&daemon.socket);
     assert_eq!(listed(&mut rpc).len() as u64, chats);
-    let (n0, cpu0, grew0) = under_waiters(&daemon, &id(0), &[], secs);
+    let (n0, cpu0, grew0, _) = under_waiters(&daemon, &id(0), &[], secs);
     let waiting_on: Vec<String> = (1..=13).map(id).collect();
-    let (n1, cpu1, grew1) = under_waiters(&daemon, &id(0), &waiting_on, secs);
+    let (n1, cpu1, grew1, waits) = under_waiters(&daemon, &id(0), &waiting_on, secs);
     assert!(n0 > 0 && n1 > 0, "no records landed ({n0} alone, {n1} with waits)");
     // CPU per record, so a slower machine or a busier daemon compares like with like.
     let per0 = cpu0 as f64 / n0.max(1) as f64;
@@ -316,6 +345,7 @@ fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
         grew1 <= grew0 + 16,
         "the daemon grew {grew1} MB with 13 waits open (alone {grew0} MB)"
     );
+    release(&daemon, waits);
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
 }

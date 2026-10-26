@@ -863,4 +863,41 @@ mod tests {
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
     }
+
+    /// A wait reads the row the full list puts first for each id: a peer's newer chat
+    /// over a local one with the same bare id, and the newer of two peers' rows.
+    #[test]
+    fn summaries_of_some_ids_are_the_rows_the_full_list_puts_first() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        for (id, at) in [("x", 10u64), ("solo", 30)] {
+            let meta = json!({"schema": "acpmux.session.v1", "id": id, "name": id, "harness": "claude",
+                              "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": at});
+            store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+        }
+        let hub = Hub::new(cfg, store);
+        let row = |id: &str, status: &str, at: u64| json!({"sessionId": id, "name": format!("lane-{id}"), "status": status, "turnCount": 1, "updatedAt": at});
+        for (peer, rows) in [
+            ("builder", vec![row("x", "running", 20), row("y", "waiting", 7)]),
+            ("other", vec![row("x", "idle", 5), row("y", "idle", 9)]),
+        ] {
+            let (tx, _rx) = tokio::sync::mpsc::channel(8);
+            let p = crate::peer::Peer::new(peer, "ws://127.0.0.1:9", None, None, tx);
+            hub.peers.lock().unwrap().insert(peer.to_owned(), p.clone());
+            hub.apply_peer_notice(peer, p.generation, crate::peer::PeerNotice::Sessions(rows));
+        }
+        let ids: Vec<String> = ["x", "y", "solo", "none", "x"].map(str::to_owned).to_vec();
+        let all = hub.all_session_summaries();
+        let some = hub.session_summaries_of(&ids);
+        for id in &ids {
+            let first = all.iter().find(|s| s["sessionId"] == id.as_str());
+            assert_eq!(some.get(id), first, "{id}: {some:?}");
+        }
+        assert_eq!(some["x"]["peer"], "builder", "the newer peer row, not the local chat");
+        assert_eq!(some["x"]["status"], "running");
+        assert_eq!(some["y"]["peer"], "other", "the newer of two peer rows");
+        assert!(some["solo"].get("peer").is_none(), "{:?}", some["solo"]);
+        assert_eq!(some.len(), 3, "{some:?}");
+    }
 }
