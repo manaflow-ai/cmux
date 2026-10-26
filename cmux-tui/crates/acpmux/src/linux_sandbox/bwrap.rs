@@ -498,36 +498,50 @@ mod tests {
 set -eu
 outside=$1; secret=$2; secrets=$3; tmp=$4; scratch=$5; project=$6; host_pid_ns=$7
 file_marker=$8; directory_marker=$9
+fail() { code=$1; shift; printf 'check %s: %s\n' "$code" "$*" >&2; exit "$code"; }
 # A nodev /dev/null mask can deny the open instead of returning EOF.
 # Capture stdout even on failure, so partial disclosure cannot pass.
 check_hidden_read() {
     content=$(cat -- "$1" 2>/dev/null) || :
-    case "$content" in *"$2"*) echo 'masked read exposed fixture marker' >&2; exit 13;; esac
-    test -z "$content" || { echo 'masked read returned content' >&2; exit 14; }
+    case "$content" in *"$2"*) fail "$3" "masked read path=$1 exposed marker; content=<$content>";; esac
+    test -z "$content" || fail "$4" "masked read path=$1 returned content=<$content>"
 }
-if (printf changed > "$outside") 2>/dev/null; then exit 10; fi
-printf inside > ./inside
-printf temp > "$tmp/inside"
-printf scratch > "$scratch/inside"
-printf transcript > "$project/inside"
-if (printf changed > "$project/memory/keep") 2>/dev/null; then exit 11; fi
-check_hidden_read "$secret" "$file_marker"
-check_hidden_read "$secrets/$directory_marker" "$directory_marker"
+if (printf changed > "$outside") 2>/dev/null; then
+    fail 10 "outside write succeeded: path=$outside"
+fi
+printf inside > ./inside || fail 11 "cwd write failed: status=$? path=./inside"
+printf temp > "$tmp/inside" || fail 12 "temp write failed: status=$? path=$tmp/inside"
+printf scratch > "$scratch/inside" || fail 13 "scratch write failed: status=$? path=$scratch/inside"
+printf transcript > "$project/inside" || fail 14 "transcript write failed: status=$? path=$project/inside"
+if (printf changed > "$project/memory/keep") 2>/dev/null; then
+    fail 15 "memory write succeeded: path=$project/memory/keep"
+fi
+check_hidden_read "$secret" "$file_marker" 16 17
+check_hidden_read "$secrets/$directory_marker" "$directory_marker" 18 19
 listing=$(ls -A -- "$secrets" 2>/dev/null) || :
-case "$listing" in *"$directory_marker"*) echo 'masked directory exposed fixture marker' >&2; exit 15;; esac
-test -z "$listing" || { echo 'masked directory returned entries' >&2; exit 16; }
-test ! -e "$secrets/$directory_marker"
-if (printf changed > "$secrets/new") 2>/dev/null; then exit 12; fi
-test "$(readlink /proc/self/ns/pid)" != "$host_pid_ns"
-test "$(readlink /proc/1/ns/pid)" = "$(readlink /proc/self/ns/pid)" || {
-    echo 'PID 1 namespace check failed' >&2; exit 17;
-}
-count=0
-for entry in /proc/[0-9]*; do count=$((count + 1)); done
-test "$count" -le 4
+case "$listing" in *"$directory_marker"*) fail 20 "masked directory exposed marker: listing=<$listing>";; esac
+test -z "$listing" || fail 21 "masked directory returned entries: listing=<$listing>"
+test ! -e "$secrets/$directory_marker" || fail 22 "masked entry exists: path=$secrets/$directory_marker listing=<$listing>"
+if (printf changed > "$secrets/new") 2>/dev/null; then
+    fail 23 "masked directory write succeeded: path=$secrets/new"
+fi
+self_pid_ns=$(readlink /proc/self/ns/pid 2>&1) || fail 24 "self PID namespace readlink failed: status=$? output=<$self_pid_ns>"
+test -n "$self_pid_ns" || fail 25 "self PID namespace empty: observed=<$self_pid_ns>"
+test "$self_pid_ns" != "$host_pid_ns" || fail 26 "PID namespace not isolated: sandbox=<$self_pid_ns> host=<$host_pid_ns>"
+init_pid_ns=$(readlink /proc/1/ns/pid 2>&1) || fail 27 "PID 1 namespace readlink failed: status=$? output=<$init_pid_ns>"
+test -n "$init_pid_ns" || fail 28 "PID 1 namespace empty: observed=<$init_pid_ns>"
+test "$init_pid_ns" = "$self_pid_ns" || fail 29 "PID namespace mismatch: PID1=<$init_pid_ns> self=<$self_pid_ns>"
+count=0; entries=
+for entry in /proc/[0-9]*; do count=$((count + 1)); entries="$entries $entry"; done
+test "$count" -le 4 || fail 30 "too many visible processes: count=$count entries=<$entries>"
+exec 3< /proc/net/dev || fail 33 "network interface table open failed: status=$? path=/proc/net/dev"
 while IFS= read -r line; do
-    case "$line" in *:*) iface=${line%%:*}; test "$(printf '%s' "$iface" | tr -d ' ')" = lo;; esac
-done < /proc/net/dev
+    case "$line" in *:*)
+        iface=${line%%:*}
+        iface=$(printf '%s' "$iface" | tr -d ' ') || fail 31 "interface normalization failed: status=$? line=<$line>"
+        test "$iface" = lo || fail 32 "unexpected interface: observed=<$iface> line=<$line>"
+    ;; esac
+done <&3
 "#;
         let mut command = strings(&["/bin/sh", "-c", script, "acpmux-bwrap-test"]);
         command.extend(
