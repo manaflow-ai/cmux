@@ -22,7 +22,7 @@ public import Foundation
 /// `unsupported` (the page then opens the chat, whose card answers): a pane on another machine, a
 /// chat on another daemon or computer, or the pane's own chat. Any other refusal is `refused`, and
 /// the inbox row says so. Kept off ``AgentPaneModel``, whose type is at its size limit.
-public struct AgentPaneAskAnswer: Sendable, Equatable {
+public nonisolated struct AgentPaneAskAnswer: Sendable, Equatable {
     /// Which chat, which of its asks, which option.
     public var session: String
     public var permission: String
@@ -67,7 +67,7 @@ public struct AgentPaneAskAnswer: Sendable, Equatable {
 }
 
 /// One pending tool permission of a chat, with the options a one-click allow and deny map to.
-public struct AgentPendingAsk: Sendable, Equatable {
+public nonisolated struct AgentPendingAsk: Sendable, Equatable {
     public var approval: AgentApproval
     /// The option an allow once sends, and the one a deny once sends; nil when the ask offers none.
     public var allowOnce: String?
