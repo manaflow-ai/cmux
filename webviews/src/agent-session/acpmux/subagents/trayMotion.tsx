@@ -38,7 +38,7 @@ const leaving = new Map<HTMLElement, { host: HTMLElement; done: () => void }>();
 
 /// Drops the copy of a card that left `host` (or every copy, with none), if one still plays.
 export function settleTrayExit(host?: HTMLElement | null): void {
-  for (const entry of [...leaving.values()]) if (host === undefined || entry.host === host) entry.done();
+  for (const entry of leaving.values()) if (host === undefined || entry.host === host) entry.done();
 }
 
 /// Plays the exit of `card`, which React is about to remove: a copy of it sits where it is drawn,
@@ -160,11 +160,17 @@ export function Tick({ text, className }: { text: string; className?: string }):
           key={`out-${turn}`}
           className="acpmux-tick__out"
           aria-hidden="true"
-          onAnimationEnd={(event) => {
-            if (event.target === event.currentTarget) settle();
-          }}
-          onAnimationCancel={(event) => {
-            if (event.target === event.currentTarget) settle();
+          ref={(node) => {
+            if (!node) return undefined;
+            const ended = (event: Event) => {
+              if (event.target === node) settle();
+            };
+            node.addEventListener("animationend", ended);
+            node.addEventListener("animationcancel", ended);
+            return () => {
+              node.removeEventListener("animationend", ended);
+              node.removeEventListener("animationcancel", ended);
+            };
           }}
         >
           {shown.previous}
