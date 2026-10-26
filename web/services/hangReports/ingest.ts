@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 
 import { HangReportDailyCapExceeded, HangReportInvalid, type HangReportInvalidReason } from "./errors";
+import { droppedTotal, normalizeFieldData, type DroppedFieldData } from "./fieldData";
 import { scanForLeaks, type LeakReason } from "./leakScan";
 import { HangReportsRepository, type HangReportRow } from "./repository";
 import { dayWithinWindow, decodeHangReport, utcDay, type HangReport } from "./wireSchema";
@@ -16,29 +17,55 @@ const LEAK_REASONS: Record<LeakReason, HangReportInvalidReason> = {
   token: "leak_token",
 };
 
-/** Decode, bound-check and privacy-scan an untrusted body. */
-export function validateHangReport(body: unknown, now: Date): Effect.Effect<HangReport, HangReportInvalid> {
+/** A validated report and what ingest dropped from it (schema 3 only). */
+export type ValidatedHangReport = {
+  readonly report: HangReport;
+  readonly dropped: DroppedFieldData | null;
+};
+
+/**
+ * Decode, bound-check and privacy-scan an untrusted body. Unknown histogram
+ * names and stability keys are dropped and counted, not refused.
+ */
+export function validateHangReport(body: unknown, now: Date): Effect.Effect<ValidatedHangReport, HangReportInvalid> {
   return Effect.gen(function* () {
-    const report = decodeHangReport(body);
-    if (!report) return yield* Effect.fail(new HangReportInvalid({ reason: "schema" }));
-    if (!dayWithinWindow(report.day, now)) {
+    const decoded = decodeHangReport(body);
+    if (!decoded) return yield* Effect.fail(new HangReportInvalid({ reason: "schema" }));
+    if (!dayWithinWindow(decoded.day, now)) {
       return yield* Effect.fail(new HangReportInvalid({ reason: "day_out_of_range" }));
     }
-    // The version fields are already digits and dots only. A four-part
-    // version ("1.2.3.4") is legal and would read as an IPv4 shape, so the
-    // scan sees them as "0"; every other string is scanned as sent.
-    const leak = scanForLeaks({
-      ...report,
-      app: { ...report.app, version: "0", build: "0" },
-      os: { version: "0" },
-    });
+    const normalized = normalizeFieldData(decoded);
+    if (!normalized.ok) return yield* Effect.fail(new HangReportInvalid({ reason: normalized.reason }));
+    const leak = scanForLeaks(withoutVersions(normalized.report));
     if (leak) return yield* Effect.fail(new HangReportInvalid({ reason: LEAK_REASONS[leak] }));
-    return report;
+    return { report: normalized.report, dropped: normalized.dropped };
   });
 }
 
-/** The row stored for a validated report received at `now`. */
-export function hangReportRow(report: HangReport, now: Date): HangReportRow {
+// The version fields are already digits and dots only. A four-part version
+// ("1.2.3.4") is legal and would read as an IPv4 shape, so the scan sees
+// them as "0"; every other string is scanned as sent.
+const NEUTRAL_APP = { version: "0", build: "0" } as const;
+const NEUTRAL_OS = { version: "0" } as const;
+
+function withoutVersions(report: HangReport): unknown {
+  const neutral = { ...report, app: { ...report.app, ...NEUTRAL_APP }, os: NEUTRAL_OS };
+  if (report.schema !== 3) return neutral;
+  return {
+    ...neutral,
+    sections: report.sections.map((section) => ({
+      ...section,
+      profile: { app: { ...section.profile.app, ...NEUTRAL_APP }, os: NEUTRAL_OS },
+    })),
+  };
+}
+
+/**
+ * The row stored for a validated report received at `now`. A schema 3
+ * payload keeps the report as normalized plus `dropped`, in the existing
+ * `payload` jsonb column (no migration).
+ */
+export function hangReportRow({ report, dropped }: ValidatedHangReport, now: Date): HangReportRow {
   return {
     reportId: report.reportId.toLowerCase(),
     installId: report.installId.toLowerCase(),
@@ -52,7 +79,7 @@ export function hangReportRow(report: HangReport, now: Date): HangReportRow {
     cores: report.hardware.cores,
     memoryGb: report.hardware.memoryGB,
     counts: { ...report.counts },
-    payload: report as unknown as Record<string, unknown>,
+    payload: (dropped ? { ...report, dropped } : report) as unknown as Record<string, unknown>,
   };
 }
 
@@ -62,13 +89,18 @@ export function hangReportRow(report: HangReport, now: Date): HangReportRow {
  */
 export function ingestHangReport(body: unknown, now: Date) {
   return Effect.gen(function* () {
-    const report = yield* validateHangReport(body, now);
+    const validated = yield* validateHangReport(body, now);
     const repository = yield* HangReportsRepository;
-    const outcome = yield* repository.insertWithinDailyCap(hangReportRow(report, now), HANG_REPORTS_PER_INSTALL_PER_DAY);
+    const outcome = yield* repository.insertWithinDailyCap(hangReportRow(validated, now), HANG_REPORTS_PER_INSTALL_PER_DAY);
     if (outcome === "capped") {
       return yield* Effect.fail(new HangReportDailyCapExceeded({ retryAfterSeconds: secondsUntilNextUtcDay(now) }));
     }
-    return { outcome, hangCount: report.hangs.length } as const;
+    return {
+      outcome,
+      schema: validated.report.schema,
+      hangCount: validated.report.hangs.length,
+      droppedNames: droppedTotal(validated.dropped),
+    } as const;
   }).pipe(Effect.withSpan("hang_reports.ingest"));
 }
 
