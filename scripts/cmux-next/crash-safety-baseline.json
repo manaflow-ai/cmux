@@ -73,16 +73,10 @@
    "MessagesLabHome": 4
   },
   "unchecked": {
-   "CMUXMobileCore": 7,
-   "CmuxMobileRPC": 3,
-   "CmuxMobileSSH": 7,
-   "CmuxMobileShellModel": 7,
-   "CmuxMobileSupport": 4,
-   "CmuxMobileTunnel": 4,
+   "CmuxMobileSupport": 1,
    "CmuxNextBrowser": 4,
    "CmuxNextBrowserAutomation": 1,
-   "CmuxNextBrowserImport": 1,
-   "CmuxNextTerminal": 7
+   "CmuxNextBrowserImport": 1
   }
  },
  "waived": {
@@ -144,7 +138,7 @@
     "CmuxNextCompat": 10,
     "CmuxNextControl": 2,
     "CmuxNextCrashReporting": 4,
-    "CmuxNextDaemon": 1,
+    "CmuxNextDaemon": 2,
     "CmuxNextDesign": 4,
     "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
@@ -162,6 +156,7 @@
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTasks": 1,
+    "CmuxNextTerminal": 3,
     "CmuxNextVSCodeServer": 2,
     "CmuxNextWakeups": 1,
     "CmuxSafeConcurrency": 1,

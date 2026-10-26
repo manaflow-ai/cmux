@@ -335,7 +335,7 @@ class IdleBudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"wakeups_per_s": 0.4, "threads_max": 30, "main_wakes_per_s": 0}}}}}
         rows = ib.cron_rows(report, {"kinds": {"app": {"wakeups_per_s": 1.0}}})
         self.assertEqual(rows["idle_budget.light.app.wakeups_per_s"],
-                         {"p50": 0.4, "p95": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
+                         {"p50": 0.4, "p95": 0.4, "p99": 0.4, "unit": "/s", "budget": 1.0, "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.threads_max"]["unit"], "threads")
         self.assertIsNone(rows["idle_budget.light.app.threads_max"]["budget"])
 
@@ -2537,7 +2537,8 @@ class D15BudgetTests(unittest.TestCase):
         report = {"sessions": {"light": {"kinds": {"app": {"disk_bytes_per_s": 68.267, "network_bytes": 0, "log_lines": None}}}}}
         rows = ib.cron_rows(report, self.BUDGET)
         self.assertEqual(rows["idle_budget.light.app.disk_bytes_per_s"],
-                         {"p50": 68.267, "p95": 68.267, "unit": "B/s", "budget": 0, "floor": 0.5})
+                         {"p50": 68.267, "p95": 68.267, "p99": 68.267, "unit": "B/s", "budget": 0,
+                          "floor": 0.5})
         self.assertEqual(rows["idle_budget.light.app.network_bytes"]["unit"], "bytes")
         self.assertNotIn("idle_budget.light.app.log_lines", rows)
 
@@ -2985,7 +2986,7 @@ class FiveSessionsTests(unittest.TestCase):
         teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server")])
 
         class FakeBench:
-            def __init__(self, app, out, env, config):
+            def __init__(self, app, out, env, config, **_results):
                 self.app, self.tag, self.teardown, self.launched_env = app, "t", teardown, {}
                 self.process = types.SimpleNamespace(pid=10, poll=lambda: 0 if "quit" in events else None)
                 events.append("new")
@@ -3689,8 +3690,9 @@ class SessionWiringTests(unittest.TestCase):
     the gated turns end before the app stops."""
 
     class App:
-        def __init__(self, path, out, env, config, log=None):
+        def __init__(self, path, out, env, config, log_name=None, perf_session=None, run=None):
             self.path, self.out, self.env, self.config = path, out, env, config
+            self.log_name, self.perf_session, self.run = log_name, perf_session, run
             self.log = []
 
         def launch(self):
@@ -3704,7 +3706,10 @@ class SessionWiringTests(unittest.TestCase):
             app, agents = ib.session_app(self.App, "/A.app", out, "agent-idle", {"CMUX_X": "1"})
             self.assertIsInstance(agents, ib.AgentHome)
             self.assertEqual(app.env, {"CMUX_X": "1", **agents.env()})
-            self.assertEqual(app.out, os.path.join(out, "agent-idle"))
+            self.assertEqual(agents.folder, os.path.join(out, "agent-idle"))
+            self.assertEqual(app.out, out)  # result-v1 files: the lab reads --out only
+            self.assertEqual(app.log_name, os.path.join("agent-idle", "app.log"))
+            self.assertTrue(os.path.isdir(os.path.join(out, "agent-idle")))
             app, agents = ib.session_app(self.App, "/A.app", out, "busy-hidden", {"CMUX_X": "1"})
             self.assertIsNone(agents)
             self.assertEqual(app.env, {"CMUX_X": "1"})
@@ -3744,10 +3749,72 @@ class SessionWiringTests(unittest.TestCase):
     def test_main_uses_the_session_wiring(self):
         source = Path(HERE / "idle-budget.py").read_text()
         main = source[source.index("def main(argv=None):"):]
-        self.assertIn("session_app(BenchApp, opts.app, out, session, rig.env(env))", main)
+        self.assertIn("session_app(BenchApp, opts.app, out, session, rig.env(env), runs)", main)
         self.assertIn("start_session(app, agents, spec, entry)", main)
         self.assertIn("stop_session(app, agents)", main)
         self.assertLess(main.index("start_session("), main.index("settle_seconds("))
+
+    def test_main_goes_on_after_a_session_app_that_raises_and_records_stress_in_one_run(self):
+        """A session whose app was never built (session_app raised) is reported failed and records nothing; the
+        loop goes on. Each later session's app records into --out as its story's perf session (stress for a STRESS
+        session), and the sessions of one story share one run."""
+        made, records = [], []
+
+        class FakeBench:
+            def __init__(self, path, out, env, config, log_name=None, perf_session=None, run=None):
+                self.app, self.out, self.log_name, self.perf_session, self.run = path, out, log_name, perf_session, run
+                self.process = None
+                made.append(self)
+
+            def record(self, story, metric, unit, samples, better, engine):
+                records.append((story, metric, self.perf_session, self.run.id, list(samples), self.out))
+                return os.path.join(self.out, f"{story}.ndjson")
+
+            def stop(self):
+                pass
+
+        real_session_app = ib.session_app
+
+        def session_app(app_class, app_path, out, session, env, runs=None):
+            if session == "light":
+                raise RuntimeError("no launch")
+            return real_session_app(FakeBench, app_path, out, session, env, runs)
+
+        def start_session(app, agents, spec, entry):
+            raise ib.SessionShapeError("refused after the launch")
+
+        import bench_launch
+        with tempfile.TemporaryDirectory() as folder:
+            app_path = bundle(folder, debug=False)
+            out = os.path.join(folder, "out")
+            with unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
+                    unittest.mock.patch.multiple(ib, session_app=session_app, start_session=start_session,
+                                                 fresh_session=lambda _app: {}, host_facts=lambda: {"host": "h", "macos": "26"}), \
+                    contextlib.redirect_stdout(io.StringIO()) as printed, self.assertRaises(SystemExit):
+                ib.main(["--app", app_path, "--sessions", "stress,light,stress-static", "--out", out])
+            with open(os.path.join(out, "idle-budget.json")) as handle:
+                report = json.load(handle)
+        self.assertEqual(report["session_exits"], {"stress": 1, "light": 1, "stress-static": 1})
+        self.assertIn("IDLE-BUDGET-SESSION-FAILED light exit=1 RuntimeError: no launch", printed.getvalue())
+        self.assertNotIn("results_v1", report["sessions"]["light"])
+        self.assertEqual([app.perf_session for app in made], ["stress", "stress"])
+        self.assertEqual([app.out for app in made], [out, out])
+        self.assertEqual([app.log_name for app in made], [os.path.join("stress", "app.log"),
+                                                         os.path.join("stress-static", "app.log")])
+        self.assertIs(made[0].run, made[1].run)
+        self.assertEqual(sorted((story, metric, session, samples) for story, metric, session, _run, samples, _out
+                                in records),
+                         [("idle-budget-stress", "idle_budget.stress-static.failed", "stress", [1]),
+                          ("idle-budget-stress", "idle_budget.stress.failed", "stress", [1])])
+        self.assertEqual({run for *_head, run, _samples, _out in records}, {made[0].run.id})
+
+    def test_a_results_writer_that_raises_does_not_abort(self):
+        app = types.SimpleNamespace(perf_session="stress", run=None,
+                                    record=lambda *a, **k: (_ for _ in ()).throw(OSError("disk full")))
+        with contextlib.redirect_stdout(io.StringIO()) as printed:
+            result = ib.record_session(app, "stress", {}, {}, failed=True)
+        self.assertEqual(result, {"error": "OSError: disk full"})
+        self.assertIn("IDLE-BUDGET-RESULTS-FAILED stress: OSError: disk full", printed.getvalue())
 
 
 if __name__ == "__main__":

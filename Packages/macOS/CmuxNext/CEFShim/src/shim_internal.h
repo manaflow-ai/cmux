@@ -71,6 +71,8 @@ struct ForkApi {
   int (*browser_set_resize_sync)(int, int) = nullptr;
   // API version 32: the resize fence in display frames.
   int (*browser_set_resize_fence)(int, uint32_t, uint32_t) = nullptr;
+  // API version 34: a hosted page's visibility from the app.
+  int (*browser_set_embedder_visibility)(int, int) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -153,6 +155,9 @@ struct ForkApi {
   // No API number yet (p14-energy-124; numbered by p14-energy-136): the pid
   // of the renderer hosting a tab's main frame, 0 while none.
   int (*browser_renderer_pid)(int) = nullptr;
+  // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
+  // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
+  int (*memory_pressure_vote)(int) = nullptr;
 };
 
 struct Host {

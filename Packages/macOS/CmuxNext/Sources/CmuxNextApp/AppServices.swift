@@ -157,7 +157,8 @@ final class AppServices {
     #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` and the hang report sink (``BlockingReportSink``).
     let blocking = BlockingDetector.forProcess()
-    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build without
+    /// the opt-in feature `ipcMethodLatencyFieldData`.
     let wireStats: DaemonWireStats?
     /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is
     /// built. It is the main-thread scheduler's one ledger, so every `VisibleObservation` records into it too.
@@ -171,7 +172,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); if cloudContext != nil { followHostReplica(settings) } } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); terminalDelegate.followPredictiveEcho(settings, on: mainWork); if cloudContext != nil { followHostReplica(settings) } } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor? {
         didSet { palettes.built?.shortcutRecorder.editor = paletteShortcutEditor }
@@ -203,7 +204,12 @@ final class AppServices {
     #endif
     let switchHits = SwitchHits(counting: ControlRouter.debugMethodsAllowed) // refactor-switch sites' arm counts (debug.oracle.switch_hits)
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
-    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
+    /// Built by the first drag. Its moves are frame-aligned with `pointerFrameDrags` and its ghost resampled with
+    /// `resampledDrags`, off under Reduce Motion.
+    private(set) lazy var dragSession: TabDragSession = TabDragSession(
+        services: self, moveFrames: dragFrameInput,
+        makeResampler: { [weak self] in Motion.tabs.animatesMovement ? self?.dragResampler() : nil }
+    )
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
     private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map { PaletteSourcesBridge.make(services: $0) } ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
@@ -297,9 +303,17 @@ final class AppServices {
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
-    /// resolved once in init (crash reporting reads it first) from this build's channel and the launch environment
-    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the services that read it are built.
+    /// resolved once in init (crash reporting reads it first): the composition root's (``launchFeatures(_:)``, built
+    /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
+
+    /// Every declared feature's value for this launch: this build's channel and the launch
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). The composition root builds it
+    /// once, before anything that reads a feature.
+    static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
+        FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    }
     /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
@@ -308,6 +322,14 @@ final class AppServices {
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
     private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// A drag's resampler, made on its start (feature `resampledDrags`, p04-input-040): a pane divider, a tab ghost or a
+    /// pane-swap preview is drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without
+    /// `pointerFrameDrags`, with the feature or the setting off; the layout and ``dragSession`` add Reduce Motion.
+    private(set) lazy var dragResampler: () -> DragResampler? = { [weak self] in
+        guard let self, dragFrameInput != nil, features.isEnabled(.resampledDrags),
+              let setting = settings?.snapshot.dragResampling, setting.resampleDrags else { return nil }
+        return DragResampler(frameAheadMs: setting.frameAheadMs)
+    }
     /// Hover (feature `pointerFrameHover`, also each main window's `hoverFrameInput`): hover sites, the palette, the
     /// omnibox suggestions and the pages' popups act on a frame interval's first move and once more at its frame, at
     /// the latest point. Nil while it is off: each move hovers.
@@ -348,7 +370,7 @@ final class AppServices {
     /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
     lazy var sleepyMode = SleepyModeController(
         keepAwake: SleepyKeepAwakeActivity(),
-        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+        overlay: SleepyOverlayWindows(events: appEvents, workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
                                       lockMac: { SleepyMacLock().lock() })
     )
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
@@ -569,6 +591,8 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The built-in uBlock Origin's pinned folder, read on the files lane from init (``preloadBuiltInAdBlockerFolder(on:)``).
+    let builtInAdBlockerFolder: PreloadedValue<String?>
     /// The app process's black box: its heap ring from init, its file steps on `.files` (task p09-observability-005).
     /// Only the real app process has one (``AppEnvironment/marksRun``); tests that build `AppServices` do not.
     let traceBlackBox: TraceBlackBoxFileSteps?
@@ -617,10 +641,12 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals) {
+         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
+         features: FeatureList? = nil) {
         self.appearance = appearance
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
+        builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
@@ -637,10 +663,10 @@ final class AppServices {
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           turnObserver: oracleTurns, causes: mainWork.causes)
+                                           turnObserver: oracleTurns, mainWork: mainWork)
         #else
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
-                                           causes: mainWork.causes)
+                                           mainWork: mainWork)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
@@ -656,8 +682,8 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
-        features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind), overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
-        crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
+        self.features = features ?? Self.launchFeatures(environment)
+        crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
@@ -666,6 +692,7 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
+        pages.showsStandIns = features.isEnabled(.pageStandIn)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
@@ -774,7 +801,7 @@ final class AppServices {
         let updateSheet = self.updateSheet  // built here, as before
         updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.bind(registry: registry)
-        input.startNoActivateGuard(tap: inputTap, work: work, mainWork: mainWork)  // an NSApp input hook: before the app activates
+        input.startNoActivateGuard(tap: inputTap, appEvents: appEvents, mainWork: mainWork, work: work)  // an NSApp input hook: before the app activates
         notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {

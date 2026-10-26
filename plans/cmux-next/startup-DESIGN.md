@@ -193,7 +193,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 62 | `services.locationTrail.watchScope(` | afterFirstFrame | main | 028 | Location trail scope. |
 | 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. Done (029): post `MacScreen.activate` (`LaunchServicePosts.platform`). It used to run in the control socket's served callback; it reads no socket. |
 | 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. Done (029): post `Mobile.follow` (`LaunchServicePosts.platform`). |
-| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017 | Spare agent page; one service per post. |
+| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017, 042 | Spare agent page; one service per post. Done (042): post `NewTabSpares.probe` before `NewTabSpares.warm` (`LaunchServicePosts.laterTabs`). |
 | 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. Done (029): post `Notifications.follow` (`LaunchServicePosts.platform`). The launch sets the preferences from the launch read at once, so the first frame's attention marks and mutes are right, and starts the Chief pet at once (`followChiefPet`), so an arrival before startup completes reaches it. |
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. Done (029): post `Borders.observe` (`LaunchServicePosts.platform`). |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. Done (029): post `Glass.observe` (`LaunchServicePosts.platform`). The launch sets the resolved mode at once (`seedGlass`), so the first frame draws it and the follow repaints only on a change. |
@@ -245,7 +245,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. |
 | O24 | `GhosttyKeybindSync(...)`, `GhosttyConfigLiveReload()` | afterFirstFrame | main | 026 | Built with their starts (Q2 43, 44). |
 | O25 | `services.windows.restoreWhenLoaded()` | critical: `WindowManager.restoreWhenLoaded` | main | 059, 060 | See the allowlist. |
-| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017 | Later tab warm-ups; WKProcessPool warm-up first afterFirstFrame only when a WebKit agent pane shows (017). |
+| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017, 042 | Later tab warm-ups. No WebKit view before completion but the shown agent tabs', each an afterFirstFrame `AgentTabs.launchView` post after its picture, the focused pane's first; while the focused pane shows a drawing terminal, the other panes' tabs post only once the pane region is ready (`LaunchViewQueue`, 042); the agent pages' WebKit warm-up is the afterStartup post `AgentPane.webKitWarmup`. |
 | O27 | `WebAuthSessionWindows(...)`, `WebAuthSessionHandler(broker:)` | critical: `WebAuthSessionHandler.install` | main | 029 | Built inside the install post. |
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
 | O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
@@ -481,3 +481,68 @@ Decisions the probe confirms or refutes:
 - The trace-pc-guard fallback needs a sanitizer in the profile build only, and gives first-hit order, not
   counts. It is the order-file input when `flush` fails; Chrome's Android order file uses the same kind of
   first-call instrumentation (`base/android/orderfile/orderfile_instrumentation.cc`).
+
+## 10. ThinLTO and cross-module optimization A/B (task 110)
+
+Release today is whole-module `-O` with dead-code stripping and no LTO or cross-module optimization
+(CMO): 0 hits for `-lto`, `-cross-module-optimization` and `LLVM_LTO` in `cmux.xcodeproj`,
+`Packages/macOS/CmuxNext/Package.swift` and `scripts/reload.sh`. Chrome builds its official Mac
+binaries with ThinLTO (`build/config/compiler/compiler.gni` `use_thin_lto`, `build/config/compiler/BUILD.gn`
+`-flto=thin` with the `-cache_path_lto` link cache) and ships PGO only on top of it (`docs/pgo.md`). Task 052
+takes its flag set from this A/B, so the A/B runs before PGO.
+
+`scripts/cmux-next/pgo/lto-ab.sh` builds one commit three ways, each `reload.sh --config bench` (the Release
+configuration plus `-DCMUX_BENCH_HOOKS`, so the benches can drive it) in its own DerivedData:
+
+| Variant | Settings (`lto-ab.sh --print-xcconfig <variant>`) |
+|---|---|
+| `base` | none: the shipped Release flags |
+| `thinlto` | `LLVM_LTO[config=Release] = YES_THIN`, `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -lto=llvm-thin` |
+| `cmo` | `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -cross-module-optimization` |
+
+The settings reach the build through `XCODE_XCCONFIG_FILE`, so the project and `Package.swift` do not change
+for the A/B (`reload.sh` gains only `CMUX_RELOAD_BUILD_TIMING_SUMMARY=1`, which passes
+`-showBuildTimingSummary` and changes no build setting); they apply to every Swift target, not only CmuxNext's. How a chosen flag reaches only
+the CmuxNext targets in the shipped build is task 048's finding and task 052's change. A variant counts only
+when its Release log shows its flags on the `-module-name CmuxNext*` compiles (and, for ThinLTO, `-flto=thin`
+on the app executable's own link command, the lines under `Ld .../Objects-normal/<arch>/Binary/cmux normal
+<arch>`; a clang compile that also says `-o` does not count), and `base` shows none of them.
+
+Measured per variant, on one host:
+
+- size: the executable's bytes, its `__TEXT` bytes (`size`) and the app bundle (`du -sk`);
+- build time: the clean build; link time: Release is universal, so the per-arch `Ld` writes
+  `Objects-normal/<arch>/Binary/cmux` and only `CreateUniversalBinary` writes the product executable. The
+  script runs a no-op rebuild, removes those per-arch linker outputs and the LTO cache, and rebuilds; link
+  time is the relink's `Ld` seconds from the Build Timing Summary minus the no-op's. The relink must show an
+  `Ld` of `cmux` and the no-op none, or the row records why the link time is missing;
+- first frame: `bench-startup.py --mode cold --mode warm --runs 10`, the three apps interleaved run by run,
+  `first_window_frame_committed` p50 and p95; cold purges the file cache when the host has the `purge`
+  right, and the table says when it did not;
+- typing: `bench-typing.py --samples 200`, three rounds interleaved, the median of the rounds'
+  single-phase `key_to_frame_ms` p95;
+- Debug: one cold Debug build, then one leaf edit (a comment appended to `CmuxNextApp/ActionScope.swift`) per
+  variant with that variant's xcconfig. Debug is unchanged when no variant flag is in the Debug log and the
+  rebuild compiles as many Swift files as `base`'s does. A failed Debug build, or a variant with no
+  leaf-edit numbers, is a problem and that variant is not adopted; `--skip-debug` is recorded, the run can
+  exit 0, and no variant is adopted without the Debug check.
+
+Decision, per variant against `base`: adopt it when the cold or the warm first-frame p50 is 3 % faster or
+more and Pinpoint's floored rule (`perf_stats.compare`) calls the samples different, neither first frame is
+slower with a different verdict, typing p95 is at most 2 % slower, and Debug is unchanged. Link time and size
+are reported for the nightly's cost, not gated. When both variants win, 052 takes both flags and its PGO A/B
+reruns them together.
+
+Run (fleet, GUI host): `cmux-ci run --class isolated --script scripts/cmux-next/pgo/lto-ab.sh --ref SHA`.
+It writes `artifacts/lto-ab/<sha>/table.md` and `results.json`, and `lto-ab.sh --table DIR` renders the
+table again. Exit 1 when a variant does not build, its flags are missing, its relink did not link `cmux`, a bench
+gives no samples, a Debug build failed or Debug changed. The fixture test `bash scripts/cmux-next/tests/lto-ab.test.sh` checks the xcconfigs, the fleet guard
+and the verdicts without a build.
+
+Results: not run yet. The fleet run pastes its `table.md` here, with the commit, Xcode and host it names.
+
+| variant | build | flags | build s | link s | exe MB | __TEXT MB | app MB | cold first frame p50/p95 ms | warm first frame p50/p95 ms | typing key-to-frame p95 ms | Debug leaf-edit s | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| base | - | - | - | - | - | - | - | - | - | - | - | reference |
+| thinlto | - | - | - | - | - | - | - | - | - | - | - | - |
+| cmo | - | - | - | - | - | - | - | - | - | - | - | - |

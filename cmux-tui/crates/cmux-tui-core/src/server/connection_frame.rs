@@ -328,6 +328,10 @@ pub(super) fn handle_request_with_cancellation(
         });
     }
 
+    if deferred_commands::handles(mux, client, &cmd) {
+        return deferred_commands::start(mux, client, id, cmd, &mut span, writer);
+    }
+
     let detach_self = match &cmd {
         Command::DetachClient { client: target, by, surface }
             if target.whole_client() == Some(client)
@@ -397,11 +401,13 @@ fn start_sized_browser_attach(
     writer: &MessageWriter,
 ) -> bool {
     let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let reply = reply.hand_to_worker();
     let posted = mux.work.post(
         Priority::UserBlocking,
         Lane::System,
         Shutdown::ContinueOnShutdown,
         move || {
+            let reply = reply.start();
             let result =
                 handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
             reply.reply(|| {

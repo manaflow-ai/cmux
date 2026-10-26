@@ -46,7 +46,13 @@ uint64_t ModifierOfKey(int32_t key_code) {
   }
 }
 
-// kKey: v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod.
+// VKEY_PROCESSKEY (ui/events/keycodes/keyboard_codes_posix.h): the key an input method took.
+constexpr int kProcessKey = 0xE5;
+
+// kKey: v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, v3 the
+// text input's mark (chromium_host_wire.h: 0 the key and its char, 1 an input method took it, 2 the
+// char only), as RenderWidgetHostViewCocoa sends a key an input method handled
+// (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm, -keyEvent:wasKeyEquivalent:).
 void SendKey(int chromium_browser_id, const Header& frame) {
   CefKeyEvent event;
   event.native_key_code = frame.v[1];
@@ -58,8 +64,23 @@ void SendKey(int chromium_browser_id, const Header& frame) {
     cmux_shim::SendHostKeyEvent(chromium_browser_id, 0, event);
     return;
   }
+  const int32_t mark = frame.v[3];
+  if (mark == 1) {
+    // An input method took the key: VKEY_PROCESSKEY down or up, no character.
+    event.windows_key_code = kProcessKey;
+    event.type = frame.v[0] == 1 ? KEYEVENT_KEYUP : KEYEVENT_RAWKEYDOWN;
+    cmux_shim::SendHostKeyEvent(chromium_browser_id, 0, event);
+    return;
+  }
   event.character = frame.ch;
   event.unmodified_character = frame.unmod;
+  if (mark == 2) {
+    // The character only, after the input method's turn.
+    if (frame.v[0] != 0 || frame.ch == 0) return;
+    event.type = KEYEVENT_CHAR;
+    cmux_shim::SendHostKeyEvent(chromium_browser_id, 0, event);
+    return;
+  }
   event.type = frame.v[0] == 1 ? KEYEVENT_KEYUP : KEYEVENT_RAWKEYDOWN;
   cmux_shim::SendHostKeyEvent(chromium_browser_id, frame.seq, event);
   if (frame.v[0] == 1) return;

@@ -318,6 +318,27 @@
       "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence is a port right over XPC, an op of its own (task 052), owned by ChromiumHostPageView."
     },
     {
+      "name": "cmux_shim_browser_set_embedder_visibility",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "visibility",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The app gives a hosted page its visibility as a one-way op in call order (p03-rendering-058), as Chrome's browser window tells its WebContents; the host's page windows never order in, so the app's value is the only one."
+    },
+    {
       "name": "cmux_shim_browser_set_detached_hosting",
       "class": "view",
       "args": [
@@ -4059,6 +4080,23 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "Answers a PAGE_RESOURCE token; bodies over 64 KiB go in a sealed shm fd (task 020). Any thread."
+    },
+    {
+      "name": "cmux_shim_memory_pressure_vote",
+      "class": "post",
+      "args": [
+        {
+          "name": "level",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's memory pressure vote (p07-memory-051): the host's shim votes it into its own Chromium's aggregator, in call order; CEFMemoryPressureVote discards the result."
     }
   ],
   "events": [

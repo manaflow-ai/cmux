@@ -29,8 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchReveal: LaunchReveal
     /// The startup trace `CMUX_TRACE_STARTUP` asked for (nil: none): launch phases record their slices in it.
     private let startupTrace: StartupTrace?
-    /// The app's daemon wire counters, made in `main` (nil in a release build).
+    /// The app's daemon wire counters, made in `main` (nil in a release build without field data opt-in).
     private let wireStats: DaemonWireStats?
+    /// The launch's feature list from the composition root (``AppServices/launchFeatures(_:)``).
+    private let features: FeatureList?
     /// The first live terminal frame (or no daemon): reveals the pane region and, with the launch images, starts the control socket.
     private let launchSettle: LaunchSettle
     /// An unavailable daemon's settle: every phase reference and startup ref it ends.
@@ -79,12 +81,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?, features: FeatureList? = nil,
          startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
-        self.wireStats = wireStats
+        (self.wireStats, self.features) = (wireStats, features)
         self.launchCleanup = launchCleanup
         self.order = order
         launchImageHold = LaunchImageHold(startup: order.startup)
@@ -157,7 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys,
+                                   features: features)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         controlSocket = AppControl.beginBind(features: services.features, settingsRead: settingsRead, launch: environment.launch,
@@ -200,7 +203,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
-        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
@@ -304,7 +306,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
-        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
+        WebUpdates.shared.prepare(
+            launch.snapshot.updates, bundle: .main, files: services.work, energy: services.mainWork.energy,
+            shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

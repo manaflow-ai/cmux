@@ -1193,6 +1193,22 @@ every task that changes behavior or performance and is not repeated per row.
   stops them.
 - Test phase: cmux-ci build cef; cef-layer-verify.py hosted with the input window off screen.
 - Size M. Depends: 041.
+- Landed in the fork at API 34 (33 is p14-energy-029's): manaflow-ai/cef `cp/p03-rendering-058` (`e9d12702`, on
+  `cp/p03-rendering-042`). `cmux_browser_set_embedder_visibility(id, window|visible|occluded|hidden)` applies while
+  the page is layer hosted: the tracker stores it on the `CefNSWindow` and the Views bridge's `OnVisibilityChanged`
+  reads it instead of the window's order (visible and occluded keep the compositor running, hidden suspends it);
+  occluded sets content's `-setOccluded:` (Chrome's one second of coalescing), and `WebContentsOcclusionCheckerMac`
+  leaves the window alone (`cmux_embedder_visibility.patch`). The page window is then the input target only and its
+  order changes nothing for the page; `window` (0, the default) gives the decision back to the order. App shim:
+  `cmux_shim_browser_set_embedder_visibility` (`shim_browser.mm`, `cmux_shim_embedder_visibility_t`), a `post` op in
+  host mode. Only the fork call and this shim export landed: no app code calls
+  `cmux_shim_browser_set_embedder_visibility` yet, and the `.embedderVisibility` bit in `CEFLayerHosting.TrackA` is
+  older base code that nothing sets. p03-rendering-050 owns the app side: the Swift binding, an
+  `embedderVisibilityForkAPI = 34` constant, and inserting `.embedderVisibility` into TrackA only when
+  `forkAPIVersion >= 34`, with a CEFLayerHostingDefaultTests case. 050 must not turn layer hosting on before that
+  caller sends visibility, or a never-ordered-in page window reads as occluded and stops drawing. p03-rendering-097
+  then sends `occluded` from WindowOcclusionFamily. Embedder case `helper-embedder-visibility` (not run here: no
+  Chromium tree).
 
 #### p03-rendering-060 / 061 Redraw policy (Sidebar 28 files; the rest 31 files)
 - Files: the MQ-redraw-policy files (060: CmuxNextSidebar; 061: all others).

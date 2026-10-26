@@ -173,6 +173,12 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
         waitingWheels.removeAll(keepingCapacity: true)
     }
 
+    /// Every waiting move and wheel tick, in arrival order, now in flight: what must leave before
+    /// input that does not pass through the pacer (a text input op).
+    mutating func flush() -> [ChromiumHostFrame] {
+        waitingCount == 0 ? [] : flushWaiting()
+    }
+
     /// Every waiting move and wheel tick, in arrival order, now in flight.
     private mutating func flushWaiting() -> [ChromiumHostFrame] {
         var out: [ChromiumHostFrame] = []

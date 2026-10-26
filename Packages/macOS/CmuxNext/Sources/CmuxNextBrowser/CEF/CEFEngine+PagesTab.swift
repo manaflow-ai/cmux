@@ -21,7 +21,7 @@ extension CEFEngine {
     public func pagesTabConfiguration(chatOpen: ChatOpenStages?) -> BrowserTabConfiguration {
         let pane = BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString)
         if let chatOpen { CEFRuntime.shared.chatOpens[pane.rawValue] = chatOpen }
-        return BrowserTabConfiguration(profile: beginPagesProfile(), pane: pane)
+        return BrowserTabConfiguration(profile: beginPagesProfile(), pane: pane, origin: .user)
     }
 
     /// Makes the page tab `configuration` describes (``pagesTabConfiguration(chatOpen:)``), themed as an internal page.
