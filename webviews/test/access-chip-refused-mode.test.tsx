@@ -284,3 +284,44 @@ test("an older answer that arrives after a newer one does not change full access
   expect(disabled("Bypass permissions")).toBe(true);
   expect(caption("Bypass permissions")).toBe("Managed by your organization");
 });
+
+test("a daemon that predates start_mode clears what the previous daemon said", async () => {
+  // Managed off from the first daemon; the pane reconnects to an older one, which answers
+  // method-not-found: the rows are no longer managed.
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const { AcpmuxRpcError } = await import("../src/agent-session/acpmux/handoff/protocol");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  (client as unknown as { request: () => Promise<unknown> }).request = () =>
+    Promise.reject(new AcpmuxRpcError({ code: -32601, message: "Method not found" }));
+  await act(async () => void (await client.startMode("claude", "/Users/dev/project")));
+  await render(reported("s1", "default"), () => undefined);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(false);
+});
+
+test("a new connection forgets the managed mark, and a late answer from the old one changes nothing", async () => {
+  const startMode = await import("../src/agent-session/acpmux/startMode");
+  const direct = await import("../src/agent-session/acpmux/direct");
+  const client: Client = Object.create(direct.AcpmuxDirectClient.prototype);
+  let releaseOld: (reply: unknown) => void = () => undefined;
+  (client as unknown as { request: () => Promise<unknown> }).request = () =>
+    new Promise((done) => (releaseOld = done));
+  await answer({ harness: "claude", modeId: null, fullAccess: "managed" });
+  let old: Promise<unknown> = Promise.resolve();
+  await act(async () => {
+    old = client.startMode("claude", "/Users/dev/project");
+  });
+  // The pane's connection is replaced (a reconnect, another daemon).
+  await act(async () => void startMode.setStartModeSource(async () => undefined));
+  await act(async () => {
+    releaseOld({ harness: "claude", modeId: null, fullAccess: "managed" });
+    await old;
+  });
+  await render(reported("s1", "default"), () => undefined);
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  await act(async () => void openPicker("Mode"));
+  expect(disabled("Bypass permissions")).toBe(false);
+  await act(async () => void startMode.setStartModeSource(undefined));
+});
