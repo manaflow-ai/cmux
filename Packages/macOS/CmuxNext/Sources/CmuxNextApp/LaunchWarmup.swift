@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextIcons
 import Foundation
 
 /// Launch work that is pure and thread-safe, started on a background thread
@@ -32,6 +33,8 @@ enum LaunchWarmup {
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
+        // The restored window's tab strip and sidebar read the icon pack and catalog before the first frame.
+        IconPack.decodeBundledInBackground { DebugTimings.markLaunch("icons_decoded") }
     }
 }
 

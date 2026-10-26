@@ -141,6 +141,8 @@ MARKS = [
     ("main.delegate", "main: launch order and delegate"),
     ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
+    # p08-startup-039: the launch thread's icon pack and catalog decode; the first tab or sidebar icon reads both.
+    ("icons_decoded", "launch thread: icon pack and catalog decoded"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
     ("dfl.settings_read", "dfl: settings read"),
