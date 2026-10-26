@@ -10,6 +10,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -126,63 +127,70 @@ struct OpenHow {
 const RESOLVE_NO_MAGICLINKS: u32 = 0x02;
 const RESOLVE_NO_SYMLINKS: u32 = 0x04;
 
-/// The loop stops at the first existing ancestor, at worst the filesystem root.
-fn first_existing_ancestor(path: &Path) -> PathBuf {
-    let mut ancestor = path.to_owned();
-    while !ancestor.exists() {
-        if !ancestor.pop() {
-            return PathBuf::from("/");
-        }
-    }
-    ancestor
-}
-
-fn is_writable_by_uid(path: &Path) -> Result<bool, String> {
+/// Inspect ownership and effective writability for the real uid. Errors refuse.
+fn outside_stat(path: &Path) -> Result<Option<(bool, bool)>, String> {
+    let meta = match fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
+    };
     let text = path_arg(path)?;
     let c_path = CString::new(text.as_bytes()).map_err(|_| format!("path contains NUL: {text}"))?;
-    // SAFETY: c_path is a valid NUL-terminated path.
-    let result = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) };
+    // SAFETY: c_path is NUL-terminated; getuid has no preconditions.
+    let (owned, result) =
+        unsafe { (meta.uid() == libc::getuid(), libc::access(c_path.as_ptr(), libc::W_OK)) };
     if result == 0 {
-        return Ok(true);
+        return Ok(Some((owned, true)));
     }
     let error = io::Error::last_os_error();
     match error.raw_os_error() {
-        Some(libc::EACCES | libc::ENOENT | libc::EROFS) => Ok(false),
+        Some(libc::EACCES | libc::EROFS) => Ok(Some((owned, false))),
         _ => Err(format!("cannot inspect write access to {text}: {error}")),
     }
 }
 
 /// Pure ancestor policy; the callback returns (owned by this uid, writable).
+/// Walk every ancestor through /: owning a read-only directory permits chmod,
+/// and writable parents permit replacement. The loop ends at the root.
 fn validate_outside(
-    _path: &Path,
-    _stat: impl FnMut(&Path) -> Result<Option<(bool, bool)>, String>,
+    path: &Path,
+    mut stat: impl FnMut(&Path) -> Result<Option<(bool, bool)>, String>,
 ) -> Result<(), String> {
+    let state = if stat(path)?.is_none() { "absent" } else { "present" };
+    for ancestor in path.ancestors().skip(1) {
+        let Some((owned, writable)) = stat(ancestor)? else {
+            if ancestor == Path::new("/") {
+                return Err("cannot inspect filesystem root".into());
+            }
+            continue;
+        };
+        if owned || writable {
+            let reason = if owned { "owned by this user" } else { "writable by this user" };
+            let consequence = if state == "absent" { "appear" } else { "be replaced" };
+            return Err(format!(
+                "{} is {state}, but {} is {reason}, so it could {consequence} during the session",
+                path.display(),
+                ancestor.display()
+            ));
+        }
+    }
     Ok(())
 }
 
 /// Snapshot existing explicit denials. A1b replaces HOME masks with a rebuilt
 /// view so absent credentials stay hidden too. Iteration ends after `paths`.
-/// Outside HOME, absent paths are skipped only under an unwritable ancestor.
+/// Outside HOME, every ancestor must be owned by another uid and unwritable.
 /// A nodev /dev/null mask may fail reads with EACCES instead of returning EOF.
 fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for path in paths {
         let text = path_arg(path)?;
+        if !path.starts_with(home) {
+            validate_outside(path, outside_stat)?;
+        }
         let meta = match fs::symlink_metadata(path) {
             Ok(meta) => meta,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                if path.starts_with(home) {
-                    continue;
-                }
-                let ancestor = first_existing_ancestor(path);
-                if !is_writable_by_uid(&ancestor)? {
-                    continue;
-                }
-                return Err(format!(
-                    "denied path {text} is absent under writable ancestor {}",
-                    ancestor.display()
-                ));
-            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => return Err(format!("cannot inspect denied path {text}: {e}")),
         };
         if meta.is_dir() {
@@ -492,8 +500,8 @@ mod tests {
     fn outside_denials_mask_existing_and_refuse_absent_writable_names() {
         let f = Fixture::new();
         let p = f.create_paths();
-        let directory = f.0.join("keychains");
-        let file = f.0.join("credential");
+        let directory = p.home.join("keychains");
+        let file = p.home.join("credential");
         fs::create_dir(&directory).unwrap();
         fs::write(&file, "secret").unwrap();
         let args = outside_view(&[directory.clone(), file.clone()], &p.home).unwrap();
@@ -510,7 +518,11 @@ mod tests {
             ])
         );
         let error = outside_view(&[f.0.join("missing")], &p.home).unwrap_err();
-        assert!(error.contains("absent under writable ancestor"), "{error}");
+        assert!(error.contains("owned by this user"), "{error}");
+        let outside = f.0.join("existing-secret");
+        fs::write(&outside, "secret").unwrap();
+        let error = outside_view(&[outside], &p.home).unwrap_err();
+        assert!(error.contains("present") && error.contains("be replaced"), "{error}");
     }
 
     #[test]
