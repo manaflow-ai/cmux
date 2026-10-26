@@ -86,6 +86,13 @@ extension AppServices: OracleHost {
                 guard let self else { throw OracleFacetError("the app services are gone") }
                 return try oracleTerminals()
             },
+            // Each reachable page's own store summary (`cmux.page.oracle.state`), with the tab and pane that show it;
+            // the pages signal their changes.
+            OracleWebviewsFacet(changes: { [feed = webUI.oracleChanges] in feed.subscribe() }) {
+                [weak self] () async throws(OracleFacetError) -> OracleWebviewsFacet.Reading in
+                guard let self else { throw OracleFacetError("the app services are gone") }
+                return try await oracleWebviews()
+            },
         ])
     }
 

@@ -12,6 +12,7 @@ use crate::fuzzing::FuzzBytes;
 use crate::session::{
     test_remote_rejected_error, test_remote_timeout_error, test_remote_transport_error,
 };
+use std::sync::PoisonError;
 
 const SURFACES: u8 = 4;
 const MAX_GENERATION: u64 = 4;
@@ -264,7 +265,9 @@ impl Driver {
         if self.serial.is_some() {
             return false;
         }
-        let event = dequeue_ready_event(&mut self.queue.state.lock().unwrap());
+        let event = dequeue_ready_event(
+            &mut self.queue.state.lock().unwrap_or_else(PoisonError::into_inner),
+        );
         match event {
             Some(event) if event.concurrent_surface_operation => self.concurrent.push(event),
             Some(event) => self.serial = Some(event),
@@ -274,7 +277,7 @@ impl Driver {
     }
 
     fn check(&self) {
-        let state = self.queue.state.lock().unwrap();
+        let state = self.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
         let queued = state.events.iter().map(PtyInputEvent::queued_byte_len).sum::<usize>();
         assert_eq!(state.queued_bytes, queued, "queued byte accounting drifted");
         // An ambiguous release requeued after its timeout may overrun the
@@ -309,7 +312,7 @@ impl Driver {
             self.check();
         }
         assert!(self.serial.is_none() && self.concurrent.is_empty(), "the drain did not finish");
-        let state = self.queue.state.lock().unwrap();
+        let state = self.queue.state.lock().unwrap_or_else(PoisonError::into_inner);
         assert!(
             state.events.is_empty(),
             "{} events stayed queued with nothing in flight",

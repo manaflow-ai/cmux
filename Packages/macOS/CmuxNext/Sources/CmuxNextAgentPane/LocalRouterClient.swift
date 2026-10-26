@@ -117,7 +117,7 @@ public nonisolated struct LocalRouterClient: Sendable {
             try await AcpmuxStatusClient.start(connection)
             try await AcpmuxStatusClient.send(line + Data([0x0A]), on: connection)
             var buffer = Data()
-            while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
+            while true {  // wakeup-allow: bounded each pass awaits socket data; EOF, an error or the call's deadline ends it
                 guard let chunk = try await AcpmuxStatusClient.receive(on: connection) else { throw Failure.closed }
                 buffer += chunk
                 if let newline = buffer.firstIndex(of: 0x0A) {

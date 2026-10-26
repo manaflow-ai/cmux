@@ -121,12 +121,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Launch starts the first frame does not need (Feed update card, device hub and its Cloud sign-in restore, closed-history retention, Chromium hint, cmux-tui update notices) run after the reveal, once startup completes.
+    /// Launch starts the first frame does not need that still run in the launch turn or right after the first frame (bookmark sync and the imports' bookmark migration, closed-history retention, the Chromium likelihood hint) wait until startup completes.
     public static let launchStartDeferral = Feature(
         index: 7,
         name: "launchStartDeferral",
         owner: "Performance Lead",
-        description: "Launch starts the first frame does not need (Feed update card, device hub and its Cloud sign-in restore, closed-history retention, Chromium hint, cmux-tui update notices) run after the reveal, once startup completes.",
+        description: "Launch starts the first frame does not need that still run in the launch turn or right after the first frame (bookmark sync and the imports' bookmark migration, closed-history retention, the Chromium likelihood hint) wait until startup completes.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -359,9 +359,43 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    public static let pointerFrameDrags = Feature(
+        index: 21,
+        name: "pointerFrameDrags",
+        owner: "PL-motion-cef",
+        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
+    /// The sidebar list, rail and space bar, the tab strips and the saved groups bar hover on the first pointer move of a display frame and once more at the frame, to the latest point; entering, leaving and clicking still act at once.
+    public static let pointerFrameHover = Feature(
+        index: 22,
+        name: "pointerFrameHover",
+        owner: "PL-motion-cef",
+        description: "The sidebar list, rail and space bar, the tab strips and the saved groups bar hover on the first pointer move of a display frame and once more at the frame, to the latest point; entering, leaving and clicking still act at once.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
-        index: 21,
+        index: 23,
         name: "recentlyAudibleProtection",
         owner: "PL-memory",
         description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
@@ -378,7 +412,7 @@ nonisolated extension Feature {
 
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 22,
+        index: 24,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -395,7 +429,7 @@ nonisolated extension Feature {
 
     /// Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.
     public static let rendererlessSpareWindow = Feature(
-        index: 23,
+        index: 25,
         name: "rendererlessSpareWindow",
         owner: "PL-webui",
         description: "Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.",
@@ -412,7 +446,7 @@ nonisolated extension Feature {
 
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
-        index: 24,
+        index: 26,
         name: "sidebarRowsNearViewport",
         owner: "a590",
         description: "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
@@ -429,7 +463,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 25,
+        index: 27,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -446,7 +480,7 @@ nonisolated extension Feature {
 
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 26,
+        index: 28,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -463,7 +497,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 27,
+        index: 29,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -481,7 +515,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 28,
+        index: 30,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -498,7 +532,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 29,
+        index: 31,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -538,6 +572,8 @@ nonisolated extension Feature {
         .pageLifecycle,
         .pageProcessGroups,
         .pagesSpareWindow,
+        .pointerFrameDrags,
+        .pointerFrameHover,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
@@ -572,6 +608,8 @@ nonisolated extension Feature {
         .pageLifecycle,
         .pageProcessGroups,
         .pagesSpareWindow,
+        .pointerFrameDrags,
+        .pointerFrameHover,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,

@@ -43,6 +43,14 @@ public struct FrameTick: Sendable {
 /// A reason to receive frames: an animation, a drag autoscroll, a settle
 /// wait. Active clients keep their scheduler's display link running; the
 /// tick returns false to go idle, and the link stops with the last client.
+///
+/// A client made with a `visibleOnly` node draws only for someone: while the node is not
+/// ``VisibilityNode/wantsFrames`` it stays active but leaves its scheduler, so it is never ticked,
+/// and its window's link drops when it was the only client. It joins again, and ticks from the next
+/// frame, when the node is seen or captured. Chrome stops a hidden widget's BeginFrames the same way:
+/// `RenderWidgetHostViewMac::WasOccluded` hides the widget
+/// (content/browser/renderer_host/render_widget_host_view_mac.mm), and a hidden `cc::Scheduler`
+/// stops wanting BeginFrames (`SchedulerStateMachine::BeginFrameNeeded`, cc/scheduler/scheduler_state_machine.cc).
 @MainActor
 public final class FrameClient {
     public let owner: String
@@ -55,6 +63,9 @@ public final class FrameClient {
     /// How often it needs frames: its display's link runs at the highest rate of the active clients
     /// on it (``FrameRate``). ``FrameRate/motion`` unless the client was made with another.
     public let rate: FrameRate
+    /// The node whose visibility gates its ticks (``VisibilityNode/wantsFrames``); nil: it ticks
+    /// whether or not anyone sees it.
+    public let visibleOnly: VisibilityNode?
     private let onFrame: @MainActor (FrameTick) -> Bool
     private let resolve: @MainActor () -> FrameScheduler
     private weak var scheduler: FrameScheduler?
@@ -63,17 +74,26 @@ public final class FrameClient {
     private let startup: StartupPhase?
     /// True while an active client waits for the phase that opens its class.
     private var waitingForStartup = false
+    /// The flips of ``visibleOnly`` and its capture votes: made on the first activation and kept for
+    /// the client's life, so a one-shot client activated every frame does no subscription work.
+    /// An idle client ignores them.
+    private var visibilityWatch: [VisibilitySubscription] = []
     public private(set) var isActive = false
 
+    /// Whether an active client is off its scheduler because nobody sees its ``visibleOnly`` node.
+    public var isParked: Bool { isActive && !isSeen }
+
     /// `onFrame` returns true to keep ticking. The client ticks on the
-    /// scheduler `resolve` returns when it activates, at `rate` or faster.
-    public init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion,
+    /// scheduler `resolve` returns when it activates, at `rate` or faster, and only while
+    /// `visibleOnly` (when given) is seen or captured.
+    public init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion, visibleOnly: VisibilityNode? = nil,
                 scheduler resolve: @escaping @MainActor () -> FrameScheduler,
                 onFrame: @escaping @MainActor (FrameTick) -> Bool) {
         self.owner = owner
         self.isAnimation = isAnimation
         self.workClass = .frame
         self.rate = rate
+        self.visibleOnly = visibleOnly
         self.resolve = resolve
         self.onFrame = onFrame
         startup = nil
@@ -95,6 +115,7 @@ public final class FrameClient {
         self.isAnimation = false
         self.workClass = workClass.workClass
         self.rate = .motion
+        visibleOnly = nil
         let frames = work.frames, budget = work.budget
         self.resolve = { frames }
         self.onFrame = { tick in onFrame(tick, budget) }
@@ -108,33 +129,61 @@ public final class FrameClient {
         self.isAnimation = false
         self.workClass = .input
         self.rate = .motion
+        visibleOnly = nil
         self.resolve = { [weak scheduler] in scheduler ?? .app }
         self.onFrame = onFrame
         startup = nil
     }
 
     /// A client of `view`'s window (``FrameScheduler/app`` while it has none).
-    public convenience init(owner: String, rate: FrameRate = .motion, view: NSView,
+    public convenience init(owner: String, rate: FrameRate = .motion, visibleOnly: VisibilityNode? = nil, view: NSView,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, rate: rate, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
+        self.init(owner: owner, rate: rate, visibleOnly: visibleOnly, scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                   onFrame: onFrame)
     }
 
     /// A client of a fixed scheduler (``FrameScheduler/app`` once that scheduler is gone,
     /// as for a view client without a window).
-    public convenience init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion, on scheduler: FrameScheduler,
+    public convenience init(owner: String, isAnimation: Bool = true, rate: FrameRate = .motion,
+                            visibleOnly: VisibilityNode? = nil, on scheduler: FrameScheduler,
                             onFrame: @escaping @MainActor (FrameTick) -> Bool) {
-        self.init(owner: owner, isAnimation: isAnimation, rate: rate, scheduler: { [weak scheduler] in scheduler ?? .app },
+        self.init(owner: owner, isAnimation: isAnimation, rate: rate, visibleOnly: visibleOnly, scheduler: { [weak scheduler] in scheduler ?? .app },
                   onFrame: onFrame)
     }
 
     /// Starts ticking (no effect while active); a budgeted client whose class the launch holds
-    /// starts at the phase change.
+    /// starts at the phase change, and a client whose ``visibleOnly`` node nobody sees starts when
+    /// someone does.
     public func activate() {
         guard !isActive else { return }
         isActive = true
+        watchVisibility()
         if let startup, !startup.admits(workClass) { return waitForStartup(startup) }
+        guard isSeen else { return }
         attach()
+    }
+
+    /// Whether someone sees what it draws: its ``visibleOnly`` node wants frames, or it has none.
+    private var isSeen: Bool { visibleOnly?.wantsFrames ?? true }
+
+    private func watchVisibility() {
+        guard let visibleOnly, visibilityWatch.isEmpty else { return }
+        visibilityWatch = [
+            visibleOnly.subscribe(owner: owner) { [weak self] _ in self?.visibilityDidChange() },
+            visibleOnly.subscribeExemption(owner: owner) { [weak self] in self?.visibilityDidChange() },
+        ]
+    }
+
+    /// Its node flipped or a capture vote came or went: an unseen client leaves its scheduler (whose
+    /// link drops with its last client), a seen one joins its window's scheduler again.
+    private func visibilityDidChange() {
+        guard isActive, !waitingForStartup else { return }
+        if isSeen {
+            if scheduler == nil { attach() }
+        } else if let scheduler {
+            self.scheduler = nil
+            scheduler.deactivate(self)
+        }
     }
 
     private func attach() {
@@ -149,7 +198,7 @@ public final class FrameClient {
         startup.whenReached(workClass.startupOpening) { [weak self] in
             guard let self else { return }
             waitingForStartup = false
-            if isActive, scheduler == nil { attach() }
+            if isActive, scheduler == nil, isSeen { attach() }
         }
     }
 
@@ -167,9 +216,9 @@ public final class FrameClient {
         scheduler = nil
     }
 
-    /// Delivers a frame; false when the client went idle.
+    /// Delivers a frame (its scheduler fires only active clients it still holds); false when the
+    /// client went idle.
     func fire(_ tick: FrameTick) -> Bool {
-        guard isActive else { return false }
         if onFrame(tick) && isActive { return true }
         isActive = false
         scheduler = nil
@@ -177,6 +226,13 @@ public final class FrameClient {
     }
 
     // No deinit. An active client is held by its scheduler, so a client is only released once it
-    // is idle, and owners deactivate before they let go. An `isolated deinit` here hopped through
-    // the Swift runtime on every release and trapped when a layout view left its window (cx-t7hu).
+    // is idle or parked (its visibility subscriptions, held only by it, go with it), and owners
+    // deactivate before they let go. An `isolated deinit` here hopped through the Swift runtime on
+    // every release and trapped when a layout view left its window (cx-t7hu).
+}
+
+extension VisibilityNode {
+    /// Whether frame work for this node is seen: it is ``Visibility/visible``, or a capture vote holds
+    /// it (``isCaptured``: a screenshot, a screencast or screen share sees it while it is hidden).
+    public var wantsFrames: Bool { isVisible || isCaptured }
 }

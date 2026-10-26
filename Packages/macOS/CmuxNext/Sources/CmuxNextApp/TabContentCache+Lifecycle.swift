@@ -195,6 +195,10 @@ extension TabContentCache {
     }
 
     private func conceal(_ key: String, token: ContentLifecycle<String>.Token) {
+        // First, as `reveal` thaws first: the page lifecycle pictures the page while it still shows, before
+        // anything below tells its engine it is hidden (a hidden page has no frame to picture), and a page
+        // tab's discard cover (`contentDidHide`) then shares that capture (`PageWebView.hideFrame`).
+        pageLifecycle?.tabDidHide(key)
         if let entry = terminals[key] {
             // No picture on a switch: hover and drag render one on demand (`previewImage`), or `evict` keeps one.
             entry.session.isRenderingSuspended = true
@@ -210,7 +214,6 @@ extension TabContentCache {
             entry.tab.setContentVisible(false)
         }
         if !contentOwners.contentDidHide(key, token: token) { hibernation?.tabDidHide(key) }
-        pageLifecycle?.tabDidHide(key)
     }
 
     func trace(_ key: String, _ event: String) {

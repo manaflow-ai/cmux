@@ -115,8 +115,11 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
-        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        // The press's own key or click (or the stamp a gate carried), so its row's create.workspace reports that age.
+        if invocation.origin == .user {
+            spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
+        }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows

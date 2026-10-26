@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextInput
 import Observation
 import QuartzCore
 
@@ -14,9 +15,13 @@ public final class SavedGroupsBarView: NSView {
     public let model: SavedGroupsBarModel
     public var contextMenuProvider: TabContextMenuProvider?
 
-    private var chips: [TabGroupID: TabGroupChipCell] = [:]
+    private(set) var chips: [TabGroupID: TabGroupChipCell] = [:]
     private var order: [TabGroupID] = []
-    private var hovered: TabGroupID?
+    private(set) var hovered: TabGroupID?
+    /// The bar's hover moves (feature `pointerFrameHover`, `hoverFrameInput`).
+    private lazy var hoverMoves = PointerFrameHover(owner: "SavedGroupsBarView.hover", view: self) { [weak self] point in
+        self?.hover(atWindowPoint: point)
+    }
     private var pressed: TabGroupID?
     private var observation: Task<Void, Never>?
     private var tokenObservation: Task<Void, Never>?
@@ -189,15 +194,29 @@ public final class SavedGroupsBarView: NSView {
         if let id { chips[id]?.isHovered = true }
     }
 
-    public override func mouseMoved(with event: NSEvent) {
-        setHovered(chip(at: convert(event.locationInWindow, from: nil)))
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
+    /// hovers at once and the rest once at its frame, at the latest point (Chromium's rAF-aligned moves,
+    /// main_thread_event_queue.cc). Nil: each move hovers at once.
+    public var hoverFrameInput: PointerFrameCoalescers? {
+        get { hoverMoves.frames }
+        set { hoverMoves.frames = newValue }
     }
 
+    public override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+
+    /// Hovers the chip under `windowPoint`, hit-tested where the chips are scrolled to now.
+    private func hover(atWindowPoint windowPoint: CGPoint) {
+        setHovered(chip(at: convert(windowPoint, from: nil)))
+    }
+
+    // Exit and a press are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     public override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         setHovered(nil)
     }
 
     public override func mouseDown(with event: NSEvent) {
+        hoverMoves.flush()
         pressed = chip(at: convert(event.locationInWindow, from: nil))
         if let pressed { chips[pressed]?.isPressed = true }
     }

@@ -9,7 +9,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
-import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWebUpdates
@@ -164,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
-        LaunchStart.energy.runNow { services.startEnergy() }  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
+        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // VSyncHub (p03-rendering-014): each display's link on that display's vsync thread, one
         // coalesced main post per vsync. Off until the hop measurement is recorded (threading-model.md).
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
@@ -206,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
-        LaunchStart.localDaemon.runNow { services.startLocalDaemon(prestart: daemonPrestart) }  // the painted terminal colors first (OSC 10/11/12)
+        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
         FeaturePolicyEnforcer(services: services).start()
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -250,8 +249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
-        LaunchStart.bookmarks.runNow { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) }
-        LaunchStart.historyPages.runNow { services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) }
+        services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
+        services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
@@ -264,11 +263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
-        LaunchStart.borders.runNow { services.observeBorders() }
-        LaunchStart.glass.runNow { services.observeGlass() }
-        services.followUpdateFeed()
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        LaunchStart.chromiumRuntime.runNow { services.startChromiumRuntime() }
+        services.startChromiumRuntime()
         services.postLaterTabWarmups(on: order.startup)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
@@ -337,9 +333,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
-        KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        // The platform services: what the first frame or the restore reads now, the rest posted (p08-startup-029).
+        services.startPlatformServices(settings: settings, on: order.startup, hotKeys: !environment.isolatedLaunch)
         services.followEnergySaver(settings)
-        services.mobile.follow(settings, launch: services.environment.launch)
         // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         services.home.postLaunchFeeds(startup: order.startup)
@@ -354,26 +350,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        // Agent- and bench-launched builds never take system-wide keys from the person's app.
-        if !environment.isolatedLaunch { services.globalHotKeys.start() }
         // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        services.notifications.follow(settings)
-        services.followMacScreenSettings(settings)
-        services.runLaunchStart(.deviceHub) { [weak services] in services?.startDeviceHub(settings) }  // it restores the sign-in
-        services.updater.follow(settings)
-        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in
-            services?.registry.disabledFeatures.contains(.computerUse) ?? true
-        })
-        LaunchStart.hibernation.runNow { services.startHibernation(settings: settings) }
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
         services.bookmarks.follow(settings)
-        services.apps.start()
         // controlSocketEarlyBind: the control posts, after the first frame (p08-startup-019).
         control.postLaunch(socket: controlSocket, order: order, services: services, settings: settings, launch: environment.launch, logger: logger)
         Task {

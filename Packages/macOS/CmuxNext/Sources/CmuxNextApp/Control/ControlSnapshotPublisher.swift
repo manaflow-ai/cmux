@@ -294,7 +294,7 @@ final class ControlSnapshotPublisher {
 /// // Later, in the publish task:
 /// if topology.isDirty { publish() }
 /// ```
-private final class DirtyTracking: Sendable {
+private nonisolated final class DirtyTracking: Sendable {
     /// Set until the first read, and from the first change after a read until the next one. Set inside the
     /// mutation, which may be off the main actor.
     private let dirty = Atomic<Bool>(true)

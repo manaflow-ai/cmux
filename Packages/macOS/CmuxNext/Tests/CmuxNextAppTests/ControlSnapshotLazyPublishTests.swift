@@ -65,9 +65,12 @@ struct ControlSnapshotLazyPublishTests {
         func hops() async {
             for _ in 0..<8 {
                 await Task.yield()
-                _ = RunLoop.main.run(mode: .default, before: Date())
+                runLoopPass()
             }
         }
+
+        /// One main run loop pass; synchronous, because `RunLoop.run` is unavailable from async contexts.
+        private func runLoopPass() { _ = RunLoop.main.run(mode: .default, before: Date()) }
 
         func stop() {
             publisher.stop()
@@ -135,7 +138,7 @@ struct ControlSnapshotLazyPublishTests {
 
     /// Reads `method` through the router while the test fires frames, as the app's display link would: the read's
     /// build waits for its automation task.
-    private static func read(_ rig: Rig, _ method: String = "snapshot.get") async -> Result<JSONValue, ControlError> {
+    private static func read(_ rig: Rig, _ method: String = "snapshot.get") async -> Result<CmuxNextSettings.JSONValue, ControlError> {
         let reply = LazyPublishReply()
         let router = rig.router
         let task = Task { @MainActor in reply.value = await router.handle(ControlRequest(method: method)) }
@@ -325,7 +328,7 @@ struct ControlSnapshotLazyPublishTests {
 /// A read's reply, set on the main actor by the task that reads.
 @MainActor
 private final class LazyPublishReply {
-    var value: Result<JSONValue, ControlError>?
+    var value: Result<CmuxNextSettings.JSONValue, ControlError>?
 }
 
 /// A store wait's result, set on the main actor by the task that waits.

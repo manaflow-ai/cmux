@@ -118,10 +118,20 @@ public final class SidebarView: NSView {
             list.watchRows(layoutChanged: true)
         }
     }
-    public init(model: SidebarModel, design: DesignSettings = .shared) {
+    /// The app's sidebar document store (the App injects it): the list follows its events (`SidebarListView.docStore`).
+    public var docStore: SidebarDocStore? {
+        get { list.docStore }
+        set { list.docStore = newValue }
+    }
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - design: The `sidebar.*` settings it draws from.
+    ///   - newRows: Told which rows each list reload lists (`create.workspace`); nil times nothing.
+    public init(model: SidebarModel, design: DesignSettings = .shared, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
         self.design = design
         list = SidebarListView(model: model)
+        list.newRows = newRows
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
