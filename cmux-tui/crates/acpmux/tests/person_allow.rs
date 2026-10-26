@@ -1383,8 +1383,11 @@ fn decision_answers_proof(
     use sha2::Digest;
     let key = unhex::<32>(key).unwrap();
     let digest = |text: &str| hex_of(&sha2::Sha256::digest(text.as_bytes()));
-    let digests: Vec<String> =
-        [Some(canonical_answers), canonical_annotations].into_iter().flatten().map(digest).collect();
+    let digests: Vec<String> = [Some(canonical_answers), canonical_annotations]
+        .into_iter()
+        .flatten()
+        .map(digest)
+        .collect();
     let mut message = b"acpmux-person-decision-answers-v1".to_vec();
     for part in parts.into_iter().chain(digests.iter().map(String::as_str)) {
         message.push(0);
