@@ -329,9 +329,26 @@ extension AgentTabStore {
         return tabs
     }
 
-    /// Every agent page asks for session `session`'s avatar again: a Set or Remove in one pane
-    /// reaches the cards and chips that other panes draw of the same session.
+    /// The agent avatars on `model`'s page, for every agent view (tabs, spares and standalone chats):
+    /// its cards ask for them, its chat menu sets and removes them over `view`'s window.
+    func wireAgentAvatars(_ model: AgentPaneModel, view: AgentPaneView) {
+        model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
+        model.onSetAgentAvatar = { [weak self, weak view] session in
+            guard let self, let agentAvatars else { return nil }
+            let src = await agentAvatars.choose(session, window: view?.window)
+            if src != nil { agentAvatarChanged(session) }
+            return src
+        }
+        model.onRemoveAgentAvatar = { [weak self] session in
+            self?.agentAvatars?.remove(session)
+            self?.agentAvatarChanged(session)
+        }
+    }
+
+    /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
+    /// Set or Remove in one pane reaches the cards and chips that other panes draw of the same session.
     func agentAvatarChanged(_ session: String) {
         for view in views.values { view.agentAvatarChanged(session) }
+        for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
     }
 }
