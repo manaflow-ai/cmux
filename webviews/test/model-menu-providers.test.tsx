@@ -213,6 +213,36 @@ describe("groupVariants", () => {
       expect(groups[0]!.offers[0]!.model.id).toBe(available.id);
     }
   });
+
+  test("ambiguous owner aliases stay grouped by provider and preserve distinct providers", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "Qwen/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Mistral/Coder 3" },
+      { id: "groq/Coder-3", name: "Groq/Coder 3" },
+      { id: "groq/coder-3", name: "Groq/Coder 3" },
+    ]);
+    expect(groups).toHaveLength(3);
+    expect(groups.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3"],
+      ["together/mistral/coder-3"],
+      ["groq/Coder-3"],
+    ]);
+  });
+
+  test("provider identity deduplicates by path while retaining distinct routes", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "Qwen/Coder 3" },
+      { id: "together/qwen/coder-3", name: "Qwen/Coder 3" },
+      { id: "openrouter/qwen/Coder-3", name: "Qwen/Coder 3" },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.offers.map((offer) => offer.model.id)).toEqual([
+      "openrouter/qwen/coder-3",
+      "together/qwen/coder-3",
+    ]);
+  });
 });
 
 const openCode = [
