@@ -82,7 +82,8 @@ import Testing
                                 backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             layer = WindowOverlayLayer(window: window,
-                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime))
+                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime),
+                                       currentTurn: { 0 })
             window.overlay = layer
             window.contentView = root
             root.layoutSubtreeIfNeeded()
