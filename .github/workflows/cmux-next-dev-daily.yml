@@ -376,9 +376,11 @@ jobs:
     # cutting-edge DEV artifact.
     needs: [sign]
     if: needs.sign.outputs.signed == 'true'
-    concurrency:
-      group: cmux-next-dev-daily
-      cancel-in-progress: false
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): runs publish side by side, and the newest source commit
+    # wins. A run writes only while the release names an older commit, and then
+    # checks that the release ended up naming its commit with its archive or a
+    # newer one; a write an older run raced in is put back.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -429,19 +431,43 @@ jobs:
             fi
             return 1
           }
-          not_newer && exit 0
           # The tag sits on this workflow's main commit: a tag at a feat-cmux-next
           # commit needs the workflows permission (HTTP 403). The notes name
           # the source commit; consumers read only the assets.
           # The notes change last, so they never name a commit whose assets did
           # not upload.
-          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
-              "$archive" "$archive.sha256"
-          else
-            gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
-            gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
-          fi
+          write() {
+            if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+              gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
+                "$archive" "$archive.sha256"
+            else
+              gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
+              gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+            fi
+          }
+          # Held: the release names a newer commit, or names this one with this archive.
+          held() {
+            published="$(gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
+              | grep -oE 'commit [0-9a-f]{40}' | head -n 1 | cut -d' ' -f2)" || published=""
+            [[ -n "$published" ]] || return 1
+            if [[ "$published" == "$SOURCE_SHA" ]]; then
+              remote="$(gh release download "$RELEASE_TAG" --repo "$GH_REPO" --pattern "$APP_ARCHIVE_NAME.sha256" --output - 2>/dev/null | awk '{print $1}')" || remote=""
+              [[ "$remote" == "$(awk '{print $1}' "$archive.sha256")" ]]
+              return
+            fi
+            [[ "$(gh api "repos/$GH_REPO/compare/$SOURCE_SHA...$published" --jq '.status')" == ahead ]]
+          }
+          not_newer && exit 0
+          write
+          # A run that wrote between this run's check and its write is caught
+          # here: an older one is overwritten again, a newer one is left alone.
+          for attempt in 1 2 3; do
+            sleep 30
+            held && break
+            not_newer && break
+            echo "::warning::the release lost $SOURCE_SHA to an older run; publishing it again (attempt $attempt)"
+            write
+          done
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
 
   # The tip feed (Leo, 2026-10-24: "a separate app ... that is able to just
@@ -457,10 +483,10 @@ jobs:
     continue-on-error: true
     needs: [sign]
     if: needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != ''
-    # One feed writer at a time; a newer build waits, none is cancelled.
-    concurrency:
-      group: cmux-next-dev-tip
-      cancel-in-progress: false
+    # No concurrency group (a group replaces a pending run, which the dev-build
+    # rule forbids): tip runs side by side, and the newest build wins. The
+    # upload re-reads the live feed right before it writes the feed, and then
+    # puts its feed back if an older run's write landed after it.
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
@@ -607,12 +633,36 @@ jobs:
               --bucket cmux-binaries --key "$TIP_R2_PREFIX/$(basename "$1")" \
               --content-type "$2" --cache-control "$3"
           }
+          # The live feed's newest build (0 with no feed yet).
+          live() {
+            local status
+            status="$(curl --silent --show-error --location --retry 3 --output tip-live-now.xml --write-out '%{http_code}' \
+              -H 'Cache-Control: no-cache' "$TIP_BASE_URL/$TIP_APPCAST?build=$TIP_BUILD&read=$RANDOM$RANDOM")"
+            if [[ "$status" == 404 ]]; then echo 0; return; fi
+            [[ "$status" == 200 ]] || { echo "tip feed returned HTTP $status" >&2; return 1; }
+            python3 scripts/ci/tip_feed.py newest tip-live-now.xml
+          }
           upload "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg" application/x-apple-diskimage "public, max-age=31536000, immutable"
           for delta in tip-out/*.delta; do
             [[ -f "$delta" ]] || continue
             upload "$delta" application/octet-stream "public, max-age=31536000, immutable"
           done
+          # A newer build may have published while this one notarized and built deltas.
+          newest="$(live)"
+          if (( newest >= TIP_BUILD )); then
+            echo "::notice::the tip feed already has build $newest, not older than $TIP_BUILD; not writing the feed"
+            exit 0
+          fi
           upload "tip-out/$TIP_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+          # An older run that read the feed before this write may still write
+          # its own: put this one back. A newer build is left alone.
+          for attempt in 1 2 3; do
+            sleep 30
+            newest="$(live)"
+            (( newest >= TIP_BUILD )) && break
+            echo "::warning::the tip feed lost build $TIP_BUILD to build $newest; writing it again (attempt $attempt)"
+            upload "tip-out/$TIP_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+          done
           {
             echo "### cmux NEXT DEV tip $TIP_BUILD"
             echo "feat-cmux-next $SOURCE_SHA, feed $TIP_BASE_URL/$TIP_APPCAST"

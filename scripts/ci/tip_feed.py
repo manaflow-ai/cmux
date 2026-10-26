@@ -7,6 +7,9 @@
         "stale <newest>" when the feed already has build N or a newer one, so
         the feed never rolls back.
 
+    tip_feed.py newest FEED
+        Prints the newest build the live feed offers (0 when it offers none).
+
     tip_feed.py check FEED --build N
         Fails unless the generated feed offers build N, every item is signed,
         untagged (every ring accepts it) and served from the tip prefix.
@@ -61,6 +64,11 @@ def previous(feed: str, build: int, keep: int) -> list[str]:
     return ["fresh", *bases[: max(keep - 1, 0)]]
 
 
+def newest(feed: str) -> int:
+    entries = items(feed)
+    return entries[0]["build"] if entries else 0
+
+
 def check(feed: str, build: int) -> list[str]:
     entries = items(feed)
     problems = []
@@ -85,12 +93,17 @@ def main(argv: list[str]) -> int:
     prev.add_argument("feed")
     prev.add_argument("--build", type=int, required=True)
     prev.add_argument("--keep", type=int, required=True)
+    new = sub.add_parser("newest")
+    new.add_argument("feed")
     chk = sub.add_parser("check")
     chk.add_argument("feed")
     chk.add_argument("--build", type=int, required=True)
     args = parser.parse_args(argv)
     if args.command == "previous":
         print("\n".join(previous(args.feed, args.build, args.keep)))
+        return 0
+    if args.command == "newest":
+        print(newest(args.feed))
         return 0
     problems = check(args.feed, args.build)
     for problem in problems:

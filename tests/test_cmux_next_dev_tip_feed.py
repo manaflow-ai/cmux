@@ -63,7 +63,7 @@ check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEX
       "the tip feed uses the release environment's NIGHTLY Sparkle key")
 tip = workflow[workflow.index("\n  tip:\n"):]
 check("environment: release" in tip, "the tip job runs in the existing release environment")
-check("cancel-in-progress: false" in tip, "a newer tip build never cancels a running one")
+check("concurrency:" not in tip and "cancel-in-progress" not in tip, "a newer tip build never cancels or evicts another")
 check(tip.index("notarytool submit") < tip.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
 uploads = tip[tip.index("Upload the tip feed to R2"):]
 check(uploads.index("upload \"tip-new/") < uploads.index("upload \"tip-out/$TIP_APPCAST\""),
@@ -96,8 +96,16 @@ check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prere
 check(all("12vcpu" not in line for job in (sign, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
       "sign and tip never queue on blacksmith-12vcpu-macos-26")
 check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evicts a newer DEV handoff while a signer waits")
-check("concurrency:" in tip.split("steps:")[0] and "concurrency:" in publish,
-      "the feed and the prerelease keep one writer each")
+# No group anywhere in the publisher (a group replaces a pending run): the newest write wins instead.
+check("concurrency:" not in workflow, "no concurrency group in the DEV publisher evicts a pending run")
+upload = tip[tip.index("Upload the tip feed to R2"):]
+check(upload.index("newest=\"$(live)\"") < upload.index('upload "tip-out/$TIP_APPCAST"'),
+      "the tip job re-reads the live feed right before it writes the feed")
+check(upload.index('upload "tip-out/$TIP_APPCAST"') < upload.index("for attempt in 1 2 3") and "(( newest >= TIP_BUILD )) && break" in upload,
+      "the tip job puts its feed back after an older run's write")
+check(publish.index("not_newer && exit 0") < publish.index("\n          write\n") < publish.index("held && break"),
+      "publish writes only while the release is older, then checks it held")
+check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
 if failures:
     for failure in failures:
