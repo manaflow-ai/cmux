@@ -290,7 +290,6 @@ import Testing
         })
         guard case .success = await host.attached() else { throw BrowserTabError.closed }
         runtime.hostStart = host
-        runtime.hostReplies = try CEFHostReplyRoute(symbol: ExtensionSitesSpy.symbol, replies: host.replies)
         ExtensionSitesSpy.hostMode = true
         return (runtime, host)
     }

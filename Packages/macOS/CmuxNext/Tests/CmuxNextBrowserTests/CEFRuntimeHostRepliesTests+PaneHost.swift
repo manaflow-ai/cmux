@@ -1,5 +1,4 @@
 @testable import CmuxNextBrowser
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -62,16 +61,14 @@ extension CEFRuntimeHostRepliesTests {
     /// failure instead of staying blank.
     @Test func hostModeAMissingVerdictFailsTheWaitingTabAtTheDeadline() async throws {
         HostRepliesSpy.reset()
-        let clock = ManualClock()
-        let (runtime, _) = try await HostRepliesHarness.hostRuntime(clock: clock)
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let rig = HostRepliesHarness.deadlines(of: runtime)
         let (pane, endOfTurn) = HostRepliesHarness.pane(runtime, profile: HostRepliesHarness.proxied(runtime))
         let tab = HostRepliesHarness.tab(in: pane)
         pane.ensureCreated(tab)
 
         try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(1))
-        try await clock.waitForSleeper()
-        clock.advance(by: CEFRuntime.siteReplyTimeout)
-        for _ in 0..<1_000 where endOfTurn.blocks.isEmpty { await Task.yield() }
+        rig.advance(by: CEFRuntime.siteReplyTimeout + .seconds(2))
         endOfTurn.run()
 
         #expect(tab.state.loadError != nil, "a tab waiting for a verdict that never came did not fail")

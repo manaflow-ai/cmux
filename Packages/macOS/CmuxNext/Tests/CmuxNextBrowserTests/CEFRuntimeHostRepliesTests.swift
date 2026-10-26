@@ -1,5 +1,4 @@
 @testable import CmuxNextBrowser
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -123,21 +122,18 @@ import Testing
     }
 
     /// A REPLY that never comes (the host hangs or drops it) fails the callback at the reply deadline,
-    /// on the reply table's injected clock, and leaves nothing in the table.
+    /// an entry on the runtime's main deadline queue, and leaves nothing in the table.
     @Test func hostModeACallbackWithNoReplyFailsAtItsDeadline() async throws {
         HostRepliesSpy.reset()
-        let clock = ManualClock()
-        let (runtime, host) = try await HostRepliesHarness.hostRuntime(clock: clock)
+        let (runtime, host) = try await HostRepliesHarness.hostRuntime()
+        let rig = HostRepliesHarness.deadlines(of: runtime)
         var answers: [CEFContentSetting?] = []
 
         runtime.contentSetting(1, url: nil, kind: .camera) { answers.append($0) }
-        try await clock.waitForSleeper()
-        clock.advance(by: CEFRuntime.siteReplyTimeout - .milliseconds(1))
-        await CEFReplyWaitersTests.afterQueuedWork()
+        rig.advance(by: CEFRuntime.siteReplyTimeout - .milliseconds(1))
         #expect(answers.isEmpty, "the deadline fired before its time")
         #expect(host.replies.count == 1)
-        clock.advance(by: .milliseconds(1))
-        for _ in 0..<1_000 where answers.isEmpty { await Task.yield() }
+        rig.advance(by: .seconds(2))
 
         #expect(answers == [nil])
         #expect(host.replies.count == 0)
@@ -244,17 +240,14 @@ import Testing
     /// next page hands the proxy over again instead of reusing a verdict that never came.
     @Test func hostModeAProfileProxyWithAMissingReplyFailsClosedAtTheDeadline() async throws {
         HostRepliesSpy.reset()
-        let clock = ManualClock()
-        let (runtime, _) = try await HostRepliesHarness.hostRuntime(clock: clock)
+        let (runtime, _) = try await HostRepliesHarness.hostRuntime()
+        let rig = HostRepliesHarness.deadlines(of: runtime)
         let profile = HostRepliesHarness.proxied(runtime)
         var verdicts: [Bool] = []
 
         runtime.whenProfileProxyApplied(profile) { verdicts.append($0) }
         try HostRepliesHarness.deliver(HostRepliesSpy.tokens[0], CEFReplyWaitersTests.int32(1))
-        // The state's REPLY deadline (the proxy's ended with its REPLY).
-        try await clock.waitForSleeper()
-        clock.advance(by: CEFRuntime.siteReplyTimeout)
-        for _ in 0..<1_000 where verdicts.isEmpty { await Task.yield() }
+        rig.advance(by: CEFRuntime.siteReplyTimeout + .seconds(2))
 
         #expect(verdicts == [false])
         #expect(runtime.profileProxyChecks[profile] == nil)
@@ -277,13 +270,6 @@ import Testing
 
         #expect(runtime.applyProfileProxy(profile) == .waiting)
         #expect(HostRepliesSpy.proxyServers == ["http://proxy.test:8080", "http://proxy.test:8080"])
-    }
-
-    @Test func aRemoteShimWithoutTheTokenEntryPointHasNoRoute() {
-        #expect(throws: CEFShimLibrary.LoadError.missingSymbol("cmux_remote_shim_last_reply_token")) {
-            try CEFHostReplyRoute(symbol: { $0 == "cmux_remote_shim_last_reply_token" ? nil : HostRepliesSpy.symbol($0) },
-                                  replies: CEFHostReplies())
-        }
     }
 
     // MARK: Host mode: SSL status

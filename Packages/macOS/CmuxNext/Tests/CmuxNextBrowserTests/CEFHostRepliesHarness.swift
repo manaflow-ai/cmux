@@ -1,10 +1,12 @@
+import CmuxNextCompat
 @testable import CmuxNextBrowser
+@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
 /// Host mode against a spy remote dylib, for CEFRuntimeHostRepliesTests and its pane host cases
-/// (task p01-process-021): a real `CEFHostStart` attached to ``HostRepliesSpy`` and the runtime's
-/// reply route over its table, whose REPLY sink the tests call as the host's frames would.
+/// (task p01-process-021): a real `CEFHostStart` attached to
+/// ``HostRepliesSpy``, whose REPLY sink the tests call as the host's frames would.
 @MainActor enum HostRepliesHarness {
     static func storage() -> CEFProfileStorage {
         CEFProfileStorage(root: FileManager.default.temporaryDirectory
@@ -19,18 +21,38 @@ import Testing
     }
 
     /// A runtime in host mode: a `CEFHostStart` attached to the spy remote dylib, whose REPLY sink the
-    /// tests call as the host's frames would, and the runtime's reply route over its table. Reply
-    /// deadlines run on `clock`.
-    static func hostRuntime(clock: any Clock<Duration> = ContinuousClock()) async throws -> (CEFRuntime, CEFHostStart) {
+    /// tests call as the host's frames would.
+    static func hostRuntime() async throws -> (CEFRuntime, CEFHostStart) {
         let runtime = try inProcessRuntime()
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
             do { return .success(try CEFRemoteShim.make(symbol: HostRepliesSpy.symbol, expected: HostRepliesSpy.abi)) } catch { return .failure(.shim(error)) }
-        }, clock: clock)
+        })
         guard case .success = await host.attached() else { throw BrowserTabError.closed }
         runtime.hostStart = host
-        runtime.hostReplies = try CEFHostReplyRoute(symbol: HostRepliesSpy.symbol, replies: host.replies)
         #expect(HostRepliesSpy.replySink?.context != nil, "the attach gave the remote shim no reply sink")
         return (runtime, host)
+    }
+
+    /// A `CEFHostStart` attached to a test's spy dylib, `symbol`, whose wire entry points are
+    /// ``SpyRemoteWire``'s; `symbol` gives every other function, `cmux_remote_shim_last_reply_token`
+    /// included. Async replies resolve in its ``CEFHostStart/replies``, as the attached host's do.
+    static func attachedHost(over symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) async throws -> CEFHostStart {
+        let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
+            do {
+                return .success(try CEFRemoteShim.make(symbol: SpyRemoteWire.symbol(over: symbol), expected: SpyRemoteWire.abi))
+            } catch {
+                return .failure(.shim(error))
+            }
+        })
+        guard case .success = await host.attached() else { throw BrowserTabError.closed }
+        return host
+    }
+
+    /// Moves `runtime`'s main deadline queue (the callbacks' reply deadlines) onto a rig the test fires.
+    static func deadlines(of runtime: CEFRuntime) -> ReplyDeadlineRig {
+        let rig = ReplyDeadlineRig()
+        runtime.adopt(stores: runtime.stores, signInCallbacks: runtime.signInCallbacks, waitDeadlines: rig.queue)
+        return rig
     }
 
     /// The host's REPLY to `token`, through the remote shim's reply callback (main thread).
@@ -77,11 +99,76 @@ import Testing
     }
 }
 
+/// A MainWakeUpQueue whose uptime only the test moves; ``advance(by:)`` fires it (as PageWaitersTests').
+@MainActor final class ReplyDeadlineRig {
+    let queue: MainWakeUpQueue
+    private let uptime: ReplyTestUptime
+
+    init() {
+        let uptime = ReplyTestUptime()
+        self.uptime = uptime
+        queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in
+            ReplyIdleWakeUpTimer()
+        }
+    }
+
+    func advance(by duration: Duration) {
+        uptime.advance(by: duration)
+        queue.fire()
+    }
+}
+
+/// A timer the queue arms and parks; the rig fires the queue itself.
+final class ReplyIdleWakeUpTimer: MainWakeUpTimer {
+    func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
+    func park() {}
+}
+
+/// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
+final class ReplyTestUptime: Sendable {
+    private let value = Atomic<UInt64>(0)
+
+    var now: UInt64 { value.load(ordering: .relaxed) }
+
+    func advance(by duration: Duration) {
+        value.store(now + duration.nanosecondCount, ordering: .relaxed)
+    }
+}
+
 /// Hands out one wire that the spy remote takes.
 @MainActor final class OneSpyHost: ChromiumHostSupervising {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         ChromiumHostAttachment(controlFD: -1, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                frameworkLocales: ["en.lproj"])
+    }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
+}
+
+/// The remote shim's wire entry points over a test's spy dylib (``HostRepliesHarness/attachedHost(over:)``):
+/// the ABI id, an attach that says hello at once, a detach and a set_reply that keeps nothing.
+nonisolated enum SpyRemoteWire {
+    static let abi = "spy-remote-wire-abi"
+    // crash-allow: a C string made once and never freed, read only
+    nonisolated(unsafe) private static let abiCString = strdup(abi)
+
+    static func symbol(over spy: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) -> @Sendable (String) -> UnsafeMutableRawPointer? {
+        { name in
+            let abiID: @convention(c) () -> UnsafePointer<CChar>? = { UnsafePointer(SpyRemoteWire.abiCString) }
+            let attach: CEFRemoteShim.AttachFn = { _, _, _, context, hello in
+                hello?(context, 1, nil)
+                return 1
+            }
+            let detach: CEFRemoteShim.DetachFn = {}
+            let setReply: CEFRemoteShim.SetReplyFn = { _, _ in }
+            return switch name {
+            case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
+            case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)
+            default: spy(name)
+            }
+        }
     }
 }
 

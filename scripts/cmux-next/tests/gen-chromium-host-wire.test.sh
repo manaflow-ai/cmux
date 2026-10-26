@@ -523,7 +523,8 @@ expect 0 "0 stand-in results read" "a site that names two functions" -- --root "
 # --swift-sites drops a site that is done (task p01-process-021): an async call in the token form
 # (inside a closure handed to sendAsync, siteCall or profileWrite), a mint_returns id call in the mint
 # form (its id keys a `.reply(for:` wait), and a site listed with needs after_attach, host_exit or
-# kept. A `reply` entry alone, a mint call in sendAsync and a mint read stay listed.
+# kept. A `reply` entry alone does not settle a site: its call must take the token form. A mint call
+# in sendAsync and a mint read stay listed.
 settled="$work/settled"
 fixture "$settled"
 python3 - "$settled/$library" <<'EOF'
@@ -601,6 +602,9 @@ sites="$(python3 "$gen" --root "$settled" --swift-sites)"
 listed 42 && fail "a kept site is listed: $sites"
 listed 15 || fail "a reply entry settled a call not in the token form: $sites"
 listed 38 && fail "a host_exit site is listed: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0] = {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)",
+  "exports": ["cmux_shim_create_window"], "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"}'
+expect 0 "" "a kept mint site is valid" -- --root "$settled" --check-ops
 edit_ops "$settled" 'd["host_mode_rewrites"][0]["needs"] = "later"'
 expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" --check-ops
 
