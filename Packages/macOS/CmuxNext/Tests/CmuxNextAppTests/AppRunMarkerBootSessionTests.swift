@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextMetrics
 import Foundation
 import Testing
 

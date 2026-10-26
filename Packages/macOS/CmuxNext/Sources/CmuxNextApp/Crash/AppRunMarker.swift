@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextMetrics
 import CmuxNextTrace
 import CmuxNextWakeups
 import Darwin
@@ -91,7 +92,7 @@ final class AppRunMarker {
     let recovery: LaunchRecovery
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
-    let previousExit: UncleanExit?
+    let previousExit: HistogramID.UncleanExit?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
     private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
@@ -265,25 +266,16 @@ final class AppRunMarker {
     }
 }
 
-/// How a run that did not quit as asked ended (stability.unclean_exit, task 109).
-///
-/// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did not
-/// end cleanly; crashes come from the crash reporter, and an unclean exit while the system session ended is
-/// counted apart (components/metrics/stability_metrics_provider.cc). Here the run's handler record is the crash
-/// report and `kern.bootsessionuuid` is the session.
-nonisolated enum UncleanExit: String, Sendable, Equatable {
-    /// The run's fatal-signal handler or uncaught-exception recorder ran.
-    case crash
-    /// No handler ran and the machine restarted since (power loss, a kernel panic, a forced restart).
-    case systemShutdown = "system_shutdown"
-    /// No handler ran in this boot: `kill -9`, jetsam, Force Quit.
-    case killed
-}
-
 extension PreviousRun {
     /// How this run ended, seen from a launch in boot `current`; nil when it quit as asked. A handler's record
-    /// is a crash whatever the boot: the fault ended the run before any restart did.
-    nonisolated func uncleanExit(bootSession current: String?) -> UncleanExit? {
+    /// is a crash whatever the boot: the fault ended the run before any restart did. No handler and another
+    /// boot is a system shutdown (power loss, a kernel panic, a forced restart); no handler in this boot is a
+    /// kill (`kill -9`, jetsam, Force Quit).
+    ///
+    /// Chrome's model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) says only that a run did
+    /// not end cleanly; an unclean exit while the system session ended is counted apart
+    /// (components/metrics/stability_metrics_provider.cc). Here the session is `kern.bootsessionuuid`.
+    nonisolated func uncleanExit(bootSession current: String?) -> HistogramID.UncleanExit? {
         if endedAsAsked { return nil }
         if crashed { return .crash }
         if let bootSession, let current, bootSession != current { return .systemShutdown }
