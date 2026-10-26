@@ -136,6 +136,9 @@ export interface MeshStoreService extends OverlayServerStore, OverlayServerCodeS
   readonly listRules: (tenantId: TenantId, meshId: string) => Effect.Effect<ReadonlyArray<MeshRuleRow>, StoreError>;
   readonly recordRule: (tenantId: TenantId, rule: MeshRuleRow) => Effect.Effect<void, StoreError>;
   readonly markRuleDeleted: (tenantId: TenantId, meshId: string, key: string, at: Date) => Effect.Effect<void, StoreError>;
+
+  /** Renames a live device (update_tunnel parity); false when the device is not live in this tenant. Keys, tunnel and rules are untouched. */
+  readonly renameDevice: (tenantId: TenantId, deviceId: string, name: string) => Effect.Effect<boolean, StoreError>;
 }
 
 export class MeshStore extends Context.Tag("cmux-vm/MeshStore")<MeshStore, MeshStoreService>() {}
@@ -587,6 +590,18 @@ export const sqlMeshStoreLayer: Layer.Layer<MeshStore, never, SqlClient> = Layer
             [meshId, tenantId, key, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      renameDevice: (tenantId, deviceId, name) =>
+        sql
+          .query(
+            "mesh.renameDevice",
+            `WITH updated AS (
+               UPDATE cmux_vm.mesh_devices SET name = $3
+                WHERE device_cmux_id = $1 AND tenant_id = $2 AND deleted_at IS NULL
+               RETURNING 1)
+             SELECT count(*)::int AS claimed FROM updated`,
+            [deviceId, tenantId, name],
+          )
+          .pipe(Effect.flatMap(decode(ClaimedRow, "mesh.renameDevice")), Effect.map((rows) => (rows[0]?.claimed ?? 0) > 0)),
     };
     return service;
   }),

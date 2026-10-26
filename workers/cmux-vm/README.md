@@ -42,6 +42,32 @@ key's actor. Creator references remain private. Arbitrary actor selectors are
 rejected. The operator CLI sends this filter with `cmux-vm list --created-by-me`
 and `cmux-vm snapshot list --created-by-me`.
 
+## Mesh networking reads and renames
+
+The provider's network, tunnel and firewall reads map onto the mesh model
+(`src/api/mesh-network.ts`), behind the same experiment gate, scopes and
+per-tenant 404s as the other mesh routes:
+
+- `PATCH /v1/meshes/{meshId}` (`mesh:write`, a session must be a team admin)
+  and `PATCH /v1/devices/{deviceId}` (`mesh:join`, the device's owner or a
+  tenant admin) rename. Only cmux's names change; the provider network and
+  tunnel keep their cmux-managed names, so no provider call is made.
+- `GET /v1/meshes/{meshId}/addresses` (`mesh:read`) lists each member VM's
+  and each visible device's address inside the mesh, from one provider read
+  matched back through proofs of the tenant's own devices.
+- `GET /v1/tunnels` (`mesh:read`) lists the team's device tunnels without
+  keys; a non-admin sees only the devices it enrolled.
+- `GET /v1/meshes/{meshId}/acl/rules[/{ruleId}]` (`acl:read`) reads the
+  provider firewall rules the ACL compiled to, from the mesh's own rule
+  table. Rule ids (`fwr_` and 32 hex digits) derive from the rule and name no
+  provider id or device address.
+- `POST /v1/meshes/{meshId}/acl/evaluate` (`acl:read`) answers whether a
+  device may open a connection to a VM or another device, using the same
+  compiler as an apply, and names the first allowing ACL rule.
+
+A device stays one tunnel in one mesh: attaching another network to a tunnel
+is denied (`upstream/coverage.json`).
+
 ## Device overlay policy
 
 Mesh ACL destinations accept device IDs and `device:*` as well as VM

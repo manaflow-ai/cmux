@@ -173,7 +173,18 @@ export const MESH_ENDPOINTS = [
   // M2 (cx-0op.4). The code enrollment route has no bearer; test/workers/mesh-m2.test.ts covers it.
   { name: "createEnrollmentCode", method: "POST", template: "/v1/meshes/{meshId}/enrollment-codes", scope: "mesh:join", target: "mesh" },
   { name: "rotateDeviceKey", method: "POST", template: "/v1/devices/{deviceId}/rotate-key", scope: "mesh:join", target: "device" },
+  // Networking parity (cx-0op): src/api/mesh-network.ts.
+  { name: "updateMesh", method: "PATCH", template: "/v1/meshes/{meshId}", scope: "mesh:write", target: "mesh" },
+  { name: "listMeshAddresses", method: "GET", template: "/v1/meshes/{meshId}/addresses", scope: "mesh:read", target: "mesh" },
+  { name: "listTunnels", method: "GET", template: "/v1/tunnels", scope: "mesh:read", target: "tenant" },
+  { name: "updateDevice", method: "PATCH", template: "/v1/devices/{deviceId}", scope: "mesh:join", target: "device" },
+  { name: "listMeshFirewallRules", method: "GET", template: "/v1/meshes/{meshId}/acl/rules", scope: "acl:read", target: "mesh" },
+  { name: "getMeshFirewallRule", method: "GET", template: "/v1/meshes/{meshId}/acl/rules/{ruleId}", scope: "acl:read", target: "mesh" },
+  { name: "evaluateMeshAcl", method: "POST", template: "/v1/meshes/{meshId}/acl/evaluate", scope: "acl:read", target: "mesh" },
 ] as const;
+
+/** A well-formed firewall rule id that names no rule. */
+export const ABSENT_RULE_ID = `fwr_${"0".repeat(32)}`;
 
 /** Every scope that does not grant `scope`: the scope itself and its family scope (`snapshot:*`) are left out. */
 export const allScopesExcept = (scope: Scope): ReadonlyArray<Scope> =>

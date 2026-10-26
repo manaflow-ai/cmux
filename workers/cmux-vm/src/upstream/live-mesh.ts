@@ -8,6 +8,7 @@ import { Effect, Layer, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { signedKeysOf } from "../proofs/device-holds-key.ts";
+import { deviceTunnelIdOf } from "../proofs/mesh-device-tunnel.ts";
 import { endpointOf, ruleIdOf } from "../proofs/same-mesh.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamError } from "./client.ts";
@@ -38,6 +39,17 @@ const VmNetworks = Schema.Struct({
 });
 
 const RuleBody = Schema.Struct({ id: Schema.String });
+
+const NetworkTunnels = Schema.Struct({
+  tunnels: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      attachments: Schema.optional(
+        Schema.Array(Schema.Struct({ vpcId: Schema.optional(Schema.NullOr(Schema.String)), ipv4: Schema.optional(Schema.NullOr(Schema.String)) })),
+      ),
+    }),
+  ),
+});
 
 const decodeAs =
   <A, I>(schema: Schema.Schema<A, I>, operation: string) =>
@@ -215,6 +227,24 @@ export function makeUpstreamMesh(config: UpstreamConfig): UpstreamMeshService {
       createdRules.has(created)
         ? http.json("discardCreatedRule", "DELETE", `/v5/firewall/rules/${path(created.upstreamRuleId)}`).pipe(Effect.asVoid)
         : Effect.fail(new UpstreamError({ operation: "discardCreatedRule", status: null })),
+    listDeviceAddresses: (_mesh, { owns }, devices) =>
+      devices.length === 0
+        ? Effect.succeed(new Map<string, string | null>())
+        : http.json("listNetworkTunnels", "GET", `/v5/vpcs/${proofSegment(owns)}/tunnels`).pipe(
+            Effect.flatMap(decodeAs(NetworkTunnels, "listNetworkTunnels")),
+            Effect.map((body) => {
+              const network = upstreamIdOf(owns);
+              const byTunnel = new Map(body.tunnels.map((tunnel) => [tunnel.id, tunnel] as const));
+              const out = new Map<string, string | null>();
+              for (const device of devices) {
+                const tunnel = byTunnel.get(deviceTunnelIdOf(device));
+                if (tunnel === undefined) continue;
+                const attachment = (tunnel.attachments ?? []).find((entry) => entry.vpcId === network) ?? null;
+                out.set(device.deviceId, attachment?.ipv4 ?? null);
+              }
+              return out;
+            }),
+          ),
   };
 }
 
