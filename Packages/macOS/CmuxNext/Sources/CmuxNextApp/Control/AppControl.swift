@@ -5,10 +5,13 @@ import CmuxNextBrowserImport
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextErrorJournal
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -21,9 +24,11 @@ final class AppControl {
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
-    private let frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: RenderStats(layoutGuard: .shared)))
+    /// `debug.frames` and `debug.damage` share the app's one RenderStats (its hooks are process-wide).
+    private let frameProbe: DebugFrameProbe
+    private let damageWindow: RenderDamageWindow
     private let mainCPUProbe = DebugMainCPUProbe()
-    private let terminalDisplayProbe = DebugTerminalDisplayProbe()
+    private let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -48,11 +53,20 @@ final class AppControl {
     init(mainWork: MainWorkScheduler) {
         self.mainWork = mainWork
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
+        let renderStats = RenderStats(layoutGuard: .shared)
+        let terminalDisplay = DebugTerminalDisplayProbe()
+        terminalDisplayProbe = terminalDisplay
+        frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
+        damageWindow = RenderDamageWindow(stats: renderStats, displayPasses: terminalDisplay,
+                                          ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
 
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
+        // Other threads' and lanes' hang-watch scopes (the process's slot table) are scanned on the
+        // watchdog's thread; each overrun goes to debug.hangs thread_hangs.
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
@@ -108,22 +122,32 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        // Diagnostics for tagged DEV builds; a release build registers no debug.* method
-        // (ControlRouter drops them too: Configuration.allowsDebugMethods).
+        service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
-        service.router.register(DebugHibernationControl.methods(services))
+        // The local daemon's wire traffic, decodes, output copies and connections by role.
+        if let wireStats = services.wireStats { service.router.register([DaemonWireControl(stats: wireStats).method]) }
+        service.router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap)]).method])
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
+            // Render damage per owner over a window (render-idle-damage.py: the MQ-damage-owners queue).
+            .mainActor("debug.damage") { [damage = damageWindow] call in
+                switch call.params["action"]?.stringValue ?? "read" {
+                case "start": .followUp { JSONValue(foundation: await damage.start().foundationObject) ?? .null }
+                case "stop": .value(JSONValue(foundation: damage.stop().foundationObject) ?? .null)
+                default: .value(JSONValue(foundation: damage.read().foundationObject) ?? .null)
+                }
+            }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
-            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
-            .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
-                let report = budget.report
-                if call.params["reset"]?.boolValue == true { budget.resetStats() }
-                return .value(report)
+            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class,
+            // the run loop's turns, and per owner the wait and run percentiles; main only copies, the turns and
+            // owners fold off it.
+            .async("debug.main_budget") { [budget = mainWork.budget, board = mainWork.board] call in
+                await board.mainBudgetReport(budget, reset: call.params["reset"]?.boolValue == true)
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },
@@ -135,6 +159,8 @@ final class AppControl {
             },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
+            DebugTimings.startupTraceMethod,
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).
@@ -144,7 +170,10 @@ final class AppControl {
             // Each new workspace's own time: the press to its sidebar row drawn, and the walks between (perf-gate.py).
             .mainActor("debug.new_workspace") { call in .value(SidebarNewRowTimer.shared.timer.handle(call.params, key: "creates")) },
             // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
-            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            .mainActor("debug.layout_counters") { [weak services] call in
+                let roots = services?.windows.controllers.flatMap { $0.mountedContents.map(\.layoutView) } ?? []
+                return .value(DebugLayoutCounters.handle(call.params, roots: roots))
+            },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
             // A split's or close's terminals: grids sent, drawn and announced, ms from start (bench-terminal-resize.py split-resize).
@@ -499,8 +528,8 @@ final class AppControl {
             .mainActor("debug.crash.exception") { [weak services] _ in .value(DebugCrashes.raiseException(services?.crashReporting)) },
             // Low Power Mode as WebKit tabs follow it: `enabled: bool` overrides
             // macOS (no sudo needed), `enabled: null` follows macOS again.
-            .mainActor("debug.low_power_mode") { call in
-                let mode = LowPowerMode.system
+            .mainActor("debug.low_power_mode") { [weak services] call in
+                guard let mode = services?.energyMonitor.lowPowerMode else { return .value(.null) }
                 if let enabled = call.params["enabled"] { mode.override = enabled.boolValue }
                 return .value(["enabled": .bool(mode.isEnabled), "override": mode.override.map { .bool($0) } ?? .null,
                                "system": .bool(ProcessInfo.processInfo.isLowPowerModeEnabled)])

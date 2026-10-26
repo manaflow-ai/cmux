@@ -130,9 +130,11 @@ pub fn hold_in_use_lock() {
 /// holder launch uses it; the terminal-host callers move to it as
 /// cmux-tui-core's spawns move to `cmux_process`, and then [`spawn_host`]
 /// goes.
+#[track_caller]
 pub fn spawn_host_isolated(
     configure: impl Fn(&mut cmux_process::Command),
 ) -> io::Result<cmux_process::Child> {
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let binary = terminal_host_executable()?;
     let spawn = |binary: &Path| {
         let mut command = cmux_process::Command::new(binary);
@@ -154,10 +156,12 @@ pub fn spawn_host_isolated(
 /// is `cmux-tui __terminal-host ...` with no path, also when the daemon's own
 /// executable or the slim host is used. A spawn that fails from the copy is retried once from
 /// the daemon's own executable, and the copy is not used again.
+#[track_caller]
 pub fn spawn_host(
     configure: impl Fn(&mut std::process::Command),
 ) -> io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt;
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let binary = terminal_host_executable()?;
     let spawn = |binary: &Path| {
         let mut command = std::process::Command::new(binary);

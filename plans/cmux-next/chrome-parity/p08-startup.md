@@ -370,7 +370,8 @@ need it.
 
 ## 5. Done checks
 
-All on one fleet GUI mini, bench config build, 120 Hz, named host, macOS, display kind and SHA.
+All on one fleet GUI mini, bench config build (`reload.sh --config bench`; check 6 needs a `--config bench-checks`
+build of the same SHA), 120 Hz, named host, macOS, display kind and SHA.
 
 1. Warm. `python3 scripts/cmux-next/bench-startup.py --app "$NX_APP" --mode warm --profile realistic --runs 20 --require-optimized --json warm.json`.
    Pass: `first_window_frame_committed` p50 <= 150 ms, p95 <= 180 ms; `window_display` p50 <= 140 ms;
@@ -391,8 +392,9 @@ All on one fleet GUI mini, bench config build, 120 Hz, named host, macOS, displa
    20 warm + 10 cold: 0 stalls > 250 ms; 0 main turns > 16 ms except the named CefInitialize turn (until F2)
    and, only if 017 finds no off-main path, the named WKProcessPool turn; main turn p99 <= 4 ms from first
    frame to `startup_complete + 5 s`, excluding those named turns.
-6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5`
-   (CMUX_BLOCKING_CHECKS) gives 0 sites first hit on main before `startup_complete`.
+6. No blocking at launch. `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5` on a
+   `reload.sh --config bench-checks` app gives 0 sites first hit on main before `startup_complete`. A `--config bench`
+   app has no detector (`debug.blocking` `compiled_in: false`), and the tool refuses it (task 147).
    `scripts/measure/blocking-probe.sh --until-mark first_window_frame_committed` shows 0 raw calls on main,
    including the xpc-reply, mach-receive, spawn and dlopen kinds (084).
 7. Chromium, STRESS session, 20 runs. With no visible Chromium pane: `cef.initialize_started > startup_complete`.
@@ -441,7 +443,7 @@ Every hit of a queue is one task with the named template. Each queue is regenera
   and `AppServices.init`. Tasks 025-031, 077, 079, 095, 097, 101.
 - Q3 ad hoc deferral. `git grep -n -E 'firstFrame\.whenOpen|launchSettle\.whenSettled|IdleOnce\.schedule|LaunchImageHold\.shared\.whenClear|firstFrame\.armBackstop|launchSettle\.settled\(within|warmWhenIdle\(after:' -- Packages/macOS/CmuxNext/Sources`
   = 11 today; `git grep -n -E 'DemandTimer\(owner: "(ChromiumWarmup|LaunchSettle|FirstFrameGate|LaunchImageHold)'` = 6 timers. Tasks 016, 018. Target 0.
-- Q5 runtime blocking. `startup-queue.py blocking --runs 5 --temperature warm|cold` and
+- Q5 runtime blocking (a `--config bench-checks` app). `startup-queue.py blocking --runs 5 --temperature warm|cold` and
   `blocking-probe.sh --until-mark startup_complete` (with the 084 kinds). Template 038.
 - Q6 main-thread profile. `startup-queue.py profile`: symbols >= 2 ms inclusive on main before first frame,
   turns >= 4 ms before `startup_complete`, `swift_once` / static init >= 1 ms. Seeded by 072. Template 039.
@@ -621,6 +623,7 @@ Size: S <= 150 lines, M <= 400, L = 400 split into commits. "Q" = machine queue.
 | 112 | Spike: ghostty_init off main | S | 026 | |
 | 113 | Q8 template: test file passes origin | S | 040 | Q8 |
 | 114 | Remove the origin-less init | S | 113 (queue empty) | Q8 |
+| 115 | Launch histograms wired, sent at schema 3 | S | 009, 007, 013, 108, p09-063, p09-064 | |
 
 ### Task details
 
@@ -1193,3 +1196,10 @@ warning from that file.
 
 **114 Remove the origin-less init.** Files: `CmuxNextBrowser/Engine/BrowserEngine.swift`. Change: delete the deprecated init.
 Acceptance: compiles; 0 warnings of that kind.
+
+**115 Launch histograms wired.** Files: `CmuxNextApp/HangReports/WatchdogReporting.swift`, `HangReportsController.swift`,
+`LaunchSettle.swift`, `hang-reports-DESIGN.md`. Change: at `startup_complete`, one `HangReportCollector.noteLaunch` per launch
+from the milestones, 007's temperature, 013's reason and 108's interrupted flag. 009 records launches but keeps the wire at
+schema 2 (the server refuses unknown keys and drops the report); this task turns on `HangReportBuilder(wireSchema: .v3)` behind
+p09-063's server-version flag, after p09-064 accepts a strict `launches` struct with a byte-identical fixture, and agrees the
+schema number with 063. Acceptance: flag off sends schema 2 with no `launches`; flag on meets done check 12.

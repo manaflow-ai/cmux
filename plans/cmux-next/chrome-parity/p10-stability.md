@@ -860,6 +860,11 @@ Dropped, with reasons:
   cmux --ref`; replay (vm.sh --replay, test id, fuzz input) N=3; post the first bad commit to the issue.
 - Acceptance: Never resubmits after a wait timeout; 1-2 of 3 repro = flaky, not blamed.
 - Test phase: pytest with fake builds; one real bisect of 90b3fd18b69..29804bacb09^ (Crash D) on macOS 26.
+- Deferred: the fuzz-input replay. No allowlisted fleet step script runs `cargo fuzz` (hq controller
+  `ciStepScripts`), and the fuzz workspace (cmux-tui/fuzz, task 017) is not on the branch, so no commit has a
+  target to replay. Add `fuzz-input:CRATE_DIR:TARGET:INPUT` after 017 lands and the controller allows its
+  single-input script. Until then, replay such a finding as a regression test (`test:PACKAGE:FILTER`). The bisect
+  lays that test from the runner ref over each older commit.
 
 #### p10-stability-006 hq stability cron
 - Files: cmuxterm-hq: build-fleet/cmd/controller/stability_cron.go, stability_cron_test.go

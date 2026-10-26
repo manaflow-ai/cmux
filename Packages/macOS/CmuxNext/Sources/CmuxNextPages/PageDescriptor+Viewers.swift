@@ -133,7 +133,7 @@ public extension PageDescriptor {
     /// ``PageDynamicResourceSource``) and compiles its highlighter's WebAssembly, so its CSP adds
     /// `connect-src cmux-page://cmux.diff` and `'wasm-unsafe-eval'`, nothing else (decision Q5).
     static let diff = PageDescriptor(
-        id: "cmux.diff", resource: diffResource, namespaces: ["cmux.diff."],
+        id: "cmux.diff", resource: diffResource, processGroup: .solo, namespaces: ["cmux.diff."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(DiffPageCommand.all),
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
@@ -145,7 +145,7 @@ public extension PageDescriptor {
     /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
     /// compiler (a WebAssembly module with no imports), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
-        id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
+        id: "cmux.markdown", resource: diffResource, processGroup: .solo, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(script: ["'wasm-unsafe-eval'"], inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
@@ -156,7 +156,7 @@ public extension PageDescriptor {
     /// Its one app action is the native command palette: Monaco's own palette (F1, the context
     /// menu's Command Palette) opens it instead, so no web view has a palette of its own.
     static let editor = PageDescriptor(
-        id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
+        id: "cmux.editor", resource: diffResource, processGroup: .solo, namespaces: ["cmux.editor."],
         nativeOps: [PageNativeOp.clipboardWrite, PageNativeOp.actionRun], actions: ["commandPalette"],
         commands: PageNativeOp.commands.union(EditorPageCommand.all),
         csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)

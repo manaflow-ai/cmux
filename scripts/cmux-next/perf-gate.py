@@ -150,6 +150,13 @@ def check(ok, what, scenario):
     return ok
 
 
+def hang_records(hangs):
+    """debug.hangs since the phase's clear: (its stall records, its stalls >= 250 ms or None; perf-cron prints the sum)."""
+    hangs = hangs if isinstance(hangs, dict) else {}
+    count250 = hangs.get("count250")
+    return hangs.get("records") or [], count250 if isinstance(count250, int) else None
+
+
 def warn(what, scenario):
     print(f"WARN [{scenario}] {what}", flush=True)
     warnings.append(f"[{scenario}] {what}")
@@ -724,7 +731,7 @@ class Gate:
             return round((time.monotonic() - start) * 1000, 1)
         phase = report["phases"][scenario]
         phase["frames"] = switch_frames
-        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        phase["hangs"], phase["count250"] = hang_records(app.rpc("debug.hangs"))
         for record in phase["hangs"][:8]:
             print(f"  main-thread stall {record.get('duration_ms', 0):.1f} ms ({record.get('kind')}): "
                   + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:40]), flush=True)
@@ -847,7 +854,7 @@ class Gate:
                     warn(f"{name}: {len(late)} of {len(moves)} pane focus moves commit after the first frame after they settle: "
                          f"{[(r['apply_ms'], r['commit_ms'], int(r['late_vsyncs'])) for r in late][:6]} (apply ms, commit ms, frames missed)",
                          scenario)
-        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        phase["hangs"], phase["count250"] = hang_records(app.rpc("debug.hangs"))
         app.rpc("debug.frames", {"action": "stop"})
         if os.environ.get("PERF_GATE_SAMPLE") and app.process:
             # Attribution: the main thread's call tree over 200 more Focus Next Pane moves.

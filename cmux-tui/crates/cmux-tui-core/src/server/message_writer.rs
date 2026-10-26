@@ -1,6 +1,11 @@
 //! The connection message writer: `MessageSink`, the `MessageWriter` handle
 //! every handler sends responses and events through, and `OutboundStream`,
 //! a writer bound to one backpressured stream.
+//!
+//! Order (spec/transports.md "Reply and event order"): replies and the items
+//! of control-sequence streams (`start_control_stream`) share the
+//! connection's control FIFO, so a reply is written after every control event
+//! enqueued before it; every other stream keeps its own FIFO.
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -28,6 +33,9 @@ use std::time::Duration;
 pub(super) struct OutboundStream {
     pub(super) id: u64,
     pub(super) open: Arc<AtomicBool>,
+    /// The stream rides the connection's control sequence (stream 0): its
+    /// items share the reply FIFO. False for every other stream.
+    pub(super) control_sequence: bool,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
@@ -36,9 +44,14 @@ pub(super) struct OutboundStream {
 
 impl OutboundStream {
     pub(super) fn new(id: u64, overflow_text: Arc<BudgetedText>) -> Self {
+        Self::with_sequence(id, overflow_text, false)
+    }
+
+    fn with_sequence(id: u64, overflow_text: Arc<BudgetedText>, control_sequence: bool) -> Self {
         Self {
             id,
             open: Arc::new(AtomicBool::new(true)),
+            control_sequence,
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
@@ -143,6 +156,19 @@ impl MessageWriter {
         Ok(OutboundStream::new(
             self.next_stream_id.fetch_add(1, Ordering::Relaxed),
             self.render_service.serialize_control(overflow)?,
+        ))
+    }
+
+    /// A stream on the connection's control sequence: its items are written
+    /// in one FIFO with command replies (the `subscribe` events and the
+    /// `session.events` state items the app's event barrier counts). It keeps
+    /// its own stream budget and backpressure; it never spends the control
+    /// reserve.
+    pub(super) fn start_control_stream(&self, overflow: &Value) -> std::io::Result<OutboundStream> {
+        Ok(OutboundStream::with_sequence(
+            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
+            self.render_service.serialize_control(overflow)?,
+            true,
         ))
     }
 

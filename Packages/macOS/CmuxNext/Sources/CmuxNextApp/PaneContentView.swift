@@ -91,8 +91,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     var parked: [ParkedContent] = []
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
-    ///   the content until the first terminal frame (launch load-in).
-    init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
+    ///   the content until the first terminal frame (launch load-in): the app's
+    ///   one (`AppServices.launchReveal`).
+    init(stripModel: TabStripModel, reveal: LaunchReveal) {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         barPosition = DesignSettings.shared.tabBarPosition

@@ -6,7 +6,7 @@ extension PageDescriptor {
     /// The Mobile Pairing page (webviews/src/pages/mobile-pairing): cmux-page://cmux.mobile-pairing/.
     /// It reads the phone host's status and runs two actions: Sign In and Settings > Accounts.
     static let mobilePairing = PageDescriptor(
-        id: "cmux.mobile-pairing", resource: "mobile-pairing", namespaces: ["cmux.mobilePairing."],
+        id: "cmux.mobile-pairing", resource: "mobile-pairing", processGroup: .privileged, namespaces: ["cmux.mobilePairing."],
         nativeOps: [PageNativeOp.actionRun], actions: ["palette.auth.signIn", "accounts.show"])
 }
 
@@ -51,7 +51,7 @@ final class MobilePairingPageService: InternalPageProvider {
         let native = AppPageNativeProvider(services: services, page: .mobilePairing)
         let routes = [PageRoute(prefix: "cmux.mobilePairing.", provider: provider),
                       PageRoute(prefix: "cmux.app.", provider: native)]
-        guard let page = PageWebView(descriptor: .mobilePairing, routes: routes) else { return NSView() }
+        guard let page = services.webUI.open(PageOpenRequest(descriptor: .mobilePairing, routes: routes)) else { return NSView() }
         native.anchor = { [weak page] in page }
         return page
     }

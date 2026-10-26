@@ -48,16 +48,19 @@ fn optional_text(
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn personal_snapshot(&self) -> anyhow::Result<PersonalSnapshot> {
         read_snapshot(&self.connection.get())
     }
 
+    #[track_caller]
     pub fn personal_revision(&self) -> anyhow::Result<u64> {
         super::personal_store::personal_revision(&self.connection.get())
     }
 
     /// Create a room at `index` (default last). The same id and name again
     /// is an idempotent retry that returns the stored room with `false`.
+    #[track_caller]
     pub(crate) fn create_profile_in(
         tx: &Transaction<'_>,
         input: ProfileInput,
@@ -127,6 +130,7 @@ impl WorkspaceRegistry {
         Ok((profile, true))
     }
 
+    #[track_caller]
     pub(crate) fn update_profile_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -199,6 +203,7 @@ impl WorkspaceRegistry {
         Ok((after, changed))
     }
 
+    #[track_caller]
     pub(crate) fn move_profile_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -231,6 +236,7 @@ impl WorkspaceRegistry {
     /// Delete a room. Its pins and groups move to `move_to`, or the pins are
     /// removed and the groups deleted (members ungrouped). Follows go with
     /// the room. `default` is refused.
+    #[track_caller]
     pub(crate) fn delete_profile_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -290,6 +296,7 @@ impl WorkspaceRegistry {
         Ok(ProfileDeletion { moved_to: move_to.map(str::to_string), unpinned })
     }
 
+    #[track_caller]
     pub(crate) fn set_profile_follows_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -323,6 +330,7 @@ impl WorkspaceRegistry {
     /// Pin a qualified workspace to a room (exclusive; replaces any pin).
     /// The key need not exist yet. A personal group in another room is
     /// cleared from the workspace.
+    #[track_caller]
     pub(crate) fn pin_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -363,6 +371,7 @@ impl WorkspaceRegistry {
         Ok(changed)
     }
 
+    #[track_caller]
     pub(crate) fn unpin_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -388,6 +397,7 @@ impl WorkspaceRegistry {
     /// Record or refresh a session in the registry. A new session is
     /// followed by `default` and by `follow_with` when given.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn put_session_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -449,6 +459,7 @@ impl WorkspaceRegistry {
     /// terminal rows.
     /// Refused while a room pins one of its workspaces unless `force`, which
     /// also removes those pins.
+    #[track_caller]
     pub(crate) fn forget_session_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -488,6 +499,7 @@ impl WorkspaceRegistry {
 
     /// The app's one-time copy of a remote daemon's shared groups and order.
     /// A no-op returning false once the session is marked migrated.
+    #[track_caller]
     pub(crate) fn import_session_organization_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -551,6 +563,7 @@ impl WorkspaceRegistry {
 
     /// Create a personal group in a room (default `default`) at `index`
     /// among all personal groups. The same id and name is a no-op retry.
+    #[track_caller]
     pub(crate) fn create_personal_group_in(
         tx: &Transaction<'_>,
         id: Option<String>,
@@ -595,6 +608,7 @@ impl WorkspaceRegistry {
 
     /// Rename, recolor, collapse, or move a group to another room. Moving it
     /// pins every member workspace to that room in the same transaction.
+    #[track_caller]
     pub(crate) fn update_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -660,6 +674,7 @@ impl WorkspaceRegistry {
     }
 
     /// Delete a group; its workspaces become ungrouped. Returns them.
+    #[track_caller]
     pub(crate) fn delete_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -688,6 +703,7 @@ impl WorkspaceRegistry {
         Ok(members)
     }
 
+    #[track_caller]
     pub(crate) fn move_personal_group_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -747,6 +763,7 @@ impl WorkspaceRegistry {
     /// is its final position in the personal order (absent on create:
     /// last). The daemon does not check that a group belongs to the room
     /// showing the workspace; the app evaluates membership.
+    #[track_caller]
     pub(crate) fn set_personal_workspace_in(
         tx: &Transaction<'_>,
         session: &str,
@@ -811,6 +828,7 @@ impl WorkspaceRegistry {
 
     // Transaction-owning entry points of the raw `profiles-v1` commands.
 
+    #[track_caller]
     pub fn create_profile(
         &mut self,
         input: ProfileInput,
@@ -822,6 +840,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn update_profile(
         &mut self,
         id: &str,
@@ -834,6 +853,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn move_profile(
         &mut self,
         id: &str,
@@ -846,6 +866,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn delete_profile(
         &mut self,
         id: &str,
@@ -858,6 +879,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn set_profile_follows(
         &mut self,
         id: &str,
@@ -870,6 +892,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn pin_workspace(
         &mut self,
         session: &str,
@@ -883,6 +906,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn unpin_workspace(&mut self, session: &str, key: &str) -> anyhow::Result<bool> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -891,6 +915,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn put_session(
         &mut self,
         session: &str,
@@ -915,6 +940,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn forget_session(&mut self, session: &str, force: bool) -> anyhow::Result<bool> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -923,6 +949,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn create_personal_group(
         &mut self,
         id: Option<String>,
@@ -940,6 +967,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn update_personal_group(
         &mut self,
         id: &str,
@@ -955,6 +983,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn move_personal_group(
         &mut self,
         id: &str,
@@ -967,6 +996,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn set_personal_workspace(
         &mut self,
         session: &str,
@@ -980,6 +1010,7 @@ impl WorkspaceRegistry {
         Ok(output)
     }
 
+    #[track_caller]
     pub fn import_session_organization(
         &mut self,
         session: &str,

@@ -65,6 +65,7 @@ impl Mux {
     /// workspace's name names it. An unknown workspace is `resource.not_found`,
     /// an incognito one a bad request, the home `home.not_closable`; any
     /// refusal closes nothing.
+    #[track_caller]
     pub(crate) fn state_stash_workspaces(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -167,6 +168,7 @@ impl Mux {
     /// Reopen the whole workspaces among `restore`, each as its own
     /// workspace, then form again the tab groups the stash kept
     /// (`record.tab_groups`) around the tabs they brought back.
+    #[track_caller]
     pub(super) fn restore_stashed_workspaces(
         self: &Arc<Self>,
         actor: &Actor,

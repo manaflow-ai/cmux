@@ -64,7 +64,8 @@ pub(super) fn subscribe_command(
         Vec::new()
     };
     let writer = writer.clone();
-    let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
+    // Its events share the reply FIFO (spec/transports.md "Reply and event order").
+    let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
         let mut transport_overflow = false;
         for challenge in pending_pairings {

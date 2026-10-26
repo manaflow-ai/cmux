@@ -1,7 +1,8 @@
 # cmux next input: specification and verification
 
-Status: implemented 2026-09-29. Code: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/`,
-model and fuzzer in `Tests/CmuxNextAppTests/InputModel/`.
+Status: implemented 2026-09-29. Code: `Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/`.
+The model and fuzzer were in `Tests/CmuxNextAppTests/InputModel/` until `36f2381bf1a` (2026-10-10)
+deleted the in-process suites; they return as the `oracle-input-walk` executable (section 6).
 
 The state machines own their parts: `FocusCoordinator` and `KeyRouter` (focus.md), the omnibar
 (focus.md section 7), `TerminalAttachMachine` (state-audit.md T3-T5). This document states what
@@ -183,6 +184,19 @@ the recorded one unless the tagged app was prepared with the same topology.
 
 ## 6. Model-based fuzzing
 
+Planned, not landed: `oracle-input-walk` (`Packages/macOS/CmuxNext/Sources/OracleInputWalk/`,
+task p15-oracle-105 of [chrome-parity/p15-oracle.md](chrome-parity/p15-oracle.md)) will rebuild
+part of the walker below from `git show 36f2381bf1a^:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/InputModel/`
+as an executable, not a test target and not in CI. On the Linux VM it can run only the attach part:
+`TerminalAttachMachine`, `AttachOracle`, the input invariants and replay, after tasks 102 and 103
+move them into `CmuxNextInputModel`. The same seed gives the same walk, and a failure writes its
+minimized journal. `oracle-replay` (task 104) replays saved attach journals, the Linux form of
+section 5. The focus, omnibar, `KeyRouter` and palette parts of `InputWorld` need the real
+`FocusCoordinator` and its reducers, which stay in `CmuxNextApp/Focus`, outside the Linux tier. They
+have no runner until those move out of the app, and no p15 task does that yet.
+[oracle-DESIGN.md](oracle-DESIGN.md#8-linux-tier) describes both executables. The text below
+describes the deleted walker.
+
 `InputWorld` composes the real `FocusCoordinator` per window (its queue and echo suppression),
 the real omnibar reducer per browser tab, a real `TerminalAttachMachine` per terminal view with
 `AttachOracle`, and the `KeyRouter` tier rules, around a simulated daemon tree and AppKit:
@@ -200,14 +214,16 @@ frames; and attach opens, failures, replays, overflows, late opens and ends. Par
 indices resolved at run time, so any subsequence is a valid run: a failure is shrunk by delta
 debugging to a minimal sequence that still breaks the same invariant.
 
-CI (`swift test`) runs seeds 1-24, 500 steps each, alternating 1-3 windows and silent or reported
-responder removal. Locally: `CMUX_NEXT_FUZZ_RUNS=1000 CMUX_NEXT_FUZZ_STEPS=1500 swift test --filter
-InputModelFuzzTests/longRandomRun` (`CMUX_NEXT_FUZZ_SEED` picks the first seed). 1,000 seeds of
-1,500 steps passed at landing.
+Until `36f2381bf1a`, CI (`swift test`) ran seeds 1-24, 500 steps each, alternating 1-3 windows
+and silent or reported responder removal, and `InputModelFuzzTests/longRandomRun` ran long walks
+(`CMUX_NEXT_FUZZ_RUNS`, `CMUX_NEXT_FUZZ_STEPS`, `CMUX_NEXT_FUZZ_SEED`). 1,000 seeds of 1,500 steps
+passed at landing.
 
 ## 7. Bugs the fuzzer found
 
-Each has a test in `InputBugRegressionTests`.
+Each had a test in `InputBugRegressionTests` (deleted in `36f2381bf1a`). These bugs are in focus,
+palette or Chromium key-window code, so the attach-only `oracle-input-walk` cannot replay them; they
+have no regression runner until `FocusCoordinator` leaves the app (section 6).
 
 | Id | Found as | Bug | Fix |
 | --- | --- | --- | --- |

@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct PageWebViewEngineNeutralTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-neutral-\(UUID().uuidString)", isDirectory: true)

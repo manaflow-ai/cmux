@@ -21,6 +21,9 @@ final class MainActorWorkItem: Sendable {
     let workClass: MainWorkClass
     let deadline: ContinuousClock.Instant
     let enqueuedAt: ContinuousClock.Instant
+    /// Where the request was queued from and when, on the app budget's clock (nil without one):
+    /// the board's ledger records its wait under ``owner``.
+    let posted: MainTaskPost?
     private let body: @MainActor @Sendable () -> Void
     private let fail: @Sendable (ControlError) -> Void
     /// The phase, the deadline timer and the board that counts the item as pending input, under
@@ -43,6 +46,7 @@ final class MainActorWorkItem: Sendable {
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         enqueuedAt: ContinuousClock.Instant,
+        posted: MainTaskPost? = nil,
         body: @escaping @MainActor @Sendable () -> Void,
         fail: @escaping @Sendable (ControlError) -> Void
     ) {
@@ -52,6 +56,7 @@ final class MainActorWorkItem: Sendable {
         self.workClass = workClass
         self.deadline = deadline
         self.enqueuedAt = enqueuedAt
+        self.posted = posted
         self.body = body
         self.fail = fail
     }
@@ -82,10 +87,14 @@ final class MainActorWorkItem: Sendable {
     }
 
     /// Counts the item on `board` as a person's pending input until it runs or expires, so every
-    /// budgeted batch yields while it waits. Call before the item can be claimed (while queuing it).
+    /// budgeted batch yields while it waits. No effect once it was claimed (it expired meanwhile):
+    /// the check and the count are one critical section, so the claim always takes the count back.
     func countAsPendingInput(on board: MainTaskBoard) {
-        board.inputQueued()
-        state.withLock { $0.pendingInput = board }
+        state.withLock { state in
+            guard state.phase == .pending, state.pendingInput == nil else { return }
+            board.inputQueued()
+            state.pendingInput = board
+        }
     }
 
     /// Keeps the deadline timer so running the item cancels it. Cancels it

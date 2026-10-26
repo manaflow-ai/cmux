@@ -18,6 +18,20 @@ pub(super) fn handle_connection_frame(
     writer: &MessageWriter,
     scheduler: &Arc<ConnectionSurfaceScheduler>,
 ) -> bool {
+    // Every handler this frame reaches runs on the reader's request path
+    // (`crate::request_path`): its blocking work is counted at its caller.
+    let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // Every frame is watched on this thread until its handler returns: past
+    // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
+    // named by the handler it is in. A `Command` handed to the scheduler is
+    // watched again where it runs.
+    let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
+    let watch = |method: WatchedMethod| {
+        if let Some(scope) = &watched {
+            scope.set_method(method);
+        }
+    };
+    let stage = |stage: FrameStage| watch(WatchedMethod::frame(stage));
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
@@ -26,7 +40,7 @@ pub(super) fn handle_connection_frame(
         return false;
     }
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
-        return remote_relay::handle_frame(mux, client, message, writer);
+        return remote_relay::handle_watched_frame(mux, client, message, writer, watched.as_ref());
     }
     // Before the acknowledgement the handoff can still fail (for example
     // while `end_terminals` awaits every host) and this daemon keeps
@@ -42,6 +56,10 @@ pub(super) fn handle_connection_frame(
     let upgraded = writer.api_revision.upgrade_request(message);
     let message: &str = &upgraded;
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        match &request {
+            Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
+            Err(_) => stage(FrameStage::PageRouter),
+        }
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
         // spelling of the line gets one answer.
@@ -73,48 +91,74 @@ pub(super) fn handle_connection_frame(
         }
         return keep_open;
     }
+    stage(FrameStage::LoopbackForward);
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = browser_runtime::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
-        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
-        .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
-        .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
-        .or_else(|| agent_cli_intents::try_handle(mux, client, message, writer))
-        .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
     {
-        return keep_open;
+        stage(FrameStage::BrowserRuntime);
+        if let Some(keep_open) = browser_runtime::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
+        stage(FrameStage::AgentSession);
+        if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+            .or_else(|| {
+                stage(FrameStage::AgentTransfer);
+                agent_transfer::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentInventory);
+                agent_inventory::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentCliJob);
+                agent_cli_job::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentCliIntents);
+                agent_cli_intents::try_handle(mux, client, message, writer)
+            })
+            .or_else(|| {
+                stage(FrameStage::AgentInventoryWatch);
+                agent_inventory::watch::try_handle(mux, client, message, writer)
+            })
+        {
+            return keep_open;
+        }
+        stage(FrameStage::MachineCatalog);
+        if let Some(keep_open) = machine_catalog::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
+        stage(FrameStage::Apps);
+        if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
+        stage(FrameStage::Scripts);
+        if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
+        stage(FrameStage::Fs);
+        if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
     }
-    #[cfg(unix)]
-    if let Some(keep_open) = machine_catalog::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = apps::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = scripts::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
-    #[cfg(unix)]
-    if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
+    stage(FrameStage::Route);
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => return send_bad_request(writer, message, &error),
     };
+    watch(WatchedMethod::command(&request.cmd));
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
         None => match pending.take() {
-            Some(request) => handle_request(mux, client, request, writer),
+            Some(request) => {
+                if let Some(scope) = &watched {
+                    scope.command(&request.cmd);
+                }
+                handle_request(mux, client, request, writer)
+            }
             None => true,
         },
     }

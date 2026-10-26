@@ -7,9 +7,10 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-Rules: main-blocking, raw-blocking, maybe-main-blocking, task-priority, thread-doc. The hook gives a raw primitive
-that surely runs on main to main-blocking only (one refusal per line); the inventory lists each line under every
-rule it breaks, so raw-blocking here also holds the raw primitives main-blocking took (each still needs its seam).
+Rules: main-blocking, raw-blocking, pool-blocking, maybe-main-blocking, task-priority, thread-doc. The hook gives a
+raw primitive that surely runs on main to main-blocking only (one refusal per line); the inventory lists each line
+under every rule it breaks, so raw-blocking here also holds the raw primitives main-blocking took (each still needs
+its seam), and a raw primitive on a pool thread is both raw-blocking and pool-blocking (MQ-3 counts the latter).
 
 Each hit carries its call-graph context, read lexically from the source:
   enclosing_func  `Type.name` of the function, initializer, subscript or computed property around the line
@@ -35,6 +36,7 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rev 772cdfc45ac --count
   threading-inventory.py --rule raw-blocking --group root --max-hits 25
   threading-inventory.py --rule main-blocking --jsonl
+  threading-inventory.py --rule pool-blocking --group module --max-hits 25   # MQ-3
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
@@ -92,6 +94,7 @@ def guardrails_rule(rule_id: str) -> Callable[[list, collections.Counter], list]
 RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "main-blocking": guardrails_rule("main-blocking"),
     "raw-blocking": raw_blocking,
+    "pool-blocking": guardrails_rule("pool-blocking"),
     "maybe-main-blocking": guardrails_rule("maybe-main-blocking"),
     "task-priority": guardrails_rule("task-priority"),
     "thread-doc": guardrails_rule("thread-doc"),
@@ -118,11 +121,7 @@ POOL_OPENER = re.compile(r"\bTask\.detached\b|\bDispatchQueue\.global\(|\.concur
                          r"|(?<!\bmain)\.async(After)?\s*(\([^{]*\))?\s*\{")
 # Closures that run inline, in their context's isolation: `Task {` inherits it, and these calls run their closure
 # before they return.
-INLINE_CALLS = (r"map|compactMap|flatMap|filter|forEach|reduce|contains|first|last|firstIndex|lastIndex|allSatisfy|"
-                r"sorted|sort|min|max|removeAll|mapValues|compactMapValues|partition|drop|prefix|split|merge|merging|"
-                r"withLock|withLockUnchecked|withUnsafe\w*|withCString|withMemoryRebound|withExtendedLifetime|"
-                r"autoreleasepool|with(?:Throwing)?(?:Discarding)?TaskGroup|with(?:Checked|Unsafe)(?:Throwing)?Continuation|"
-                r"withTaskCancellationHandler|withValue|withObservationTracking")
+INLINE_CALLS = g.INLINE_CALLS
 INLINE_CLOSURE = re.compile(rf"\bTask\s*(?:\([^{{}}]*\))?\s*\{{$|\b(?:{INLINE_CALLS})\s*(?:\([^{{}}]*\))?\s*\{{$"
                             rf"|\b(?:{INLINE_CALLS})\(\s*(?:\w+\s*:\s*)?\{{$")
 ASSIGNED_CLOSURE = re.compile(r"(?<![=!<>])=\s*\{$")

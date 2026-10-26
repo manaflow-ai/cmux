@@ -5,6 +5,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn effect_add_screen(
         self: &Arc<Self>,
         intent: &Value,

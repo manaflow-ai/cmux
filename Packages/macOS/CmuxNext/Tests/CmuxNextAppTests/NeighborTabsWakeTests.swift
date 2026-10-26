@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -153,7 +154,7 @@ import Testing
         init(freezes: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), lowPower: lowPower)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: lowPower)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()
