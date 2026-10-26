@@ -1,7 +1,7 @@
-// A New Tab menu with no room in a short pane shows past the window's edge in the native popup host,
-// and opens there in one frame too (Leo 2026-10-22: no entry animations on the New Tab): while the
-// root carries `data-new-tab` the request says `instant: true` (WebPopupHost.swift skips the
-// entrance); anywhere else it leaves the flag out.
+// Escaped menus and lists open instantly in the native host on every page (Leo 2026-10-24:
+// "No fade in ever for any of these"), just like their in-page surfaces. New Tab also keeps
+// tooltips instant; other tooltips retain their entrance. WebPopupHost.swift consumes `instant`
+// by choosing showPopupAtOnce instead of openPopup, while close motion stays unchanged.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { createPopupHost, type PopupModel } from "../src/ui/popupHost";
