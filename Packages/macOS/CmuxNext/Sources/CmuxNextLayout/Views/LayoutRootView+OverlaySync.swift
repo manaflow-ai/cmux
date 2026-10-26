@@ -81,6 +81,7 @@ extension LayoutViewContext {
     /// (`SplitMotion.placeAtRest`): its hosts are at rest, and the plane places every ring and dim there so
     /// each host's springs carry its chrome from that rest in one group (`PaneHostView.springToRest`); the
     /// springs then run with no sync until they land, and the sync this turn scheduled finds every ring placed.
+    /// The plane's coordinates are the root's (`syncOverlay`), so a host's start converts there through the root.
     func wireOverlaySync(to root: LayoutRootView) {
         overlayNeedsSync = { [weak root] in root?.setNeedsOverlaySync() }
         overlaySyncNow = { [weak root] in
@@ -88,5 +89,6 @@ extension LayoutViewContext {
             root.overlayIsStale = true
             root.flushOverlaySync()
         }
+        overlayPlaneRect = { [weak root] rect, view in root?.convert(rect, from: view) }
     }
 }

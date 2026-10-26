@@ -9,7 +9,7 @@ extension PaneHostView {
     /// components: `RenderSpring.stop` takes `position.x` with `position`).
     static let renderSpringKeyPaths = ["position", "bounds.size", "opacity"]
 
-    /// The host's frame is at rest and Core Animation shows it springing there (``springToRest(_:spring:landed:)``):
+    /// The host's frame is at rest and Core Animation shows it springing there (``springToRest(_:spring:inPlane:landed:)``):
     /// it stays on its layout spring (``isOnLayoutSpring``) until the screen sees it land.
     var isOnRenderSpring: Bool { renderSpringsInFlight > 0 }
 
@@ -17,7 +17,7 @@ extension PaneHostView {
     /// first half of a render-server spring: the content hears its rest size before it takes it
     /// (``announceRest()``), and the frame is set once, to rest, so the content resizes once and lays out
     /// once, at rest, with `laysOut`. Every call is followed in the same turn by one
-    /// ``springToRest(_:spring:landed:)``, after the plane placed the host's chrome at rest
+    /// ``springToRest(_:spring:inPlane:landed:)``, after the plane placed the host's chrome at rest
     /// (`LayoutViewContext.overlaySyncNow`).
     func placeAtRest(_ move: SplitMotion.RenderMove, laysOut: Bool) {
         // On the render server before the frame moves: the content is never held (`contentFrame(in:)`).
@@ -34,11 +34,13 @@ extension PaneHostView {
     /// from `move.from` at `move.velocity` (alpha `move.fromAlpha`) on `spring`: additive springs of its
     /// backing layer's position, size and opacity, so AppKit, hit tests and the content read the rest frame
     /// at once. Its chrome rides in the same group (``PaneOverlayView/rideMoves(from:velocity:fromAlpha:toAlpha:)``),
-    /// one token and one begin time, so ring and dim edges stay on the pane's. A spring on a host already
+    /// one token and one begin time, so ring and dim edges stay on the pane's; `inPlane` converts a rect of a
+    /// view to the overlay plane's coordinates (`LayoutViewContext.overlayPlaneRect`). A spring on a host already
     /// springing retargets: the springs still running keep their velocity. `landed` runs once, when this
     /// call's springs ended or a newer call took over (`RenderSpring.Completion`); the screen decides there
     /// whether the host left its layout spring (a CPU spring may still move it).
-    func springToRest(_ move: SplitMotion.RenderMove, spring: RenderSpring, landed: @escaping @MainActor @Sendable () -> Void) {
+    func springToRest(_ move: SplitMotion.RenderMove, spring: RenderSpring, inPlane: (CGRect, NSView) -> CGRect?,
+                      landed: @escaping @MainActor @Sendable () -> Void) {
         let finish: RenderSpring.Completion = { [weak self] _ in
             if let self {
                 renderSpringsInFlight -= 1
@@ -52,12 +54,30 @@ extension PaneHostView {
         }
         var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
         if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, "opacity", from: move.fromAlpha, to: move.toAlpha)) }
-        // The plane placed the chrome on this rest frame, in the root's coordinates: the same shift carries `from` there.
-        if abs(chrome.frame.width - frame.width) < 0.01, abs(chrome.frame.height - frame.height) < 0.01 {
-            let from = move.from.offsetBy(dx: chrome.frame.minX - frame.minX, dy: chrome.frame.minY - frame.minY)
-            moves += chrome.rideMoves(from: from, velocity: move.velocity, fromAlpha: move.fromAlpha, toAlpha: move.toAlpha)
+        // The chrome is off this rest only when the plane placed nothing (a root that is not live, a hidden host).
+        if let superview, let rest = inPlane(bounds, self), Self.gap(rest, chrome.frame) < 0.01,
+           let start = Self.converted(move.from, velocity: move.velocity, from: superview, by: inPlane) {
+            moves += chrome.rideMoves(from: start.rect, velocity: start.velocity, fromAlpha: move.fromAlpha, toAlpha: move.toAlpha)
         }
         spring.animateGroup(moves, in: self, completion: finish)
+    }
+
+    /// `rect`, moving at `velocity`, in `view`'s coordinates, in the coordinates `convert` maps a rect of
+    /// `view` to (the overlay plane's): a real conversion, so a canvas camera's zoom scales the chrome's start
+    /// and its velocity as it scales the host. Nil when `convert` has no answer.
+    static func converted(_ rect: CGRect, velocity: RectComponents, from view: NSView,
+                          by convert: (CGRect, NSView) -> CGRect?) -> (rect: CGRect, velocity: RectComponents)? {
+        guard let shown = convert(rect, view), let origin = convert(.zero, view),
+              let unitX = convert(CGRect(x: 1, y: 0, width: 0, height: 0), view),
+              let unitY = convert(CGRect(x: 0, y: 1, width: 0, height: 0), view) else { return nil }
+        let axes = RenderLayerAxes(x: unitX.minX - origin.minX, y: unitY.minY - origin.minY)
+        let rate = axes.velocity(velocity, anchor: .zero)
+        return (shown, RectComponents(x: rate.position.x, y: rate.position.y, width: rate.size.width, height: rate.size.height))
+    }
+
+    /// The largest gap between two rects' edges and sizes.
+    private static func gap(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
     }
 
     /// The host's position and size springs end, its chrome's with them (a fade runs on): its CPU frame

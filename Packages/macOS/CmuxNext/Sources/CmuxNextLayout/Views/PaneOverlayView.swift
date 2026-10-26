@@ -63,8 +63,12 @@ final class PaneOverlayView: NSView {
     private var observesAttentionLook = false
     private var borderStyle = Border(shows: false)
     private var dimFill = DimFill.pane
-    private var excluded: [CGRect] = []
-    private var excludedBounds: CGRect = .zero
+    /// The rects the overlay hides inside and the bounds they were cut for (`PaneOverlayView+Mask`).
+    var excluded: [CGRect] = []
+    var excludedBounds: CGRect = .zero
+    /// What the exclusion mask covers while this overlay rides its host's spring (``rideMask(from:velocity:)``),
+    /// in this view's coordinates: its rest bounds and its bounds where the ride starts. Nil at rest.
+    var maskRideOuter: CGRect?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -185,30 +189,6 @@ final class PaneOverlayView: NSView {
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    /// Hides the overlay inside `rects` (its own coordinates): a docked
-    /// column covering this strip pane, a pane in front of it. Empty removes the mask.
-    func setExcluded(_ rects: [CGRect]) {
-        let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
-        guard rects != excluded || (!rects.isEmpty && bounds != excludedBounds) else { return }
-        excluded = rects
-        excludedBounds = bounds
-        guard let layer else { return }
-        guard !rects.isEmpty else {
-            layer.mask = nil
-            return
-        }
-        let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
-        // Subtracted, not even-odd: a docked column and a pane in front can overlap.
-        let path = rects.reduce(CGPath(rect: bounds, transform: nil)) { $0.subtracting(CGPath(rect: $1, transform: nil)) }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        mask.fillRule = .nonZero
-        mask.frame = bounds
-        mask.path = path
-        CATransaction.commit()
-        if layer.mask !== mask { layer.mask = mask }
-    }
-
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {

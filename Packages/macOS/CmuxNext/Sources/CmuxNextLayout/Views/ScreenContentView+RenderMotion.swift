@@ -274,7 +274,7 @@ extension ScreenContentView {
                 if let host { self?.hostLanded(host) }
                 self?.renderSpringLanded()
             }
-            host.springToRest(move, spring: spring, landed: landedHost)
+            host.springToRest(move, spring: spring, inPlane: context.overlayPlaneRect, landed: landedHost)
             renderTracks.panes[pane] = Self.tracking(renderTracks.panes[pane], move, animates: spring.animates("position", in: host),
                                                   begin: begin, parameters: parameters)
         }
@@ -297,12 +297,10 @@ extension ScreenContentView {
         return track.isEmpty ? nil : track
     }
 
-    /// Moves a divider handle to its rest in this turn, its frame set once, and springs its layer there from
-    /// where it showed (``NSView/renderSpringMoves(from:velocity:)``).
+    /// Springs a divider handle's layer from where it showed to its rest (``NSView/renderSpringMoves(from:velocity:)``):
+    /// `SplitMotion.placeAtRest` set its frame and alpha at rest in this turn.
     private func springDivider(_ view: DividerHandleView, _ move: SplitMotion.RenderMove, on spring: RenderSpring,
                                landed: @escaping @MainActor @Sendable () -> Void) {
-        view.frame = move.to
-        view.alphaValue = move.toAlpha
         let moves = view.renderSpringMoves(from: move.from, velocity: move.velocity)
         guard !moves.isEmpty else { return landed() }
         spring.animateGroup(moves, in: view) { _ in landed() }
