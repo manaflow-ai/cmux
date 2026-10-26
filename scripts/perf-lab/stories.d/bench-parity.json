@@ -1,0 +1,18 @@
+{
+  "id": "bench-parity",
+  "tier": "T1",
+  "description": "Lean bench build against the shipped Release build of the same commit, interleaved on one host (bench-config-parity.py, 3 pairs of 20 rounds of newTab, closeTab, splitRight, closeTab through action.run): 100 * (bench - release) / release of the always-on action.commit p50 per pair. Done check 4 judges the series' p50 against its max_parity_delta_pct. The bench takes the Release build as --app and the same commit's --config bench build as --bench.",
+  "not_measurable": "the lab builds and fetches only bench and bench-checks artifacts (builds.py, run_story.py CONFIGS), one per run, and the runner appends only --app --tag --out; this story needs the Release build and the bench build of one commit in one run (--bench)",
+  "command": ["scripts/cmux-next/bench-config-parity.py", "--story", "bench-parity"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "bench_parity\\.action_commit_delta_pct", "unit": "percent", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 420,
+  "needs": ["signpost:actionCommit"],
+  "owner": "PL-perf-lab",
+  "component": "Infra>PerfLab"
+}

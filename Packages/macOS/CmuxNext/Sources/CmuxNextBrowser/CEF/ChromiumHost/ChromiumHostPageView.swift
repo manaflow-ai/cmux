@@ -72,7 +72,8 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
     private(set) var crashOverlay: NSView?
-    /// The page's last picture while no host shows it; only ``showStandIn(_:)`` and ``removeStandIn()`` set it.
+    /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
+    /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
     var standIn: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface

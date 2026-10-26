@@ -58,7 +58,9 @@
       },
       "args": {
         "method": "pane.zoom",
-        "params": {},
+        "params": {
+          "enabled": true
+        },
         "idempotencyKey": "pane-zoom-ok.call"
       },
       "expect": {
@@ -69,7 +71,17 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the layout document records the zoomed pane"
+    },
+    {
+      "id": "zoomed",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/zoomed_pane_id",
+        "equals": "$step:fx-workspace#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

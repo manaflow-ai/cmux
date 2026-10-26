@@ -14,7 +14,7 @@ import Foundation
 /// answered from the ask's own `exists` or `shareable`. Each chat's granted folders are copied
 /// again every ``CloudMoveSetup/accessSync``, and Bring Back Local ends its grants
 /// (``CloudAccessRevokes``). The polling stops with no moved chat and nothing to revoke; a move
-/// starts it again.
+/// starts it again. Each pause is stretched by the Energy Saver's ``EnergyPolicy/pollStretch``.
 ///
 /// The ask's text comes from the machine (its path and reason); the card names the machine, not
 /// the chat, as the asker, since the session an ask names is the machine's claim. Only asks of the
@@ -50,15 +50,18 @@ final class CloudAccessAsks {
     /// Starts polling unless it runs; it stops with no moved chat and nothing to revoke, and with this object or `services`.
     /// The machine pushes no access request, so a round runs only while a moved chat or a revoke waits.
     func start(services: AppServices) {
-        startRounds(deadlines: services.mainDeadlines) { [weak self, weak services] in await self?.poll(services) }
+        startRounds(deadlines: services.mainDeadlines, energy: services.mainWork.energy) { [weak self, weak services] in
+            await self?.poll(services)
+        }
     }
 
     /// Runs a round of `poll` now unless one runs or waits for its pause. Each round answers how long to wait
-    /// before the next, nil to stop until the next start.
-    func startRounds(deadlines: MainDeadlineScheduler, poll: @escaping @MainActor @Sendable () async -> Duration?) {
+    /// before the next (times `energy`'s poll stretch), nil to stop until the next start.
+    func startRounds(deadlines: MainDeadlineScheduler, energy: EnergyPolicySource,
+                     poll: @escaping @MainActor @Sendable () async -> Duration?) {
         guard round == nil, nextRound?.isScheduled != true else { return }
         nextRound = nextRound ?? MainDeadline(owner: "CloudAccessAsks.triage", workClass: .background, scheduler: deadlines)
-        runRound(poll)
+        runRound(poll, energy: energy)
     }
 
     /// A round runs now (tests).
@@ -71,14 +74,14 @@ final class CloudAccessAsks {
         await round?.value
     }
 
-    private func runRound(_ poll: @escaping @MainActor @Sendable () async -> Duration?) {
+    private func runRound(_ poll: @escaping @MainActor @Sendable () async -> Duration?, energy: EnergyPolicySource) {
         // task-owner: one triage round; the next one starts from nextRound after its pause
         round = Task { [weak self] in
             let pause = await poll()
             guard let self else { return }
             round = nil
             guard let pause else { return }
-            nextRound?.schedule(after: pause) { [weak self] in self?.runRound(poll) }
+            nextRound?.schedule(after: pause * energy.policy.pollStretch) { [weak self] in self?.runRound(poll, energy: energy) }
         }
     }
 
