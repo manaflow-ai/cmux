@@ -168,6 +168,8 @@ pub struct TeamIntegrationPolicyGithub {
     pub scope: TeamIntegrationPolicyGithubScope,
     pub require_org_admin: bool,
     pub repo_allowlist: Option<Vec<RepoPattern>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_workflows: Option<bool>,
 }
 
 wire_enum! {
@@ -213,6 +215,8 @@ pub struct TeamPolicyValues {
     pub github_require_org_admin: Option<TeamPolicyValuesGithubRequireOrgAdmin>,
     #[serde(rename = "github.repoAllowList", default, skip_serializing_if = "Option::is_none")]
     pub github_repo_allow_list: Option<TeamPolicyValuesGithubRepoAllowList>,
+    #[serde(rename = "github.allowWorkflows", default, skip_serializing_if = "Option::is_none")]
+    pub github_allow_workflows: Option<TeamPolicyValuesGithubAllowWorkflows>,
     #[serde(rename = "integrations.allowedProviders", default, skip_serializing_if = "Option::is_none")]
     pub integrations_allowed_providers: Option<TeamPolicyValuesIntegrationsAllowedProviders>,
     #[serde(rename = "mcp.server", default, skip_serializing_if = "Option::is_none")]
@@ -298,6 +302,12 @@ pub enum TeamPolicyValuesGithubRepoAllowListValue {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamPolicyValuesGithubRepoAllowList {
     pub value: TeamPolicyValuesGithubRepoAllowListValue,
+    pub mode: PolicyMode,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamPolicyValuesGithubAllowWorkflows {
+    pub value: bool,
     pub mode: PolicyMode,
 }
 

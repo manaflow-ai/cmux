@@ -91,6 +91,7 @@ const chat = (count: number) =>
     row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
+const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
 test("the shipped arm is the wave", () => {
   expect(threadMinimapLayout.defaultArm).toBe("compact");
@@ -150,6 +151,7 @@ async function render(arms?: Record<string, string>) {
   await act(async () => {
     scroller.scrollTop = 900;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
+    await nextFrame();
   });
   const read = {
     ticks: host.querySelectorAll("[data-tick]").length,
@@ -303,6 +305,7 @@ test("focusing a tick or leaving it marks the rail data-snap, and the next band 
     await act(async () => {
       scroller.scrollTop = 2400;
       scroller.dispatchEvent(new dom.window.Event("scroll"));
+      await nextFrame();
     });
     expect(lit()).not.toBe(before);
     expect(rail().hasAttribute("data-snap")).toBe(false);

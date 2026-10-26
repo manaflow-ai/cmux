@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5d3ff5ed972a33f5c4bb6a49a9dd6aeed437faa9b1ef702813aa5522af7f0eb0";
+inline constexpr std::string_view kProtocolIrSha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -81,6 +81,7 @@ enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
 struct FrontendProjection;
 struct GetCellPixelsResult;
+struct GetHostSizePolicyResult;
 struct GetSizeStateResult;
 struct GuestUrlAcknowledgeResult;
 struct GuestUrlClaimResult;
@@ -91,6 +92,9 @@ struct HistorySearchRange;
 enum class HomeChiefState;
 enum class HomeInboxKind;
 struct HomeInboxRow;
+enum class HostSizeMode;
+struct HostSizePolicy;
+struct HostSizePolicyRequest;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -163,6 +167,7 @@ struct ServerStatsResult;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
@@ -378,6 +383,7 @@ struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
+struct GetHostSizePolicyRequest;
 struct GetSizeStateRequest;
 struct HistorySearchRequest;
 struct HistorySearchResult;
@@ -499,6 +505,7 @@ struct SetClientSizingRequest;
 struct SetColumnDockRequest;
 struct SetDefaultColorsRequest;
 struct SetFrontendBrowserHistoryRequest;
+struct SetHostSizePolicyRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -2947,6 +2954,30 @@ struct GetFrontendProjectionRequest {
     friend bool operator==(const GetFrontendProjectionRequest&, const GetFrontendProjectionRequest&) = default;
 };
 
+struct GetHostSizePolicyRequest {
+    Field<Id> surface{};
+    friend bool operator==(const GetHostSizePolicyRequest&, const GetHostSizePolicyRequest&) = default;
+};
+
+enum class HostSizeMode {
+    smallest,
+    mac,
+    latest,
+    priority,
+};
+
+struct HostSizePolicy {
+    HostSizeMode mode{};
+    std::vector<std::string> order{};
+    friend bool operator==(const HostSizePolicy&, const HostSizePolicy&) = default;
+};
+
+struct GetHostSizePolicyResult {
+    std::vector<std::string> mac_participants{};
+    HostSizePolicy policy{};
+    friend bool operator==(const GetHostSizePolicyResult&, const GetHostSizePolicyResult&) = default;
+};
+
 struct GetSizeStateRequest {
     Id surface{};
     friend bool operator==(const GetSizeStateRequest&, const GetSizeStateRequest&) = default;
@@ -3142,6 +3173,12 @@ struct HomeInboxResult {
     std::string me{};
     std::vector<HomeInboxRow> rows{};
     friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
+};
+
+struct HostSizePolicyRequest {
+    HostSizeMode mode{};
+    Field<std::vector<std::string>> order{};
+    friend bool operator==(const HostSizePolicyRequest&, const HostSizePolicyRequest&) = default;
 };
 
 enum class IdMappingKind {
@@ -4749,6 +4786,7 @@ struct SendRequest {
     Field<Base64> bytes{};
     Field<SendExpectAgent> expect_agent{};
     Field<std::string> expect_foreground{};
+    Field<std::uint64_t> flow{};
     std::optional<bool> paste{};
     std::optional<bool> submit{};
     Field<Id> surface{};
@@ -4904,6 +4942,7 @@ struct SetClientInfoRequest {
     Field<std::string> install{};
     Field<std::string> kind{};
     Field<std::string> name{};
+    Field<bool> remote{};
     Field<std::string> user_id{};
     Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
@@ -4946,6 +4985,16 @@ struct SetFrontendBrowserHistoryRequest {
     std::optional<JsonValue> history{};
     Id surface{};
     friend bool operator==(const SetFrontendBrowserHistoryRequest&, const SetFrontendBrowserHistoryRequest&) = default;
+};
+
+struct SetHostSizePolicyRequest {
+    HostSizePolicyRequest policy{};
+    friend bool operator==(const SetHostSizePolicyRequest&, const SetHostSizePolicyRequest&) = default;
+};
+
+struct SetHostSizePolicyResult {
+    HostSizePolicy policy{};
+    friend bool operator==(const SetHostSizePolicyResult&, const SetHostSizePolicyResult&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -5692,6 +5741,7 @@ struct UpdateBrowserProfileRequest {
     Field<std::string> color{};
     Field<std::string> icon{};
     Field<std::string> name{};
+    Field<JsonValue> proxy{};
     friend bool operator==(const UpdateBrowserProfileRequest&, const UpdateBrowserProfileRequest&) = default;
 };
 
@@ -6325,6 +6375,12 @@ struct Codec<GetCellPixelsResult> {
 };
 
 template <>
+struct Codec<GetHostSizePolicyResult> {
+    static Result<Json> encode(const GetHostSizePolicyResult& value);
+    static Result<GetHostSizePolicyResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetSizeStateResult> {
     static Result<Json> encode(const GetSizeStateResult& value);
     static Result<GetSizeStateResult> decode(const Json& value);
@@ -6382,6 +6438,24 @@ template <>
 struct Codec<HomeInboxRow> {
     static Result<Json> encode(const HomeInboxRow& value);
     static Result<HomeInboxRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<HostSizeMode> {
+    static Result<Json> encode(const HostSizeMode& value);
+    static Result<HostSizeMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<HostSizePolicy> {
+    static Result<Json> encode(const HostSizePolicy& value);
+    static Result<HostSizePolicy> decode(const Json& value);
+};
+
+template <>
+struct Codec<HostSizePolicyRequest> {
+    static Result<Json> encode(const HostSizePolicyRequest& value);
+    static Result<HostSizePolicyRequest> decode(const Json& value);
 };
 
 template <>
@@ -6814,6 +6888,12 @@ template <>
 struct Codec<SetCellPixelsResult> {
     static Result<Json> encode(const SetCellPixelsResult& value);
     static Result<SetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetHostSizePolicyResult> {
+    static Result<Json> encode(const SetHostSizePolicyResult& value);
+    static Result<SetHostSizePolicyResult> decode(const Json& value);
 };
 
 template <>
@@ -8107,6 +8187,12 @@ struct Codec<GetFrontendProjectionRequest> {
 };
 
 template <>
+struct Codec<GetHostSizePolicyRequest> {
+    static Result<Json> encode(const GetHostSizePolicyRequest& value);
+    static Result<GetHostSizePolicyRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetSizeStateRequest> {
     static Result<Json> encode(const GetSizeStateRequest& value);
     static Result<GetSizeStateRequest> decode(const Json& value);
@@ -8830,6 +8916,12 @@ template <>
 struct Codec<SetFrontendBrowserHistoryRequest> {
     static Result<Json> encode(const SetFrontendBrowserHistoryRequest& value);
     static Result<SetFrontendBrowserHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetHostSizePolicyRequest> {
+    static Result<Json> encode(const SetHostSizePolicyRequest& value);
+    static Result<SetHostSizePolicyRequest> decode(const Json& value);
 };
 
 template <>

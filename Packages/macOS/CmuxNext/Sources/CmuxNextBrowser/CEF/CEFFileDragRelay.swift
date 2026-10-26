@@ -126,7 +126,7 @@ final class CEFFileDragRelay {
         chain = Task { [logger] in
             await previous?.value
             do {
-                _ = try await tab.evaluate(script, world: .isolated)
+                _ = try await tab.evaluate(script, world: .isolated, gesture: .cmux)
             } catch {
                 logger.error("file drag leave failed: \(String(describing: error), privacy: .public)")
             }

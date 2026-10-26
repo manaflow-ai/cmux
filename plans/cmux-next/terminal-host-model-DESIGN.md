@@ -81,6 +81,12 @@ processes and ~2,000 threads fewer.
   the PTY's foreground group (no process-table scan, pty-holder.md 4): an interactive shell in
   its own group under login(1) is the foreground group, so it ends with its tab and hangs up
   its own jobs.
+- SPAWN never waits (holder-core review): the holder forks and returns; the child enters its
+  directory and searches `PATH` itself (as `execvp`, after its chdir), and reports a failure on
+  its close-on-exec pipe, which sits in the poll set. SPAWNED (with the custody dups) follows at
+  the pipe's end of file, ERROR SPAWN_FAILED when a report arrives. Before, the holder ran
+  `stat` on each `PATH` entry and blocked reading the pipe until the child's chdir and execve
+  finished, so one directory on a mount that stopped answering stopped every terminal.
 - One kqueue: the daemon link socket, every PTY master (EVFILT_READ), every child
   (EVFILT_PROC NOTE_EXIT, then `waitpid` for the status: the holder is the shells' parent). No
   thread per terminal; no timers.
@@ -94,12 +100,40 @@ processes and ~2,000 threads fewer.
   whose end it had not published (before: up to 256 KiB of unsent ring plus 1 MiB of queued frames,
   and the next holder numbered the PTY's next byte as if they had arrived: a silent splice). The
   daemon never maps the segment; it hands it to the next holder, which continues the same ring.
+  Wire v5 (review 2 of holder items 1-3): ring layout 2 (a published `oldest`) passes only between
+  peers of v5 or later, so a v4 holder never gets a segment it cannot read; a v5 holder answers
+  every ADOPT with ADOPTED (`oldest u64, end u64`, plus the segment it really writes: the one
+  handed over, or a fresh one when that was bad or stale), and the daemon keeps exactly that
+  segment as custody. ATTACH carries the offset the daemon parsed, so the credit after an adoption
+  or a resume counts from there and the ring never runs more than the credit window plus
+  `UNSENT_HIGH_WATER` (768 KiB) past what the daemon parsed.
 - Wire: multiplexed holder-protocol frames, `magic "CMHX" | kind u16 | flags u16 | chan u32 |
   len u32 | payload` (chan = terminal slot). Kinds: HELLO/WELCOME (token, version), SPAWN (argv,
   env, cwd, size; reply SPAWNED with pid and the master fd by SCM_RIGHTS: the daemon's custody
   dup), ADOPT (fds by SCM_RIGHTS + ids + offsets: a new holder takes over after a holder crash),
   ATTACH from offset, DATA (offset, bytes), GAP, ACK (trim), WRITE, RESIZE, SIGNAL, CLOSE, EXIT
   (status, end offset), LIST (every terminal: id, pid, offsets, state), PING/PONG, ERROR.
+  Descriptors (holder-core review): every frame of this build states how many it passes
+  (`FLAG_FDS_STATED` and a 3-bit count in its flags; an older build's frame counts by kind). The
+  receiver gives a frame exactly the descriptors that arrived with its first byte; a missing one,
+  one no frame states, or one the kernel dropped (`MSG_CTRUNC`) ends the link, never a shift of
+  every later terminal's master. A frame the holder sends passes the holder's own descriptors
+  (shared handles that keep them open until the frame is written), so a WELCOME's listing or a
+  SPAWNED costs it no descriptor: a holder short of descriptors still lists every terminal with
+  its master and ring (holder-core deep review: before, it dup'd two per terminal and refused
+  every HELLO with `NO_DESCRIPTORS`, so a daemon could not get back in after a descriptor
+  fault). An accept that fails for want of a descriptor stops the holder polling its listener
+  (Linux keeps the connection queued, so polling it spun the loop); it accepts again at the end
+  of each turn, the only place one of its descriptors frees.
+  A daemon frame whose descriptors the holder cannot take (it is out of descriptors: macOS fails
+  the read with EMFILE, measured on macOS 27, or with EMSGSIZE, XNU's `fdavail` failure, which
+  is taken as the same fault; Linux sets `MSG_CTRUNC`) or bytes
+  that are not frames end the link with ERROR `NO_DESCRIPTORS` or `BAD_PAYLOAD` on channel 0,
+  request kind 0 (`wire::STREAM_FAULT`), after the frame the socket had taken part of, and count
+  no poison strike (holder-core fix review: before, a silent close counted as a daemon crash, so
+  two reconnects that sent an ADOPT to a holder short of descriptors poisoned its terminals).
+  Tests: `cmux-holder/tests/descriptor_exhaustion.rs` (a holder under a measured low
+  `RLIMIT_NOFILE`).
 - Input: the daemon writes keystrokes to its own master dup directly (one hop less than today);
   WRITE exists for a daemon that lost its dup. The holder leaves the master non-blocking (the flag
   is shared by every dup), so the daemon's writer waits for POLLOUT on WouldBlock.
@@ -117,7 +151,10 @@ processes and ~2,000 threads fewer.
   daemon is attached and the daemon's queue per terminal stays bounded. A DATA offset past what
   the daemon has, or a GAP, cancels the parser's current sequence (CAN) instead of splicing.
 - Handshake: a connection becomes the link only after a valid HELLO; a probe or a bad token never
-  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect.
+  drops the attached daemon. The daemon it replaces gets ERROR SUPERSEDED and does not reconnect:
+  always, as the last frame of its stream, after the frame its socket had taken part of; its
+  queued frames are dropped (holder-core review: before, only when its queue was empty, so a busy
+  daemon read the close as a lost holder and took it back, and the two took turns).
 
 ## 5. Daemon side
 
@@ -195,12 +232,17 @@ processes and ~2,000 threads fewer.
 
 ## 7. Durability of replies (decided 2026-10-23, perf lead)
 
-Lands with PL-daemon batch 1 (branch `pl-daemon-wip`, the daemon request speed workstream). No daemon reply waits for the disk. Registry commits run `synchronous=NORMAL`: a commit is in the
-WAL, in the kernel's page cache, when it returns, and a crash, kill or update of the daemon keeps
-it. One syncer thread F_FULLFSYNCs the WAL for every commit since its last flush, off every lock
-(`workspace_registry/wal_durability.rs`). Trade-off: a power loss or kernel panic within that one
-flush (about 5 ms) can take back a reply the client already has; the same loss ends every shell,
-host and holder, so the terminal the reply described is gone anyway, and a workspace rename or
-layout change made in those milliseconds is lost. Before: each commit F_FULLFSYNCed inside the
-registry lock (about 4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close
-reply, and every request that needed the lock waited behind it (60-80 ms p95 on every op).
+No daemon reply waits for the disk. Registry commits (and the conversation store's and chief
+registry's) run `synchronous=NORMAL`: a commit is in the WAL, in the kernel's page cache, when it
+returns, and a crash, kill or update of the daemon keeps it. One syncer thread per database runs
+the WAL checkpoints off every lock (SQLite syncs the WAL before each), and flushes the drive cache
+(F_FULLFSYNC) once at close (`workspace_registry/wal_durability.rs`). These are SQLite's own
+`synchronous=NORMAL` WAL rules, with the checkpoint moved off the request. Trade-off: a power loss
+or kernel panic can take back the tail of replies since the last checkpoint that the kernel had not
+yet written back (a tail, never out of order). The same loss ends every shell, host and holder, so
+the terminals those replies described are gone anyway; a workspace rename or layout change made in
+that tail is lost. A sync per reply was measured and rejected: the next request's WAL writes
+waited for it (same fleet mini, new browser tab 4.2 ms p50 without, 22-25 ms with F_FULLFSYNC,
+about 11 ms with F_BARRIERFSYNC). Before: each commit F_FULLFSYNCed inside the registry lock (about
+4.5 ms on a fleet M4 Pro, 20 ms on a busy Apple SSD), 1-3 per create or close reply, and every
+request that needed the lock waited behind it.

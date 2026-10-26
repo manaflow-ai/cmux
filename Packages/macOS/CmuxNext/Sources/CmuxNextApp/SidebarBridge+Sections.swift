@@ -190,11 +190,30 @@ extension SidebarBridge {
                                                  entries: entries)
     }
 
+    /// The open workspace a pinned workspace's tile names, or nil (another item, a closed or
+    /// another device's workspace, or a workspace tile in a section other than Pinned, which keeps
+    /// its item menu: Remove from Section, Remove from Sidebar).
+    func pinnedWorkspaceID(ofItem id: LayoutItemID) -> SidebarWorkspaceID? {
+        guard let ref = (model.layout.item(id) ?? model.listedItem(id))?.ref,
+              let (workspace, _) = WorkspaceLayoutRefs(machines: services.machines).workspace(for: ref),
+              PinCommands(context: AppActionContext(services: services)).isWorkspacePinned(workspace) else { return nil }
+        return SidebarWorkspaceID(workspace.id)
+    }
+
+    /// A pinned workspace tile's own rows, kept under its workspace menu: Show/Hide Label.
+    func tileRows(_ id: LayoutItemID) -> [NSMenuItem] {
+        let menu = services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
+                                                     entries: [.action("sidebar.item.toggleLabel")])
+        let items = menu.items.filter { !$0.isSeparatorItem }
+        menu.removeAllItems()
+        return items
+    }
+
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
-        let item = model.layout.item(id) ?? model.listedItem(id)
+        let tile = model.layout.item(id), item = tile ?? model.listedItem(id)
         let menus = ContextMenuCatalog.shared
-        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief)))
+        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief), isTile: tile != nil))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries)
     }
