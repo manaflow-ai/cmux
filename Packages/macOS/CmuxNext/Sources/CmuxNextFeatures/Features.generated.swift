@@ -105,9 +105,10 @@ nonisolated extension Feature {
         defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: "2026-12-20",
         params: [],
-        stories: ["cef-resize-sync", "cef-resize-sync-stress"],
+        stories: ["cef-resize-sync", "cef-resize-sync-stress", "pane-chromium"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["browserResize.layerHosting"]
     )
 
     /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
@@ -1174,12 +1175,31 @@ nonisolated extension Feature {
         params: [],
         stories: ["chromium-host", "crash-survival"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["browserHost.helper"]
+    )
+
+    /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
+    public static let cefLayerHostingEveryPage = Feature(
+        index: 68,
+        name: "cefLayerHostingEveryPage",
+        owner: "PL-cef-layer",
+        description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["cef-resize-sync", "cef-resize-sync-stress"],
+        sticky: false,
+        runtimeMutable: false,
+        replaces: ["browserResize.layerHostingEveryPage"]
     )
 
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 68,
+        index: 69,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -1202,7 +1222,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 69,
+        index: 70,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1219,7 +1239,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 70,
+        index: 71,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -1306,6 +1326,7 @@ nonisolated extension Feature {
         .topPageDiscard,
         .vsyncHub,
         .cefHelperHost,
+        .cefLayerHostingEveryPage,
         .chromiumHostIdleExit,
         .perfLabCanary,
         .perfLabKillProbe,

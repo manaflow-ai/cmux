@@ -84,6 +84,17 @@ public nonisolated enum TunableFile {
         return values
     }
 
+    /// The Bool values `url` holds for `keys`; none without the file, for a key it does not hold or for a value
+    /// that is not a Bool. Blocking file IO: a launch lane only (the features a tunable is the local override of).
+    package static func boolValues(_ url: URL, keys: Set<String>) -> [String: Bool] {
+        guard !keys.isEmpty, let data = try? Data(blockingContentsOf: url) else { return [:] }
+        var values: [String: Bool] = [:]
+        for (key, raw) in decode(data) where keys.contains(key) {
+            if case .bool(let flag)? = value(raw, as: .bool) { values[key] = flag }
+        }
+        return values
+    }
+
     /// Reads `url`. Blocking file IO: call it off the main actor only.
     package static func readRaw(_ url: URL) -> [String: Any] {
         // concurrency-allow: called from TunableStore.activate's detached task, never on the main actor
