@@ -7,20 +7,41 @@ import Testing
 /// the flush each time the queue has room.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct LocalPTYPendingInputTests {
     @Test func inputLargerThanThePTYQueueArrivesWhole() async throws {
-        // cat in canonical mode: the line discipline echoes each line and cat writes it back.
-        let io = try LocalPTYTerminalIO(shell: "/bin/cat", workingDirectory: "/")
-        defer { io.terminate() }
-        let lines = 2048
-        let line = String(repeating: "a", count: 99) + "\n"
-        let sent = lines * 99
-        await io.write(Data(String(repeating: line, count: lines).utf8))
+        // The program turns echo off, says it is ready, then counts the bytes it reads until VEOF. The kernel's
+        // echo goes to a fixed-size output queue that drops bytes when full, so the test never counts echo.
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("pty-count-\(UUID().uuidString).sh")
+        try "#!/bin/sh\nstty -echo\necho READY\nexec wc -c\n".write(to: script, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: script) }
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
-        var received = 0
-        for await event in io.events {
-            guard case .output(let data) = event else { continue }
-            received += data.reduce(0) { $0 + ($1 == UInt8(ascii: "a") ? 1 : 0) }
-            if received >= 2 * sent { break }
+        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/")
+        defer { io.terminate() }
+        // A stuck flush ends the program and the stream here, and fails the count below with its output.
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(30))
+            io.terminate()
         }
-        #expect(received == 2 * sent, "the echo and cat's copy should each carry every byte written")
+        defer { deadline.cancel() }
+
+        var events = io.events.makeAsyncIterator()
+        var output = ""
+        while !output.contains("READY"), let event = await events.next() {
+            if case .output(let data) = event { output += String(decoding: data, as: UTF8.self) }
+        }
+        let ready = try #require(output.range(of: "READY"), "the counter did not start: \(output.suffix(200))")
+
+        // 2048 lines of 100 bytes: far more than the PTY's input queue, so the write waits in the pending input
+        // and the write source resumes it as the program reads. VEOF at the start of a line ends the count.
+        let lines = 2048
+        let sent = lines * 100
+        let payload = String(repeating: String(repeating: "a", count: 99) + "\n", count: lines)
+        await io.write(Data((payload + "\u{04}").utf8))
+
+        var report = String(output[ready.upperBound...])
+        while let event = await events.next() {
+            if case .output(let data) = event { report += String(decoding: data, as: UTF8.self) }
+        }
+        let counted = Int(report.trimmingCharacters(in: .whitespacesAndNewlines))
+        #expect(counted == sent, "the program read \(counted.map(String.init) ?? "no count") of \(sent) bytes: \(report.suffix(200))")
     }
 }
