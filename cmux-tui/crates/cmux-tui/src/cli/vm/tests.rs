@@ -29,6 +29,14 @@ fn friendly_verbs_map_to_the_cmux_vm_cli() {
 }
 
 #[test]
+fn client_session_commands_pass_through_to_cmux_vm() {
+    assert_eq!(
+        planned(&["vm", "client-session", "list", "vm_1"]).unwrap(),
+        args(&["client-session", "list", "vm_1"])
+    );
+}
+
+#[test]
 fn exec_keeps_everything_after_the_double_dash() {
     assert_eq!(
         planned(&["vm", "exec", "vm_1", "--", "acpmux", "run", "-m", "claude", "hi"]).unwrap(),

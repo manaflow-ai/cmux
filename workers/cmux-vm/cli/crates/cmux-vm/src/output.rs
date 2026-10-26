@@ -2,7 +2,9 @@
 //! (pretty-printed, keys in the server's order), so fields newer than this CLI
 //! still reach the caller. Human mode decodes the body into the generated types.
 
+use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::Path;
 
 use cmux_vm_client::types::{
     ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmImageList, VmList,
@@ -325,6 +327,129 @@ impl<'a> Printer<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Prints a newly minted client session. The token is emitted exactly
+    /// once, either to stdout or to a caller-selected 0600 file.
+    pub fn client_session_create(
+        &mut self,
+        body: &[u8],
+        token_file: Option<&Path>,
+        vm_id: &str,
+    ) -> Result<(), CliError> {
+        let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+            CliError::unexpected(format!(
+                "client session for VM {vm_id} was not valid JSON: {e}"
+            ))
+        })?;
+        let token = value
+            .get("token")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session for VM {vm_id} did not include its one-time token"
+                ))
+            })?
+            .to_owned();
+        let provider_vm = value
+            .get("providerVmId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown-provider-vm");
+        let user = value
+            .get("linuxUser")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("ubuntu");
+        let ssh = format!("{provider_vm}+{user}@beta-ssh.freestyle.sh");
+        if let Some(path) = token_file {
+            let mut file = OpenOptions::new();
+            file.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                file.mode(0o600);
+            }
+            let mut file = file.open(path).map_err(|e| {
+                CliError::unexpected(format!("could not write the token for VM {vm_id} to {}: {e}; choose a new --token-file", path.display()))
+            })?;
+            file.write_all(token.as_bytes()).map_err(|e| {
+                CliError::unexpected(format!(
+                    "could not finish writing the token for VM {vm_id}: {e}"
+                ))
+            })?;
+            if self.json {
+                value["tokenFile"] = serde_json::json!(path);
+                value["token"] = serde_json::Value::String("written to tokenFile".into());
+                return self.json_value(&value);
+            }
+            self.line(&format!("ssh {ssh}"))?;
+            return self.line(&format!(
+                "Token shown once and written to {} (mode 0600).",
+                path.display()
+            ));
+        }
+        if self.json {
+            value["sshLine"] = serde_json::json!(ssh);
+            return self.json_value(&value);
+        }
+        self.line(&format!("ssh {ssh}"))?;
+        self.line(&format!("token {token}"))?;
+        self.line("This token is shown once; store it now.")
+    }
+
+    /// Lists sessions without ever forwarding a token field from the server.
+    pub fn client_session_list(&mut self, body: &[u8], vm_id: &str) -> Result<(), CliError> {
+        let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|e| {
+            CliError::unexpected(format!(
+                "client sessions for VM {vm_id} were not valid JSON: {e}"
+            ))
+        })?;
+        let sessions = value
+            .get_mut("sessions")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session list for VM {vm_id} omitted sessions"
+                ))
+            })?;
+        for session in sessions.iter_mut() {
+            if let Some(object) = session.as_object_mut() {
+                object.remove("token");
+            }
+        }
+        if self.json {
+            return self.json_value(&value);
+        }
+        if sessions.is_empty() {
+            return self.line(&format!("no client sessions for VM {vm_id}"));
+        }
+        for session in sessions.iter() {
+            self.line(&format!(
+                "{} {} {}",
+                session
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown"),
+                session
+                    .get("linuxUser")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown"),
+                session
+                    .get("createdAt")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("unknown"),
+            ))?;
+        }
+        Ok(())
+    }
+
+    pub fn revoked_session(&mut self, vm_id: &str, session_id: &str) -> Result<(), CliError> {
+        if self.json {
+            return self
+                .json_value(&json!({ "vmId": vm_id, "sessionId": session_id, "revoked": true }));
+        }
+        self.line(&format!(
+            "revoked client session {session_id} on VM {vm_id}"
+        ))
     }
 
     pub fn deleted(&mut self, id: &str) -> Result<(), CliError> {
