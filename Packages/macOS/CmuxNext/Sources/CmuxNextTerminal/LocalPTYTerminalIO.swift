@@ -22,7 +22,8 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let continuation: AsyncStream<TerminalIOEvent>.Continuation
     private let readSource: any DispatchSourceRead
     private let exitSource: any DispatchSourceProcess
-    private let writeQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.write")
+    // qos-allow: key echo path: a typed key reaches the shell through this queue and its frame waits for the echo
+    private let writeQueue = DispatchQueue(label: "com.cmuxterm.next.localpty.write", qos: .userInteractive)
     private let writeSource: any DispatchSourceWrite
     private let input = PendingInput()
     private let closed = Atomic<Bool>(false)
@@ -106,6 +107,9 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         writeSource.setEventHandler { [input, writeSource, master] in input.flush(to: master, source: writeSource) }
         writeSource.setCancelHandler { [master] in close(master) }
     }
+
+    /// The write queue's QoS (tests).
+    var writeQueueQoS: DispatchQoS { writeQueue.qos }
 
     deinit {
         terminate()
