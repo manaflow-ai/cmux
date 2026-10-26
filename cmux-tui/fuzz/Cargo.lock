@@ -20,6 +20,7 @@ dependencies = [
  "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
  "cmux-worktree-care",
