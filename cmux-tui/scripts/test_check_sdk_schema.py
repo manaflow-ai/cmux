@@ -19,6 +19,7 @@ if SPEC is None or SPEC.loader is None:
 CHECKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECKER)
 HANDLERS = sys.modules["handler_commands"]
+SNIFFERS = sys.modules["sniffer_names"]
 
 
 class DuplicateKeyTests(unittest.TestCase):
@@ -109,6 +110,159 @@ class HandlerCommandTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(HANDLERS.HandlerCommandError, "cannot read attribute"):
                 HANDLERS.handler_commands(tui)
+
+
+class SnifferNameTests(unittest.TestCase):
+    """sniffer_names.py: every name a sniffer module serves, and its schema coverage."""
+
+    APPS_RS = (
+        '#[derive(Deserialize)]\n#[serde(tag = "cmd")]\nenum Command {\n'
+        '    #[serde(rename = "apps-list")]\n    List,\n'
+        "EXTRA_VARIANTS"
+        "}\n\n"
+        "#[derive(Deserialize)]\nstruct Request {\n"
+        "    #[serde(default)]\n    id: Option<Value>,\n"
+        "    #[serde(flatten)]\n    command: Command,\n}\n\n"
+        "pub(super) fn try_handle(message: &str) -> Option<bool> {\n"
+        '    if cmd == "cancel-request" {\n        return None;\n    }\n'
+        "    None\n}\n"
+    )
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.ir = CHECKER.load_ir(CHECKER.SPEC / "sdk-schema.json")
+
+    def apps_rs(self, extra_variants: str) -> str:
+        return self.APPS_RS.replace("EXTRA_VARIANTS", extra_variants)
+
+    def write(self, tui: Path, name: str, text: str) -> None:
+        path = tui / "crates/cmux-tui-core/src/server" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def served(self, files: dict[str, str]) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            for name, text in files.items():
+                self.write(tui, name, text)
+            return SNIFFERS.sniffer_names(tui)
+
+    def test_every_literal_form_is_a_served_name(self) -> None:
+        source = (
+            'const COMMAND: &str = "by-const";\n'
+            'const PLAN: &str = "plan-const";\n'
+            'const CAPABILITY: &str = "never-compared-v1";\n'
+            "pub(super) fn try_handle(message: &str) -> Option<bool> {\n"
+            '    // cmd == "in-a-comment"\n'
+            '    if !message.contains("\\"by-") {\n        return None;\n    }\n'
+            '    let mode = match fields.remove("cmd").as_ref().and_then(Value::as_str) {\n'
+            '        Some("some-arm") | Some("other-arm") => 1,\n'
+            "        _ => return None,\n    };\n"
+            '    if fields.remove("cmd").as_ref().and_then(Value::as_str) != Some(COMMAND) {\n'
+            "        return None;\n    }\n"
+            '    if cmd == "equal" || "reversed" == cmd || cmd.as_str() != PLAN {}\n'
+            '    if error.code == "bad-request" {}\n'
+            "    match cmd {\n"
+            '        "arm" | "piped-arm" => {\n'
+            '            match kind { "nested-arm" => {} _ => {} }\n'
+            "        }\n"
+            '        "fs.dotted" => "value-side",\n'
+            "        _ => {}\n    }\n"
+            '    match operation { "apps.store" => {} _ => {} }\n'
+            "    None\n}\n"
+        )
+        served = self.served({"sniffer.rs": source, "plain.rs": 'fn x() { cmd == "no-try-handle"; }\n'})
+        self.assertEqual(
+            set(served),
+            {
+                "by-const",
+                "plan-const",
+                "some-arm",
+                "other-arm",
+                "equal",
+                "reversed",
+                "arm",
+                "piped-arm",
+                "fs.dotted",
+            },
+        )
+        self.assertEqual({entry.module for entry in served.values()}, {"sniffer.rs"})
+
+    def test_tagged_enum_variants_and_submodules_are_served_names(self) -> None:
+        served = self.served(
+            {
+                "apps.rs": self.apps_rs(""),
+                "transfer/requests.rs": 'fn try_handle() { if cmd == "access-request" {} }\n',
+            }
+        )
+        self.assertEqual(served["apps-list"].module, "apps.rs")
+        self.assertEqual(served["cancel-request"].module, "apps.rs")
+        self.assertEqual(served["access-request"].module, "transfer/requests.rs")
+
+    def test_a_name_two_modules_serve_is_rejected(self) -> None:
+        handler = 'fn try_handle() { if cmd == "same" {} }\n'
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "served by both"):
+            self.served({"a.rs": handler, "b.rs": handler})
+
+    def test_unschemad_apps_variant_fails(self) -> None:
+        extra = '    #[serde(rename = "apps-unschemad")]\n    Unschemad,\n'
+        served = self.served({"apps.rs": self.apps_rs(extra)})
+        with self.assertRaisesRegex(
+            CHECKER.SdkSchemaError, r"not in sdk-schema\.json: apps-unschemad \(server/apps\.rs\)"
+        ):
+            CHECKER.validate_sniffed_coverage(self.ir, served)
+        served.pop("apps-unschemad")
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {}):
+            CHECKER.validate_sniffed_coverage(self.ir, served)
+
+    def test_unschemad_literal_name_fails(self) -> None:
+        served = self.served({"x.rs": 'fn try_handle() { if cmd == "x-unschemad" {} }\n'})
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {}):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "x-unschemad \\(server/x\\.rs\\)"):
+                CHECKER.validate_sniffed_coverage(self.ir, served)
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"x-unschemad": "fixture"}):
+            CHECKER.validate_sniffed_coverage(self.ir, served)
+
+    def test_stale_unschemad_entries_fail(self) -> None:
+        served = self.served({"apps.rs": self.apps_rs("")})
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"apps-list": "fixture"}):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "in sdk-schema.json now"):
+                CHECKER.validate_sniffed_coverage(self.ir, served)
+        with patch.object(CHECKER, "UNSCHEMAD_SNIFFED_COMMANDS", {"gone-command": "fixture"}):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "no sniffer module serves"):
+                CHECKER.validate_sniffed_coverage(self.ir, served)
+
+    def test_name_list_module_serves_the_listed_names(self) -> None:
+        served = self.served(
+            {
+                "fs_wire.rs": "fn try_handle() { frame_command(message)?; }\n",
+                "../fs_ops.rs": 'pub const FS_COMMANDS: [&str; 2] = ["fs.stat", "fs.list"];\n',
+            }
+        )
+        self.assertEqual(set(served), {"fs.stat", "fs.list"})
+        with self.assertRaisesRegex(SNIFFERS.SnifferNameError, "has no try_handle"):
+            self.served(
+                {
+                    "fs_wire.rs": "fn other() {}\n",
+                    "../fs_ops.rs": 'pub const FS_COMMANDS: [&str; 1] = ["fs.stat"];\n',
+                }
+            )
+
+    def test_live_tree_sniffers_are_all_accounted_for(self) -> None:
+        served = CHECKER.sniffed_commands()
+        for name, module in {
+            "apps-set": "apps.rs",
+            "cancel-request": "apps.rs",
+            "script-run": "scripts.rs",
+            "agent-inventory-refresh": "agent_inventory.rs",
+            "agent-update-plan": "agent_transfer/agent_update.rs",
+            "access-request": "agent_transfer/access_requests.rs",
+            "machine-catalog-publish": "connection_frame/machine_catalog.rs",
+            "fs.read": "fs_wire.rs",
+            "oracle-state": "oracle_state_command.rs",
+        }.items():
+            self.assertEqual(served[name].module, module)
+        CHECKER.validate_sniffed_coverage(self.ir, served)
 
 
 class LiveSchemaTests(unittest.TestCase):
