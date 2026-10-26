@@ -323,8 +323,6 @@ final class CEFPaneHost {
 
     func windowCreated(browser: Int32, request: Int32) {
         CEFStartSteps.shared.firstWindowEnded()
-        // Host mode's `cef.create_browser` ends at this reply, a late one (its tab closed meanwhile) included.
-        runtime.spareWindow.createTrace.created(request: request)
         guard case .creating(let expected) = window, expected == request, let tab = windowTab else {
             return lateWindowCreated(browser: browser, request: request)
         }

@@ -7,7 +7,8 @@ import Testing
 
 /// `cef.create_browser` (p09-observability 033): every shim create (`cmux_shim_create_window`,
 /// `cmux_shim_create_placeholder_window`) is inside one async pair, role-aware. In process the pair is the create
-/// call; in host mode it stays open until the host's created reply for its window request, a late one included.
+/// call; in host mode it stays open until the host's created reply for its window request (a late one, or one
+/// that comes during quit, included), or until quit stops waiting for it.
 /// The begin's `arg0` holds the spare bit and the profile index. Against a spy shim; each test has its own
 /// runtime and trace runtime.
 @MainActor @Suite(.serialized) struct CEFPaneHostTests {
@@ -71,6 +72,56 @@ import Testing
         #expect(runtime.spareWindow.createTrace.openCount == 0)
     }
 
+    @Test func aHostModeReplyThatComesDuringQuitStillEndsItsPair() async throws {
+        let (runtime, root, log) = try Self.spyRuntime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.paneHost(runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        host.ensureCreated(tab)
+        let request = try #require(runtime.pendingWindows.keys.first)
+
+        let quit = Task { await runtime.shutdown(timeout: .seconds(2)) }
+        for _ in 0..<100 where runtime.shutdownSequence == nil { await Task.yield() }
+        #expect(runtime.shutdownSequence != nil, "quit began")
+        runtime.handle(.afterCreated(browser: 10, request: request, window: 10))
+        #expect(CreateSpy.closed == [10], "quit closes the browser that came up under it")
+        #expect(log.records(named: Self.name).map(\.phase) == [.asyncBegin, .asyncEnd])
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+        runtime.handle(.beforeClose(browser: 10))
+        await quit.value
+    }
+
+    @Test func aHostModeCreateQuitStopsWaitingForEndsAtQuit() async throws {
+        let (runtime, root, log) = try Self.spyRuntime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let host = Self.paneHost(runtime)
+        let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(tab)
+        host.ensureCreated(tab)
+        #expect(runtime.spareWindow.createTrace.openCount == 1)
+
+        await runtime.shutdown(timeout: .milliseconds(200))
+
+        #expect(log.records(named: Self.name).map(\.phase) == [.asyncBegin, .asyncEnd], "no reply came before the wait ran out")
+        #expect(runtime.spareWindow.createTrace.openCount == 0)
+    }
+
+    @Test func eachProfilesCreateCarriesItsIndex() throws {
+        let (runtime, root, log) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for profile in [BrowserProfileID(rawValue: UUID()), BrowserProfileID(rawValue: UUID())] {
+            let host = Self.paneHost(runtime, profile: profile)
+            let tab = CEFTab(id: .random(), profile: profile, host: host, runtime: runtime)
+            host.add(tab)
+            host.ensureCreated(tab)
+        }
+        #expect(CreateSpy.windowCreates == 2)
+        let begins = log.records(named: Self.name).filter { $0.phase == .asyncBegin }
+        #expect(begins.map(\.arg0) == [CEFCreateBrowserTrace.beginArg0(spare: false, profileIndex: 1),
+                                         CEFCreateBrowserTrace.beginArg0(spare: false, profileIndex: 2)])
+    }
+
     @Test func aHostModeCreateThatWasNotSentEndsAtOnce() throws {
         let (runtime, root, log) = try Self.spyRuntime(hostMode: true, started: 0)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -106,9 +157,9 @@ import Testing
         #expect(CEFCreateBrowserTrace.beginArg0(spare: true, profileIndex: 2) == 0x201)
     }
 
-    /// A pane's host of the default profile (no spare is up, so it builds its own window).
-    private static func paneHost(_ runtime: CEFRuntime) -> CEFPaneHost {
-        runtime.host(for: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default))
+    /// A pane's host of `profile` (no spare is up, so it builds its own window).
+    private static func paneHost(_ runtime: CEFRuntime, profile: BrowserProfileID = .default) -> CEFPaneHost {
+        runtime.host(for: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile))
     }
 
     /// Chromium finished the one window being built: its OnAfterCreated, as `browser`.

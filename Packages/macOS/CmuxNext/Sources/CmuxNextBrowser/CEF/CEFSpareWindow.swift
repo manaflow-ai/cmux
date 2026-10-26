@@ -78,7 +78,7 @@ final class CEFSpareWindow {
     /// (`debug.cef` `window_built_on_key_turn`; a ready spare keeps it at 0).
     private(set) var windowsBuiltOnKeyTurn = 0
     /// `cef.create_browser`: the pair around each window the shim is asked to build, spares and panes alike
-    /// (`CEFPaneHost.ensureCreated`), closed at the host's created reply in host mode (`CEFPaneHost.windowCreated`).
+    /// (`CEFPaneHost.ensureCreated`), closed at the host's created reply in host mode (`CEFRuntime.browserCreated`).
     var createTrace = CEFCreateBrowserTrace()
 
     /// The untaken spare of `kind`, nil when none is up.

@@ -6,7 +6,8 @@ import CmuxNextSignposts
 /// - In process, the pair is the create call itself: `CefBrowserHost::CreateBrowser` and the `NSWindow` it
 ///   builds hold the main thread there (about 0.8 s in a macOS 26 VM, `CEFSpareWindow`).
 /// - In host mode the call only sends the request to the Chromium host, so the pair stays open until the
-///   host's created reply (OnAfterCreated, `CEFPaneHost.windowCreated`) for its window request.
+///   host's created reply (OnAfterCreated, `CEFRuntime.browserCreated`) for its window request, or until quit
+///   stops waiting for it.
 ///
 /// An async pair, not a thread slice, because a host-mode create ends in a later turn and two panes' creates
 /// can overlap, like Chrome's `TRACE_EVENT_NESTABLE_ASYNC_BEGIN0`/`END0` (base/trace_event/common/trace_event_common.h).
@@ -71,10 +72,17 @@ final class CEFCreateBrowserTrace {
         return started
     }
 
-    /// The host's created reply for `request` (every OnAfterCreated a host gets for its window request, a late
-    /// one included): ends that create's pair. No effect in process, where the pair already ended.
+    /// The host's created reply for `request` (every OnAfterCreated for a window request: a late one, or one
+    /// that comes during quit, included): ends that create's pair. No effect in process, where the pair already ended.
     func created(request: Int32) {
         guard let interval = awaitingReply.removeValue(forKey: request) else { return }
         signposter.end(.cefCreateBrowser, interval)
+    }
+
+    /// Quit stopped waiting for the host's replies (`CEFRuntime.shutdown`): ends every pair still open, so the ring
+    /// never keeps a begin without its end.
+    func endUnanswered() {
+        for interval in awaitingReply.values { signposter.end(.cefCreateBrowser, interval) }
+        awaitingReply.removeAll()
     }
 }
