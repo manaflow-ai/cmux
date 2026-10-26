@@ -62,16 +62,20 @@ def run_case(kind):
                    'die() { echo "$*" >&2; exit 2; }\n' + fence +
                    '\nprintf "%s\\n" "$BASE_SHA" "$RED_SHA" > identities\n'
                    f'git worktree add --detach "{before}" "$RED_SHA"\n'
-                   f'prepare_before_regression "{before}"\n')
+                   f'prepare_before_regression "{before}"\n'
+                   f'assert_measurement_checkout "{before}" "$RED_SHA"\n')
         result = subprocess.run(["bash", "-c", command], cwd=repo, env=env,
                                 capture_output=True, text=True)
         if kind == "wrong-test":
             assert result.returncode != 0, "unexpected final regression blob was accepted"
+            assert "final regression test blob changed" in result.stderr, result.stderr
             print("PASS unexpected final regression rejected")
             return
         assert result.returncode == 0, result.stdout + result.stderr
         selected_base, selected_red = (repo / "identities").read_text().splitlines()
         assert selected_base == base and selected_red == red
+        overlay = test_blob if kind == "squash" else "none"
+        assert f"test_overlay_blob={overlay}" in result.stdout, result.stdout
         assert git(before, "rev-parse", "HEAD") == red
         assert git(before, "hash-object", PRODUCT) == old_blob
         assert git(before, "hash-object", REGRESSION) == test_blob
