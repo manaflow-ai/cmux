@@ -123,8 +123,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   /// Pastes the screenshots made by `makeScreenshots` into the prompt, as ⌘V does, and starts a
   /// heartbeat that records the main thread's longest stall from then on.
-  const pasteScreenshots = (page: Page) =>
-    page.evaluate(() => {
+  /// `paste` false only starts the heartbeat (a baseline with nothing pasted).
+  const pasteScreenshots = (page: Page, paste = true) =>
+    page.evaluate((paste) => {
       const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
       state.stall = 0;
       let last = performance.now();
@@ -133,11 +134,12 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
         state.stall = Math.max(state.stall, now - last);
         last = now;
       }, 4);
+      if (!paste) return;
       const data = new DataTransfer();
       for (const file of state.screenshots) data.items.add(file);
       const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    }, paste);
 
   const longestStall = (page: Page) =>
     page.evaluate(() => {
@@ -242,15 +244,39 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
         new File([bytes], "IMG_0412.HEIC", { type: "image/heic" }),
       ];
     });
+    // The page's own stalls while typing with nothing attached (a loaded host adds its own), then
+    // with the photo: the photo adds less than 50 ms to the longest one.
+    await pasteScreenshots(page, false);
+    await page.keyboard.type(" idle", { delay: 20 });
+    const idle = await longestStall(page);
+    for (let at = 0; at < 5; at += 1) await page.keyboard.press("Backspace");
     await pasteScreenshots(page);
     // Its tile is there at once.
     expect(await page.locator(".acpmux-attachment").count()).toBe(1);
     await page.keyboard.type(" a photo from my phone", { delay: 20 });
     await page.waitForFunction(() => !document.querySelector(".acpmux-attachment-pending"));
     const stall = await longestStall(page);
-    console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms`);
+    console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms (${idle.toFixed(0)} ms idle)`);
     expect(await promptText(page)).toBe(" a photo from my phone");
-    expect(stall).toBeLessThan(50);
+    expect(stall).toBeLessThan(Math.max(50, idle + 50));
+    await page.close();
+  });
+
+  // Review (Codex): an image is a chip before the strip draws it; its original's upload must not
+  // read "not in the strip" as removed. In a chat with no local path, the original streams to the
+  // session's machine and the chip gets its path; removing the chip later stops it.
+  test("a pasted screenshot's original uploads, and its chip's x stops the upload", async () => {
+    const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 1);
+    await pasteScreenshots(page);
+    await page.locator(".acpmux-attachment-image img").waitFor();
+    // Its original went up, chunk by chunk, to the end.
+    await page.waitForFunction(() => (window as unknown as { calls: string[] }).calls.includes("chat.upload.finish"));
+    const chunks = await page.evaluate(
+      () => (window as unknown as { calls: string[] }).calls.filter((call) => call === "chat.upload.chunk").length,
+    );
+    expect(chunks).toBeGreaterThan(1);
     await page.close();
   });
 });

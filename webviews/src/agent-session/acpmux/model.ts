@@ -259,6 +259,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
+  /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
+  /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
+  doingSendTo?: string;
+  doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
@@ -1240,13 +1245,16 @@ function measuredRowHeight(
     // In Minimal Mode a closed message is its line alone, images too; one the person opened
     // (incomingOpened.ts) is its whole card, uncut.
     const minimal = chatDisplay().minimal;
-    const opened = minimal && messageOpened(sessionId, row.id);
+    const opened = messageOpened(sessionId, row.id);
     if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const card = 4 + 16 + (opened ? lines : Math.min(lines, RECEIVED_LINES * lineHeight)) + 6;
+    const limit = RECEIVED_LINES * lineHeight;
+    // .cv-user__more: a 20px control with 4px above it, only on a closed long card.
+    const more = !opened && lines > limit + 1 ? 24 : 0;
+    const card = 4 + 16 + (opened ? lines : Math.min(lines, limit)) + more + 6;
     return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
