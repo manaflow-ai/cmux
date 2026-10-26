@@ -5,8 +5,7 @@ public import Darwin
 // chrome/browser/task_manager/sampling/task_group_sampler.cc). Each passes its caller's
 // `#fileID` and `#line`, which name the call site, and returns what the call returns. `ProcessInfo.hostName`
 // and `Host.current()` get no seam: they wait on DNS, check-concurrency bans them, and `MacName` reads the
-// names without it. `proc_pidpath` and `proc_listpids` get no seam either: cmux-next never scans or
-// identifies processes (check-no-process-scan.py, plans/cmux-next/pty-holder.md section 4).
+// names without it.
 
 /// Reads or writes a kernel value by MIB, like `sysctl(3)`, as a checked blocking call (kind
 /// ``BlockingKind/systemQuery``).
@@ -63,6 +62,72 @@ public func blockingSysctlByName(_ name: UnsafePointer<CChar>, _ old: UnsafeMuta
 public func blockingProcPidInfo(_ pid: pid_t, _ flavor: Int32, _ argument: UInt64, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidinfo(pid, flavor, argument, buffer, size) }
+}
+
+/// Reads a process's executable path, like `proc_pidpath`, as a checked blocking call (kind
+/// ``BlockingKind/systemQuery``).
+///
+/// - Parameters:
+///   - pid: The process.
+///   - buffer: Receives the path (`PROC_PIDPATHINFO_MAXSIZE` bytes).
+///   - size: The buffer's size.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The path's length, or 0 or less on an error.
+@inlinable
+public func blockingProcPidPath(_ pid: pid_t, _ buffer: UnsafeMutableRawPointer, _ size: UInt32,
+                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidpath(pid, buffer, size) }
+}
+
+/// Reads a process's descriptor information, like `proc_pidfdinfo`, as a checked blocking call (kind
+/// ``BlockingKind/systemQuery``).
+///
+/// - Parameters:
+///   - pid: The process.
+///   - descriptor: Its descriptor.
+///   - flavor: The `PROC_PIDFD` flavor.
+///   - buffer: Receives the information.
+///   - size: The buffer's size.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The bytes written, or 0 or less on an error.
+@inlinable
+public func blockingProcPidFDInfo(_ pid: pid_t, _ descriptor: Int32, _ flavor: Int32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
+                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pidfdinfo(pid, descriptor, flavor, buffer, size) }
+}
+
+/// Lists process ids, like `proc_listpids`, as a checked blocking call (kind ``BlockingKind/systemQuery``).
+///
+/// - Parameters:
+///   - type: Which processes (`PROC_UID_ONLY`).
+///   - typeInfo: The type's argument (the uid).
+///   - buffer: Receives the pids, or nil to ask the size.
+///   - size: The buffer's size in bytes.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The bytes written (or needed), or 0 or less on an error.
+@inlinable
+public func blockingProcListPids(_ type: UInt32, _ typeInfo: UInt32, _ buffer: UnsafeMutableRawPointer?, _ size: Int32,
+                                 fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_listpids(type, typeInfo, buffer, size) }
+}
+
+/// Reads a process's resource usage, like `proc_pid_rusage`, as a checked blocking call (kind
+/// ``BlockingKind/systemQuery``).
+///
+/// - Parameters:
+///   - pid: The process.
+///   - flavor: The `RUSAGE_INFO` version.
+///   - buffer: Receives the usage (a `rusage_info_v4` for `RUSAGE_INFO_V4`, rebound).
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: 0, or -1 with `errno` set.
+@inlinable
+public func blockingProcPidRusage(_ pid: pid_t, _ flavor: Int32, _ buffer: UnsafeMutablePointer<rusage_info_t?>,
+                                  fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.systemQuery, fileID: fileID, line: line) { proc_pid_rusage(pid, flavor, buffer) }
 }
 
 /// Reads a user's account entry, like `getpwuid(3)`, as a checked blocking call (kind

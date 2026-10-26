@@ -64,8 +64,9 @@ public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, l
     return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.fsync(descriptor) }
 }
 
-/// Takes or drops an advisory lock, like `flock(2)`, as a checked blocking call (kind
-/// ``BlockingKind/syncWait``): without `LOCK_NB` it waits while another process holds the lock.
+/// Takes or drops an advisory lock, like `flock(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``,
+/// as Chrome's `base::File::Lock` in base/files/file_posix.cc): without `LOCK_NB` it waits while another process
+/// holds the lock.
 ///
 /// - Parameters:
 ///   - descriptor: The file.
@@ -75,7 +76,20 @@ public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, l
 /// - Returns: What `flock(2)` returns.
 @inlinable
 public func blockingFlock(_ descriptor: Int32, _ operation: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.syncWait, fileID: fileID, line: line) { Darwin.flock(descriptor, operation) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.flock(descriptor, operation) }
+}
+
+/// Sets a file's length, like `ftruncate(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
+///
+/// - Parameters:
+///   - descriptor: The file.
+///   - length: The new length.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: What `ftruncate(2)` returns.
+@inlinable
+public func blockingFtruncate(_ descriptor: Int32, _ length: off_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.ftruncate(descriptor, length) }
 }
 
 /// Renames a file, like `rename(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
@@ -160,6 +174,19 @@ public func blockingAccess(_ path: UnsafePointer<CChar>, _ mode: Int32, fileID: 
     return blockingCall(.fsMetadata, fileID: fileID, line: line) { Darwin.access(path, mode) }
 }
 
+/// Changes a file's mode, like `chmod(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
+///
+/// - Parameters:
+///   - path: The file.
+///   - mode: The new mode.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: What `chmod(2)` returns.
+@inlinable
+public func blockingChmod(_ path: UnsafePointer<CChar>, _ mode: mode_t, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { Darwin.chmod(path, mode) }
+}
+
 /// Makes a directory, like `mkdir(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
 ///
 /// - Parameters:
@@ -199,4 +226,21 @@ public func blockingRmdir(_ path: UnsafePointer<CChar>, fileID: StaticString = #
 public func blockingWaitpid(_ pid: pid_t, _ status: UnsafeMutablePointer<Int32>?, _ options: Int32,
                             fileID: StaticString = #fileID, line: UInt = #line) -> pid_t {
     return blockingCall(.processReap, fileID: fileID, line: line) { Darwin.waitpid(pid, status, options) }
+}
+
+/// Waits for a child's state change, like `waitid(2)`, as a checked blocking call (kind
+/// ``BlockingKind/processReap``). A `WNOHANG` poll does not wait: call `waitid` itself for that.
+///
+/// - Parameters:
+///   - type: Which id `id` is (`P_PID`).
+///   - id: The child.
+///   - info: Receives the child's state.
+///   - options: `waitid` options (`WEXITED`, `WNOWAIT`).
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: What `waitid(2)` returns.
+@inlinable
+public func blockingWaitid(_ type: idtype_t, _ id: id_t, _ info: UnsafeMutablePointer<siginfo_t>, _ options: Int32,
+                           fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.processReap, fileID: fileID, line: line) { Darwin.waitid(type, id, info, options) }
 }

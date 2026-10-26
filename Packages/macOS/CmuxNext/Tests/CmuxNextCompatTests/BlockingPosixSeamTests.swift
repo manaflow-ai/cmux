@@ -7,11 +7,11 @@ import LocalAuthentication
 import SQLite3
 import Testing
 
-/// The checked seams over POSIX file calls, `waitpid`, FileHandle opens and seeks, ImageIO file I/O, SQLite,
-/// kernel and directory queries and `LAContext.canEvaluatePolicy`: on the main thread each one records exactly
-/// one site at its caller's line with its kind; on a named serial queue none records. Each test binds its own
-/// table (``BlockingViolationTable/scoped``) and works in its own temporary directory, which it removes; the
-/// only child is `/usr/bin/true`, and the policy check asks for biometrics, which never shows a prompt.
+/// The checked seams over POSIX file calls, `waitpid` and `waitid`, FileHandle opens and seeks, ImageIO file I/O
+/// and decoding, SQLite, kernel, process and directory queries and `LAContext.canEvaluatePolicy`: on the main
+/// thread each one records exactly one site at its caller's line with its kind; on a named serial queue none
+/// records. Each test binds its own table (``BlockingViolationTable/scoped``) and works in its own temporary
+/// directory, which it removes; the only child is `/usr/bin/true`, and the policy check asks for biometrics, which never shows a prompt.
 @Suite(.serialized)
 struct BlockingPosixSeamTests {
     /// The names the debug log and the hang reports use never change.
@@ -46,9 +46,9 @@ struct BlockingPosixSeamTests {
         #expect(BlockingDetector(table: table).sites.isEmpty)
     }
 
-    /// The seam calls `callEachPosixSeam` makes: 34 seams, plus the spawn of the child it reaps and the two
-    /// extra unlinks that clean up.
-    private static let seamCalls = 37
+    /// The seam calls `callEachPosixSeam` makes: 47 seams, plus the spawn of the child it reaps, the second
+    /// SQLite open (the backup's copy) and the three extra unlinks that clean up.
+    private static let seamCalls = 52
     #endif
 }
 
@@ -78,12 +78,17 @@ private nonisolated func callEachPosixSeam() throws -> [BlockingSite] {
     seam(.fileIO) { _ = blockingPwrite(descriptor, &byte, 1, 0) }
     seam(.fileIO) { _ = blockingPread(descriptor, &byte, 1, 0) }
     seam(.fileIO) { _ = blockingFsync(descriptor) }
-    seam(.syncWait) { _ = blockingFlock(descriptor, LOCK_EX | LOCK_NB) }
+    seam(.fileIO) { _ = blockingFlock(descriptor, LOCK_EX | LOCK_NB) }
+    seam(.fileIO) { _ = blockingFtruncate(descriptor, 1) }
+    var vnodeInfo = vnode_fdinfowithpath()
+    let vnodeInfoSize = Int32(MemoryLayout<vnode_fdinfowithpath>.size)
+    seam(.systemQuery) { _ = blockingProcPidFDInfo(getpid(), descriptor, PROC_PIDFDVNODEPATHINFO, &vnodeInfo, vnodeInfoSize) }
     close(descriptor)
     var info = stat()
     seam(.fsMetadata) { _ = blockingStat(file, &info) }
     seam(.fsMetadata) { _ = blockingLstat(file, &info) }
     seam(.fsMetadata) { _ = blockingAccess(file, R_OK) }
+    seam(.fsMetadata) { _ = blockingChmod(file, 0o600) }
     seam(.fsMetadata) { free(blockingRealpath(file, nil)) }
     let moved = directory + "/moved"
     seam(.fsMetadata) { _ = blockingRename(file, moved) }
@@ -115,7 +120,18 @@ private nonisolated func callEachPosixSeam() throws -> [BlockingSite] {
     #expect(written)
     var source: CGImageSource?
     seam(.fileIO) { source = blockingImageSource(url: imageURL) }
-    #expect(source.map(CGImageSourceGetCount) == 1)
+    let reader = try #require(source)
+    var imageCount = 0
+    seam(.fileIO) { imageCount = blockingImageSourceCount(reader) }
+    #expect(imageCount == 1)
+    seam(.fileIO) { _ = blockingImageSourceCopyProperties(reader, at: 0) }
+    var decoded: CGImage?
+    let decodeOptions: [CFString: Any] = [kCGImageSourceShouldCacheImmediately: true]
+    seam(.fileIO) { decoded = blockingImageSourceCreateImage(reader, at: 0, options: decodeOptions as CFDictionary) }
+    #expect(decoded?.width == 1)
+    let thumbnailOptions: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                             kCGImageSourceThumbnailMaxPixelSize: 1]
+    seam(.fileIO) { _ = blockingImageSourceCreateThumbnail(reader, at: 0, options: thumbnailOptions as CFDictionary) }
     seam(.fsMetadata) { _ = blockingUnlink(directory + "/image.png") }
 
     // SQLite on a new database.
@@ -131,8 +147,20 @@ private nonisolated func callEachPosixSeam() throws -> [BlockingSite] {
     seam(.sqlite) { status = blockingSQLiteStep(statement) }
     #expect(status == SQLITE_ROW)
     sqlite3_finalize(statement)
+    // Back it up into a second database.
+    let copyPath = directory + "/copy.sqlite"
+    var copy: OpaquePointer?
+    seam(.sqlite) { status = blockingSQLiteOpen(copyPath, &copy, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE) }
+    #expect(status == SQLITE_OK)
+    let backup = try #require(sqlite3_backup_init(copy, "main", database, "main"))
+    seam(.sqlite) { status = blockingSQLiteBackupStep(backup, -1) }
+    #expect(status == SQLITE_DONE)
+    sqlite3_backup_finish(backup)
+    seam(.sqlite) { status = blockingSQLiteCloseV2(copy) }
+    #expect(status == SQLITE_OK)
     seam(.sqlite) { status = blockingSQLiteClose(database) }
     #expect(status == SQLITE_OK)
+    seam(.fsMetadata) { _ = blockingUnlink(copyPath) }
     seam(.fsMetadata) { _ = blockingUnlink(databasePath) }
     seam(.fsMetadata) { _ = blockingRmdir(directory) }
 
@@ -143,6 +171,9 @@ private nonisolated func callEachPosixSeam() throws -> [BlockingSite] {
     let argv: [UnsafeMutablePointer<CChar>?] = [path, nil]
     seam(.processSpawn) { status = blockingPosixSpawn(&pid, "/usr/bin/true", nil, nil, argv, environ) }
     try #require(status == 0)
+    var childInfo = siginfo_t()
+    seam(.processReap) { status = blockingWaitid(P_PID, id_t(pid), &childInfo, WEXITED | WNOWAIT) }
+    #expect(status == 0)
     var exitStatus: Int32 = 0
     seam(.processReap) { _ = blockingWaitpid(pid, &exitStatus, 0) }
 
@@ -156,10 +187,19 @@ private nonisolated func callEachPosixSeam() throws -> [BlockingSite] {
     seam(.systemQuery) { _ = blockingSysctlByName("hw.ncpu", &processors, &processorsSize, nil, 0) }
     var bsdInfo = proc_bsdinfo()
     seam(.systemQuery) { _ = blockingProcPidInfo(getpid(), PROC_PIDTBSDINFO, 0, &bsdInfo, Int32(MemoryLayout<proc_bsdinfo>.size)) }
+    var pathBuffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    let pathBufferSize = UInt32(pathBuffer.count)
+    seam(.systemQuery) { _ = blockingProcPidPath(getpid(), &pathBuffer, pathBufferSize) }
+    seam(.systemQuery) { _ = blockingProcListPids(UInt32(PROC_UID_ONLY), getuid(), nil, 0) }
+    let usage = UnsafeMutableRawPointer.allocate(byteCount: MemoryLayout<rusage_info_v4>.size,
+                                                 alignment: MemoryLayout<rusage_info_v4>.alignment)
+    defer { usage.deallocate() }
+    let usageBuffer = usage.bindMemory(to: rusage_info_t?.self, capacity: 1)
+    seam(.systemQuery) { _ = blockingProcPidRusage(getpid(), RUSAGE_INFO_V4, usageBuffer) }
     seam(.systemQuery) { _ = blockingGetpwuid(getuid()) }
     seam(.systemQuery) { _ = blockingGetpwnam("root") }
 
-    seam(.ipcReply) { _ = LAContext().blockingCanEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics) }
+    seam(.systemCall) { _ = LAContext().blockingCanEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics) }
     return expected
 }
 

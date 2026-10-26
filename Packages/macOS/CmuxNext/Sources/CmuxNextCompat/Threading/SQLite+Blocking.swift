@@ -80,3 +80,31 @@ public func blockingSQLiteExec(_ database: OpaquePointer?, _ sql: UnsafePointer<
 public func blockingSQLiteClose(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_close(database) }
 }
+
+/// Closes a connection, like `sqlite3_close_v2`, as a checked blocking call (kind ``BlockingKind/sqlite``): it
+/// checkpoints the WAL when it is the last connection.
+///
+/// - Parameters:
+///   - database: The connection.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The SQLite result code.
+@inlinable @discardableResult
+public func blockingSQLiteCloseV2(_ database: OpaquePointer?, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_close_v2(database) }
+}
+
+/// Copies pages of a backup, like `sqlite3_backup_step`, as a checked blocking call (kind ``BlockingKind/sqlite``):
+/// with -1 it reads the whole source database and writes the whole copy.
+///
+/// - Parameters:
+///   - backup: The backup (`sqlite3_backup_init`).
+///   - pages: How many pages to copy, or -1 for all.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The SQLite result code (`SQLITE_DONE` when the copy is complete).
+@inlinable
+public func blockingSQLiteBackupStep(_ backup: OpaquePointer?, _ pages: Int32,
+                                     fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
+    return blockingCall(.sqlite, fileID: fileID, line: line) { sqlite3_backup_step(backup, pages) }
+}

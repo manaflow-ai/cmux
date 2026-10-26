@@ -34,16 +34,16 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// ``BlockingContext/cpuLane``), off the main thread: that lane is sized to the cores, so a wait there holds a
     /// core's slot idle. Run the job on `.files` or `.system` (Chrome's task without `MayBlock`).
     case wrongLane = "wrong-lane"
-    /// A file system metadata call (`stat`, `lstat`, `access`, `realpath`, `mkdir`, `rmdir`, `rename`,
+    /// A file system metadata call (`stat`, `lstat`, `access`, `realpath`, `chmod`, `mkdir`, `rmdir`, `rename`,
     /// `unlink`): it waits for the volume, which on a network, FUSE or sleeping disk takes seconds.
     case fsMetadata = "fs-metadata"
-    /// A SQLite open, prepare, step, exec or close: it reads and writes the database file and waits out
+    /// A SQLite open, prepare, step, exec, backup step or close: it reads and writes the database file and waits out
     /// another connection's lock for the busy timeout.
     case sqlite
-    /// A `waitpid` that waits for a child to exit (without `WNOHANG`).
+    /// A `waitpid` or `waitid` that waits for a child to exit (without `WNOHANG`).
     case processReap = "process-reap"
-    /// A kernel or directory query (`sysctl`, `proc_pidinfo`, `getpwuid`): usually short, but it waits on a
-    /// kernel lock or for opendirectoryd.
+    /// A kernel or directory query (`sysctl`, `proc_pidinfo`, `proc_pidpath`, `proc_listpids`, `getpwuid`):
+    /// usually short, but it waits on a kernel lock or for opendirectoryd.
     case systemQuery = "system-query"
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
