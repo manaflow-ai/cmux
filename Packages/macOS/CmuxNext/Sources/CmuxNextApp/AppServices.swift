@@ -691,7 +691,6 @@ final class AppServices {
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)
         }
         surfaceInvariant.services = self
-        surfaceInvariant.observeWindowOcclusion()
         cache.presentationChanges.subscribe("surface-invariant") { [weak self] in self?.surfaceInvariant.noteChange() }
         cache.presentationChanges.subscribe("browser-host") { [weak self] in // not for a change of only terminals and agent pages
             guard let self else { return }
@@ -708,19 +707,18 @@ final class AppServices {
         daemon.workTracker = { [registry] in registry.track($0) }
         palettes.whenBuilt { [weak self] in self?.paletteBuilt($0) }  // no palette at launch (p08-startup-023)
         terminalDelegate.services = self
+        // Wiring only: the starts behind them are launch posts (`serviceStartPosts()`, p08-startup-031).
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
-        serverUpdates.start(registry: registry)
+        updater.wire(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
+        serverUpdates.bind(registry: registry)
+        input.startNoActivateGuard(tap: inputTap)  // an NSApp input hook: before the app activates
+        notifications.wire(services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
             }
         }
-        input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
-        browserHost = AppBrowserHost(services: self)
-        browserHost?.start()
-        notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
         // ends link hints and a waiting chord (it may move the keyboard).
@@ -734,6 +732,9 @@ final class AppServices {
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
+    /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
+    /// `start()` follows the settings `AppDelegate` set before it (`browser.showAgentCursor`).
+    func startBrowserHost() { if browserHost == nil { browserHost = AppBrowserHost(services: self); browserHost?.start() } }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
