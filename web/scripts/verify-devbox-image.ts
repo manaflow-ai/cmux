@@ -46,9 +46,10 @@ import {
   CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
+  DEVBOX_MACHINE_HEALTH_REARM_COMMAND,
   DEVBOX_MACHINE_HEALTH_RESUME_COMMAND,
-  DEVBOX_MACHINE_HEALTH_START_COMMAND,
   devboxAgentPins,
+  devboxMachineHealthRearmProblems,
   devboxMachineHealthResumeProblems,
   devboxDir,
   devboxGhosttyVersion,
@@ -442,7 +443,8 @@ if (provider === "freestyle") {
     const settled = await exec(devboxWaitForDaemonCommand(), 200_000);
     if (settled.exitCode !== 0) throw new Error(`baked daemon never reached its listener: ${settled.output.slice(-500)}`);
     // cmux-machine-health resumed parked: no pass in the clone's first seconds,
-    // its timer waiting on the housekeeping re-arm (cmux-devbox-boot).
+    // its timer waiting on the housekeeping re-arm (cmux-devbox-boot), which
+    // is scheduled to start it.
     const healthResume = await exec(DEVBOX_MACHINE_HEALTH_RESUME_COMMAND, 30_000);
     const healthResumeProblems = devboxMachineHealthResumeProblems(healthResume.output);
     console.log(`  $ machine-health at resume\n    ${(healthResumeProblems.join("\n") || healthResume.output.trim()).split("\n").join("\n    ")}`);
@@ -473,13 +475,6 @@ if (provider === "freestyle") {
     const idle = await exec(devboxIdleWakeupCheckCommand(), 180_000);
     console.log(`  $ idle-wakeup check\n    exit=${idle.exitCode}\n    ${idle.output.trim().split("\n").join("\n    ")}`);
     const idleOk = idle.exitCode === 0;
-    // cmux-machine-health smoke (cmux-vm-image/machine-health.ts), after the
-    // idle window: the timer started as the re-arm starts it, one full pass
-    // reports no problem, and the guard drop-ins apply.
-    const healthSmoke = await exec(`${DEVBOX_MACHINE_HEALTH_START_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`, 240_000);
-    const healthProblems = [...healthResumeProblems, ...machineHealthSmokeProblems(healthSmoke.output)];
-    console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
-    const healthOk = healthProblems.length === 0;
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
@@ -549,7 +544,17 @@ if (provider === "freestyle") {
       ...(desktop
         ? desktopChecks()
         : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
-    ], exec) && idleOk && healthOk && cloneIdentityOk;
+    ], exec) && idleOk && cloneIdentityOk;
+    // cmux-machine-health last: the re-arm also starts the other housekeeping
+    // timers, whose overdue runs the quiet-resume check above must not see.
+    // The re-arm starts the health timer (its service by hand, not its 10 min
+    // wait), the timer runs a pass, one more pass reports no problem, and the
+    // guard drop-ins apply (cmux-vm-image/machine-health.ts).
+    const healthSmoke = await exec(`${DEVBOX_MACHINE_HEALTH_REARM_COMMAND}; ${machineHealthSmokeCommand(DEVBOX_WORK_USER)}`, 240_000);
+    const healthProblems = [...healthResumeProblems, ...devboxMachineHealthRearmProblems(healthSmoke.output), ...machineHealthSmokeProblems(healthSmoke.output)];
+    console.log(`  $ machine-health smoke\n    ${(healthProblems.join("\n") || healthSmoke.output.trim()).split("\n").join("\n    ")}`);
+    const healthOk = healthProblems.length === 0;
+    pass = pass && healthOk;
     if (!idleOk) console.log("[freestyle] idle-wakeup check FAILED");
     if (!healthOk) console.log("[freestyle] machine-health check FAILED");
     if (!cloneIdentityOk) console.log("[freestyle] clone identity check FAILED (--strict-clone-identity)");
