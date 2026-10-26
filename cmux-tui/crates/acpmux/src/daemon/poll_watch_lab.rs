@@ -1,7 +1,7 @@
 //! Lab builds only (`cmux-tui/lab/stability.env`): the daemon's slow task
 //! polls (cmux-blocking `poll_watch`, installed on the runtime in
-//! `cli/entry.rs`) and blocking stalls go to `$ACPMUX_HOME/hangs.jsonl`,
-//! next to `panics.jsonl`.
+//! `cli/entry.rs`, which writes the totals before the daemon exits) and
+//! blocking stalls go to `$ACPMUX_HOME/hangs.jsonl`, next to `panics.jsonl`.
 
 use crate::config::home;
 

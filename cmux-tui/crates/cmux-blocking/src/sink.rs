@@ -18,6 +18,13 @@ pub trait RecordSink: Send + Sync {
     fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
         let _ = record;
     }
+
+    /// Receives a poll watch's totals once, when it ends (lab builds only,
+    /// [`crate::poll_watch::PollWatch::finish`]).
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll_summary(&self, summary: &crate::poll_watch::PollSummary) {
+        let _ = summary;
+    }
 }
 
 /// A sink was installed already; the first one stays.
@@ -32,7 +39,7 @@ impl std::fmt::Display for SinkAlreadyInstalled {
 
 impl std::error::Error for SinkAlreadyInstalled {}
 
-static SINK: OnceLock<Box<dyn RecordSink>> = OnceLock::new();
+pub(crate) static SINK: OnceLock<Box<dyn RecordSink>> = OnceLock::new();
 
 /// Install the process's sink. Call once from the composition root.
 pub fn install_sink(sink: Box<dyn RecordSink>) -> Result<(), SinkAlreadyInstalled> {
@@ -42,13 +49,6 @@ pub fn install_sink(sink: Box<dyn RecordSink>) -> Result<(), SinkAlreadyInstalle
 pub(crate) fn emit(record: &BlockingRecord) {
     if let Some(sink) = SINK.get() {
         sink.record(record);
-    }
-}
-
-#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
-pub(crate) fn emit_slow_poll(record: &crate::poll_watch::SlowPoll) {
-    if let Some(sink) = SINK.get() {
-        sink.slow_poll(record);
     }
 }
 
@@ -86,5 +86,10 @@ impl RecordSink for JsonlSink {
     #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
     fn slow_poll(&self, record: &crate::poll_watch::SlowPoll) {
         self.append(record.to_fields());
+    }
+
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    fn slow_poll_summary(&self, summary: &crate::poll_watch::PollSummary) {
+        self.append(summary.to_fields());
     }
 }

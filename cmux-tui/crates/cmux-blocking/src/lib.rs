@@ -257,12 +257,18 @@ pub fn scoped_blocking_call<R>(
         }
         ThreadKind::NoBlock if on_multi_thread_runtime() => {
             COUNTERS.compensated.fetch_add(1, Ordering::Relaxed);
-            tokio::task::block_in_place(|| {
+            #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+            let started = Instant::now();
+            let value = tokio::task::block_in_place(|| {
                 // The worker's queue moved to another thread; nested wrapper
                 // calls in `f` block only this one.
                 let _may_block = ThreadKindScope::enter(ThreadKind::MayBlock);
                 f()
-            })
+            });
+            // The poll watch does not count this time as the poll's.
+            #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+            poll_watch::note_compensated(started.elapsed());
+            value
         }
         ThreadKind::NoBlock => stalled_call(op, blocking_type, Location::caller(), f),
     }
