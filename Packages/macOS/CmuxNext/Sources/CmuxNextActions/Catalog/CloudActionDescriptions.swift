@@ -9,11 +9,11 @@
 nonisolated enum CloudActionDescriptions {
     static let text: [ActionID: String] = [
         "newCloudWorkspace": """
-            Opens a new workspace on a Cloud machine: --target machine:<id>, else the one the focused window \
-            shows, else the only one. A machine that is not connected yet is connected (a paused one resumes) \
-            and its progress shows in the window; with no machine at all it creates one, which may ask the \
-            person first when an agent or script started it. Answers at once with no ids: \
-            `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
+            Opens a workspace on a Cloud machine: --target machine:<id>, else the focused window's, else the \
+            only one. A connected machine gets a new workspace; one not connected is connected (a paused one \
+            resumes) and its first workspace opens. When no machine is picked (none, several and none \
+            focused, or a --target that names none) it creates a machine, which may ask the person first. \
+            Answers at once with no ids: `cmux cloud new-terminal-on-machine` returns a workspace_id.
             """,
         "newCloudMachine": """
             Creates a Cloud machine and returns machine_id, title, status and target (machine:<id>) once the \
