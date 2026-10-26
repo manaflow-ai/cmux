@@ -65,6 +65,7 @@ public final class ShortcutHintChipView: NSView {
         if newSize != oldSize { needsLayout = true }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit lays out only views on screen, so a hidden chip pays nothing
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsLayout = true // invalidate: the appearance changed; `layout()` sets the colors.

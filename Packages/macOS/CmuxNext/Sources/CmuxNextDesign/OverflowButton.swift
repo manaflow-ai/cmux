@@ -71,6 +71,7 @@ public final class OverflowButton: NSButton {
     /// agent that read the error pressed again).
     override public func accessibilityPerformPress() -> Bool {
         guard onPress != nil || pressMenu != nil else { return super.accessibilityPerformPress() }
+        // visibility-walk-allow: an accessibility press: a hidden button must not press, as AppKit's own AXPress refuses
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
         if let onPress {
             onPress()
