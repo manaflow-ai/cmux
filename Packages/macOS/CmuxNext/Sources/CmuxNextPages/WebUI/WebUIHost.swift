@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
 /// every page view (``open(_:)``), ends it (``close(_:)``), and knows every page it opened.
@@ -24,6 +25,9 @@ public final class WebUIHost {
     public let memoryPressure: MemoryPressureEvents
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
+    /// The WebKit process pool, the data store of each process group and the related views that
+    /// share a group's processes, for every WebKit page and agent view.
+    public let processGroups: PageProcessGroups
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -37,14 +41,32 @@ public final class WebUIHost {
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
+    ///   - sharesPageGroups: The `pageProcessGroups` feature: `privileged` and `viewer` pages share
+    ///     WebKit processes too, not only agent pages (``makeProcessGroups(sharesPageGroups:)``).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memoryPressure: MemoryPressureEvents, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(), sharesPageGroups: Bool = false) {
         self.chromium = chromium
         self.openPanel = openPanel
         self.memoryPressure = memoryPressure
         self.registry = registry
         self.clock = clock
+        processGroups = Self.makeProcessGroups(sharesPageGroups: sharesPageGroups)
+    }
+
+    /// WebKit process groups in the page pool, each group's pages in one non-persistent store
+    /// (page storage is in memory only, as Chrome's off-the-record WebUI pages). Agent pages share
+    /// processes, as the old agent host did; the `privileged` and `viewer` groups share only with
+    /// `sharesPageGroups` (the `pageProcessGroups` feature); `solo` and `secrets` never do.
+    ///
+    /// A view made outside a host (a pooled spare, a test) takes groups made here too, so no store
+    /// is made anywhere else.
+    ///
+    /// - Parameter sharesPageGroups: Whether `privileged` and `viewer` pages share processes.
+    public static func makeProcessGroups(sharesPageGroups: Bool = false) -> PageProcessGroups {
+        PageProcessGroups(processPool: PageProcessPool.shared,
+                          relatedGroups: sharesPageGroups ? [.agent, .privileged, .viewer] : [.agent],
+                          makeStore: { WKWebsiteDataStore.nonPersistent() })
     }
 
     /// Makes and starts loading the page `request` asks for, in the engine ``PageEnginePolicy``
@@ -55,7 +77,7 @@ public final class WebUIHost {
     ///   the bundle, or a first-party page asked for at another root).
     public func open(_ request: PageOpenRequest) -> PageWebView? {
         guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel,
-                                     registry: registry) else { return nil }
+                                     registry: registry, processGroups: processGroups) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         opened.add(view)

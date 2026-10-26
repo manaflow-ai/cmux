@@ -495,7 +495,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel, processGroups: webUI.processGroups) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

@@ -256,7 +256,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.init(request: PageOpenRequest(descriptor: descriptor, root: root, routes: routes, route: route,
                                            documentAttributes: documentAttributes, options: options,
                                            surface: surface, dynamicResources: dynamicResources),
-                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide)
+                  chromium: chromium, openPanel: Self.openPanel, registry: .processWide, processGroups: WebUIHost.makeProcessGroups())
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
@@ -264,7 +264,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
          openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
          openPanel: MadeAheadOpenPanel? = PageWebView.openPanel, registry: PageRegistry = .processWide,
-         trace: any PageTraceSink = TraceRuntime.shared) {
+         processGroups: PageProcessGroups = WebUIHost.makeProcessGroups(), trace: any PageTraceSink = TraceRuntime.shared) {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
         self.descriptor = descriptor
@@ -275,16 +275,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         self.inputReadiness = inputReadiness
-        // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
-        webView = PageWKWebView(frame: .zero, configuration: configuration)
+        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
+        engineDecision = pooled || !load ? decision.webKitOnly : decision
+        webView = processGroups.webView(for: descriptor.processGroup, configuration: configuration, // webview-allow: the page host's WebKit engine
+                                        joins: pooled || !load || decision.engine == .webKit) { PageWKWebView(frame: .zero, configuration: $0) } // a Chromium page's view never loads
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
         scriptTarget = target
         scripts = PageScriptPipeline { script in target.evaluate(script) }
-        let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
-        engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
         // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
         // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).

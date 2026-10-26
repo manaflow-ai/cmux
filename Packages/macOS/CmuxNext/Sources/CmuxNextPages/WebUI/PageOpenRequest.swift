@@ -47,8 +47,9 @@ extension PageWebView {
     ///   - chromium: Makes the page's Chromium view when the policy picks Chromium; nil keeps it on WebKit.
     ///   - openPanel: Answers the page's `<input type="file">` on WebKit; nil: a file input does nothing.
     ///   - registry: Lists the view for the debug verbs.
+    ///   - processGroups: The pool, the descriptor's group store and the related views of a WebKit page.
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
-                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry) {
+                      openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: PageProcessGroups) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {
@@ -60,11 +61,11 @@ extension PageWebView {
         }
         let handler = PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
-                                          options: request.options)
+                                          options: request.options, group: request.descriptor.processGroup, in: processGroups)
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
                   pooled: false, load: true, openRequested: requested, chromium: chromium,
-                  openPanel: openPanel, registry: registry)
+                  openPanel: openPanel, registry: registry, processGroups: processGroups)
     }
 }

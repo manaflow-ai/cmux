@@ -35,7 +35,7 @@ extension PageHostPool {
     private func build() async {
         defer { building = false }
         guard let recipe = measure("pool.makeSpare.configure", {
-            PageWebView.pooledHostRecipe(.settings, options: options)
+            PageWebView.pooledHostRecipe(.settings, options: options, processGroups: processGroups)
         }) else { return }
         await Self.nextTurn()
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }

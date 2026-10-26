@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextPages
 import WebKit
 
 /// Starts WebKit for the agent pages once the first window frame is committed
@@ -20,23 +21,22 @@ import WebKit
 /// build froze. The
 /// prewarm saved about 65 ms before the first agent page went live on a
 /// cold launch (cx-z9kz0). To bring it back, call `_warmInitialProcess` on
-/// ``processPool`` after the warmup view's load, once WebKit's stall is
+/// the groups' pool after the warmup view's load, once WebKit's stall is
 /// understood.
+///
+/// The view is made in the agent group's store and the pages' pool (``PageProcessGroups``), the
+/// ones every agent page uses, so the process it starts is one an agent page can use.
 extension AgentPaneView {
     private static var warmupView: WKWebView?
     /// Set once an agent page was made or the launch settled, so a later start cannot leave
     /// the empty page (and its web content process) alive for the whole session.
     static var warmupNoLongerNeeded = false
-    /// The in-memory data store every agent page shares. WebKit gives each store its own web
-    /// processes, so a fresh store per page could not use the one started here. Storage the
-    /// page keys per chat (drafts) stays per chat; the rest is app-wide choices.
-    static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
 
-    public static func startWarmup() {
+    /// - Parameter processGroups: The app's page groups (`WebUIHost.processGroups`).
+    public static func startWarmup(in processGroups: PageProcessGroups) {
         guard warmupView == nil, !warmupNoLongerNeeded else { return }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = sharedDataStore
-        configuration.processPool = processPool
+        processGroups.configure(configuration, for: PageDescriptor.agent.processGroup)
         // webview-allow: WebKit warm-up for the old agent host and a page host that falls back to WebKit
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)

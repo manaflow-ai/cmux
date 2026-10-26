@@ -26,6 +26,8 @@ public final class PageHostPool {
 
     let policy: Policy
     let options: PageEngineOptions
+    /// The pool and group stores the spares are made in (the app's ``WebUIHost/processGroups``).
+    let processGroups: PageProcessGroups
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
     let timer: DemandTimer
@@ -53,13 +55,17 @@ public final class PageHostPool {
 
     /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
     ///   source it drives); a warning or critical level drops the parked spare.
+    /// - Parameter processGroups: The app's ``WebUIHost/processGroups``, so a spare's page is in the
+    ///   pages' pool and its group's store (a test leaves the default, groups of its own).
     public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
+                processGroups: PageProcessGroups = WebUIHost.makeProcessGroups(),
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
         self.memoryPressure = memoryPressure
         self.policy = policy
         self.options = options
+        self.processGroups = processGroups
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)

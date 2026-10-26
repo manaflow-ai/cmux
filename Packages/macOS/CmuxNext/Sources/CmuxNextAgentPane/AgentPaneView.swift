@@ -108,11 +108,6 @@ public final class AgentPaneView: NSView {
     public let loadingView = AgentPaneLoadingView()
     public private(set) lazy var redraw = page.map { AgentPageRedraw(page: $0) } ?? AgentPageRedraw(webView: webView) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)
-    /// The process pool every agent page shares (R81: fonts are listed once per pool).
-    static let processPool = WKProcessPool()
-    /// The web content process groups of the agent pages in ``processPool`` (8 pages per process).
-    static let processGroups = WebProcessGroups()
-
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
         Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "agent-pane")
@@ -134,8 +129,10 @@ public final class AgentPaneView: NSView {
     ///     dev-server page stays.
     ///   - openPanel: The app's made-ahead open panel (`AppServices.openPanel`) for Add Files, Attach and a page's
     ///     file input, warmed when the pane reaches a window; nil (tests) shows no file picker and warms none.
+    ///   - processGroups: The app's page groups (`WebUIHost.processGroups`), whose agent group this view's
+    ///     own WebKit host joins; nil takes `pageHost`'s, else groups of its own (tests).
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil) {
+                 pageHost: WebUIHost? = nil, openPanel: MadeAheadOpenPanel? = nil, processGroups: PageProcessGroups? = nil) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         self.openPanel = openPanel
         fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
@@ -164,11 +161,9 @@ public final class AgentPaneView: NSView {
             })
         } else {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = AgentPaneView.sharedDataStore
-            // One process pool for every agent page: a fresh pool per page made WebKit list the
-            // user-installed fonts again for each new page (registerUserInstalledFonts, about
-            // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
-            configuration.processPool = Self.processPool
+            // The agent group's store in the pages' one pool (fonts are listed once per pool, R81 trace).
+            let groups = processGroups ?? pageHost?.processGroups ?? WebUIHost.makeProcessGroups()
+            groups.configure(configuration, for: PageDescriptor.agent.processGroup)
             if renderRate != .capped {
                 WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
@@ -185,10 +180,11 @@ public final class AgentPaneView: NSView {
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
-            // Pages share web content processes, 8 per process (WebProcessGroups): a process per
-            // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
-            // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
-            webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
+            // Agent pages share web content processes, 8 per process (PageProcessGroups).
+            webView = groups.webView(for: PageDescriptor.agent.processGroup, configuration: configuration) {
+                // webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
+                AgentPaneWKWebView(frame: .zero, configuration: $0)
+            }
             #if DEBUG || CMUX_BENCH_HOOKS
             // Automation launches (capture slots) keep a covered window's page drawing, as
             // PageWebView does: WebKit hid the covered New Tab page, so it never drew (cx-zjtn.6).
