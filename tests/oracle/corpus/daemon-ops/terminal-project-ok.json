@@ -142,13 +142,13 @@
         "pane": "$step:split#/value/pane_id",
         "terminal": "$step:fx-workspace#/value/terminal_id"
       },
-      "readOnly": true,
       "args": {
         "method": "terminal.copy",
         "params": {
           "mode": "screen"
         }
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": {
@@ -166,13 +166,13 @@
         "pane": "$step:fx-workspace#/value/pane_id",
         "terminal": "$step:fx-workspace#/value/terminal_id"
       },
-      "readOnly": true,
       "args": {
         "method": "terminal.copy",
         "params": {
           "mode": "screen"
         }
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": {

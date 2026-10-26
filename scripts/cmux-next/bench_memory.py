@@ -243,14 +243,23 @@ def terminal_kind(cmd: str) -> str | None:
 # from a content-addressed copy outside the bundle (host_exe.rs), so only the daemon pid ties them to this app.
 OWNER_ARG = re.compile(r"--owner \S+@(\d+)")
 
-# WebKit processes that ran before this run launched the app as its child (this bench's BenchApp launch); None
-# for an attached app, whose WebKit processes name the app as their responsible process, and for the benches that
-# start the app through ``launch`` (bench_hibernation, bench_power, bench_renderer_sharing).
+# WebKit processes that ran before this run launched the app as its child (a BenchApp launch: this bench's,
+# bench_hibernation's and bench_renderer_sharing's, through ``note_child_launch``); None for an attached app, whose
+# WebKit processes name the app as their responsible process, and for bench_power, which starts the app through
+# ``launch``.
 _foreign_webkit: set[int] | None = None
 
 
 def webkit_pids() -> set[int]:
     return {pid for pid, _, cmd in process_table() if "com.apple.WebKit." in cmd}
+
+
+def note_child_launch() -> None:
+    """Call right before a bench launches the app as its own child (BenchApp.launch): the WebKit processes that run
+    now are another app's, and those that start later and share the app's responsible process are its own
+    (``webkit_is_apps``)."""
+    global _foreign_webkit
+    _foreign_webkit = webkit_pids()
 
 
 def webkit_is_apps(pid: int, app_pid: int, app_responsible: int | None) -> bool:
@@ -622,7 +631,7 @@ def tail(path: str, lines: int = 20) -> str:
 
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch). The launcher of
-    bench_hibernation, bench_power and bench_renderer_sharing; this bench's own launch is BenchApp.
+    bench_power; this bench, bench_hibernation and bench_renderer_sharing launch through BenchApp.
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
     responsible process of its WebKit processes. A child of this script
@@ -1629,7 +1638,6 @@ def main(argv=None):
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
-    global _foreign_webkit
     bundle = os.path.realpath(args.app)
     bench = None
     if args.socket:
@@ -1659,7 +1667,7 @@ def main(argv=None):
             env.update({"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
         bench = BenchApp(bundle, out=results_dir, env=env, config=config, build_config=args.build_config,
                          perf_session=args.session)
-        _foreign_webkit = webkit_pids()
+        note_child_launch()
         try:
             bench.launch()
         except BaseException:

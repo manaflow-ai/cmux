@@ -1,10 +1,19 @@
 {
-  "$comment": "p15-oracle-065: the terminal family's 9 mutations (gen_daemon_ops.py reads this file; run it after an edit). Every case lists the terminal-holder switch: a both-arm run drives it on the per-terminal host (old) and on the holder (new, CMUX_TUI_TERMINAL_HOST_MODEL=holder). Each success case checks its effect after the call. VT state: a readOnly terminal.copy must equal the exact screen. The fill prints 40 lines and an 85-digit line, so its 24 rows from line-19 and the wrap at column 80 also check the 80x24 size; the focus and mouse probes print, in hex, the bytes the program read in raw mode. Exit record: a settle on the terminal's exit outcome. A program ends what it prints with an OSC 2 title, and the case settles on that title (the facet holds its sha256) before it reads the screen, so no output moves the facet during the read. The move and project destination is a split that runs sleep, which prints nothing. Each error case asserts a refusal of a handler or of the selector resolver with its details, except focus and scroll, whose catalog-type errors stay.",
+  "$comment": "p15-oracle-065: the terminal family's 9 mutations (gen_daemon_ops.py reads this file; run it after an edit). Every case lists the terminal-holder switch: a both-arm run drives it on the per-terminal host (old) and on the holder (new, CMUX_TUI_TERMINAL_HOST_MODEL=holder). Each success case checks its effect after the call, except terminal.viewport.scroll: it moves only the compatibility view, which no read or facet field returns yet, so its success case is excluded with a gap (p15-oracle-246) and its screen read checks only that the terminal did not change. Known failure: on the holder arm (new) every case fails I6 at teardown (p15-oracle-245); each success kind records it under `expectations`, the error case inherits it, and the generated block of tests/oracle/Expectations.d/daemon-ops.txt carries it. VT state: a readOnly terminal.copy must equal the exact screen. The fill prints 40 lines and an 85-digit line, so its 24 rows from line-19 and the wrap at column 80 also check the 80x24 size; the focus and mouse probes print, in hex, the bytes the program read in raw mode. Exit record: a settle on the terminal's exit outcome. A program ends what it prints with an OSC 2 title, and the case settles on that title (the facet holds its sha256) before it reads the screen, so no output moves the facet during the read. The move and project destination is a split that runs sleep, which prints nothing. Each error case asserts a refusal of a handler or of the selector resolver with its details, except focus and scroll, whose catalog-type errors stay.",
   "operations": {
     "terminal.close": {
       "success": {
         "switches": [
           "terminal-holder"
+        ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
         ],
         "after": [
           {
@@ -34,6 +43,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "before": [
           {
             "id": "fill",
@@ -59,7 +77,7 @@
         "after": [
           {
             "id": "history",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -102,6 +120,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "before": [
           {
             "id": "arm",
@@ -138,7 +165,7 @@
           },
           {
             "id": "read",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -163,6 +190,15 @@
       "success": {
         "switches": [
           "terminal-holder"
+        ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
         ],
         "params": {
           "keys": [
@@ -208,6 +244,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "before": [
           {
             "id": "arm",
@@ -247,7 +292,7 @@
           },
           {
             "id": "read",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -282,6 +327,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "params": {
           "text": "printf '\\033[H\\033[2J\\033[3J'; i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo line-$i; done; printf '%085d' 0; printf '\\033]2;oracle-filled\\007'; exec cat\r"
         },
@@ -296,7 +350,7 @@
           },
           {
             "id": "screen",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -365,6 +419,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "before": [
           {
             "id": "fill",
@@ -409,7 +472,7 @@
         "after": [
           {
             "id": "moved",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "pane": "$step:split#/value/pane_id",
               "terminal": {
@@ -444,6 +507,15 @@
       "success": {
         "switches": [
           "terminal-holder"
+        ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
         ],
         "before": [
           {
@@ -489,7 +561,7 @@
         "after": [
           {
             "id": "projected",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "pane": "$step:split#/value/pane_id",
               "terminal": {
@@ -506,7 +578,7 @@
           },
           {
             "id": "kept",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "pane": {
                 "$fixture": "pane"
@@ -547,6 +619,15 @@
         "switches": [
           "terminal-holder"
         ],
+        "expectations": [
+          {
+            "arm": "new",
+            "results": [
+              "Failure"
+            ],
+            "reason": "on the holder arm, shutdown-daemon end_terminals ends every terminal but leaves the holder running until its 30 s idle exit (cmux-holder IDLE_EXIT), so driver_daemon.py's I6 teardown (10 s) reports it left behind (p15-oracle-245)"
+          }
+        ],
         "before": [
           {
             "id": "fill",
@@ -575,7 +656,7 @@
         "after": [
           {
             "id": "screen",
-            "read": "terminal.copy",
+            "method": "terminal.copy",
             "target": {
               "terminal": {
                 "$fixture": "terminal"
@@ -590,7 +671,8 @@
             }
           }
         ],
-        "note": "scrolling the view 5 rows into the history moves the view, not the terminal: its screen reads the same 24 rows"
+        "note": "scrolling the view 5 rows into the history moves only the compatibility view, which no read returns yet: the screen read checks only that the terminal itself did not change",
+        "gap": "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback"
       },
       "error": {
         "before": []

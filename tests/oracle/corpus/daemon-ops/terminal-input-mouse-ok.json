@@ -127,13 +127,13 @@
         "session": "current",
         "terminal": "$step:fx-workspace#/value/terminal_id"
       },
-      "readOnly": true,
       "args": {
         "method": "terminal.copy",
         "params": {
           "mode": "screen"
         }
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": {

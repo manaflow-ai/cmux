@@ -104,7 +104,7 @@
         "before",
         "settled"
       ],
-      "note": "scrolling the view 5 rows into the history moves the view, not the terminal: its screen reads the same 24 rows"
+      "note": "scrolling the view 5 rows into the history moves only the compatibility view, which no read returns yet: the screen read checks only that the terminal itself did not change"
     },
     {
       "id": "screen",
@@ -114,13 +114,13 @@
         "session": "current",
         "terminal": "$step:fx-workspace#/value/terminal_id"
       },
-      "readOnly": true,
       "args": {
         "method": "terminal.copy",
         "params": {
           "mode": "screen"
         }
       },
+      "readOnly": true,
       "expect": {
         "outcome": "ok",
         "result": {
@@ -136,5 +136,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback"
   ]
 }

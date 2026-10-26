@@ -12,7 +12,7 @@ public import WebKit
 /// app built on macOS 13.3 or later.
 ///
 /// ```swift
-/// let inspector = WebKitInspector(webView: page.webKitView)
+/// let inspector = WebKitInspector(webView: webKit) // a target's WebKit engine
 /// inspector.show(.console)
 /// ```
 @MainActor

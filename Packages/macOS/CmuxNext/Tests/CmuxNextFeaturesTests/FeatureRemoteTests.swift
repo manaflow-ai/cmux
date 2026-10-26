@@ -362,19 +362,41 @@ struct FeatureRemoteTests {
         let seed = try #require(Data(base64Encoded: committed.privateSeed))
         let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: seed)
         #expect(privateKey.publicKey.rawRepresentation.base64EncodedString() == committed.publicKey)
-        let data = Data(#"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1}}"#.utf8)
+        let data = Data(Self.vectorDocument.utf8)
         let signature = try privateKey.signature(for: data).base64EncodedString()
-        let check = FeatureRemoteSignatureCheck(contentSigningKey: Self.key) { data, signature, key in
-            guard let signature = Data(base64Encoded: signature), let key = Data(base64Encoded: key),
-                  let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { return false }
-            return publicKey.isValidSignature(signature, for: data)
-        }
+        let check = FeatureRemoteSignatureCheck(contentSigningKey: Self.key, verify: Self.ed25519Verify)
         #if CMUX_BENCH_HOOKS
         #expect(FeatureRemoteSignatureCheck.benchTestPublicKey == committed.publicKey)
         #expect(check.isValid(data, signature: signature))
         #else
         #expect(!check.isValid(data, signature: signature))
         #endif
+    }
+
+    /// The shared vector: `scripts/features/publish-flags.py` signs it with the committed test key through
+    /// openssl (`VECTOR_SIGNATURE` in its tests); the daemon's `feature_flags::verify` checks the same bytes.
+    private static let vectorDocument = #"{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1}}"#
+    private static let vectorSignature = "awi7tNpxH9yQKKOTIR0rnhqC9NTbcMynkyHu64U9D1th0EHUG131NFw6LDGVN7gA+hhBDgJJA3xWZUMOv5eDBw=="
+
+    /// What the publish tool signs verifies with the bench key, and a bench build's check accepts it.
+    @Test func thePublishToolsVectorVerifiesWithTheBenchKey() {
+        let data = Data(Self.vectorDocument.utf8)
+        let publicKey = Self.committedTestKey.publicKey
+        #expect(Self.ed25519Verify(data, Self.vectorSignature, publicKey))
+        #expect(!Self.ed25519Verify(data + Data(" ".utf8), Self.vectorSignature, publicKey))
+        let check = FeatureRemoteSignatureCheck(contentSigningKey: Self.key, verify: Self.ed25519Verify)
+        #if CMUX_BENCH_HOOKS
+        #expect(check.isValid(data, signature: "\(Self.vectorSignature)\n"))
+        #else
+        #expect(!check.isValid(data, signature: Self.vectorSignature))
+        #endif
+    }
+
+    /// `ContentSignature.verify`'s check: an Ed25519 signature (base64) of the data by the raw public key (base64).
+    private static func ed25519Verify(_ data: Data, _ signature: String, _ key: String) -> Bool {
+        guard let signature = Data(base64Encoded: signature), let key = Data(base64Encoded: key),
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: key) else { return false }
+        return publicKey.isValidSignature(signature, for: data)
     }
     #endif
 }

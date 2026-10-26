@@ -44,8 +44,7 @@ public final class MobileConnectionMethodStore {
     /// The defaults key under which the connection method is stored.
     public static let methodKey = "dev.cmux.mobile.connectionMethod.v1"
 
-    // UserDefaults is Apple-documented thread-safe; OK to hold nonisolated.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let defaults: UserDefaults
     private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var continuations:
         [UUID: AsyncStream<MobileConnectionMethod>.Continuation] = [:]
