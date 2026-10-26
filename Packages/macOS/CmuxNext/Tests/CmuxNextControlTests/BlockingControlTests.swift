@@ -19,6 +19,7 @@ struct BlockingControlTests {
         let first = BlockingControl.report(["reset": .bool(true)], detector: detector)
         let sites = try #require(first.objectValue?["sites"]?.arrayValue)
         #expect(first.objectValue?["mode"]?.stringValue == "record")
+        #expect(first.objectValue?["compiled_in"]?.boolValue == true)
         #expect(sites.count == 1)
         #expect(sites.first?.objectValue?["kind"]?.stringValue == "file-io")
         #expect(sites.first?.objectValue?["count"]?.intValue == 2)

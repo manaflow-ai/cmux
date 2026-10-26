@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """idle-budget.py's pure parts: process kinds, per-kind sums, the v2 budget check (sessions, sums, ratios,
-assertions) and the perf cron rows; and procs.py's counters (interrupt and package-idle wakeups apart,
-billed energy, GPU time, the coalition). Runs on any host (libproc loads only to measure)."""
+assertions), the perf cron rows, the session table, energy per kind and tree, power assertions and the
+saver/thermal guard; and procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU
+time, the coalition). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
@@ -23,8 +24,35 @@ procs = ib.procs
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
 
 
-def row(kind, threads, wakeups, cpu=0.0):
-    return {"kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu}
+def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0):
+    return {"kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu,
+            "energy_mw_cpu": cpu_mw, "energy_mw_billed": billed_mw}
+
+
+PMSET = """Assertion status system-wide:
+   BackgroundTask                 0
+   PreventUserIdleSystemSleep     1
+Listed by owning process:
+   pid 501(cmux DEV t): [0x0000a1b200018c3d] 00:01:10 PreventUserIdleSystemSleep named: "cmux keep awake"
+   pid 88(powerd): [0x0000a1b200018c40] 00:00:05 PreventUserIdleDisplaySleep named: "Powerd - Prevent sleep while display is on"
+   pid 120(coreaudiod): [0x0000a1b200018c41] 00:00:30 PreventUserIdleSystemSleep named: "com.apple.audio.context123.preventuseridlesleep"
+\tCreated for PID: 777.
+\tResources: audio-out builtin-speaker
+   pid 900(Google Chrome Helper (Renderer)): [0x0000a1b200018c42] 00:00:01 PreventUserIdleSystemSleep named: "x"
+Kernel Assertions: 0x4=USB
+   id=500  level=255 0x4=USB mod=1/1/26, 9:00 AM description=com.apple.usb.externaldevice.14100000 owner=AppleUSB
+"""
+
+
+def ends(saver_start, saver_end, thermal_start="nominal", thermal_end="nominal", assertions=(), anim=None,
+         assertions_end=None):
+    start = {"saver": saver_start, "saver_reason": "setting" if saver_start else None, "thermal": thermal_start,
+             "assertions": list(assertions)}
+    end = {"saver": saver_end, "saver_reason": "setting" if saver_end else None, "thermal": thermal_end,
+           "assertions": list(assertions if assertions_end is None else assertions_end)}
+    if anim:
+        start["anim"], end["anim"] = anim
+    return {"start": start, "end": end}
 
 
 class IdleBudgetTests(unittest.TestCase):
@@ -455,6 +483,274 @@ class CountersTests(unittest.TestCase):
         for entry in entries:
             self.assertTrue(entry["owner"] and entry["why"])
             self.assertGreaterEqual(entry["period_s"], 15)
+
+
+class SessionTableTests(unittest.TestCase):
+    def test_tab_sessions_shape(self):
+        tabs = ib.SESSIONS["tabs-static"]["tabs"]
+        self.assertEqual((tabs["webkit_hidden"], tabs["chromium_hidden"], tabs["shown"]), (5, 10, "static"))
+        self.assertEqual(ib.SESSIONS["tabs-static"]["config"]["browser"]["freezeHiddenTabs"], ib.FREEZE_HIDDEN_TABS_S)
+        saver = ib.SESSIONS["energy-saver"]
+        self.assertEqual(saver["config"]["energy"], {"saver": "always"})
+        self.assertEqual(saver["tabs"]["shown"], "anim")
+        self.assertEqual((saver["tabs"]["webkit_hidden"], saver["tabs"]["chromium_hidden"]), (5, 10))
+        self.assertTrue(saver["saver"] and saver["anim"])
+        self.assertTrue(ib.SESSIONS["minimized"]["minimize"])
+        for name, entry in ib.SESSIONS.items():
+            self.assertEqual(bool(entry.get("saver")), name == "energy-saver", name)
+
+    def test_tab_sessions_settle_past_the_hidden_tab_freeze(self):
+        for name in ("tabs-static", "energy-saver"):
+            self.assertGreater(ib.settle_seconds(name, 5), ib.FREEZE_HIDDEN_TABS_S, name)
+            self.assertEqual(ib.settle_seconds(name, 120), 120)
+        self.assertEqual(ib.settle_seconds("light", 5), 5)
+
+    def test_unknown_session_refused_before_any_launch(self):
+        with self.assertRaises(SystemExit) as raised:
+            ib.parse_sessions("light,tabs-statik")
+        self.assertIn("unknown session tabs-statik", str(raised.exception))
+        self.assertEqual(ib.parse_sessions("tabs-static,energy-saver,minimized"), ["tabs-static", "energy-saver", "minimized"])
+        self.assertEqual(ib.parse_sessions("all"), list(ib.SESSIONS))
+
+    def test_tab_plan_hides_every_tab_behind_the_shown_one(self):
+        with ib.IdlePages() as pages:
+            plan = ib.tab_plan(pages, ib.SESSIONS["energy-saver"]["tabs"])
+            static = ib.tab_plan(pages, ib.SESSIONS["tabs-static"]["tabs"])
+        self.assertEqual([engine for engine, _, _ in plan], ["webkit"] * 5 + ["chromium"] * 11)
+        self.assertEqual(plan[0][1:], (pages.origin + "/static-w0", "w0"))
+        self.assertEqual(plan[-1][1:], (pages.origin + ib.ANIM_PATH, "anim"))
+        self.assertEqual(static[-1][1:], (pages.origin + "/static-shown", "shown"))
+        self.assertEqual(len({key for _, _, key in plan}), len(plan))
+
+    def test_idle_pages_serve_the_shared_static_page_and_the_animated_page(self):
+        import urllib.request
+        with ib.IdlePages() as pages:
+            static = urllib.request.urlopen(pages.url("static", "c3"), timeout=5).read().decode()
+            anim = urllib.request.urlopen(pages.origin + ib.ANIM_PATH, timeout=5).read().decode()
+            urllib.request.urlopen(urllib.request.Request(pages.origin + "/loaded/anim", method="POST"), timeout=5).read()
+            self.assertTrue(pages.wait_loaded("anim", 5))
+            self.assertFalse(pages.wait_loaded("c3", 0))
+        self.assertEqual(static, ib.tab_pages.TabPages.body(pages, "/static-c3").decode())
+        self.assertNotIn("requestAnimationFrame", static)
+        self.assertIn("requestAnimationFrame", anim)
+        self.assertIn("__rafCount", anim)
+        self.assertIn("/loaded/anim", anim)
+        self.assertIn(ib.ANIM_READ_PATH, anim)
+        self.assertIn(ib.ANIM_COUNT_PATH, anim)
+
+    def test_read_anim_answers_the_held_read_and_returns_the_posted_count(self):
+        """The page's read path, played by a thread as the page's script does it: a held GET, then the POST."""
+        import threading
+        import urllib.request
+        with ib.IdlePages() as pages:
+            def page():
+                urllib.request.urlopen(pages.origin + ib.ANIM_READ_PATH, timeout=10).read()
+                urllib.request.urlopen(urllib.request.Request(
+                    pages.origin + ib.ANIM_COUNT_PATH + "/1800/61000.25/visible", method="POST"), timeout=5).read()
+            held = threading.Thread(target=page)
+            held.start()
+            got = pages.read_anim(5)  # answered whether the GET arrived before or after this ask
+            held.join(5)
+            self.assertEqual(got, {"count": 1800, "t_ms": 61000.25, "visibility": "visible"})
+            self.assertIn("error", pages.read_anim(0.2))  # no page asks again: an error, not a hang
+            again = threading.Thread(target=page)
+            again.start()  # the late GET answers the read that timed out at once
+            again.join(5)
+            self.assertFalse(again.is_alive())
+        self.assertIn("error", ib.parse_anim_count(ib.ANIM_COUNT_PATH + "/x/1/visible"))
+
+    def test_the_anim_page_needs_no_devtools(self):
+        source = (HERE / "idle-budget.py").read_text()
+        self.assertNotIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", source)
+        self.assertNotIn("remote-debugging-port", source)
+
+
+class FakeApp:
+    """An app whose control socket records each method in `calls`, shared with the fake usage reads."""
+
+    def __init__(self, calls):
+        self.calls = calls
+
+    def rpc(self, method, params=None, timeout=30):
+        self.calls.append(method)
+        if method == "debug.hangs":
+            return {"main_wakes": 10 * sum(1 for c in self.calls if c == "debug.hangs")}
+        if method == "debug.energy":
+            return {"policy": {"isSaver": True, "reason": "setting"}}
+        return {}
+
+
+class MeasureOrderTests(unittest.TestCase):
+    def test_window_end_reads_sit_outside_every_counter_bracket(self):
+        calls = []
+        app = FakeApp(calls)
+        instance = type("Instance", (), {"pid": 1})()
+        saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+                 procs.thermal_state, procs.power_assertions, ib.time.sleep)
+        ib.process_set = lambda _instance: {1: f"{APP}/Contents/MacOS/cmux DEV"}
+        ib.threads = lambda _pid: {}
+        procs.usage = lambda _pid: calls.append("usage") or procs.usage_from_words(rusage_words(), 1, 1)
+        procs.overhead = lambda _pid: (0, 30, 0, 0, 0)
+        procs.gpu_ns_by_pid = lambda: {}
+        procs.coalition_of = lambda _pid: None
+        procs.thermal_state = lambda: "nominal"
+        procs.power_assertions = lambda _pids: calls.append("pmset") or []
+        ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
+        try:
+            result = ib.measure(app, instance, 60, read_anim=lambda: calls.append("anim") or {"count": 0, "t_ms": 0})
+        finally:
+            (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
+             procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
+        probes = {"debug.energy", "pmset", "anim"}
+        counters = [i for i, c in enumerate(calls) if c in ("debug.hangs", "debug.wakeups", "debug.cef", "debug.layers", "usage")]
+        start_probes = [i for i, c in enumerate(calls) if c in probes and i < counters[0]]
+        end_probes = [i for i, c in enumerate(calls) if c in probes and i > counters[-1]]
+        self.assertEqual(len(start_probes) + len(end_probes), sum(1 for c in calls if c in probes))
+        self.assertEqual((len(start_probes), len(end_probes)), (3, 3))
+        self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
+        self.assertEqual(result["ends"]["start"]["saver"], True)
+        self.assertIn("anim", result["ends"]["end"])
+
+
+class EnergyTests(unittest.TestCase):
+    def test_energy_sums_per_kind_and_tree(self):
+        kinds = ib.aggregate({"processes": [row("cef-renderer", 10, 0.1, cpu_mw=1.25, billed_mw=1.5),
+                                            row("cef-renderer", 10, 0.0, cpu_mw=0.75, billed_mw=0.5),
+                                            row("app", 40, 0.5, cpu_mw=8.0, billed_mw=9.0),
+                                            row("daemon", 9, 0.2, cpu_mw=0.5, billed_mw=0.5)]})
+        summary = ib.energy_summary(kinds)
+        self.assertEqual(summary["per_kind"], {"cef-renderer": {"cpu": 2.0, "billed": 2.0}, "app": {"cpu": 8.0, "billed": 9.0},
+                                               "daemon": {"cpu": 0.5, "billed": 0.5}})
+        self.assertEqual(summary["tree"], {"cpu": 10.5, "billed": 11.5})
+
+    def test_energy_from_fixture_rusage_to_mw(self):
+        """rusage words (ri_energy_nj, ri_billed_energy, ri_serviced_energy) through process_row, aggregate and
+        energy_summary over a 2 s window."""
+        zero = procs.usage_from_words(rusage_words(), 1, 1)
+        def process(pid, cmd, energy, billed, serviced):
+            last = procs.usage_from_words(rusage_words(energy=energy, billed=billed, serviced=serviced), 1, 1)
+            return ib.process_row(pid, cmd, zero, last, 2.0, gpu=0.0, threads_now=4, csw=0, ran=[])
+        rows = [process(1, f"{APP}/Contents/MacOS/cmux DEV", 8_000_000, 3_000_000, 1_000_000),
+                process(2, f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer", 2_500_000, 0, 500_000),
+                process(3, f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer", 1_500_000, 1_000_000, 0)]
+        self.assertEqual((rows[0]["energy_mw_cpu"], rows[0]["energy_mw_billed"]), (4.0, 5.0))  # (8 + 3 - 1) mJ / 2 s
+        summary = ib.energy_summary(ib.aggregate({"processes": rows}))
+        self.assertEqual(summary["per_kind"], {"app": {"cpu": 4.0, "billed": 5.0},
+                                               "cef-renderer": {"cpu": 2.0, "billed": 2.25}})  # 1.0 + 1.25
+        self.assertEqual(summary["tree"], {"cpu": 6.0, "billed": 7.25})
+
+
+class PowerAssertionTests(unittest.TestCase):
+    def test_assertions_of_the_pid_set(self):
+        found = procs.power_assertions({501, 777, 900}, PMSET)
+        self.assertEqual([(a["pid"], a.get("created_for")) for a in found], [(501, None), (120, 777), (900, None)])
+        self.assertEqual(found[0]["type"], "PreventUserIdleSystemSleep")
+        self.assertEqual(found[0]["name"], "cmux keep awake")
+        self.assertEqual(found[0]["process"], "cmux DEV t")
+        self.assertEqual((found[0]["id"], found[0]["age"]), ("0x0000a1b200018c3d", "00:01:10"))
+        self.assertNotIn("held", found[0])
+        self.assertEqual(found[2]["process"], "Google Chrome Helper (Renderer)")
+        self.assertEqual(procs.power_assertions({4242}, PMSET), [])
+
+    def test_an_assertion_read_at_both_ends_is_listed_once(self):
+        start = procs.power_assertions({501}, PMSET)
+        end = procs.power_assertions({501}, PMSET.replace("00:01:10", "00:02:10"))
+        self.assertNotEqual(start[0]["line"], end[0]["line"])  # only the age differs
+        got = ib.window_assertions(start, end)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["age"], "00:02:10")  # the latest read
+        other = procs.power_assertions({501}, PMSET.replace("0x0000a1b200018c3d", "0x0000a1b200018c99"))
+        self.assertEqual(len(ib.window_assertions(start, other)), 2)  # a new assertion with the same name counts
+
+
+class SaverAndThermalTests(unittest.TestCase):
+    def test_saver_state_from_debug_energy(self):
+        self.assertEqual(ib.saver_state({"policy": {"isSaver": True, "reason": "setting"}}), (True, "setting"))
+        self.assertEqual(ib.saver_state({"policy": {"isSaver": True}, "inputs": {"reason": "battery"}}), (True, "battery"))
+        self.assertEqual(ib.saver_state({"policy": {"isSaver": False}}), (False, None))
+        self.assertEqual(ib.saver_state({}), (None, None))
+
+    def test_saver_mismatch(self):
+        self.assertIsNone(ib.saver_mismatch(True, [True, True]))
+        self.assertIn("asked energy saver on", ib.saver_mismatch(True, [True, False]))
+        self.assertIn("asked energy saver on", ib.saver_mismatch(True, [None, None]))  # no debug.energy: not proven
+        self.assertIsNone(ib.saver_mismatch(False, [False, None]))
+        self.assertIn("asked energy saver off", ib.saver_mismatch(False, [False, True]))
+
+    def test_gate_refuses_a_saver_mismatch(self):
+        result = {"processes": [row("app", 40, 0.2)], "ends": ends(False, False)}
+        entry = ib.summarize("energy-saver", result, {"kinds": {}})
+        self.assertTrue(entry["saver"]["asked"])
+        self.assertEqual(entry["saver"]["observed"], [False, False])
+        self.assertIsNotNone(entry["saver"]["mismatch"])
+        self.assertEqual(entry["over"], [])
+        self.assertEqual(ib.exit_code(True, [], ["energy-saver"]), 1)
+        self.assertEqual(ib.exit_code(False, [], ["energy-saver"]), 0)
+        self.assertEqual(ib.exit_code(True, [], []), 0)
+        matched = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True)}, {"kinds": {}})
+        self.assertIsNone(matched["saver"]["mismatch"])
+        self.assertEqual(matched["saver"]["reason"], "setting")
+
+    def test_thermal_serious_marks_the_rows(self):
+        self.assertEqual(ib.worst_thermal(["fair", "serious"]), "serious")
+        self.assertEqual(ib.worst_thermal([None, "nominal"]), "nominal")
+        self.assertIsNone(ib.worst_thermal([None, None]))
+        hot = ib.summarize("light", {"processes": [row("app", 40, 0.2)], "ends": ends(False, False, "fair", "serious")},
+                           {"kinds": {}})
+        self.assertEqual(hot["thermal"], {"start": "fair", "end": "serious", "worst": "serious", "marked": True})
+        self.assertTrue(hot["kinds"]["app"]["thermal_marked"])
+        cool = ib.summarize("light", {"processes": [row("app", 40, 0.2)], "ends": ends(False, False, "fair", "fair")},
+                            {"kinds": {}})
+        self.assertFalse(cool["thermal"]["marked"])
+        self.assertNotIn("thermal_marked", cool["kinds"]["app"])
+
+    def test_report_entry_has_assertions_energy_saver_thermal(self):
+        held = procs.power_assertions({501}, PMSET)
+        later = procs.power_assertions({501}, PMSET.replace("00:01:10", "00:02:11"))
+        result = {"processes": [row("app", 40, 0.2, cpu_mw=4.0, billed_mw=5.0), row("daemon", 9, 0.1, cpu_mw=1.0, billed_mw=1.0)],
+                  "ends": ends(False, False, assertions=held, assertions_end=later)}
+        entry = ib.summarize("tabs-static", result, {"kinds": {}})
+        for key in ("assertions", "energy_mw", "saver", "thermal"):
+            self.assertIn(key, entry)
+        self.assertEqual(len(entry["assertions"]), 1)  # the same assertion at both ends is listed once
+        self.assertEqual(entry["energy_mw"]["per_kind"]["app"], {"cpu": 4.0, "billed": 5.0})
+        self.assertEqual(entry["energy_mw"]["tree"], {"cpu": 5.0, "billed": 6.0})
+        self.assertNotIn("anim", entry)
+        text = ib.table("tabs-static", entry["kinds"], [], entry)
+        self.assertIn("energy 5.0 mW CPU, 6.0 mW billed (tree)", text)
+        self.assertIn("1 power assertion(s)", text)
+
+    def test_animated_page_rate(self):
+        reads = ({"count": 100, "t_ms": 1000, "visibility": "visible"}, {"count": 1900, "t_ms": 61000, "visibility": "visible"})
+        entry = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=reads)}, {"kinds": {}})
+        self.assertEqual(entry["anim"]["raf_per_s"], 30.0)
+        self.assertEqual(entry["anim"]["visibility"], ["visible", "visible"])
+        self.assertEqual(ib.refusals(entry), [])
+
+    def test_gate_refuses_energy_saver_without_a_raf_rate(self):
+        unread = ({"error": "the page posted no rAF count in 10 s"}, {"count": 1, "t_ms": 2})
+        entry = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=unread)}, {"kinds": {}})
+        self.assertEqual([what for what, _ in ib.refusals(entry)], ["anim"])
+        light = ib.summarize("light", {"processes": [], "ends": ends(False, False)}, {"kinds": {}})
+        self.assertEqual(ib.refusals(light), [])
+        self.assertIn("error", ib.anim_rate({"error": "no target"}, {"count": 1, "t_ms": 2}))
+
+    def test_window_facts_reach_the_v2_session_rows(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        fast = ({"count": 0, "t_ms": 0, "visibility": "visible"}, {"count": 3600, "t_ms": 60000, "visibility": "visible"})
+        entry = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=fast)}, budget)
+        self.assertEqual(ib.window_facts(entry)["page_raf_per_s"], 60.0)
+        self.assertIn(["session", "page_raf_per_s", 60.0, 31], entry["over"])
+        capped = ({"count": 0, "t_ms": 0, "visibility": "visible"}, {"count": 1800, "t_ms": 60000, "visibility": "visible"})
+        ok = ib.summarize("energy-saver", {"processes": [], "ends": ends(True, True, anim=capped)}, budget)
+        self.assertEqual(ok["over"], [])
+        off = ib.summarize("energy-saver", {"processes": [], "ends": ends(False, False, anim=capped)}, budget)
+        self.assertIn(["session", "saver", False, True], off["over"])
+        unknown = ib.summarize("energy-saver", {"processes": [], "ends": ends(None, None, anim=capped)}, budget)
+        self.assertNotIn("saver", ib.window_facts(unknown))  # no debug.energy: refused (saver mismatch), not an over
+        held = procs.power_assertions({501}, PMSET)
+        light = ib.summarize("light", {"processes": [], "ends": ends(False, False, assertions=held)}, budget)
+        self.assertIn(["assertions", "held", 1, 0], light["over"])
 
 
 if __name__ == "__main__":
