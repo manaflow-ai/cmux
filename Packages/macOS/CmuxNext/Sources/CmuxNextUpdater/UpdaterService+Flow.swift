@@ -239,7 +239,7 @@ extension UpdaterService {
     /// forced `DisableAutoUpdate`.
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
-        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
+        let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && disabledReason != .managedPolicy
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
         // The tip app reads its feed every few minutes only where found updates download by
