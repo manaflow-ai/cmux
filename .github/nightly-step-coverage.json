@@ -167,6 +167,7 @@
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
       "find-nightly-next-recovery": {
+        "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "List newer pending nightly-next notarizations": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation"}},
       "recover-nightly-next-notarization": {
         "Initialize cmux-next notices submodule": {"plumbing": true},
@@ -204,7 +205,10 @@
       "keep-published-dsyms": {
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},
         "Keep the published build's dSYMs on R2": {"nightly_only": "archives the published build's symbols to R2 with release credentials after publication"}},
+      "pick-nightly-sign-runner": {
+        "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"}},
       "legacy-identity-target": {
+        "Pick the Blacksmith macOS label with a moving queue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly signing jobs take a Blacksmith label with a moving queue"},
         "Compare the cmux NEXT feed with the old feed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"}},
       "sign-nightly-identity-legacy": {
         "Prepare current NEXT DMG for the parallel identity": {"nightly_only": "rewrites the prepared Release cmux.app's Info.plist for the cmux NEXT identity before Developer ID signing; needs the Release app only the nightly builds"},
