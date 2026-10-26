@@ -283,7 +283,7 @@ final class LinkOpener {
                 return nil
             }
             let bound = DemandTimer(owner: "LinkOpener.tabListed")
-            bound.schedule(after: Self.listLimit) { @MainActor in listed.cancel() }
+            bound.scheduleOnMain(after: Self.listLimit) { listed.cancel() }
             let found = await listed.value
             bound.cancel()
             guard let tab = found, let source, let anchor = store.pane(holding: tab) else {

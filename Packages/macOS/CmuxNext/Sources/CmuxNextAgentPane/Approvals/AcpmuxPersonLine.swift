@@ -26,7 +26,7 @@ public final class AcpmuxPersonLine {
     public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment)
-        connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
+        connection.timer.scheduleOnMain(after: deadline) { [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
             return nil
