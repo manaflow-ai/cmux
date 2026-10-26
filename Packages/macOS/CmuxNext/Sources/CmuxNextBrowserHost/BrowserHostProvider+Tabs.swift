@@ -1,7 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// What was last sent in `tab.access` for a tab: resent when the page URL
 /// or the access changes.
@@ -10,33 +10,50 @@ struct AccessKey: Hashable {
     var access: ProviderTabAccess
 }
 
+/// The tab list and every CEF tab's extension access, as one read.
+///
+/// Not `Equatable` on purpose: ``BrowserHostProvider/readTabsNow()`` also reads outside the
+/// observation, so the observation's last value is not what the host was sent; every flush
+/// applies, and ``BrowserHostProvider/sendTabChanges()`` sends only the difference.
+struct ProviderTabsRead {
+    var tabs: [ProviderTab]
+    var access: [String: ProviderTabAccess]
+}
+
 extension BrowserHostProvider {
-    /// Reads the tab list and every CEF tab's extension access under
-    /// Observation tracking, then sends what changed. Each tracking pass
-    /// fires once; a newer pass (or `refreshTabs`) makes older ones no-ops.
-    func observeTabs() {
-        observation += 1
-        let pass = observation
-        let (tabs, access) = withObservationTracking {
-            readTabs()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.observation == pass else { return }
-                self.observeTabs()
-            }
+    /// Follows the tab list and every CEF tab's extension access, and sends what changed: one
+    /// ``ServiceObservation`` of the automation class (p06-scheduler-036), so a burst of tab changes
+    /// sends once, after the person's pending input. A person's own change (a tab they opened)
+    /// still applies in that input's turn (the observation's person cause). Idempotent.
+    func followTabs() {
+        guard tabsObservation == nil else { return }
+        tabsObservation = ServiceObservation(.automation, owner: "browser-host.tabs", on: mainWork) { [weak self] in
+            self?.readTabs() ?? ProviderTabsRead(tabs: [], access: [:])
+        } apply: { [weak self] read in
+            self?.applyTabs(read)
         }
-        latestTabs = tabs
-        latestAccess = access
+    }
+
+    /// Reads the tab list now, untracked, and sends what changed: for state that is not
+    /// observable (visibility, a page created or released), and for a tab a call just opened or
+    /// closed, which the host learns before the call's reply.
+    func readTabsNow() {
+        applyTabs(readTabs())
+    }
+
+    private func applyTabs(_ read: ProviderTabsRead) {
+        latestTabs = read.tabs
+        latestAccess = read.access
         sendTabChanges()
     }
 
-    private func readTabs() -> ([ProviderTab], [String: ProviderTabAccess]) {
+    private func readTabs() -> ProviderTabsRead {
         let tabs = tabSource?.providerTabs ?? []
         var access: [String: ProviderTabAccess] = [:]
         if let accessSource {
             for tab in tabs where tab.engine == .cef { access[tab.targetID] = accessSource.access(forTab: tab.targetID) }
         }
-        return (tabs, access)
+        return ProviderTabsRead(tabs: tabs, access: access)
     }
 
     /// Sends `tab.announced`, `tab.navigated` (main frame) and `tab.gone`
@@ -80,7 +97,7 @@ extension BrowserHostProvider {
     /// `waitForEvent("popup")` fires and its calls on the new tab find it.
     /// Neither tab announced (incognito, another machine's): nothing goes out.
     public func reportTabCreated(targetID: String, openerTargetID: String) {
-        observeTabs()
+        readTabsNow()
         guard connection != nil, let tab = announced[targetID], announced[openerTargetID] != nil else { return }
         send(.event(name: "tab.created", payload: .object([
             "targetId": .string(targetID), "openerTargetId": .string(openerTargetID), "url": .string(tab.url),

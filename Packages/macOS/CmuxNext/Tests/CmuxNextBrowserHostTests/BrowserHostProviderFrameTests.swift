@@ -10,32 +10,161 @@ import Testing
 /// CDP command and driver call of an agent waited for a frame tick (up to the frame scheduler's 100 ms
 /// stall timeout while the display sleeps); the review-1 fix handles each frame as it is read. The
 /// provider dials a stand-in host here: a call's reply leaves with no display frame.
+///
+/// p06-scheduler-036: each frame is one task of the automation class on the injected scheduler, so a
+/// command read while the person's input is pending runs after that input.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct BrowserHostProviderFrameTests {
     @Test func aCallIsAnsweredWithoutADisplayFrame() async throws {
+        let fixture = try ProviderFixture()
+        try await fixture.connect()
+        // A call that names no tab is refused by the app itself, at once (no driver, no page).
+        await fixture.host.send(.call(id: 7, method: "cookies.get", params: .object([:])))
+        let reply = try await fixture.reply(7) { turnMainRunLoop() }
+        guard case .result(_, let result, let error) = reply else { return }
+        #expect(result == nil)
+        #expect(error != nil)
+        #expect(fixture.work.frames.frames == 0, "the reply waited for a display frame")
+        await fixture.close()
+    }
+
+    /// A command the host sends while a key is pending waits for the key: the frame's task holds in
+    /// the automation queue on the frame the input is pending, and runs on the next one after it.
+    @Test func aCommandQueuedDuringPendingInputRunsAfterIt() async throws {
+        let fixture = try ProviderFixture()
+        let keeper = LinkKeeper(on: fixture.work)
+        try await fixture.connect()
+        fixture.input.pending = true
+        await fixture.host.send(.call(id: 9, method: "cookies.get", params: .object([:])))
+        let end = ContinuousClock.now + .seconds(5)
+        while fixture.work.postedCount(.automation) == 0, ContinuousClock.now < end { await Task.yield() }
+        #expect(fixture.work.postedCount(.automation) == 1, "the call was not posted as an automation task")
+        fixture.work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(fixture.work.postedCount(.automation) == 1, "the call ran ahead of the person's pending key")
+        fixture.input.pending = false
+        fixture.clock.advance(ms: 17)
+        fixture.work.frameDidFire(timestamp: 2, refreshInterval: 1.0 / 60)
+        #expect(fixture.work.postedCount(.automation) == 0, "the input cleared: the call runs")
+        let reply = try await fixture.reply(9) {}
+        guard case .result(_, let result, let error) = reply else { return }
+        #expect(result == nil)
+        #expect(error != nil)
+        keeper.stop()
+        await fixture.close()
+    }
+
+    /// Each handled frame names its own owner on the board; frames the app ignores post nothing.
+    @Test func eachHandledFrameKindHasABrowserHostOwner() {
+        #expect(BrowserHostProvider.taskOwner(of: .call(id: 1, method: "tab.info", params: .null)) == "browser-host.call")
+        #expect(BrowserHostProvider.taskOwner(of: .cdp(targetID: "t", message: "{}")) == "browser-host.cdp")
+        #expect(BrowserHostProvider.taskOwner(of: .lease(targetID: "t", lease: nil)) == "browser-host.lease")
+        #expect(BrowserHostProvider.taskOwner(of: .unknown(tag: "from-a-newer-host")) == nil)
+        #expect(BrowserHostProvider.taskOwner(of: .helloAck(agentBundle: "", agentBundleSHA: "")) == nil)
+    }
+}
+
+/// A provider on an injected scheduler (fake link, fake input, a clock the test moves), dialing a
+/// stand-in host.
+@MainActor
+private final class ProviderFixture {
+    let clock: TestUptime
+    let input: FakeInput
+    let work: MainWorkScheduler
+    let host: StandInHost
+    let sources: StandInSources
+    let provider: BrowserHostProvider
+
+    init() throws {
         let path = "/tmp/cmux-bh-test-\(getpid())-\(UInt32.random(in: 0...UInt32.max)).sock"
-        let host = try StandInHost(listeningAt: path)
+        let clock = TestUptime()
+        let input = FakeInput()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in FakeLink() }
         let sources = StandInSources(socketPath: path)
+        self.clock = clock
+        self.input = input
+        self.work = work
+        self.sources = sources
+        host = try StandInHost(listeningAt: path)
         // The provider's own dial (ProviderConnection.dial): the listener's peer is this process.
-        let provider = BrowserHostProvider(identity: ProviderIdentity(providerID: "test", installID: "test-install"),
-                                           credentials: sources, tabs: sources, access: sources, driver: nil,
-                                           relay: sources, marking: sources)
-        let framesBefore = FrameScheduler.app.frames
+        provider = BrowserHostProvider(identity: ProviderIdentity(providerID: "test", installID: "test-install"),
+                                       credentials: sources, tabs: sources, access: sources, driver: nil,
+                                       relay: sources, marking: sources, mainWork: work)
+    }
+
+    /// Starts the provider and completes the hello exchange.
+    func connect() async throws {
         provider.start()
         try await host.accept()
         let hello = try await host.next { if case .hello = $0 { true } else { false } }
         #expect(hello.tag == "hello")
         await host.send(.helloAck(agentBundle: "", agentBundleSHA: "sha"))
-        // A call that names no tab is refused by the app itself, at once (no driver, no page).
-        await host.send(.call(id: 7, method: "cookies.get", params: .object([:])))
-        let reply = try await host.next { if case .result(7, _, _) = $0 { true } else { false } }
-        guard case .result(_, let result, let error) = reply else { return }
-        #expect(result == nil)
-        #expect(error != nil)
-        #expect(FrameScheduler.app.frames == framesBefore, "the reply waited for a display frame")
+    }
+
+    /// The `result` of call `id`, read on the host's actor while `turn` runs between main-actor
+    /// yields (a post on an idle scheduler runs on a main run loop turn, which a test must turn).
+    func reply(_ id: UInt64, turning turn: () -> Void) async throws -> ProviderFrame {
+        let seen = SeenFrame()
+        let host = self.host
+        let reader = Task {
+            seen.frame = try await host.next { if case .result(id, _, _) = $0 { true } else { false } }
+        }
+        let end = ContinuousClock.now + .seconds(5)
+        while seen.frame == nil, ContinuousClock.now < end {
+            turn()
+            await Task.yield()
+        }
+        try await reader.value
+        return try #require(seen.frame)
+    }
+
+    func close() async {
         provider.stop()
         withExtendedLifetime(sources) {}
         await host.close()
     }
+}
+
+@MainActor
+private final class SeenFrame {
+    var frame: ProviderFrame?
+}
+
+/// One pass of the main run loop, where the scheduler's first post after idle runs.
+@MainActor
+private func turnMainRunLoop() {
+    _ = CFRunLoopRunInMode(.defaultMode, 0.002, true)
+}
+
+/// A frame-class client that keeps the scheduler's fake link up, so posts wait for hand-fired frames.
+@MainActor
+private final class LinkKeeper {
+    private let client: FrameClient
+
+    init(on work: MainWorkScheduler) {
+        client = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
+        client.activate()
+    }
+
+    func stop() { client.deactivate() }
+}
+
+/// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).
+@MainActor
+private final class TestUptime {
+    private var now: UInt64 = 1_000_000_000
+    var read: () -> UInt64 { { [self] in self.now } }
+    func advance(ms: Double) { now += UInt64(ms * 1_000_000) }
+}
+
+@MainActor
+private final class FakeInput: InputPendingSource {
+    var pending = false
+    func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
+}
+
+@MainActor
+private final class FakeLink: FrameLink {
+    var isPaused = false
+    func invalidate() {}
 }
 
 /// The browser host's end: a listening socket the provider dials, then the accepted link. Reads and
