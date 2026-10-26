@@ -5,7 +5,6 @@ import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
-import CmuxNextCompat
 
 /// One downscaled RGBA frame of a window as the window server composited it, top row first,
 /// `milliseconds` after its recording started: the pixel half of the app's
