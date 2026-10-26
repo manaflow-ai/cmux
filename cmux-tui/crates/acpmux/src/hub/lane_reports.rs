@@ -688,6 +688,84 @@ mod tests {
         assert_eq!(read(5), None);
     }
 
+    fn test_hub() -> Arc<Hub> {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    fn queued_report(lane: &str) -> Report {
+        Report {
+            content: "idle\nlast words".into(),
+            prompt_id: format!("{PROMPT_PREFIX}test"),
+            name: "lane".into(),
+            session: lane.to_owned(),
+            turn: 1,
+            state: "idle".into(),
+            reply: "last words".into(),
+            prs: vec![],
+            shas: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_parent_that_starts_closing_after_the_link_check_takes_no_report() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
+        let now = now_ms();
+        let due = hub.lane_take_due(&lane.id, now).unwrap();
+        // The parent's close has begun (`kill` marks it closing, then closes it) but has not
+        // retired its links yet: the link check passes, the parent must still refuse it.
+        parent.closing.store(true, Ordering::SeqCst);
+        hub.set_status(&parent, SessionStatus::Closed);
+        hub.lane_hand_over(&lane.id, due, now).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(parent.meta().turn_count, 0, "the closing parent took the report");
+        assert_eq!(parent.status(), SessionStatus::Closed, "the report reopened the parent");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
+    /// Quit Everything (`_acpmux/shutdown endAgents`) ends the parent with its lanes, and no
+    /// agent may start once the shutdown has begun: a lane's turn it cancels reports nothing.
+    #[tokio::test]
+    async fn a_lane_turn_quit_everything_cancels_reports_nothing() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        let (h, l) = (hub.clone(), lane.clone());
+        let blocks = vec![json!({"type": "text", "text": "until-cancel"})];
+        let run = tokio::spawn(async move {
+            h.prompt_with(&l, blocks, "test", false, PromptOptions::default()).await
+        });
+        for _ in 0..100 {
+            if lane.turn().is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert!(lane.turn().is_some(), "the lane's turn never started");
+        hub.end_agents_at_shutdown(Default::default()).unwrap();
+        hub.shutdown_all().await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), run).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(parent.meta().turn_count, 0, "a report went in during the shutdown");
+        assert!(hub.lane_links(|l| l.get(&lane.id).is_none_or(|l| l.ready.is_none())));
+    }
+
     #[tokio::test]
     async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_parent() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
