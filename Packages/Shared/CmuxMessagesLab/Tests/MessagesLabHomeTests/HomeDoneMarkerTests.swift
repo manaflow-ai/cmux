@@ -14,7 +14,9 @@ import Testing
     static let session = "\(t)optchat-b902d10e-816"
     static let marker = MessagePart.work(WorkRef(session: session, title: session, status: .done))
 
-    @Test func doneMarkerShowsNoBubbleAndEndsItsStream() async throws {
+    /// The Chief posts the marker at the top level; an older one posted it in the thread of the
+    /// message it closed. Neither draws.
+    @Test(arguments: [false, true]) func doneMarkerShowsNoBubbleAndEndsItsStream(threaded: Bool) async throws {
         let rig = try await HomeChatRig()
         defer { rig.stop() }
         rig.view.projection.isVisibleToUser = true
@@ -29,10 +31,9 @@ import Testing
         rig.frame()
         #expect(rig.bubbles() == [asked, "\(Self.t)checking"], "the turn streams")
 
-        // An older Chief posted the marker in the thread of the message it closed: it still quotes nothing.
-        #expect(await rig.post([Self.marker], key: turn, threadRoot: root))
+        #expect(await rig.post([Self.marker], key: turn, threadRoot: threaded ? root : nil))
         rig.frame()
-        #expect(rig.bubbles() == [asked], "no bubble or quote for the marker, and its turn's stream ended")
+        #expect(rig.bubbles() == [asked], "no bubble for the marker, and its turn's stream ended")
         #expect(rig.view.controller.store?.state.ui.streams.isEmpty == true)
 
         // The marker is the newest message: reading the chat reads it too, or one unread stays for good.

@@ -52,7 +52,7 @@ fn markers(h: &Harness) -> Vec<(Vec<String>, Option<String>, Option<PartRef>)> {
 
 #[test]
 fn a_done_marker_closes_its_message_outside_that_messages_thread() {
-    // An earlier reply left msg_1's work open (a subagent was at work).
+    // The work the turn answers is open (a subagent was at work for it).
     let dir = tempfile::tempdir().unwrap();
     StateFile::new(&dir.path().join("host.json"))
         .save(&HostState {
