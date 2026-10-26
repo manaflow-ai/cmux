@@ -1590,7 +1590,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextIPC",
-            dependencies: ["CmuxNextWireDigest"],
+            // CmuxNextCompat: the Mutex of StreamDemux's sinks (p05-ipc-056).
+            dependencies: ["CmuxNextWireDigest", "CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings,
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
         ),
