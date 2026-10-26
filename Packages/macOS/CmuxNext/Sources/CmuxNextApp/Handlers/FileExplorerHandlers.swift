@@ -1,5 +1,6 @@
 import CmuxNextActions
 import Foundation
+import CmuxNextFilesUI
 
 /// The tree an explorer action runs on, and what the run needs from its window.
 struct FileExplorerRunTarget {

@@ -17,7 +17,7 @@ extension BookmarkService {
     var iconOwner: DaemonService { services.machines.local }
 
     /// Folder icons can be set and removed: the home daemon serves `bookmark-icon-v1`.
-    var supportsFolderIcons: Bool { iconOwner.supports(DaemonCapabilities.shared.bookmarkIcon) }
+    var supportsFolderIcons: Bool { iconOwner.supports(DaemonCapability.bookmarkIcon.rawValue) }
 
     /// Folder `node`'s own icon at `side` points for the bar and its menus: a
     /// symbol as a template image the bar tints, an emoji or a stored asset in

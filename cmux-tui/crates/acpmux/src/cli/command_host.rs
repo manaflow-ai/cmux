@@ -18,6 +18,22 @@ pub enum PeerCmd {
     },
     /// List peers and their connection state.
     Ls,
+    /// Each peer's health, asked live: reachable, round trip, disk free,
+    /// load, live sessions and build, this machine first. Run it before
+    /// remote work and after a peer request fails, instead of retrying blind.
+    Status {
+        /// Only this peer.
+        name: Option<String>,
+    },
+    /// Where new work should go: this machine and each peer weighed by its
+    /// room (RAM, cores less load, disk, lane cap) and its role in
+    /// fleet-registry.json, from the readings the links already keep. The
+    /// pick `new --host auto` and `dispatch --host auto` make, with why.
+    Place {
+        /// For a build or test suite: only build hosts.
+        #[arg(long)]
+        build: bool,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -157,4 +173,15 @@ pub enum TicketCmd {
     /// Revoke a ticket, or a paired machine by id or name; its open
     /// connections close at once.
     Revoke { id: String },
+    /// Let a paired client machine run chats in Full access (on), or not
+    /// (off, the default): the agent edits files and runs commands on this
+    /// machine without asking. On needs the person (the cmux app's Settings);
+    /// off takes effect at once.
+    FullAccess {
+        /// The machine's id or name (`cmux host ticket ls`).
+        id: String,
+        /// on or off.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }

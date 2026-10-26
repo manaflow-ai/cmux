@@ -209,14 +209,22 @@ pub(crate) fn lock_updates(r: &dyn Remote) -> Result<Option<HostLock>> {
             },
         )
     });
-    if held == Some(true) {
-        return Ok(Some(HostLock { child, token }));
-    }
-    drop(child.stdin.take());
-    let out = child.wait_with_output().with_context(|| format!("ssh {}", r.host()))?;
     match held {
-        Some(_) => Ok(None),
+        Some(true) => Ok(Some(HostLock { child, token })),
+        Some(false) => {
+            // Wait for the process only, not for its pipes' end: another child started at
+            // the same moment (an update of another host, or of this one) can hold a copy
+            // of this one's stderr until it ends (macOS sets close-on-exec after `pipe`,
+            // not with it), and the holder of the lock ends only after this caller
+            // returned (`of_updates_that_start_at_once_one_takes_the_lock` hung to its
+            // 120 s timeout at 944d5cc59f05).
+            drop((child.stdin.take(), child.stderr.take()));
+            child.wait().with_context(|| format!("ssh {}", r.host()))?;
+            Ok(None)
+        }
         None => {
+            drop(child.stdin.take());
+            let out = child.wait_with_output().with_context(|| format!("ssh {}", r.host()))?;
             Err(anyhow!("ssh {} failed: {}", r.host(), String::from_utf8_lossy(&out.stderr).trim()))
         }
     }

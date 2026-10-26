@@ -5,7 +5,7 @@
 // choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
 // drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
 // chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal } from "./chatFind";
 import {
@@ -17,6 +17,8 @@ import {
   promptParts,
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { foldMotion, foldMs } from "./fold";
+import { holdHeader } from "./useAnchoredCollapse";
 
 export function PromptText({
   rowId,
@@ -70,6 +72,68 @@ export function PromptText({
     return () => observer.disconnect();
   }, [parts, long, open]);
   const collapsed = long && !open;
+  // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
+  // over the fold's token, without moving what the reader looks at ("just expand the area at the
+  // bottom and you're in the same place"):
+  // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
+  //   bottom edge down instead of jumping there.
+  // - Show less holds the button, where the reader clicked it: the text shrinks back above it into
+  //   its first lines, fully drawn until it is clipped.
+  // A toggle midway starts from the drawn height; unmounting cancels what plays.
+  const resized = useRef<number | undefined>(undefined);
+  const resizing = useRef<Animation[]>([]);
+  const stopResize = () => {
+    for (const animation of resizing.current) animation.cancel();
+    resizing.current = [];
+  };
+  useEffect(() => stopResize, []);
+  const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
+  const showMore = (next: boolean) => {
+    const bubble = body.current?.parentElement;
+    if (bubble) {
+      holdHeader(next ? bubble : (more() ?? bubble));
+      resized.current = bubble.getBoundingClientRect().height;
+    }
+    stopResize();
+    setOpen(next);
+  };
+  useLayoutEffect(() => {
+    const from = resized.current;
+    resized.current = undefined;
+    const bubble = body.current?.parentElement;
+    const text = body.current;
+    const ms = foldMs(bubble ?? null);
+    if (from === undefined || !bubble || !text || ms <= 0) return;
+    const to = bubble.getBoundingClientRect().height;
+    if (Math.abs(to - from) < 1) return;
+    const timing = { duration: ms, easing: foldMotion.easing(bubble) };
+    if (collapsed) {
+      // The clamped text is a box again: it starts as tall as the whole text was drawn.
+      const clamped = text.getBoundingClientRect().height;
+      resizing.current.push(
+        text.animate(
+          [
+            { height: `${clamped + from - to}px`, maxHeight: "none" },
+            { height: `${clamped}px`, maxHeight: "none" },
+          ],
+          timing,
+        ),
+      );
+      return;
+    }
+    resizing.current.push(
+      bubble.animate(
+        [
+          { height: `${from}px`, overflow: "hidden" },
+          { height: `${to}px`, overflow: "hidden" },
+        ],
+        timing,
+      ),
+    );
+    const button = more();
+    if (button)
+      resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
+  }, [collapsed]);
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.
   const reveal = useContext(FindReveal);
@@ -111,7 +175,7 @@ export function PromptText({
           aria-expanded={!collapsed}
           aria-controls={id}
           data-find-skip=""
-          onClick={() => setOpen(collapsed)}
+          onClick={() => showMore(collapsed)}
         >
           {t(collapsed ? "message.more" : "message.less")}
         </button>

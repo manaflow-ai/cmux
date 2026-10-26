@@ -400,3 +400,29 @@ fn network_events_report_requests_of_the_tab() {
     let done = state.apply(&cdp(Some("S1"), "Network.loadingFinished", json!({"requestId": "r1"})));
     assert_eq!(names(done), vec!["requestfinished:\"T1\""]);
 }
+
+#[test]
+fn a_router_hash_change_after_commit_does_not_hide_the_new_document() {
+    // demo.playwright.dev/todomvc: the app's router moves to `#/` right after the
+    // document commits, before `load`. page.goto waits for the new document's
+    // load; the later same-document navigation must not end or strand that wait.
+    let mut state = State::default();
+    attach(&mut state, "T1", "S1", None);
+    let before = state.tabs["T1"].doc_seq;
+    navigate_main(&mut state, "S1", "L1", "https://a.test/todomvc/");
+    state.apply(&cdp(
+        Some("S1"),
+        "Page.navigatedWithinDocument",
+        json!({"frameId": "MAIN", "url": "https://a.test/todomvc/#/"}),
+    ));
+    assert!(!state.tabs["T1"].document_since(before, |tab| tab.lifecycle.contains("load")));
+    state.apply(&cdp(
+        Some("S1"),
+        "Page.lifecycleEvent",
+        json!({"frameId": "MAIN", "loaderId": "L1", "name": "load"}),
+    ));
+    let tab = &state.tabs["T1"];
+    assert!(tab.last_nav_same_document);
+    assert!(tab.document_since(before, |tab| tab.lifecycle.contains("load")));
+    assert!(!tab.document_since(tab.doc_seq, |_| true), "only a document after the call counts");
+}
