@@ -36,6 +36,8 @@ LIVE = datetime(2026, 10, 25, 0, 0, tzinfo=timezone.utc)
 LEAD = "cmux-perf-lead"
 HOST = store.Host(name="cmux15", chip="Apple M4 Pro", memory_gb=24, display_hz=120, fingerprint="fp-1")
 STORY = "terminal.key-frame.light"
+ALERTS_ACTOR = "perf-lab-alerts"
+CREATED = (None, "new")
 
 
 class Clock:
@@ -56,12 +58,15 @@ class SheriffTestCase(unittest.TestCase):
         self.clock = Clock(LIVE)
         self.lab = store.Store(self.path, clock=self.clock)
         self.lab.migrate()
-        self.sheriff = sheriff.Sheriff(self.lab, clock=self.clock, lead_session=LEAD)
+        self.sheriff = self.as_session("sheriff-1")
         self._runs = 0
 
     def tearDown(self) -> None:
         self.lab.close()
         self._tmp.cleanup()
+
+    def as_session(self, session: str | None, *, lead: str | None = LEAD) -> "sheriff.Sheriff":
+        return sheriff.Sheriff(self.lab, clock=self.clock, session=session, lead_session=lead)
 
     def query(self, sql: str, *args) -> list[tuple]:
         db = sqlite3.connect(self.path)
@@ -90,10 +95,19 @@ class SheriffTestCase(unittest.TestCase):
         return store.series_key(story=STORY, metric=metric, engine="webkit", host_class=HOST.host_class,
                                 macos_major=26, build_config="bench")
 
-    def group(self, *, created: datetime | None = None, state: str = "new", start: int = 10, end: int = 12) -> int:
+    def group(self, *, created: datetime | None = None, start: int = 10, end: int = 12) -> int:
+        """A new group with its creation row, the rows alerts._group_for writes."""
         stamp = sheriff._stamp(created or self.clock())
-        return self.execute("INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at) "
-                            "VALUES (?, ?, ?, ?, ?)", state, start, end, stamp, stamp)
+        db = sqlite3.connect(self.path)
+        try:
+            with db:
+                gid = db.execute("INSERT INTO alert_groups (state, start_pos, end_pos, created_at, updated_at) "
+                                 "VALUES ('new', ?, ?, ?, ?)", (start, end, stamp, stamp)).lastrowid
+                db.execute("INSERT INTO sheriff_history (group_id, from_state, to_state, actor, reason, at) "
+                           "VALUES (?, NULL, 'new', ?, ?, ?)", (gid, ALERTS_ACTOR, f"alert on {STORY}", stamp))
+            return gid
+        finally:
+            db.close()
 
     def alert(self, group_id: int, key: str, *, before: float | None = 4.0, after: float | None = 8.0,
               rule: str = "edivisive", end: int = 12, improvement: bool = False) -> int:
@@ -105,7 +119,7 @@ class SheriffTestCase(unittest.TestCase):
 
     def walk(self, group_id: int, *states: str) -> None:
         for state in states:
-            self.sheriff.set_state(group_id, state, session="sheriff-1", reason=f"to {state}",
+            self.sheriff.set_state(group_id, state, reason=f"to {state}",
                                    culprit_sha="abc1234" if state == "culprit" else None)
 
     def state(self, group_id: int) -> str:
@@ -120,10 +134,11 @@ class TransitionTests(SheriffTestCase):
             self.walk(gid, state)
         history = self.sheriff.history(gid)
         self.assertEqual([(h.from_state, h.to_state) for h in history],
-                         [("new", "triaged"), ("triaged", "bisecting"), ("bisecting", "culprit"),
+                         [CREATED, ("new", "triaged"), ("triaged", "bisecting"), ("bisecting", "culprit"),
                           ("culprit", "assigned")])
         self.assertEqual([h.at for h in history],
-                         [sheriff._stamp(LIVE + timedelta(minutes=10 * i)) for i in range(1, 5)])
+                         [sheriff._stamp(LIVE + timedelta(minutes=10 * i)) for i in range(0, 5)])
+        self.assertEqual([h.describe() for h in history[:2]], ["created", "new -> triaged"])
         self.assertEqual(self.query("SELECT state, culprit_sha, updated_at FROM alert_groups WHERE id = ?", gid),
                          [("assigned", "abc1234", sheriff._stamp(LIVE + timedelta(minutes=40)))])
 
@@ -131,20 +146,20 @@ class TransitionTests(SheriffTestCase):
         gid = self.group()
         for target in ("culprit", "assigned", "fixed", "flag-off", "accepted", "bisecting"):
             with self.subTest(target=target), self.assertRaises(sheriff.IllegalTransition):
-                self.sheriff.set_state(gid, target, session=LEAD, reason="r", culprit_sha="abc1234")
+                self.as_session(LEAD).set_state(gid, target, reason="r", culprit_sha="abc1234")
         self.walk(gid, "triaged")
         with self.assertRaises(sheriff.IllegalTransition):
-            self.sheriff.set_state(gid, "assigned", session="sheriff-1", reason="r")
+            self.sheriff.set_state(gid, "assigned", reason="r")
         with self.assertRaises(sheriff.IllegalTransition):
-            self.sheriff.set_state(gid, "triaged", session="sheriff-1")
+            self.sheriff.set_state(gid, "triaged")
         with self.assertRaisesRegex(sheriff.IllegalTransition, "unknown state"):
-            self.sheriff.set_state(gid, "closed", session="sheriff-1")
+            self.sheriff.set_state(gid, "closed")
         self.walk(gid, "invalid")
         for target in ("new", "triaged", "fixed"):
             with self.subTest(closed=target), self.assertRaisesRegex(sheriff.IllegalTransition, "closed"):
-                self.sheriff.set_state(gid, target, session=LEAD, reason="r")
+                self.as_session(LEAD).set_state(gid, target, reason="r")
         self.assertEqual(self.state(gid), "invalid")
-        self.assertEqual(len(self.sheriff.history(gid)), 2)
+        self.assertEqual(len(self.sheriff.history(gid)), 3)
 
     def test_every_listed_transition_is_between_known_states(self) -> None:
         self.assertEqual(set(sheriff.TRANSITIONS) | sheriff.TERMINAL, set(store.ALERT_GROUP_STATES))
@@ -155,12 +170,12 @@ class TransitionTests(SheriffTestCase):
     def test_reasons_are_required_for_closing_assigning_and_steps_back(self) -> None:
         gid = self.group()
         with self.assertRaises(sheriff.MissingReason):
-            self.sheriff.set_state(gid, "invalid", session="sheriff-1", reason="  ")
-        self.sheriff.set_state(gid, "triaged", session="sheriff-1")
-        self.sheriff.set_state(gid, "bisecting", session="sheriff-1")
+            self.sheriff.set_state(gid, "invalid", reason="  ")
+        self.sheriff.set_state(gid, "triaged")
+        self.sheriff.set_state(gid, "bisecting")
         with self.assertRaises(sheriff.MissingReason):
-            self.sheriff.set_state(gid, "triaged", session="sheriff-1")
-        self.sheriff.set_state(gid, "triaged", session="sheriff-1", reason="bisect found no culprit")
+            self.sheriff.set_state(gid, "triaged")
+        self.sheriff.set_state(gid, "triaged", reason="bisect found no culprit")
         self.assertEqual(self.state(gid), "triaged")
 
     def test_culprit_needs_a_commit_and_only_culprit_takes_one(self) -> None:
@@ -168,24 +183,55 @@ class TransitionTests(SheriffTestCase):
         self.walk(gid, "triaged", "bisecting")
         for bad in (None, "", "not-a-sha", "abc"):
             with self.subTest(sha=bad), self.assertRaisesRegex(sheriff.SheriffError, "--culprit"):
-                self.sheriff.set_state(gid, "culprit", session="sheriff-1", culprit_sha=bad)
+                self.sheriff.set_state(gid, "culprit", culprit_sha=bad)
         with self.assertRaisesRegex(sheriff.SheriffError, "only with the culprit state"):
-            self.sheriff.set_state(gid, "invalid", session="sheriff-1", reason="r", culprit_sha="abc1234")
-        self.sheriff.set_state(gid, "culprit", session="sheriff-1", culprit_sha="ABCDEF0123")
+            self.sheriff.set_state(gid, "invalid", reason="r", culprit_sha="abc1234")
+        self.sheriff.set_state(gid, "culprit", culprit_sha="ABCDEF0123")
         self.assertEqual(self.query("SELECT culprit_sha FROM alert_groups WHERE id = ?", gid), [("abcdef0123",)])
+
+    def verify(self, gid: int) -> None:
+        """What verify.py (017) writes for a verified culprit."""
+        self.execute("UPDATE alert_groups SET culprit_verified = 1 WHERE id = ?", gid)
+
+    def culprit(self, gid: int) -> tuple:
+        return self.query("SELECT state, culprit_sha, culprit_verified FROM alert_groups WHERE id = ?", gid)[0]
+
+    def test_a_culprit_that_did_not_hold_loses_its_verification(self) -> None:
+        gid = self.group()
+        self.walk(gid, "triaged", "bisecting")
+        self.sheriff.set_state(gid, "culprit", culprit_sha="aaaaaaa")
+        self.verify(gid)
+        self.assertEqual(self.culprit(gid), ("culprit", "aaaaaaa", 1))
+        self.sheriff.set_state(gid, "bisecting", reason="culprit did not reproduce")
+        self.assertEqual(self.culprit(gid), ("bisecting", None, 0))
+        self.sheriff.set_state(gid, "culprit", culprit_sha="bbbbbbb")
+        self.assertEqual(self.culprit(gid), ("culprit", "bbbbbbb", 0))
+
+    def test_only_the_verified_commit_keeps_its_verification(self) -> None:
+        full = "abc1234" + "0" * 33
+        for named, expected in (("abc1234", (full, 1)), ("def5678", ("def5678", 0))):
+            with self.subTest(named=named):
+                gid = self.group()
+                self.walk(gid, "triaged")
+                # verify.py (017) finished before the sheriff moved the group on.
+                self.execute("UPDATE alert_groups SET culprit_sha = ?, culprit_verified = 1 WHERE id = ?", full, gid)
+                self.walk(gid, "bisecting")
+                self.sheriff.set_state(gid, "culprit", culprit_sha=named)
+                self.assertEqual(self.culprit(gid), ("culprit", *expected))
+                self.sheriff.set_state(gid, "assigned", reason="owner")
+                self.assertEqual(self.culprit(gid), ("assigned", *expected))
 
     def test_accepted_needs_a_reason_and_the_performance_lead(self) -> None:
         gid = self.group()
         self.walk(gid, "triaged", "bisecting", "culprit")
         with self.assertRaises(sheriff.NotPerformanceLead):
-            self.sheriff.set_state(gid, "accepted", session="sheriff-1", reason="trade-off")
+            self.sheriff.set_state(gid, "accepted", reason="trade-off")
         with self.assertRaises(sheriff.MissingReason):
-            self.sheriff.set_state(gid, "accepted", session=LEAD)
-        unconfigured = sheriff.Sheriff(self.lab, clock=self.clock, lead_session=None)
+            self.as_session(LEAD).set_state(gid, "accepted")
         with self.assertRaisesRegex(sheriff.NotPerformanceLead, "none configured"):
-            unconfigured.set_state(gid, "accepted", session=LEAD, reason="trade-off")
+            self.as_session(LEAD, lead=None).set_state(gid, "accepted", reason="trade-off")
         self.assertEqual(self.state(gid), "culprit")
-        self.sheriff.set_state(gid, "accepted", session=LEAD, reason="memory for latency, issue #1")
+        self.as_session(LEAD).set_state(gid, "accepted", reason="memory for latency, issue #1")
         self.assertEqual(self.query("SELECT state, reason FROM alert_groups WHERE id = ?", gid),
                          [("accepted", "memory for latency, issue #1")])
         self.assertEqual(self.sheriff.history(gid)[-1].actor, LEAD)
@@ -194,17 +240,17 @@ class TransitionTests(SheriffTestCase):
         gid = self.group()
         other_lab = store.Store(self.path, clock=self.clock)
         try:
-            other = sheriff.Sheriff(other_lab, clock=self.clock, lead_session=LEAD)
-            self.sheriff.set_state(gid, "triaged", session="sheriff-1")
+            other = sheriff.Sheriff(other_lab, clock=self.clock, session="sheriff-2", lead_session=LEAD)
+            self.sheriff.set_state(gid, "triaged")
             with self.assertRaisesRegex(sheriff.IllegalTransition, "triaged -> triaged"):
-                other.set_state(gid, "triaged", session="sheriff-2")
+                other.set_state(gid, "triaged")
         finally:
             other_lab.close()
-        self.assertEqual(len(self.sheriff.history(gid)), 1)
+        self.assertEqual(len(self.sheriff.history(gid)), 2)
 
     def test_unknown_group(self) -> None:
         with self.assertRaises(sheriff.NoSuchGroup):
-            self.sheriff.set_state(99, "triaged", session="sheriff-1")
+            self.sheriff.set_state(99, "triaged")
         with self.assertRaises(sheriff.NoSuchGroup):
             self.sheriff.history(99)
 
@@ -220,14 +266,14 @@ class RecoveryTests(SheriffTestCase):
         key = self.point(5, [4.0, 4.1])
         gid = self.assigned_group(key)
         with self.assertRaisesRegex(sheriff.NotRecovered, "0 of 2 judged batches"):
-            self.sheriff.set_state(gid, "fixed", session="sheriff-1", reason="fix landed")
+            self.sheriff.set_state(gid, "fixed", reason="fix landed")
         self.point(13, [8.0, 8.2])
         self.point(14, [7.9, 8.1])
         with self.assertRaisesRegex(sheriff.NotRecovered, "nearer 8 \\(after\\)"):
-            self.sheriff.set_state(gid, "fixed", session="sheriff-1")
+            self.sheriff.set_state(gid, "fixed")
         self.point(15, [4.1, 4.0])
         with self.assertRaisesRegex(sheriff.NotRecovered, "at 14"):
-            self.sheriff.set_state(gid, "fixed", session="sheriff-1")
+            self.sheriff.set_state(gid, "fixed")
         self.assertEqual(self.state(gid), "assigned")
         self.assertEqual(self.sheriff.history(gid)[-1].to_state, "assigned")
 
@@ -241,7 +287,7 @@ class RecoveryTests(SheriffTestCase):
         recovery = self.sheriff.recovery(gid)
         self.assertTrue(recovery.recovered, recovery.explain())
         self.assertEqual(recovery.alerts[0].batches, ((15, 5.375), (16, 5.9)))
-        self.sheriff.set_state(gid, "fixed", session="sheriff-1", reason="fix #123")
+        self.sheriff.set_state(gid, "fixed", reason="fix #123")
         self.assertEqual(self.query("SELECT state, reason FROM alert_groups WHERE id = ?", gid),
                          [("fixed", "fix #123")])
 
@@ -275,19 +321,19 @@ class RecoveryTests(SheriffTestCase):
         recovery = self.sheriff.recovery(gid)
         self.assertEqual([a.recovered for a in recovery.alerts], [True, False])
         with self.assertRaisesRegex(sheriff.NotRecovered, "commit_ms"):
-            self.sheriff.set_state(gid, "fixed", session="sheriff-1")
+            self.sheriff.set_state(gid, "fixed")
 
     def test_a_group_without_a_judgeable_alert_cannot_be_fixed(self) -> None:
         key = self.point(5, [4.0])
         bare = self.group()
         self.walk(bare, "triaged", "bisecting", "culprit", "assigned")
         with self.assertRaisesRegex(sheriff.NotRecovered, "no regression alert"):
-            self.sheriff.set_state(bare, "fixed", session="sheriff-1")
+            self.sheriff.set_state(bare, "fixed")
         no_medians = self.assigned_group(key, before=None, after=None)
         self.point(13, [4.0])
         self.point(14, [4.0])
         with self.assertRaisesRegex(sheriff.NotRecovered, "no median"):
-            self.sheriff.set_state(no_medians, "fixed", session="sheriff-1")
+            self.sheriff.set_state(no_medians, "fixed")
 
     def test_a_broken_harness_recovers_when_the_story_runs_again(self) -> None:
         key = self.point(5, [4.0])
@@ -300,47 +346,79 @@ class RecoveryTests(SheriffTestCase):
     def test_flag_off_does_not_wait_for_recovery(self) -> None:
         key = self.point(5, [4.0])
         gid = self.assigned_group(key)
-        self.sheriff.set_state(gid, "flag-off", session="sheriff-1", reason="perfPath default off, PR #9")
+        self.sheriff.set_state(gid, "flag-off", reason="perfPath default off, PR #9")
         self.assertEqual(self.state(gid), "flag-off")
 
 
 class TakeTests(SheriffTestCase):
     def test_one_session_holds_a_group_until_its_lease_lapses(self) -> None:
         gid = self.group()
-        entry = self.sheriff.take(gid, session="sheriff-1")
-        self.assertTrue(entry.is_take)
+        claim = self.sheriff.take(gid)
+        self.assertEqual((claim.group_id, claim.holder), (gid, "sheriff-1"))
         self.assertEqual(self.state(gid), "new")
         with self.assertRaisesRegex(sheriff.Claimed, "held by sheriff-1"):
-            self.sheriff.take(gid, session="sheriff-2")
+            self.as_session("sheriff-2").take(gid)
         self.clock.advance(hours=1)
         self.walk(gid, "triaged")  # the holder's own move renews the lease
         self.clock.advance(hours=1, minutes=59)
         with self.assertRaises(sheriff.Claimed):
-            self.sheriff.take(gid, session="sheriff-2")
+            self.as_session("sheriff-2").take(gid)
         self.assertEqual(self.sheriff.groups()[0].holder, "sheriff-1")
         self.clock.advance(minutes=2)
         self.assertIsNone(self.sheriff.groups()[0].holder)
-        self.sheriff.take(gid, session="sheriff-2")
+        self.as_session("sheriff-2").take(gid)
         self.assertEqual(self.sheriff.groups()[0].holder, "sheriff-2")
 
     def test_only_the_holder_or_the_lead_moves_a_held_group(self) -> None:
         gid = self.group()
-        self.sheriff.take(gid, session="sheriff-1")
+        self.sheriff.take(gid)
         with self.assertRaisesRegex(sheriff.Claimed, "held by sheriff-1"):
-            self.sheriff.set_state(gid, "triaged", session="sheriff-2")
+            self.as_session("sheriff-2").set_state(gid, "triaged")
         self.assertEqual(self.state(gid), "new")
-        self.sheriff.set_state(gid, "triaged", session=LEAD)
+        self.as_session(LEAD).set_state(gid, "triaged")
         self.assertEqual(self.state(gid), "triaged")
+
+    def test_a_take_adds_no_history_row(self) -> None:
+        gid = self.group()
+        self.sheriff.take(gid)
+        self.clock.advance(minutes=30)
+        self.sheriff.take(gid)  # a lease renewal
+        self.assertEqual([(h.from_state, h.to_state) for h in self.sheriff.history(gid)], [CREATED])
+        self.assertEqual(self.query("SELECT holder, held_at FROM alert_groups WHERE id = ?", gid),
+                         [("sheriff-1", sheriff._stamp(LIVE + timedelta(minutes=30)))])
+
+    def test_a_closing_move_releases_the_claim(self) -> None:
+        gid = self.group()
+        self.sheriff.take(gid)
+        self.walk(gid, "invalid")
+        self.assertEqual(self.query("SELECT holder, held_at FROM alert_groups WHERE id = ?", gid), [(None, None)])
+
+    def test_a_lead_move_keeps_the_holder_claim_unrenewed(self) -> None:
+        gid = self.group()
+        self.sheriff.take(gid)
+        self.clock.advance(hours=1)
+        self.as_session(LEAD).set_state(gid, "triaged")
+        self.assertEqual(self.query("SELECT holder, held_at FROM alert_groups WHERE id = ?", gid),
+                         [("sheriff-1", sheriff._stamp(LIVE))])
+
+    def test_no_session_reads_but_cannot_act(self) -> None:
+        gid = self.group()
+        anonymous = self.as_session(None)
+        self.assertEqual([g.id for g in anonymous.groups()], [gid])
+        with self.assertRaises(sheriff.NoSession):
+            anonymous.take(gid)
+        with self.assertRaises(sheriff.NoSession):
+            anonymous.set_state(gid, "triaged")
 
     def test_closed_groups_cannot_be_taken(self) -> None:
         gid = self.group()
         self.walk(gid, "lab-drift")
         with self.assertRaises(sheriff.IllegalTransition):
-            self.sheriff.take(gid, session="sheriff-1")
+            self.sheriff.take(gid)
 
     def test_takes_do_not_count_as_triage(self) -> None:
         gid = self.group()
-        self.sheriff.take(gid, session="sheriff-1")
+        self.sheriff.take(gid)
         self.clock.advance(hours=2)
         self.assertEqual(self.sheriff.slo(LIVE)["triage"]["missed"], [gid])
 
@@ -353,8 +431,8 @@ class SloTests(SheriffTestCase):
 
     def move(self, gid: int, hours: float, state: str, **kwargs) -> None:
         self.clock.now = self.at(hours)
-        self.sheriff.set_state(gid, state, session=kwargs.pop("session", "sheriff-1"),
-                               reason=kwargs.pop("reason", f"to {state}"), **kwargs)
+        self.as_session(kwargs.pop("session", "sheriff-1")).set_state(
+            gid, state, reason=kwargs.pop("reason", f"to {state}"), **kwargs)
 
     def fixture(self) -> dict[str, int]:
         key = self.point(5, [4.0])
@@ -431,37 +509,65 @@ class SloTests(SheriffTestCase):
 
 
 class CliTests(SheriffTestCase):
-    def cli(self, *argv: str, lead: str | None = LEAD) -> tuple[int, str, str]:
+    def cli(self, *argv: str, session: str | None = "sheriff-1", lead: str | None = LEAD,
+            db: Path | None = None) -> tuple[int, str, str]:
+        lead_file = self.path.parent / sheriff.LEAD_FILE
+        if lead is None:
+            lead_file.unlink(missing_ok=True)
+        else:
+            lead_file.write_text(lead + "\n", encoding="utf-8")
         parser = sheriff.argparse.ArgumentParser(prog="lab.py sheriff")
         sheriff.add_arguments(parser)
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = sheriff.run(parser.parse_args(["--db", str(self.path), *argv]), clock=self.clock,
-                               environ={} if lead is None else {sheriff.LEAD_SESSION_ENV: lead})
+            code = sheriff.run(parser.parse_args(["--db", str(db or self.path), *argv]), clock=self.clock,
+                               environ={} if session is None else {"CMUX_AGENT_SESSION": session})
         return code, out.getvalue(), err.getvalue()
 
     def test_list_take_set_and_history(self) -> None:
         first, second = self.group(), self.group()
-        self.assertEqual(self.cli("take", str(first), "--session", "sheriff-1")[0], 0)
-        self.assertEqual(self.cli("set", str(first), "triaged", "--session", "sheriff-1")[0], 0)
+        self.assertEqual(self.cli("take", str(first))[0], 0)
+        self.assertEqual(self.cli("set", str(first), "triaged")[0], 0)
         code, out, _ = self.cli("list", "--state", "new,triaged", "--json")
         self.assertEqual(code, 0)
         listed = json.loads(out)
         self.assertEqual([(g["id"], g["state"], g["holder"]) for g in listed],
                          [(first, "triaged", "sheriff-1"), (second, "new", None)])
         code, out, _ = self.cli("history", str(first), "--json")
-        self.assertEqual([(h["from_state"], h["to_state"]) for h in json.loads(out)],
-                         [("new", "new"), ("new", "triaged")])
+        self.assertEqual([(h["from_state"], h["to_state"]) for h in json.loads(out)], [CREATED, ("new", "triaged")])
+        code, out, _ = self.cli("history", str(first))
+        self.assertEqual([line.split()[1] for line in out.splitlines()], ["created", "new"])
+        self.assertIn(f"created{' ' * 16}{ALERTS_ACTOR}", out)
+        self.assertNotIn("None", out)
         code, out, _ = self.cli("list")
         self.assertIn(f"#{first} triaged", out)
 
+    def test_the_acting_session_comes_from_the_environment(self) -> None:
+        gid = self.group()
+        self.walk(gid, "triaged", "bisecting", "culprit")
+        parser = sheriff.argparse.ArgumentParser()
+        sheriff.add_arguments(parser)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            parser.parse_args(["set", str(gid), "accepted", "--session", LEAD, "--reason", "ok"])
+        code, _, err = self.cli("set", str(gid), "accepted", "--reason", "ok", session="sheriff-1")
+        self.assertEqual(code, 2)
+        self.assertIn("sheriff-1 is not cmux-perf-lead", err)
+        code, _, err = self.cli("set", str(gid), "accepted", "--reason", "ok", session=None)
+        self.assertEqual(code, 2)
+        self.assertIn("no agent session", err)
+        self.assertEqual(self.state(gid), "culprit")
+        self.assertEqual(self.cli("set", str(gid), "accepted", "--reason", "ok", session=LEAD)[0], 0)
+        self.assertEqual(self.sheriff.history(gid)[-1].actor, LEAD)
+        self.assertEqual(sheriff.caller_session({"CLAUDE_CODE_SESSION_ID": " c1 ", "CODEX_THREAD_ID": "x"}), "c1")
+        self.assertIsNone(sheriff.caller_session({"CMUX_AGENT_SESSION": "  "}))
+
     def test_refusals_exit_2_with_the_reason(self) -> None:
         gid = self.group()
-        code, _, err = self.cli("set", str(gid), "fixed", "--session", "sheriff-1")
+        code, _, err = self.cli("set", str(gid), "fixed")
         self.assertEqual(code, 2)
         self.assertIn("new -> fixed is not allowed", err)
         self.walk(gid, "triaged")
-        code, _, err = self.cli("set", str(gid), "accepted", "--session", LEAD, "--reason", "ok", lead=None)
+        code, _, err = self.cli("set", str(gid), "accepted", "--reason", "ok", session=LEAD, lead=None)
         self.assertEqual(code, 2)
         self.assertIn("Performance Lead", err)
         self.assertEqual(self.cli("list", "--state", "bogus")[0], 2)
@@ -471,6 +577,32 @@ class CliTests(SheriffTestCase):
         code, _, err = self.cli("--slo", "history", str(gid))
         self.assertEqual(code, 2)
         self.assertIn("drop the subcommand", err)
+
+    def test_a_missing_store_is_refused_and_not_created(self) -> None:
+        missing = self.path.parent / "typo.sqlite"
+        code, out, err = self.cli("--slo", "--since-live", db=missing)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("no lab store there", err)
+        self.assertFalse(missing.exists())
+
+    def test_a_store_at_another_schema_is_refused_with_exit_2(self) -> None:
+        self.execute("INSERT INTO schema_version VALUES (?, 'from the future', 'x', ?)",
+                     len(store.MIGRATIONS) + 1, sheriff._stamp(LIVE))
+        code, _, err = self.cli("--slo", "--since-live")
+        self.assertEqual(code, 2)
+        self.assertIn("newer than this checkout", err)
+        self.execute("DELETE FROM schema_version WHERE version >= ?", len(store.MIGRATIONS))
+        code, _, err = self.cli("list")
+        self.assertEqual(code, 2)
+        self.assertIn("older than this checkout", err)
+
+    def test_a_sqlite_failure_exits_2_not_1(self) -> None:
+        broken = self.path.parent / "broken.sqlite"
+        broken.write_bytes(b"not a database, " * 64)
+        code, out, err = self.cli("--slo", "--since-live", db=broken)
+        self.assertEqual((code, out), (2, ""))
+        self.assertIn("sheriff: ", err)
+        self.assertNotIn("Traceback", err)
 
     def test_slo_since_live_exits_1_when_missed_and_0_when_met(self) -> None:
         gid = self.group()

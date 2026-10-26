@@ -4,6 +4,8 @@
 An alert group moves new -> triaged -> bisecting -> culprit -> assigned and ends fixed, flag-off,
 accepted, invalid or lab-drift. Every move is one row in sheriff_history with its actor, reason and
 time, written in the same transaction that checks the move, so two sessions cannot both move a group.
+A take is not a move: the claim lives on the group (holder, held_at; store migration 2), so
+sheriff_history, and the one issue comment per row that alerts.sync_issues posts, holds only real moves.
 
 Chromeperf keeps the same split: catapult `dashboard/dashboard/models/alert_group.py` gives an
 AlertGroup a status (untriaged, triaged, bisected, closed) that `alert_group_workflow.py` advances,
@@ -14,7 +16,12 @@ the good side of the alert's step. Two batches are too few for a change-point se
 MIN_SEGMENT_SIZE = 6 points), so a batch counts as recovered when its median is nearer the alert's
 median_before than its median_after.
 
-`accepted` needs a reason and the Performance Lead's session (CMUX_PERF_LEAD_SESSION on the lab host).
+The acting session is the caller's own agent session from its environment (CMUX_AGENT_SESSION, else
+CLAUDE_CODE_SESSION_ID, else CODEX_THREAD_ID), never an argument. `accepted` needs a reason and the
+Performance Lead's session, which the lab host names in the file `perf-lead-session` beside the store.
+
+The CLI opens an existing, migrated store only: labd creates and migrates it, and a read-only report
+must not create an empty store whose fresh schema_version would claim the lab just went live.
 
 SLOs (counted from the alert, groups created since the lab went live): triage <= 1 h, culprit <= 4 h
 (median), fix or flag-off <= 12 h; no group older than 12 h may wait in new, triaged, bisecting or culprit.
@@ -32,7 +39,7 @@ import re
 import sqlite3
 import statistics
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -68,7 +75,8 @@ BACKWARD = frozenset({("bisecting", "triaged"), ("culprit", "bisecting")})
 REASON_REQUIRED = frozenset({"assigned", "flag-off", "accepted", "invalid", "lab-drift"})
 RECOVERY_BATCHES = 2
 TAKE_LEASE = timedelta(hours=2)
-LEAD_SESSION_ENV = "CMUX_PERF_LEAD_SESSION"
+SESSION_ENVS = ("CMUX_AGENT_SESSION", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
+LEAD_FILE = "perf-lead-session"
 DB_ENV = "CMUX_PERF_LAB_DB"
 
 TRIAGE_SLO = timedelta(hours=1)
@@ -106,6 +114,10 @@ class Claimed(SheriffError):
     pass
 
 
+class NoSession(SheriffError):
+    pass
+
+
 def _stamp(moment: datetime) -> str:
     """The store's stamp format: fixed-width UTC ISO-8601, so stamps compare as text in time order."""
     if moment.tzinfo is None or moment.utcoffset() is None:
@@ -130,10 +142,19 @@ class HistoryEntry:
     reason: str | None
     at: str
 
-    @property
-    def is_take(self) -> bool:
-        """A take keeps the state; every real move changes it."""
-        return self.from_state == self.to_state
+    def describe(self) -> str:
+        if self.from_state is None:
+            return "created"
+        if self.from_state == self.to_state:
+            return f"{self.to_state} (no move)"
+        return f"{self.from_state} -> {self.to_state}"
+
+
+@dataclass(frozen=True)
+class Claim:
+    group_id: int
+    holder: str
+    held_at: str
 
 
 @dataclass(frozen=True)
@@ -207,14 +228,16 @@ def batch_recovered(value: float, *, before: float, after: float, better: str) -
 class Sheriff:
     """Sheriff commands over one lab store. The store owns the schema, the WAL connection and migrations."""
 
-    def __init__(self, lab: store.Store, *, clock: Callable[[], datetime] = store.utc_now,
-                 lead_session: str | None = None, take_lease: timedelta = TAKE_LEASE) -> None:
+    def __init__(self, lab: store.Store, *, session: str | None, lead_session: str | None,
+                 clock: Callable[[], datetime] = store.utc_now, take_lease: timedelta = TAKE_LEASE) -> None:
+        """`session` is the caller's own agent session (caller_session()); None allows reads only."""
         self._lab = lab
         # The store's one connection and its BEGIN IMMEDIATE writer: the lab keeps one WAL connection per thread.
         self._db: sqlite3.Connection = lab._db
         self._write = lab._write
         self._clock = clock
-        self._lead_session = lead_session
+        self._session = (session or "").strip() or None
+        self._lead_session = (lead_session or "").strip() or None
         self._take_lease = take_lease
 
     def _now(self) -> datetime:
@@ -233,14 +256,17 @@ class Sheriff:
             "WHERE group_id = ? ORDER BY at, id", (group_id,)).fetchall()
         return [HistoryEntry(*row) for row in rows]
 
-    def _holder(self, history: Sequence[HistoryEntry], now: datetime) -> str | None:
-        """The session of the newest take, while it has acted on the group within the lease."""
-        takes = [entry for entry in history if entry.is_take]
-        if not takes:
+    def _actor(self) -> str:
+        if self._session is None:
+            raise NoSession(f"no agent session in the environment ({', '.join(SESSION_ENVS)}); "
+                            "a sheriff acts as its own session")
+        return self._session
+
+    def _holder(self, row: sqlite3.Row, now: datetime) -> str | None:
+        """The session that took the group, while its take or its last move is within the lease."""
+        if row["holder"] is None or row["held_at"] is None:
             return None
-        holder = takes[-1].actor
-        last = max(_parse(entry.at) for entry in history if entry.actor == holder)
-        return holder if now - last < self._take_lease else None
+        return row["holder"] if now - _parse(row["held_at"]) < self._take_lease else None
 
     def groups(self, states: Sequence[str] | None = None) -> list[Group]:
         unknown = set(states or ()) - set(STATES)
@@ -261,7 +287,7 @@ class Sheriff:
                 culprit_sha=row["culprit_sha"], culprit_verified=bool(row["culprit_verified"]),
                 issue_number=row["issue_number"], reason=row["reason"], created_at=row["created_at"],
                 updated_at=row["updated_at"], age_hours=_hours(now - _parse(row["created_at"])),
-                holder=self._holder(self.history(row["id"]), now), stories=stories))
+                holder=self._holder(row, now), stories=stories))
         return result
 
     def _append(self, group_id: int, from_state: str, to_state: str, actor: str, reason: str | None,
@@ -272,26 +298,29 @@ class Sheriff:
             (group_id, from_state, to_state, actor, reason, at))
         return HistoryEntry(group_id, from_state, to_state, actor, reason, at)
 
-    def take(self, group_id: int, *, session: str) -> HistoryEntry:
-        """Claims an open group for one sheriff session; another session's live claim refuses it."""
-        session = _required(session, "a take needs the sheriff's session")
+    def take(self, group_id: int) -> Claim:
+        """Claims an open group for this session; another session's live claim refuses it. No history row."""
+        session = self._actor()
 
-        def write() -> HistoryEntry:
-            state = self._group_row(group_id)["state"]
-            if state in TERMINAL:
-                raise IllegalTransition(f"group {group_id} is {state}; a closed group cannot be taken")
+        def write() -> Claim:
+            row = self._group_row(group_id)
+            if row["state"] in TERMINAL:
+                raise IllegalTransition(f"group {group_id} is {row['state']}; a closed group cannot be taken")
             now = self._now()
-            holder = self._holder(self.history(group_id), now)
+            holder = self._holder(row, now)
             if holder not in (None, session):
                 raise Claimed(f"group {group_id} is held by {holder}")
-            return self._append(group_id, state, state, session, "take", now)
+            held_at = _stamp(now)
+            self._db.execute("UPDATE alert_groups SET holder = ?, held_at = ? WHERE id = ?",
+                             (session, held_at, group_id))
+            return Claim(group_id, session, held_at)
 
         return self._write(write)
 
-    def set_state(self, group_id: int, to_state: str, *, session: str, reason: str | None = None,
+    def set_state(self, group_id: int, to_state: str, *, reason: str | None = None,
                   culprit_sha: str | None = None) -> HistoryEntry:
         """Moves a group one legal step and records it; refuses anything else with a typed error."""
-        session = _required(session, "a state change needs the sheriff's session")
+        session = self._actor()
         reason = (reason or "").strip() or None
         if to_state not in STATES:
             raise IllegalTransition(f"unknown state {to_state!r}; states are {', '.join(STATES)}")
@@ -306,18 +335,23 @@ class Sheriff:
             if reason is None and (to_state in REASON_REQUIRED or (from_state, to_state) in BACKWARD):
                 raise MissingReason(f"group {group_id}: {from_state} -> {to_state} needs --reason")
             if to_state == "accepted" and (self._lead_session is None or session != self._lead_session):
-                lead = self._lead_session or f"none configured ({LEAD_SESSION_ENV})"
+                lead = self._lead_session or f"none configured ({LEAD_FILE} beside the store)"
                 raise NotPerformanceLead(f"group {group_id}: only the Performance Lead's session accepts a "
                                          f"regression; {session} is not {lead}")
-            culprit = row["culprit_sha"]
+            culprit, verified = row["culprit_sha"], bool(row["culprit_verified"])
             if to_state == "culprit":
-                if culprit_sha is None or not _SHA.fullmatch(culprit_sha.strip().lower()):
+                named = (culprit_sha or "").strip().lower()
+                if not _SHA.fullmatch(named):
                     raise SheriffError(f"group {group_id}: culprit needs --culprit SHA (7-40 hex digits)")
-                culprit = culprit_sha.strip().lower()
+                # Verification (verify.py) belongs to one commit; any other commit starts unverified.
+                same = culprit is not None and (culprit.startswith(named) or named.startswith(culprit))
+                culprit, verified = (max(culprit, named, key=len), verified) if same else (named, False)
             elif culprit_sha is not None:
                 raise SheriffError(f"group {group_id}: --culprit goes only with the culprit state")
+            elif (from_state, to_state) == ("culprit", "bisecting"):
+                culprit, verified = None, False  # the culprit did not hold
             now = self._now()
-            holder = self._holder(self.history(group_id), now)
+            holder = self._holder(row, now)
             if holder not in (None, session) and session != self._lead_session:
                 raise Claimed(f"group {group_id} is held by {holder}; take it after the lease or ask that session")
             if to_state == "fixed":
@@ -326,9 +360,16 @@ class Sheriff:
                     raise NotRecovered(f"group {group_id} stays {from_state}: the series has not recovered "
                                        f"({recovery.explain()})")
             closing_reason = reason if to_state in TERMINAL else row["reason"]
+            if to_state in TERMINAL:
+                claim = (None, None)
+            elif holder == session:
+                claim = (session, _stamp(now))  # the holder's own move renews its lease
+            else:
+                claim = (row["holder"], row["held_at"])
             self._db.execute(
-                "UPDATE alert_groups SET state = ?, culprit_sha = ?, reason = ?, updated_at = ? WHERE id = ?",
-                (to_state, culprit, closing_reason, _stamp(now), group_id))
+                "UPDATE alert_groups SET state = ?, culprit_sha = ?, culprit_verified = ?, reason = ?, "
+                "holder = ?, held_at = ?, updated_at = ? WHERE id = ?",
+                (to_state, culprit, int(verified), closing_reason, *claim, _stamp(now), group_id))
             return self._append(group_id, from_state, to_state, session, reason, now)
 
         return self._write(write)
@@ -387,9 +428,9 @@ class Sheriff:
                                   "ORDER BY created_at, id", (_stamp(since),)).fetchall()
         for row in groups:
             gid, state, created = row["id"], row["state"], _parse(row["created_at"])
-            moves = [entry for entry in self.history(gid) if not entry.is_take]
+            moves = self.history(gid)
             age = now - created
-            triaged_at = next((_parse(m.at) for m in moves if m.from_state == "new"), None)
+            triaged_at = next((_parse(m.at) for m in moves if m.from_state == "new" and m.to_state != "new"), None)
             culprit_at = next((_parse(m.at) for m in moves if m.to_state == "culprit"), None)
             resolved_at = next((_parse(m.at) for m in moves if m.to_state in ("fixed", "flag-off")), None)
 
@@ -443,11 +484,34 @@ class Sheriff:
         }
 
 
-def _required(value: str | None, message: str) -> str:
-    value = (value or "").strip()
-    if not value:
-        raise SheriffError(message)
-    return value
+def caller_session(environ: Mapping[str, str]) -> str | None:
+    """The caller's own agent session, the first of SESSION_ENVS its harness set."""
+    return next((value.strip() for name in SESSION_ENVS if (value := environ.get(name, "")).strip()), None)
+
+
+def read_lead_session(db_path: Path) -> str | None:
+    """The Performance Lead's session as the lab host names it in LEAD_FILE beside the store."""
+    try:
+        return (db_path.parent / LEAD_FILE).read_text(encoding="utf-8").strip() or None
+    except FileNotFoundError:
+        return None
+
+
+def open_store(db_path: Path, clock: Callable[[], datetime]) -> store.Store:
+    """An existing store at this checkout's schema. labd creates and migrates it; the CLI never does."""
+    if not db_path.is_file():
+        raise SheriffError(f"{db_path}: no lab store there; labd creates it")
+    lab = store.Store(db_path, clock=clock)
+    try:
+        version, known = lab.schema_version(), len(store.MIGRATIONS)
+        if version != known:
+            fix = "labd migrates it" if version < known else "update the checkout"
+            relation = "older" if version < known else "newer"
+            raise SheriffError(f"{db_path}: schema {version} is {relation} than this checkout ({known}); {fix}")
+    except BaseException:
+        lab.close()
+        raise
+    return lab
 
 
 _RELATIVE = re.compile(r"(\d+)([hd])")
@@ -479,14 +543,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     listing = commands.add_parser("list", help="alert groups with state, age and holder")
     listing.add_argument("--state", help="comma-separated states, for example new,triaged,culprit")
     listing.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
-    take = commands.add_parser("take", help="claim a group for this sheriff session")
+    take = commands.add_parser("take", help="claim a group for this agent session")
     take.add_argument("group", type=int)
-    take.add_argument("--session", required=True)
     take.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
-    move = commands.add_parser("set", help="move a group to its next state")
+    move = commands.add_parser("set", help="move a group to its next state as this agent session")
     move.add_argument("group", type=int)
     move.add_argument("state", choices=STATES)
-    move.add_argument("--session", required=True)
     move.add_argument("--reason")
     move.add_argument("--culprit", help="the culprit commit, with the culprit state")
     move.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
@@ -510,22 +572,24 @@ def _print_slo(report: dict[str, object]) -> None:
 
 
 def run(args: argparse.Namespace, *, clock: Callable[[], datetime] = store.utc_now,
-        environ: dict[str, str] | None = None) -> int:
-    """Runs one sheriff command; 0 done, 1 SLO missed, 2 refused."""
+        environ: Mapping[str, str] | None = None) -> int:
+    """Runs one sheriff command; 0 done, 1 SLO missed, 2 refused or the store failed."""
     environ = os.environ if environ is None else environ
     if not args.db:
         print(f"sheriff: no lab store; pass --db or set {DB_ENV}", file=sys.stderr)
         return 2
-    lab = store.Store(args.db, clock=clock)
+    db_path = Path(args.db)
     try:
-        lab.migrate()
-        sheriff = Sheriff(lab, clock=clock, lead_session=(environ.get(LEAD_SESSION_ENV) or "").strip() or None)
-        return _dispatch(sheriff, args, clock)
-    except SheriffError as error:
+        lab = open_store(db_path, clock)
+        try:
+            sheriff = Sheriff(lab, clock=clock, session=caller_session(environ),
+                              lead_session=read_lead_session(db_path))
+            return _dispatch(sheriff, args, clock)
+        finally:
+            lab.close()
+    except (SheriffError, store.StoreError, sqlite3.Error, OSError) as error:
         print(f"sheriff: {error}", file=sys.stderr)
         return 2
-    finally:
-        lab.close()
 
 
 def _dispatch(sheriff: Sheriff, args: argparse.Namespace, clock: Callable[[], datetime]) -> int:
@@ -559,19 +623,16 @@ def _dispatch(sheriff: Sheriff, args: argparse.Namespace, clock: Callable[[], da
             print(json.dumps([asdict(entry) for entry in entries], indent=2))
             return 0
         for entry in entries:
-            change = "take" if entry.is_take else f"{entry.from_state} -> {entry.to_state}"
-            print(f"{entry.at}  {change:<22} {entry.actor}  {entry.reason or ''}".rstrip())
+            print(f"{entry.at}  {entry.describe():<22} {entry.actor}  {entry.reason or ''}".rstrip())
         return 0
     if command == "take":
-        entry = sheriff.take(args.group, session=args.session)
-    else:
-        entry = sheriff.set_state(args.group, args.state, session=args.session, reason=args.reason,
-                                  culprit_sha=args.culprit)
-    if args.json:
-        print(json.dumps(asdict(entry)))
-    else:
-        change = "taken" if entry.is_take else f"{entry.from_state} -> {entry.to_state}"
-        print(f"group {entry.group_id}: {change} by {entry.actor} at {entry.at}")
+        claim = sheriff.take(args.group)
+        print(json.dumps(asdict(claim)) if args.json
+              else f"group {claim.group_id}: taken by {claim.holder} at {claim.held_at}")
+        return 0
+    entry = sheriff.set_state(args.group, args.state, reason=args.reason, culprit_sha=args.culprit)
+    print(json.dumps(asdict(entry)) if args.json
+          else f"group {entry.group_id}: {entry.describe()} by {entry.actor} at {entry.at}")
     return 0
 
 
