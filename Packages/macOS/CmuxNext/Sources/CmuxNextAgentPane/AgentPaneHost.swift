@@ -85,6 +85,9 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
     /// Nothing listens on the Chief home's socket: only the Chief host starts
     /// that daemon, never a tab (cx-ebm.54).
     case chiefStopped
+    /// Nothing listens on the Chief home's socket yet, and its owner (the Chief host) was asked
+    /// to start (#25570). The page retries on its own and connects once the host is up.
+    case chiefStarting
     /// A daemon answers on `socketPath`, but this build may not use it: it runs another
     /// executable (`holder`, the cmux app that owns it, when known) or failed the peer check
     /// for `reason`. Its log says nothing, since the daemon itself never saw a failure.
@@ -131,19 +134,30 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
     private let healReplaced: (@Sendable () async -> Bool)?
+    /// Asks the owner of a daemon this app does not start (the Chief host, `ChiefBrainKeeper`)
+    /// to start when nothing listens on its socket. Returns whether a start is on its way: then
+    /// the handshake fails as ``AgentPaneHostError/chiefStarting`` and the page retries, instead
+    /// of waiting for someone to open Home (#25570). Nil: nobody to ask.
+    private let startOwner: (@Sendable () async -> Bool)?
     /// Restarts this app's own daemon when it is alive but stops answering, while
     /// `restartsUnresponsive` (the `agent.restartUnresponsiveAcpmux` toggle) is on.
     private let unresponsive: AcpmuxUnresponsiveWatch
     private let restartsUnresponsive: @Sendable () -> Bool
 
-    /// - Parameter healReplaced: called once per daemon pid when a daemon this
-    ///   host does not start (`startsDaemons: false`) runs from a replaced bundle.
+    /// - Parameters:
+    ///   - healReplaced: called once per daemon pid when a daemon this
+    ///     host does not start (`startsDaemons: false`) runs from a replaced bundle.
+    ///   - startOwner: called when nothing listens on the socket of a daemon this host does not
+    ///     start: asks its owner to start it; true when a start is on its way.
     public init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true,
-                healReplaced: (@Sendable () async -> Bool)? = nil) {
-        self.init(environment: environment, startsDaemons: startsDaemons, healReplaced: healReplaced, unresponsive: .shared)
+                healReplaced: (@Sendable () async -> Bool)? = nil,
+                startOwner: (@Sendable () async -> Bool)? = nil) {
+        self.init(environment: environment, startsDaemons: startsDaemons, healReplaced: healReplaced,
+                  startOwner: startOwner, unresponsive: .shared)
     }
 
     init(environment: AcpmuxEnvironment?, startsDaemons: Bool = true, healReplaced: (@Sendable () async -> Bool)? = nil,
+         startOwner: (@Sendable () async -> Bool)? = nil,
          unresponsive: AcpmuxUnresponsiveWatch,
          restartsUnresponsive: @escaping @Sendable () -> Bool = { AgentPaneTunables.restartUnresponsiveAcpmux.value }) {
         self.resolveEnvironment = { environment }
@@ -154,6 +168,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
+        self.startOwner = startOwner
         self.unresponsive = unresponsive
         self.restartsUnresponsive = restartsUnresponsive
     }
@@ -176,6 +191,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
         self.healReplaced = nil
+        self.startOwner = nil
         self.unresponsive = .shared
         self.restartsUnresponsive = { AgentPaneTunables.restartUnresponsiveAcpmux.value }
     }
@@ -254,8 +270,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // each miss and right before a restart.
         let watch = owned ? unresponsive : nil
         let restarts = restartsUnresponsive
+        let startOwner = startOwner
         let task = Task {
-            try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, watch: watch, restarts: restarts)
+            try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal,
+                                       startOwner: startOwner, watch: watch, restarts: restarts)
         }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
@@ -379,6 +397,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     ///     before the restart.
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
                                     heal: (@Sendable (Int32) async -> Bool)?,
+                                    startOwner: (@Sendable () async -> Bool)? = nil,
                                     watch: AcpmuxUnresponsiveWatch? = nil,
                                     restarts: @escaping @Sendable () -> Bool = { false }) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
@@ -440,6 +459,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // the user stopped it. A reconnect starts one only after a crash
             // (cx-6bgzj); the new daemon adopts the agents still running.
             guard startsDaemon || owned && crashed(environment.home) else {
+                // The Chief home's daemon: only its host starts it (cx-ebm.54). Ask the host, so a
+                // restored Chief chat connects after a relaunch without Home being shown (#25570).
+                if !owned, !environment.isAttached, let startOwner, await startOwner() {
+                    throw AgentPaneHostError.chiefStarting
+                }
                 throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {

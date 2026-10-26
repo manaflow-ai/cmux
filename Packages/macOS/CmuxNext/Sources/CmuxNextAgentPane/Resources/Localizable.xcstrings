@@ -25823,6 +25823,137 @@
         }
       }
     },
+    "agentPane.error.chiefStarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief قيد التشغيل. تتصل هذه الدردشة عندما يصبح جاهزًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief se pokreće. Ovaj chat se povezuje kada bude spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief starter. Denne chat forbinder, når den er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief startet. Dieser Chat verbindet sich, sobald er bereit ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief is starting. This chat connects when it is up."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief se está iniciando. Este chat se conectará cuando esté listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief démarre. Cette discussion se connectera dès qu’il sera prêt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief si sta avviando. Questa chat si collega quando è pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief を起動しています。起動するとこのチャットが接続されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief កំពុងចាប់ផ្តើម។ ការជជែកនេះនឹងភ្ជាប់នៅពេលវារួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief를 시작하는 중입니다. 준비되면 이 채팅이 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief starter. Denne chatten kobler til når den er klar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief się uruchamia. Ten czat połączy się, gdy będzie gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chief está iniciando. Este chat se conecta quando ele estiver pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief запускается. Этот чат подключится, когда он будет готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief กำลังเริ่มทำงาน แชตนี้จะเชื่อมต่อเมื่อพร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief başlatılıyor. Bu sohbet hazır olduğunda bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief запускається. Цей чат підключиться, щойно він буде готовий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief đang khởi động. Cuộc trò chuyện này sẽ kết nối khi sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 正在启动。启动后此聊天会自动连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 正在啟動。啟動後此聊天會自動連線。"
+          }
+        }
+      }
+    },
     "agentPane.error.chiefStopped": {
       "extractionState": "manual",
       "localizations": {

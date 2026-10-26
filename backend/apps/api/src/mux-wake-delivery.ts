@@ -65,11 +65,12 @@ export const nextDeliveryAt = (sql: SqlStorage): number | null => {
   return r.at === null ? null : Number(r.at)
 }
 
-/** One send to the Chief's own brain; true when the brain answered (it holds the wake now). */
+/** One send to the Chief's own brain; true when the brain answered (it holds the wake now). A skip the
+ * brain marks `retry` (brain-turn.ts RETRY_SKIPS: a passing refusal) is not delivered: sent again with backoff. */
 export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<boolean> => {
   const pi = () => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
   const o = opencode && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
-  type Answer = { queued: number } | { skipped: string }
+  type Answer = { queued: number } | { skipped: string; retry?: true }
   const limit = (p: Promise<unknown>): Promise<Answer> => {
     let timer: ReturnType<typeof setTimeout> | undefined
     return Promise.race([p as Promise<Answer>, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("wake send timed out")), SEND_TIMEOUT_MS)))]).finally(() => clearTimeout(timer))
@@ -77,7 +78,11 @@ export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<bo
   try {
     const r = o ? await limit(o.wake(w)) : await limit(pi())
     // An opencode Chief on a deployment without the container (or switched back to pi) is answered by P.
-    if (o && "skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container")) await limit(pi())
+    const answer = o && "skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? await limit(pi()) : r
+    if ("skipped" in answer && answer.retry) {
+      console.warn(JSON.stringify({ msg: "chief_brain.wake_retry", agent: w.agent, conversation: w.conversation, seq: w.seq, reason: answer.skipped }))
+      return false
+    }
     return true
   } catch (e) {
     console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: w.agent, conversation: w.conversation, seq: w.seq, error: String(e).slice(0, 200) }))

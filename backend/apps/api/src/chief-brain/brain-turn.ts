@@ -22,7 +22,7 @@ import { type ChiefBrainDO, POST_RETRY_MS, retryPost, HOST, msOr, SETTLE_MS, TUR
  */
 
 /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
+export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
   markPending(b.sql, "wake")
   // When MuxDO committed the wake (the conversation's outbox delivered it): Run.timing mux_at.
   if (typeof w.at === "number" && Date.now() - w.at < 60_000) markPending(b.sql, "mux", Math.min(w.at, Date.now()))
@@ -108,7 +108,19 @@ export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: strin
  * object serves another Chief.
  */
 const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
-const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string }, reason: string): { skipped: string } => {
+/**
+ * Skips that pass (the owner's object did not answer, a memory copy is under way, a new Chief's
+ * conversation is not readable yet): MuxDO sends the wake again with backoff (`retry`), and the
+ * brain keeps the floor below the woken message, so this wake or any later one still answers it.
+ * Before #25570 a new Chief's first message skipped this way was dropped for good: the next wake of a
+ * conversation with no cursor starts at its own seq, so only a second message got an answer.
+ */
+export const RETRY_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing", "unknown_conversation"])
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string): { skipped: string; retry?: true } => {
+  if (RETRY_SKIPS.has(reason)) {
+    b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
+    return { skipped: reason, retry: true }
+  }
   // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
   const busy =
     (b.turnLive && b.turnConversation === w.conversation) ||

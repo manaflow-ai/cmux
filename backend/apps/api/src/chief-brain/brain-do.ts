@@ -530,7 +530,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** MuxDO forwards a committed wake here. Pulls the conversation's new messages as the chief and starts a turn. */
-  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string }> {
+  async wake(w: { agent: string; owner: string; conversation: string; seq: number; reason: string; at?: number }): Promise<{ queued: number } | { skipped: string; retry?: true }> {
     return turnLoop.wake(this, w)
   }
 

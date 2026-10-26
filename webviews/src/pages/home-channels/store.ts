@@ -42,6 +42,10 @@ import {
 export const PAGE = 100;
 /** Most pages a link loads to reach its message (older history, or later thread replies). */
 const LINK_PAGES = 20;
+/** Timeline messages (not thread replies) an opened conversation pages back to, about a screen:
+ * a Chief answers in threads, so its newest page can be all replies the timeline does not draw,
+ * and older history loads only on a scroll the short timeline never has (#25570). */
+const FILL_TOP_LEVEL = 30;
 export const WINDOW = 1500;
 
 export type Connection = "connecting" | "online" | "offline";
@@ -449,8 +453,13 @@ export class HomeChannelsStore {
       if (generation !== this.generation || this.snapshot.selected !== id) return;
       const conversations = new Map(this.snapshot.conversations).set(id, page.conversation);
       // Keep what events merged while the page was in flight (and older pages already read);
-      // the snapshot wins for a message both have unless the event copy was edited later.
-      const kept = this.snapshot.messages.filter((m) => m.conversation === id);
+      // the snapshot wins for a message both have unless the event copy was edited later. Kept
+      // messages that end before the page starts (more than a page came in since, a reconnect)
+      // would leave a hole no older page fills: the window starts at the page then (#25570).
+      const first = page.messages[0]?.seq;
+      const all = this.snapshot.messages.filter((m) => m.conversation === id);
+      const joins = first === undefined || all.some((m) => m.seq >= first - 1);
+      const kept = joins ? all : all.filter((m) => m.seq >= (first ?? 0));
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -480,6 +489,21 @@ export class HomeChannelsStore {
       if (this.shown) this.markRead(page.conversation, messages.at(-1)?.seq ?? 0);
     } catch (error) {
       if (generation === this.generation) this.set({ error: describe(error) });
+      return;
+    }
+    await this.fillTimeline(id, generation);
+  }
+
+  /** Pages older history (at most LINK_PAGES) until the timeline has FILL_TOP_LEVEL messages
+   * to show or the conversation's start is in. */
+  private async fillTimeline(id: string, generation: number): Promise<void> {
+    for (let page = 0; page < LINK_PAGES; page += 1) {
+      const { selected, messages, hasOlder } = this.snapshot;
+      if (generation !== this.generation || selected !== id || !hasOlder) return;
+      if (messages.filter((m) => !threadOf(m)).length >= FILL_TOP_LEVEL) return;
+      const before = messages[0]?.seq;
+      await this.loadOlder();
+      if (this.snapshot.messages[0]?.seq === before) return;
     }
   }
 
