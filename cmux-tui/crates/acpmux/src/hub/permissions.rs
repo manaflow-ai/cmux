@@ -7,6 +7,10 @@ use super::*;
 #[path = "permission_settled.rs"]
 pub(super) mod settled;
 
+/// The person-readable line on a request (`toolCall._meta.acpmux.display`).
+mod display;
+pub(crate) use display::{ChildTags, drop_display_lines};
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -501,6 +505,9 @@ impl Hub {
         // One harness-neutral copy of any questions, before rules and the
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
+        // A person-readable line for a tool whose name and JSON mean nothing
+        // to a person (permissions/display.rs), before anything shows the request.
+        self.stamp_permission_display(session, &mut request);
         let needs_person = super::questions::needs_person(&request);
         // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
         // the async workers: its git reads look at the repositories on disk.
