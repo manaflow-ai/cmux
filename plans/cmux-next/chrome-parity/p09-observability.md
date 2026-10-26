@@ -1822,6 +1822,10 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   acpmux, agent_host, app_host, browser_host). cmux-app-host opens its ring before it enters the sandbox.
   Cleanup removes dead-pid rings older than 3 days and keeps the directory under 16 MiB, once at daemon
   start (no timer). The holder uses a holder-lifetime directory.
+- Folders (agreed with 063, whose hang reports merge these rings; `HangReportFieldSources.RingFolders`): every
+  process but the holder writes into the app's trace folder, `~/Library/Logs/<bundle id>/trace`, which the app
+  hands the daemon at launch and the daemon hands its hosts. The holder keeps `<socket>.trace` beside its socket
+  in `/tmp/cmux-hd-<uid>`. 063 already reads both, and the daemon's `CMUX_TRACE_FLOWS` folder.
 - Acceptance:
   - `rg init_blackbox` hits all 7 mains.
   - The app-host call comes before the sandbox call.

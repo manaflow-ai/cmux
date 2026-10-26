@@ -51,7 +51,10 @@ import Testing
     @Test func nightSkyLoopsAskFor30HzWithTheSameTiming() throws {
         defer { DesignSettings.shared.loopsFollowFrameRate = false }
         func skyLoops() throws -> [(String, CAAnimation)] {
+            // The sky runs its loops only while it shows (LoopVisibility): in a window that reads visible.
+            let host = LoopTestWindow()
             let sky = NightSkyView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+            host.window.contentView = sky
             sky.layout()
             let layers = try #require(sky.layer?.sublayers)
             return try layers.map { layer in

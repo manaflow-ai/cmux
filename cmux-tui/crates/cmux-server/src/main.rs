@@ -2,6 +2,8 @@
 //! `cmux`. Also accepts a leading `server` word, so Postgres's
 //! `archive_command` works with either binary.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 use std::process::ExitCode;
 
 fn main() -> ExitCode {

@@ -54,6 +54,22 @@ struct ThreadHangReportTests {
         #expect(!text.contains("hangwatch") && !text.contains("\"thread\""), "a schema-2 server answers 400: \(text)")
     }
 
+    /// A watched thread's hang takes the report's black box, as a main-thread hang of a second does.
+    @Test func aThreadHangTakesTheBlackBox() async {
+        let jobs = HangReportFieldDataFlowTests.Jobs()
+        let event = HangReportFieldDataFlowTests.event
+        let collector = HangReportCollector(resolve: { _ in [] }, captureBlackBox: { [event] }, schedule: { $0() },
+                                            scheduleCapture: { jobs.append($0) })
+        let thread = HangSample.WatchedThread(name: "daemon-reader", kind: "io")
+        collector.noteThreadHang(durationNanos: 2_000_000_000, addresses: [1], thread: thread)
+        #expect(jobs.scheduled.isEmpty, "off: nothing is read")
+        collector.setEnabled(true)
+        collector.noteThreadHang(durationNanos: 2_000_000_000, addresses: [1], thread: thread)
+        #expect(jobs.scheduled.count == 1)
+        await jobs.scheduled[0]()
+        #expect(collector.takeBlackBox() == [event])
+    }
+
     @Test func aHangWithNoStackIsNotKept() {
         let collector = Self.collector()
         collector.setEnabled(true)

@@ -1477,9 +1477,19 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object serverBlocking() throws CmuxException {
+        Object result = execute(Commands.SERVER_BLOCKING, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
         Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final Object serverThreads() throws CmuxException {
+        Object result = execute(Commands.SERVER_THREADS, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final SetCellPixelsResult setCellPixels(SetCellPixelsRequest request) throws CmuxException {

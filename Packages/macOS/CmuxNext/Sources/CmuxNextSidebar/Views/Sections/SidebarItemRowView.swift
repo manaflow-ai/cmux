@@ -2,6 +2,7 @@ import AppKit
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -48,6 +49,9 @@ class SidebarItemRowView: NSView {
     var onRemove: (() -> Void)?
     var removeButton: SidebarIconButton?
     var wiggleSize: CGSize = .zero
+    /// The edit-mode wiggle's loop: off while the item is hidden or its window occluded.
+    let wiggleLoops = LoopVisibility("sidebar.item.wiggle")
+    private var wiggleNode: VisibilityNode { wiggleLoops.node }
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
@@ -469,6 +473,17 @@ class SidebarItemRowView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         keyRepaint.track()
+        wiggleLoops.place(in: window)
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        wiggleNode.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        wiggleNode.set(.visible)
     }
 
     override func becomeFirstResponder() -> Bool {

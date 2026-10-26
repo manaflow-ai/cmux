@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -141,9 +142,20 @@ final class CEFHostReplies {
     /// Callbacks by token, each run once: by the reply, its deadline, ``fail(_:_:)`` or ``failAll(_:)``.
     private var callbacks: [UInt32: Callback] = [:]
     private var lastCallback: UInt64 = 0
+    /// This table's entry for the remote shim's reply callback, made at the first attach; it goes with the table.
+    private var sinkRegistration: CEFReplySinkRegistration?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         waiters = CEFReplyWaiters(clock: clock, superseded: { CEFHostReplyError.superseded })
+    }
+
+    /// The context the remote shim's reply callback gets for this table (``CEFReplySinkRegistration``): the same
+    /// token for every attach of the table.
+    func replySinkToken() throws(CallbackRegistryError) -> CallbackToken {
+        if let sinkRegistration { return sinkRegistration.token }
+        let registration = try CEFReplySinkRegistration(self)
+        sinkRegistration = registration
+        return registration.token
     }
 
     /// Tokens expected, answered and not taken, awaited, or with a callback.

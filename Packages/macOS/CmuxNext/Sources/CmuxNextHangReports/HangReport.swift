@@ -28,12 +28,23 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// samples (``HangSample/blockingSite(_:frames:)``). The server refuses unknown keys and
         /// other schema numbers, so a build writes it only after the server accepts it
         /// (p09-observability-064 deployed, behind p09-observability-063's server-version flag;
-        /// tasks p08-startup-115, p04-input-103 and p04-input-104).
+        /// tasks p08-startup-115, p04-input-103 and p04-input-104), and the field data: `histograms[]`,
+        /// `stability{}`, `blackbox[]` and `launch_sections[]` (p09-observability-063).
         case v3 = 3
 
         /// The newest schema cmux.com's `web/services/hangReports/wireSchema.ts` accepts. It moves to
         /// ``v3`` only after that server change is deployed.
         public static let deployed = WireSchema.v2
+
+        /// The schema this build writes: ``v3`` once the server-version feature (`hangReportsSchema3`, on
+        /// after p09-observability-064 deployed) says the server accepts it, else ``deployed``.
+        public static func written(serverAcceptsSchema3: Bool) -> WireSchema {
+            serverAcceptsSchema3 ? .v3 : deployed
+        }
+
+        /// The largest body of this schema: schema 3's field data must fit 48 KiB
+        /// (p09-observability.md section 3D), schema 2 keeps the 64 KiB the server accepts.
+        public var maxBodyBytes: Int { self == .v3 ? 48 * 1024 : HangReport.maxBodyBytes }
 
         /// Whether a report in this schema carries ``HangReport/launches``.
         public var carriesLaunches: Bool { self == .v3 }
@@ -53,6 +64,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         /// Whether a watchdog hang sample carries ``HangSample/mainTask`` (`"task": {"owner", "class"}`,
         /// p06-scheduler-203; the schema-3 decoder must list the key before a build sends schema 3).
         public var carriesTaskAttribution: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``HangReport/histograms``, ``HangReport/stability``,
+        /// ``HangReport/blackbox`` and ``HangReport/launchSections`` (p09-observability-063).
+        public var carriesFieldData: Bool { self == .v3 }
         /// Whether a report in this schema has the hang watch's samples of other threads
         /// (``HangSample/threadHang(_:durationMs:frames:)``: source `hangwatch`, kind `hang`, `"thread": {"name", "kind"}`;
         /// p09-observability-068; the schema-3 decoder must list them before a build sends schema 3).
@@ -67,7 +81,7 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public static let maxCPUExceptions = 5
     /// The most signpost intervals one report carries.
     public static let maxIntervals = 64
-    /// The largest body the server accepts (64 KiB).
+    /// The largest schema 2 body the server accepts (64 KiB); ``WireSchema/maxBodyBytes`` is each schema's.
     public static let maxBodyBytes = 64 * 1024
     /// The ``intervals`` category of the watchdog's main-thread histograms (schema 3 only): not a
     /// signpost category, so no MetricKit interval can use it (``HangReportSignposts/categories``).
@@ -180,6 +194,16 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var inputLatency: [InputLatencyRow]?
     /// Chrome's scroll jank counts since the last report; schema 3 only.
     public var scrollJank: ScrollJank?
+    /// This launch's catalog histograms since the last report (at most ``maxFieldHistograms``); schema 3 only.
+    public var histograms: [FieldHistogram]?
+    /// This launch's stability counts since the last report; schema 3 only.
+    public var stability: Stability?
+    /// The merged black box of the app, daemon and host rings at a hang of 1 s or more or a key frame over
+    /// 50 ms, oldest first (at most ``TraceBlackBoxUpload/maxEvents``); schema 3 only, and dropped first when
+    /// the body is too large.
+    public var blackbox: [BlackBoxEvent]?
+    /// Earlier launches' histograms and stability counts, each under its own profile; schema 3 only.
+    public var launchSections: [LaunchSection]?
 
     /// Makes the value from its parts.
     public init(reportId: String, installId: String, day: String, app: App, os: OS, hardware: HardwareClass,
@@ -198,6 +222,13 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
             && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
+            && !hasFieldData
+    }
+
+    /// Whether the report carries histograms, stability counts or a launch section (a black box alone is
+    /// context, not a finding).
+    public var hasFieldData: Bool {
+        !(histograms ?? []).isEmpty || !(stability?.isEmpty ?? true) || !(launchSections ?? []).isEmpty
     }
 
     /// Whether the report carries input latency rows or scroll jank counts.
@@ -215,6 +246,8 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         case inputLatency = "input_latency"
         case scrollJank = "scroll_jank"
         case activeSeconds = "active_seconds"
+        case histograms, stability, blackbox
+        case launchSections = "launch_sections"
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

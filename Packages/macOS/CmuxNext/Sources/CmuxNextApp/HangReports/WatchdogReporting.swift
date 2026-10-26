@@ -4,13 +4,15 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextFeatures
 import CmuxNextHangReports
 import CmuxNextWakeups
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
-/// (``HangReportsController``), whose sink does nothing while they are off; with the main thread's phase
+/// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
+/// time (`AppServices.inputFrameSignposts`); with the main thread's phase
 /// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
@@ -28,7 +30,8 @@ enum WatchdogReporting {
             watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory,
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
-            daemonPID: { [weak services] in services?.daemon.identity?.pid })
+            daemonPID: { [weak services] in services?.daemon.identity?.pid },
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
         let collector = hangReports.collector
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
@@ -63,6 +66,8 @@ enum WatchdogReporting {
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
+        // A slow key frame takes the black box (one compare, then one atomic load while reports are off).
+        if let collector { services.inputFrameSignposts.committedKey = { collector.noteKeyFrame(durationMicros: $0) } }
         return hangReports
     }
 

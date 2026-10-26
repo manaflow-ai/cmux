@@ -80,7 +80,7 @@ extension BrowserHibernation {
             canRestore: restores,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
-        candidate.recentFocusCount = recentFocusCount(key, now: now)
+        candidate.recentFocusCount = focusHistory.count(key, now: now)
         candidate.memoryBytes = memoryBytes[key]
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
@@ -98,8 +98,9 @@ extension BrowserHibernation {
     /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
     /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
     /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
-    /// page) drops the old page's watch.
+    /// page) drops the old page's watch. A Chromium page follows its tab's node (``followVisibility(_:_:)``).
     func pageDidMount(_ key: String, _ page: any BrowserTab) {
+        followVisibility(key, page)
         guard let audible else { return }
         guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
         audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
@@ -136,6 +137,8 @@ extension BrowserHibernation {
     /// replans. A sample already running gives its reading when it lands.
     private func sampleMemory() {
         guard let measureMemory, memoryReadings.begin() else { return }
+        // task-owner: one memory sample; `memoryReadings` admits one at a time
+        // main-hop-allow: measureMemory is the app's resource sampler, a main-actor async seam whose process reads run off main; the readings land in its one resume
         Task { @MainActor [weak self] in
             let sample = await measureMemory()
             guard let self else { return }

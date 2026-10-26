@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -13,6 +14,9 @@ import CmuxNextTabs
 /// atomic command carrying the drag's client transaction (echoed in the
 /// moved tab's delta). Older daemons get documented fallbacks: a split or
 /// column spawns a pane, the tab moves in, the spawned terminal closes.
+///
+/// Each command is awaited off the main thread, and its completion runs on main as one task of the run's
+/// completion class (``send(_:services:file:line:landed:_:)``, p06-scheduler.md recipe R-hop).
 enum TabMoves {
     typealias Completion = @MainActor (Bool) -> Void
 
@@ -29,14 +33,13 @@ enum TabMoves {
         let current = pane.tabs.firstIndex { $0.surface == surface }
         let wire = TabMoveIndex.wireIndex(finalIndex: index, currentIndex: current)
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
-        services.registry.track(Task {
+        send("TabMoves.move", services: services, landed: completion) {
             let ok = await daemon.intend("move-tab", .moveTab(surface: surface, toPane: target, index: index),
                                          transaction: transaction) { connection -> Void in
                 _ = try await connection.moveTab(surface, to: target, index: wire, transaction: echoes ? transaction : nil)
             } != nil
-            completion(ok)
             return ok ? nil : "move-tab failed (see the app log)"
-        })
+        }
     }
 
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
@@ -83,11 +86,15 @@ enum TabMoves {
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
-        // Its own pane's only tab on that pane's edge (every entry point): the New Tab page opens behind it.
-        if respawn == nil, let source = services.locateTab(tab.id)?.1, source.handle == pane.handle, source.tabs.count == 1 { return splitBehind(pane, edge: edge, services: services, completion: completion) }
+        // The tab's pane now, read once for the whole decision.
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        let current = services.locateTab(tab.id)?.1
         // With a respawn the source pane stays (it gets the new tab).
+        let source = respawn == nil ? current : nil
+        // Its own pane's only tab on that pane's edge (every entry point): the New Tab page opens behind it.
+        if let source, source.handle == pane.handle, source.tabs.count == 1 { return splitBehind(pane, edge: edge, services: services, completion: completion) }
         let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
-            services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil)
+            services.splitRoom(for: pane, edge: edge, movingFrom: source)
         }
         switch decision {
         case .split:
@@ -99,14 +106,22 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
+        let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue), sizing = services.splitSizing(for: pane, edge: edge, emptying: source?.tabs.count == 1 ? source : nil)
         // The even sizing lands with the move's echo, in the same layout update as the new split, not a
         // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
         // That waiter has no barrier, so a resync snapshot from before the move can settle it with the
         // tab still in its pane: the sizing then goes once the reply's events are in the store (below).
-        let from = services.locateTab(tab.id)?.1.handle
-        if echoes { daemon.store.whenApplied(transaction) { if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() } } }
-        services.registry.track(Task {
+        let from = current?.handle
+        if echoes {
+            daemon.store.whenApplied(transaction) {
+                // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) once the echo applied, no observation
+                if let now = services.locateTab(tab.id)?.1.handle, now != from { sizing() }
+            }
+        }
+        send("TabMoves.toNewSplit", services: services, landed: { ok in
+            if ok { daemon.whenApplied(transaction) { sizing() } }
+            completion(ok)
+        }) {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
                     if let respawn {
@@ -119,10 +134,8 @@ enum TabMoves {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
-            if ok { daemon.whenApplied(transaction) { sizing() } }
-            completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
-        })
+        }
     }
 
     /// New strip column after `afterColumn` (nil = after the screen's last column, the daemon's default).
@@ -134,11 +147,15 @@ enum TabMoves {
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapability.tabDrag.rawValue)
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
         let spawn = services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
         let width = spawn.width
-        services.registry.track(Task {
+        send("TabMoves.toNewColumn", services: services, landed: { ok in
+            if ok { spawn.commit() }
+            completion(ok)
+        }) {
             // The daemon's reason reaches the caller (a CLI run's reply, the sweep's row), not only the log.
-            let failure = await daemon.failure("move-tab-to-column") { connection in
+            await daemon.failure("move-tab-to-column") { connection in
                 do {
                     _ = try await connection.moveTabToColumn(surface, target: .pane(paneHandle), afterColumn: afterColumn,
                                                              width: width, keepFocus: keepFocus, transaction: echoes ? transaction : nil)
@@ -147,10 +164,7 @@ enum TabMoves {
                     _ = try await adopt(surface, into: created, connection: connection)
                 }
             }
-            if failure == nil { spawn.commit() }
-            completion(failure == nil)
-            return failure
-        })
+        }
     }
 
     /// A new left dock's share of the window width (cx-ihyx2).
@@ -183,10 +197,14 @@ enum TabMoves {
         // default"); a resize is the column's own width and stays. A right dock takes the width a
         // new column next to the anchor would take.
         let half = edge == .left && width == nil ? Self.leftDockWidth : nil
-        let spawn = edge.isBand || width != nil || half != nil ? nil
-            : services.newColumnWidth(nextTo: pane, movingFrom: services.locateTab(tab.id)?.1)
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        let source = services.locateTab(tab.id)?.1
+        let spawn = edge.isBand || width != nil || half != nil ? nil : services.newColumnWidth(nextTo: pane, movingFrom: source)
         let width = width ?? half ?? spawn?.width ?? 0.3
-        services.registry.track(Task {
+        send("TabMoves.toNewDockColumn", services: services, landed: { ok in
+            if ok { spawn?.commit() }
+            completion(ok)
+        }) {
             let ok = await daemon.request("move-tab-to-column") { connection -> Void in
                 if let respawn {
                     let move = MoveTabToColumnRequest(surface: surface, target: .pane(paneHandle), width: width, dock: pin,
@@ -197,10 +215,8 @@ enum TabMoves {
                                                              transaction: transaction)
                 }
             } != nil
-            if ok { spawn?.commit() }
-            completion(ok)
             return ok ? nil : "move-tab-to-column failed (see the app log)"
-        })
+        }
     }
 
     /// Moves the tab into a new workspace at root `index`. Returns the new
@@ -235,60 +251,6 @@ enum TabMoves {
         return key ?? nil
     }
 
-    /// The name a workspace made from `tab` takes: the tab's, or, when
-    /// `tab` is its workspace's last daemon tab, the workspace's own name
-    /// when the user named it (the workspace closes behind the move).
-    static func newWorkspaceName(for tab: TabModel, services: AppServices) -> String? {
-        // An agent chat's name is its chat's title, which only the turn store knows.
-        let tabName = WorkspaceAutoNameWiring(services: services).reader.newWorkspaceName(tab)
-        guard let sourceID = services.workspaceID(ofTab: tab.id), let source = services.workspace(id: sourceID),
-              source.screens.flatMap(\.panes).flatMap(\.tabs).count == 1 else { return tabName }
-        // The source workspace's own daemon, as WorkspaceAutoNameWiring reads it (none: legacy defaults apply).
-        let daemon = services.machines.daemon(forWorkspace: sourceID)
-        return NewWorkspaceName.forLastTab(workspaceName: source.name, workspaceTitle: source.title, tabName: tabName,
-                                           workspaceNameSource: source.nameSource, workspaceNameRevision: source.nameRevision,
-                                           allowsLegacyDefaults: !(daemon?.supports(DaemonCapability.workspaceNameSource.rawValue) ?? false))
-    }
-
-    /// What `NewWorkspaceName` reads from `tab`: the browser's live page
-    /// title comes from the app's renderer, the rest from the store. An
-    /// incognito page's title stays in memory (R102): the daemon stores the
-    /// workspace name and keeps it in closed history.
-    static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
-        // A conversation, page or app tab's record is titled `about:blank`, a placeholder (a New
-        // Tab page dragged to the sidebar named its workspace "about:blank"): only a name the tab
-        // shows of its own names the workspace.
-        if tab.kind == .conversation || tab.appTab != nil {
-            return NewWorkspaceName.Tab(kind: .page, userName: tab.name, title: ownName(tab, services: services), pageTitle: nil, url: nil, cwd: nil)
-        }
-        let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
-        case .pty: .terminal
-        case .browser: .browser
-        case .remoteTerminal: .remoteTerminal
-        // A conversation or a kind this app does not know: its title still names it.
-        case .conversation, .other: .terminal
-        }
-        let offTheRecord = tab.kind == .browser && services.cache.browserTabs.isIncognitoTab(tab.id) == true
-        let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.titleText, pageTitle: pageTitle,
-                                    url: tab.url, cwd: tab.cwd)
-    }
-
-    /// The name a conversation, page or app tab shows of its own: its page's or app's title, its
-    /// Home conversation's title or the Chief's name. Nil for an agent chat or New Tab page (named
-    /// from its chat, `WorkspaceAutoNameReader`), an app with no page, and an untitled Home
-    /// conversation: a generic label ("New Tab", "Home") written now would stay as the user's name.
-    private static func ownName(_ tab: TabModel, services: AppServices) -> String? {
-        if tab.agentSession != nil { return nil }
-        if let app = tab.appTab {
-            guard let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false) else { return nil }
-            return services.pages.storeTabItem(tab, page: provider.page)?.title
-        }
-        if tab.page != nil { return services.pages.storeTabItem(tab)?.title }
-        let title = services.home.tabTitle(for: tab)
-        return title == HomeStrings.title ? nil : title
-    }
-
     /// The other tabs of a multi-tab move follow the first into the workspace its move made (`key`), in order.
     static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
         guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
@@ -315,22 +277,40 @@ enum TabMoves {
         // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
         // with no pane yet waits for the daemon's layout.
         if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {
-            let send = daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
+            let sent = IntentSend(daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
-            }
-            services.registry.track(Task {
-                let ok = await send() != nil
-                completion(ok)
-                return ok ? nil : "move-tab-to-workspace failed (see the app log)"
             })
+            send("TabMoves.toWorkspace", services: services, landed: completion) {
+                await sent.landed() ? nil : "move-tab-to-workspace failed (see the app log)"
+            }
             return
         }
-        services.registry.track(Task {
+        send("TabMoves.toWorkspace", services: services, landed: completion) {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
             } != nil
-            completion(ok)
             return ok ? nil : "move-tab-to-workspace failed (see the app log)"
+        }
+    }
+
+    // MARK: Sending (recipe R-hop)
+
+    /// Sends one move's `command` off the main thread as the current run's tracked work; `landed` then runs on main
+    /// with whether it landed, as one task of the run's completion class: userBlocking for a person's move (a drag, a
+    /// menu, a key), automation for an agent's or the CLI's, with the run's scopes
+    /// (``ActionRegistry/trackWork(owner:on:tracked:file:line:_:then:)``). Chromium posts the reply of thread-pool work
+    /// back to the UI thread as a task of its own (`base::ThreadPool::PostTaskAndReplyWithResult`,
+    /// content/browser/scheduler/browser_task_queues.h).
+    static func send(_ owner: String, services: AppServices, file: StaticString = #fileID, line: UInt = #line,
+                     landed: @escaping @MainActor (Bool) -> Void, _ command: @escaping @Sendable () async -> ActionWorkFailure?) {
+        let end = MoveEnd(landed)
+        services.registry.trackWork(owner: owner, on: services.mainWork, file: file, line: line, command, then: { result in
+            let failure: ActionWorkFailure? = switch result {
+            case .success(let reported): reported
+            case .failure(let error): ActionWorkFailure("\(owner) failed: \(error)")
+            }
+            end.land(failure == nil)
+            return failure
         })
     }
 
@@ -392,4 +372,27 @@ enum TabMoves {
         }
         return pane.id
     }
+}
+
+/// A move's main-thread end in a main-actor object, which the move's off-main work can carry (its closure is not Sendable).
+private final class MoveEnd {
+    private let landed: @MainActor (Bool) -> Void
+
+    init(_ landed: @escaping @MainActor (Bool) -> Void) {
+        self.landed = landed
+    }
+
+    func land(_ ok: Bool) { landed(ok) }
+}
+
+/// A move's intent send (`DaemonService.intendNow`): the intent showed in the move's turn, and the off-main part of the
+/// move awaits its command, main-actor work, through this main-actor object.
+private final class IntentSend {
+    private let send: @MainActor () async -> Void?
+
+    init(_ send: @escaping @MainActor () async -> Void?) {
+        self.send = send
+    }
+
+    func landed() async -> Bool { await send() != nil }
 }

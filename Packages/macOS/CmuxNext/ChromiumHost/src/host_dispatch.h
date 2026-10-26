@@ -42,11 +42,20 @@
 //                                              layers it hosts, and answers 0 (a refused
 //                                              hosting) when the fork refuses to detach it
 //                                              (HandleLayerHosting)
+//   kOpBrowserSetPageVisibility                 the generated case; the host also keeps
+//                                              the value (KeepPageVisibility) and applies
+//                                              it when it detaches the page window
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
 //                                              call created it
+//   kOpBrowserSetPageDisplay                    the generated case (the fork places the
+//                                              detached page window on cmux's display, so
+//                                              its begin-frames, scale and color space are
+//                                              that display's, task 221); held as
+//                                              kOpBrowserAccessibilityToken is, the newest
+//                                              one only
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -297,6 +306,10 @@ class HostContext {
   // first. Answers the context id; when the fork refuses to detach, hosting
   // goes off again and the answer is 0, as for a refused hosting.
   bool HandleLayerHosting(const control::Message& message);
+  // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
+  // value for the browser, since the fork takes none until the page window
+  // is detached (task p01-process-220). False past kMaxPageVisibilities.
+  bool KeepPageVisibility(const control::Message& message);
   // Keeps `geometry` as `client_id`'s newest until its creation; past
   // kMaxPendingBinds held ids it is dropped (unplaced).
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
@@ -309,8 +322,9 @@ class HostContext {
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
   bool AwaitsCreation(int32_t client_id) const;
-  // Holds a page accessibility request of a browser not created yet (true), to run after its
-  // creation event (RunHeldForCreation); false: run it now. A peer past the bound is bad.
+  // Holds a page accessibility request or page display of a browser not created yet (true), to
+  // run after its creation event (RunHeldForCreation); false: run it now. A newer page display
+  // replaces the held one; a peer past the bound is bad.
   bool HoldForCreation(control::Message& message);
   void RunHeldForCreation(int32_t client_id);
   void ReplyResult(uint32_t token, int32_t result);
@@ -400,7 +414,7 @@ class HostContext {
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
   std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
-  // Page accessibility requests of minted ids whose creation has not come, by the minted id.
+  // Page accessibility requests and page displays of minted ids whose creation has not come, by the minted id.
   // Bounded with pending_binds_ and kMaxHeldPerBrowser (host_dispatch.mm).
   std::unordered_map<int32_t, std::vector<control::Message>> held_for_creation_;
 
@@ -410,6 +424,9 @@ class HostContext {
   // placed at the creation, dropped at a refused create or a close. Bounded
   // by kMaxPendingBinds (HoldGeometry).
   std::unordered_map<int32_t, PageGeometry> geometry_awaiting_;
+  // cmux's last page visibility (cmux_shim_page_visibility_t) by client id,
+  // applied again when HandleLayerHosting detaches that browser's page window.
+  std::unordered_map<int32_t, int32_t> page_visibility_;
   GeometryStats geometry_stats_;
 };
 
