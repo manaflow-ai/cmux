@@ -660,7 +660,8 @@ class Wiring(unittest.TestCase):
         job = self.jobs["macos-placement"]
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
+        # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
                        "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
