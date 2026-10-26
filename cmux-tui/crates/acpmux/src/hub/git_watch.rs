@@ -110,9 +110,10 @@ impl Hub {
             }
         });
         *self.git_watch.task.lock().unwrap_or_else(|p| p.into_inner()) = Some(task);
-        let thread = std::thread::Builder::new()
-            .name("acpmux-git-watch".into())
-            .spawn(move || run(&rx, &signal));
+        let thread =
+            cmux_threads::spawn("acpmux-git-watch", cmux_threads::ThreadQos::Utility, move || {
+                run(&rx, &signal)
+            });
         if let Err(e) = thread {
             tracing::warn!("git watch thread cannot start: {e}");
         }

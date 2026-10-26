@@ -607,14 +607,16 @@ pub(super) fn try_handle(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-transfer".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned = cmux_threads::spawn_with_stack(
+        "mux-agent-transfer",
+        cmux_threads::ThreadQos::UserInitiated,
+        THREAD_STACK_BYTES,
+        move || {
             let result = run(&worker_mux, &socket, prepared);
             worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
             reply(&worker_writer, worker_id, result);
-        });
+        },
+    );
     if spawned.is_err() {
         transfers.calls.fetch_sub(1, Ordering::AcqRel);
         return Some(reply(writer, id, Err(Refusal::Limit.into())));

@@ -143,9 +143,11 @@ impl FrontendJournalWorker {
     pub(super) fn spawn() -> anyhow::Result<Self> {
         let queue = Arc::new(FrontendJournalQueue::default());
         let worker_queue = queue.clone();
-        let worker = std::thread::Builder::new()
-            .name("frontend-session-journal".into())
-            .spawn(move || run_frontend_journal_worker(&worker_queue))?;
+        let worker = cmux_threads::spawn(
+            "frontend-session-journal",
+            cmux_threads::ThreadQos::Utility,
+            move || run_frontend_journal_worker(&worker_queue),
+        )?;
         Ok(Self { queue: Some(queue), worker: Some(worker) })
     }
 

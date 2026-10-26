@@ -251,8 +251,10 @@ pub(super) fn start_resource_wait(
     let worker_mux = mux.clone();
     let worker_canceled = canceled.clone();
     let worker_id = id.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-wait".into()).spawn(move || {
+    let spawn = cmux_threads::spawn(
+        "mux-resource-terminal-wait",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             let _registration = ResourceWaitWorkerGuard {
                 mux: worker_mux.clone(),
                 client,
@@ -267,7 +269,8 @@ pub(super) fn start_resource_wait(
                 let _ = send_resource_response(&worker_writer, worker_id, operation, result);
                 _registration.finish_response_attempt();
             }
-        });
+        },
+    );
     match spawn {
         Ok(_) => true,
         Err(error) => {

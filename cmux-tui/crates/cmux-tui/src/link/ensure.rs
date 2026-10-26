@@ -196,7 +196,7 @@ pub(super) fn ensure_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
     // A lock the helper gets after the deadline is released at once: its
     // send fails and the file drops.
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new().name("cmux-link-lock".into()).spawn(move || {
+    cmux_threads::spawn("cmux-link-lock", cmux_threads::ThreadQos::Utility, move || {
         // SAFETY: flock on a descriptor this thread owns.
         let locked =
             unsafe { libc::flock(std::os::fd::AsRawFd::as_raw_fd(&file), libc::LOCK_EX) } == 0;
@@ -423,7 +423,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     // Close this process's copy so end of file means the link closed it.
     drop(writer);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new().name("cmux-link-ready".into()).spawn(move || {
+    cmux_threads::spawn("cmux-link-ready", cmux_threads::ThreadQos::UserInitiated, move || {
         let mut line = String::new();
         let read = BufReader::new(reader.take(64 * 1024)).read_line(&mut line);
         let _ = sender.send(read.ok().filter(|n| *n > 0).map(|_| line));

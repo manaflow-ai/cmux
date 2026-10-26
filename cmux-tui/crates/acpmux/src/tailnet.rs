@@ -153,16 +153,33 @@ impl Tailnet {
         };
         // Read both pipes while the CLI runs: a large status fills a pipe
         // buffer, and the CLI would block on it forever.
-        let out = std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = (&mut stdout).take(MAX_OUTPUT).read_to_end(&mut buf);
-            buf
-        });
-        let err = std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
-            buf
-        });
+        let out = cmux_threads::spawn(
+            "acpmux-tailscale-stdout",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut buf = Vec::new();
+                let _ = (&mut stdout).take(MAX_OUTPUT).read_to_end(&mut buf);
+                buf
+            },
+        );
+        let err = cmux_threads::spawn(
+            "acpmux-tailscale-stderr",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut buf = Vec::new();
+                let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
+                buf
+            },
+        );
+        let (out, err) = match (out, err) {
+            (Ok(out), Ok(err)) => (out, err),
+            (Err(error), _) | (_, Err(error)) => {
+                // The pipes close with the CLI, which ends a reader that did start.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error).context("cannot start a tailscale output reader");
+            }
+        };
         let status = match child.wait_timeout(bound)? {
             Some(status) => status,
             None => {

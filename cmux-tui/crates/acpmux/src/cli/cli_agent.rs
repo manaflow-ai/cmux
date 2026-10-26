@@ -538,23 +538,31 @@ fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fi
 fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     use std::io::BufRead;
     let (tx, rx) = mpsc::unbounded_channel();
-    std::thread::spawn(move || {
-        let mut reader = std::io::BufReader::new(file);
-        let mut buf = Vec::new();
-        loop {
-            buf.clear();
-            match reader.read_until(b'\n', &mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(_) => {
-                    let line = String::from_utf8_lossy(&buf);
-                    let line = line.trim_end_matches(['\n', '\r']).to_owned();
-                    if tx.send(line).is_err() {
-                        break;
+    let started = cmux_threads::spawn(
+        "acpmux-cli-agent-lines",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let mut reader = std::io::BufReader::new(file);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let line = String::from_utf8_lossy(&buf);
+                        let line = line.trim_end_matches(['\n', '\r']).to_owned();
+                        if tx.send(line).is_err() {
+                            break;
+                        }
                     }
                 }
             }
-        }
-    });
+        },
+    );
+    if let Err(e) = started {
+        // The sender dropped with the closure: the lines end at once.
+        tracing::warn!(error = %e, "the terminal line reader did not start");
+    }
     rx
 }
 

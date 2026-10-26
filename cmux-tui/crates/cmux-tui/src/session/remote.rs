@@ -1336,9 +1336,11 @@ impl InteractiveWriter {
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        std::thread::Builder::new()
-            .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
+        cmux_threads::spawn(
+            "remote-input-writer",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || interactive_writer_worker(worker_shared, writer),
+        )?;
         Ok(Self { shared, abort })
     }
 

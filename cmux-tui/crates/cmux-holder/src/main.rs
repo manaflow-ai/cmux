@@ -6,6 +6,9 @@
 //! daemon's exit or a cleanup script would send: only an explicit CLOSE
 //! ends a terminal.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();

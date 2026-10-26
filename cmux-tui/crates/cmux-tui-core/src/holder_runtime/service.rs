@@ -508,15 +508,18 @@ impl HolderService {
                     return;
                 }
                 // The holder died: start a new one and hand it every master.
-                let _ =
-                    std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                let _ = cmux_threads::spawn(
+                    "holder-restart",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
                             eprintln!("cmux-tui: restart the terminal holder: {error}");
                             service.lose_all();
                         }
-                    });
+                    },
+                );
             }),
             SPAWN_TIMEOUT,
             HOLDER_FRAME_WATCH,
@@ -613,7 +616,7 @@ impl HolderService {
                 });
             }
         }
-        let _ = std::thread::Builder::new().name("holder-reaper".into()).spawn(move || {
+        let _ = cmux_threads::spawn("holder-reaper", cmux_threads::ThreadQos::Utility, move || {
             let _ = child.wait();
         });
         Ok(())
@@ -657,7 +660,7 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+    let _ = cmux_threads::spawn("cmux-holder-exe", cmux_threads::ThreadQos::Utility, || {
         let _ = standalone_holder();
     });
 }

@@ -141,9 +141,10 @@ impl Mux {
         let providers = self.browser_providers.clone();
         let id = surface.id;
         let thread_surface = surface.clone();
-        let spawn = std::thread::Builder::new()
-            .name(format!("browser-surface-{id}-bootstrap"))
-            .spawn(move || {
+        let spawn = cmux_threads::spawn(
+            format!("browser-surface-{id}-bootstrap"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let result = (|| -> anyhow::Result<()> {
                     match bootstrap {
                         BrowserBootstrap::Provider { tab_id, url } => {
@@ -279,7 +280,8 @@ impl Mux {
                         mux.emit(MuxEvent::SurfaceOutput(id));
                     }
                 }
-            });
+            },
+        );
         if let Err(error) = spawn
             && !surface.is_dead()
             && let Surface::Browser(browser) = surface.as_ref()

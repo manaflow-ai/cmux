@@ -297,11 +297,12 @@ fn serve_stream(
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
     // end of the stream) closes its queue; this thread then shuts the
     // socket down, which ends a blocked read or write of the stream at once.
-    let watcher = std::thread::Builder::new().name("mux-fs-stream-close".into()).spawn(move || {
-        // mq14-allow: the close watcher waits for its own queue (a checked wait).
-        while outbound.recv().is_some() {}
-        let _ = closer.shutdown(std::net::Shutdown::Both);
-    });
+    let watcher =
+        cmux_threads::spawn("mux-fs-stream-close", cmux_threads::ThreadQos::Utility, move || {
+            // mq14-allow: the close watcher waits for its own queue (a checked wait).
+            while outbound.recv().is_some() {}
+            let _ = closer.shutdown(std::net::Shutdown::Both);
+        });
     if watcher.is_err() {
         return;
     }

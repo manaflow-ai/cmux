@@ -76,10 +76,9 @@ fn install_panic_log() {
         reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
     )]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
-        let _ = std::thread::Builder::new()
-            .name(TEST_PANIC_THREAD.into())
-            // crash-allow: debug-only test trigger for the acpmux panic log
-            .spawn(|| panic!("acpmux test panic"));
+        let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
+            panic!("acpmux test panic")
+        });
     }
 }
 

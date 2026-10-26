@@ -143,9 +143,11 @@ impl Hub {
         // Weak: dropping the hub drops the watcher, which closes the channel
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
-        let thread = std::thread::Builder::new()
-            .name("acpmux-harness-watch".into())
-            .spawn(move || run(&rx, &watch, &sources, &signal));
+        let thread = cmux_threads::spawn(
+            "acpmux-harness-watch",
+            cmux_threads::ThreadQos::Utility,
+            move || run(&rx, &watch, &sources, &signal),
+        );
         if let Err(e) = thread {
             tracing::warn!("harness watch thread cannot start: {e}");
         }

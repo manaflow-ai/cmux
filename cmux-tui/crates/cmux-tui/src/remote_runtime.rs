@@ -218,7 +218,7 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
 fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
     let (finished_tx, finished_rx) = mpsc::sync_channel(1);
     let reaper_name = format!("{runtime_name}-startup-reaper");
-    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
+    let reaper = cmux_threads::spawn(reaper_name, cmux_threads::ThreadQos::Utility, move || {
         let _ = finished_tx.send(runtime_thread.join());
     });
     if reaper.is_ok() {
@@ -641,17 +641,19 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
-    let thread = thread::Builder::new()
-        .name("cmux-remote-client".into())
-        .spawn(move || {
+    let thread = cmux_threads::spawn(
+        "cmux-remote-client",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
             let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
-        })
-        .context("could not start remote client thread")?;
+        },
+    )
+    .context("could not start remote client thread")?;
     let ready = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(ready)) => ready,
         Ok(Err(error)) => {
@@ -2046,9 +2048,10 @@ fn start_daemon_runtime_with_timeout(
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let finished = Arc::new(AtomicBool::new(false));
     let thread_finished = finished.clone();
-    let thread = thread::Builder::new()
-        .name(format!("cmux-remote-{}", options.session))
-        .spawn(move || {
+    let thread = cmux_threads::spawn(
+        format!("cmux-remote-{}", options.session),
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             // The headless owner loop blocks until this runtime ends, on
             // every return path including a failed runtime build.
             let _finished = FinishedSignal(thread_finished);
@@ -2065,8 +2068,9 @@ fn start_daemon_runtime_with_timeout(
             ));
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             result
-        })
-        .context("could not start remote daemon thread")?;
+        },
+    )
+    .context("could not start remote daemon thread")?;
 
     let info = match ready_rx.recv_timeout(startup_timeout) {
         Ok(Ok(info)) => info,

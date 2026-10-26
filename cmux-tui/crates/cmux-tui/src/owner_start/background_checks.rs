@@ -19,7 +19,7 @@ pub(super) fn spawn() {
         crate::client_log::info(LOG_AREA, "update-check: off (offline)");
         return;
     }
-    let _ = std::thread::Builder::new().name("background-checks".into()).spawn(|| {
+    let _ = cmux_threads::spawn("background-checks", cmux_threads::ThreadQos::Utility, || {
         let line = flags();
         crate::client_log::info(LOG_AREA, &format!("feature-flags: {line}"));
         let line = update_check();

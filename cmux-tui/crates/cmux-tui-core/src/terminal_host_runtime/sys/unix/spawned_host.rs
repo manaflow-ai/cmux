@@ -3,7 +3,6 @@
 //! started (`cmux_process`), exact-killed and waited if the launch is not
 //! committed.
 
-use std::thread;
 use std::time::Duration;
 
 pub(crate) struct SpawnedHostProcess {
@@ -32,9 +31,13 @@ impl SpawnedHostProcess {
     /// Child leaves the independent host running.
     pub(crate) fn commit(mut self) {
         let Some(mut child) = self.child.take() else { return };
-        let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
-            let _ = child.wait();
-        });
+        let _ = cmux_threads::spawn(
+            "terminal-host-reaper",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                let _ = child.wait();
+            },
+        );
     }
 
     /// Unix hosts leave the daemon's session and scope, never its job.

@@ -175,29 +175,29 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
     drop(command);
     let name = spec.name.clone();
     let pid = child.id();
-    std::thread::Builder::new()
-        .name(format!("role-{name}-log"))
-        .spawn(move || {
-            let mut reader = BufReader::new(out_r);
-            let mut line = Vec::new();
-            while read_line_capped(&mut reader, &mut line, LOG_LINE_MAX).is_ok_and(|n| n > 0) {
-                if !line.ends_with(b"\n") {
-                    line.push(b'\n');
-                }
-                // A full disk drops lines; the role keeps running.
-                let _ = log.write_line(&line);
-                line.clear();
+    cmux_threads::spawn(format!("role-{name}-log"), cmux_threads::ThreadQos::Utility, move || {
+        let mut reader = BufReader::new(out_r);
+        let mut line = Vec::new();
+        while read_line_capped(&mut reader, &mut line, LOG_LINE_MAX).is_ok_and(|n| n > 0) {
+            if !line.ends_with(b"\n") {
+                line.push(b'\n');
             }
-        })
-        .map_err(|e| e.to_string())?;
+            // A full disk drops lines; the role keeps running.
+            let _ = log.write_line(&line);
+            line.clear();
+        }
+    })
+    .map_err(|e| e.to_string())?;
     if let Some((notify_r, notify_w)) = notify {
         drop(notify_w);
         let tx = tx.clone();
         let name = name.clone();
-        std::thread::Builder::new()
-            .name(format!("role-{name}-notify"))
-            .spawn(move || read_notify(notify_r, &name, pid, &tx))
-            .map_err(|e| e.to_string())?;
+        cmux_threads::spawn(
+            format!("role-{name}-notify"),
+            cmux_threads::ThreadQos::Utility,
+            move || read_notify(notify_r, &name, pid, &tx),
+        )
+        .map_err(|e| e.to_string())?;
     }
     watch_exit(&name, pid, tx);
     Ok(child)
@@ -208,14 +208,15 @@ pub fn start(spec: &RoleSpec, paths: &RolePaths, tx: &Sender<Msg>) -> Result<Chi
 pub fn watch_exit(name: &str, pid: u32, tx: &Sender<Msg>) {
     let tx = tx.clone();
     let name = name.to_owned();
-    let spawned = std::thread::Builder::new().name(format!("role-{name}-wait")).spawn({
-        let tx = tx.clone();
-        let name = name.clone();
-        move || {
-            wait_exit(pid);
-            let _ = tx.send(Msg::Gone { name, pid });
-        }
-    });
+    let spawned =
+        cmux_threads::spawn(format!("role-{name}-wait"), cmux_threads::ThreadQos::Utility, {
+            let tx = tx.clone();
+            let name = name.clone();
+            move || {
+                wait_exit(pid);
+                let _ = tx.send(Msg::Gone { name, pid });
+            }
+        });
     if spawned.is_err() {
         // No thread: report at once; the supervisor's `try_wait` decides.
         let _ = tx.send(Msg::Gone { name, pid });

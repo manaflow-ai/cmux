@@ -253,14 +253,15 @@ impl Mux {
             return;
         };
         let name = format!("terminal-respawn-{terminal_id}");
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
-            if mux.wait_respawn_backoff(delay) {
-                mux.run_terminal_respawn(plan);
-            } else {
-                mux.abandon_terminal_respawn(&plan.terminal_id);
-            }
-        });
+        let spawned =
+            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+                let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
+                if mux.wait_respawn_backoff(delay) {
+                    mux.run_terminal_respawn(plan);
+                } else {
+                    mux.abandon_terminal_respawn(&plan.terminal_id);
+                }
+            });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
             self.abandon_terminal_respawn(terminal_id);

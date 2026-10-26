@@ -562,13 +562,23 @@ impl<B: Backend> Server<B> {
                 if let Some(output) = self.notes.clone()
                     && let Some(job) = self.proxied_job(&params)
                 {
-                    std::thread::spawn(move || {
-                        let response = json!({"jsonrpc": "2.0", "id": id, "result": job.run(None)});
-                        let _ = output.send(&response);
-                    });
-                    return None;
+                    let call_id = id.clone();
+                    let started = cmux_threads::spawn(
+                        "cmux-mcp-proxied-call",
+                        cmux_threads::ThreadQos::UserInitiated,
+                        move || {
+                            let response =
+                                json!({"jsonrpc": "2.0", "id": call_id, "result": job.run(None)});
+                            let _ = output.send(&response);
+                        },
+                    );
+                    match started {
+                        Ok(_) => return None,
+                        Err(error) => Err((-32603, format!("cannot start the call: {error}"))),
+                    }
+                } else {
+                    self.call(&params)
                 }
-                self.call(&params)
             }
             _ => Err((-32601, format!("method not found: {method}"))),
         };

@@ -40,22 +40,20 @@ where
         // shell that dies of the same logout signal is a host loss
         // (`session-shutdown`).
         let signalled = Arc::downgrade(mux);
-        std::thread::Builder::new()
-            .name("headless-signal-wait".into())
-            .spawn(move || {
-                wait_for_shutdown_signal_peek();
-                if shutdown_requested()
-                    && let Some(mux) = signalled.upgrade()
-                {
-                    mux.begin_session_shutdown();
-                    // Name who stopped this owner (cx-0tgl LA).
-                    if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
-                        mux.record_daemon_signal(signal, sender, uid);
-                    }
+        cmux_threads::spawn("headless-signal-wait", cmux_threads::ThreadQos::Utility, move || {
+            wait_for_shutdown_signal_peek();
+            if shutdown_requested()
+                && let Some(mux) = signalled.upgrade()
+            {
+                mux.begin_session_shutdown();
+                // Name who stopped this owner (cx-0tgl LA).
+                if let Some((signal, sender, uid)) = signal_sender::shutdown_signal() {
+                    mux.record_daemon_signal(signal, sender, uid);
                 }
-                wake_headless();
-            })
-            .ok()
+            }
+            wake_headless();
+        })
+        .ok()
     };
     #[cfg(not(unix))]
     let signal_wait: Option<std::thread::JoinHandle<()>> = None;

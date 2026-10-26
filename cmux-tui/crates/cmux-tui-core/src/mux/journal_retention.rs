@@ -250,9 +250,11 @@ impl Mux {
         if !retention.worker_started.swap(true, Ordering::AcqRel) {
             let shared = retention.shared.clone();
             let mux = Arc::downgrade(self);
-            let spawned = std::thread::Builder::new()
-                .name("journal-retention".into())
-                .spawn(move || run_retention_worker(&shared, &mux));
+            let spawned = cmux_threads::spawn(
+                "journal-retention",
+                cmux_threads::ThreadQos::Utility,
+                move || run_retention_worker(&shared, &mux),
+            );
             if let Err(error) = spawned {
                 retention.worker_started.store(false, Ordering::Release);
                 eprintln!("cmux-tui: could not start the journal retention worker: {error}");

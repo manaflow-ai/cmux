@@ -839,8 +839,10 @@ fn attach(
         images_cap,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
-    let spawned =
-        std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-snapshot-attach-out",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             if waits::recv(&worker_committed).is_ok() {
                 worker.run();
             } else {
@@ -850,7 +852,8 @@ fn attach(
                     worker.outbound_stream.id,
                 );
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         lifecycle.cancel();
         mux.control_clients.snapshot_viewers.unregister(client, surface_id, outbound_stream.id);

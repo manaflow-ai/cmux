@@ -44,9 +44,10 @@ impl Supervisor {
             let inner = self.inner.lock().unwrap();
             local_prints(inner.catalog.packages.values())
         };
-        let spawned = std::thread::Builder::new()
-            .name("apps-local-reload".into())
-            .spawn(move || watch(&me, local, customize, prints));
+        let spawned =
+            cmux_threads::spawn("apps-local-reload", cmux_threads::ThreadQos::Utility, move || {
+                watch(&me, local, customize, prints);
+            });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }

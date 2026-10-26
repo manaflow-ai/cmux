@@ -359,9 +359,8 @@ fn spawn(
     // A client that connected before the observer was installed.
     watch.clients_changed();
     let waiter = watch.clone();
-    let thread = std::thread::Builder::new()
-        .name("dev-orphan-exit".into())
-        .spawn(move || {
+    let thread =
+        cmux_threads::spawn("dev-orphan-exit", cmux_threads::ThreadQos::Utility, move || {
             while waiter.wait() {
                 if stop_owner(waiter.facts.as_ref()) {
                     return;

@@ -80,9 +80,10 @@ impl Mux {
         };
         let mux = Arc::clone(self);
         let name = format!("terminal-restart-{}", plan.terminal_id);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            mux.run_terminal_respawn(plan);
-        });
+        let spawned =
+            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+                mux.run_terminal_respawn(plan);
+            });
         if let Err(error) = spawned {
             eprintln!("cmux-tui: no thread to restart terminal {}: {error}", accepted.terminal);
         }

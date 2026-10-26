@@ -175,8 +175,10 @@ impl Ticker {
         let Some(progress) = progress else { return Self { stop: None, thread: None } };
         let (stop, stopped) = mpsc::channel::<()>();
         let started = Instant::now();
-        let spawned =
-            std::thread::Builder::new().name("cmux-mcp-wait-progress".into()).spawn(move || {
+        let spawned = cmux_threads::spawn(
+            "cmux-mcp-wait-progress",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 loop {
                     match stopped.recv_timeout(PROGRESS_EVERY) {
                         Err(RecvTimeoutError::Timeout) => {}
@@ -199,7 +201,8 @@ impl Ticker {
                         return;
                     }
                 }
-            });
+            },
+        );
         // No thread, no notes: the wait itself still runs.
         Self { stop: Some(stop), thread: spawned.ok() }
     }

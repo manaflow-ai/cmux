@@ -52,12 +52,15 @@ pub fn start() {
     if !any {
         return;
     }
-    let spawned =
-        std::thread::Builder::new().name("acpmux-login-env-watch".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "acpmux-login-env-watch",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             // The thread owns the watcher: its events stop only with the process.
             let _watcher = watcher;
             run(&rx, &files, &rt);
-        });
+        },
+    );
     if let Err(e) = spawned {
         tracing::warn!("login env: the startup-file watcher thread cannot start: {e}");
     }

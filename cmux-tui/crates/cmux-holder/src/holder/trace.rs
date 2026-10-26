@@ -81,15 +81,17 @@ impl TraceControl for ProcessTrace {
         }
         if !self.mapping {
             let (mapped, wake) = (self.mapped.clone(), self.wake);
-            std::thread::Builder::new()
-                .name("cmux-holder-trace-map".into())
-                .spawn(move || {
+            cmux_threads::spawn(
+                "cmux-holder-trace-map",
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     // A failure shows in the start that follows.
                     let _ = cmux_trace::prepare_recording();
                     mapped.store(true, Ordering::Release);
                     wake();
-                })
-                .map_err(|error| format!("map the recording ring: {error}"))?;
+                },
+            )
+            .map_err(|error| format!("map the recording ring: {error}"))?;
             self.mapping = true;
         }
         self.waiting = Some(request.categories);

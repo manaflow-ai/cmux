@@ -47,9 +47,10 @@ pub(super) fn start(
             errors.push(format!("{}: {e}", root.display()));
         }
     }
-    if let Err(e) = std::thread::Builder::new()
-        .name("acpmux-chat-watch".into())
-        .spawn(move || run(&rx, &service))
+    if let Err(e) =
+        cmux_threads::spawn("acpmux-chat-watch", cmux_threads::ThreadQos::Utility, move || {
+            run(&rx, &service)
+        })
     {
         errors.push(format!("the chat watcher thread cannot start: {e}"));
         return (None, errors);

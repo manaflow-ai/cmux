@@ -4,7 +4,6 @@ use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::Duration;
 
 use cmux_tui_machine_agent_protocol::{MachineSecret, OpaqueId, SessionName};
@@ -132,7 +131,7 @@ fn load_with_link_retry(path: &Path) -> anyhow::Result<MachineIdentity> {
         Err(error)
             if error.downcast_ref::<UnexpectedLinkCount>().is_some_and(|error| error.0 == 2) =>
         {
-            thread::sleep(CONCURRENT_CREATE_RETRY_DELAY);
+            cmux_threads::checked::sync::sleep(CONCURRENT_CREATE_RETRY_DELAY);
             load(path)
         }
         result => result,
@@ -328,6 +327,7 @@ mod tests {
     use std::os::unix::fs::symlink;
 
     use super::*;
+    use std::thread;
 
     struct TestState {
         directory: PathBuf,

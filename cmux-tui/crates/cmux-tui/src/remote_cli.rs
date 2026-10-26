@@ -8,7 +8,6 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
@@ -620,7 +619,7 @@ fn connect_with_flags(
                 && !connected.runtime.is_finished()
                 && owner.is_none_or(parent_process_is)
             {
-                thread::sleep(Duration::from_millis(100));
+                cmux_threads::checked::sync::sleep(Duration::from_millis(100));
             }
         }
         return connected.runtime.shutdown();
@@ -1116,9 +1115,8 @@ fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
 
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
-    let _reader = thread::Builder::new()
-        .name("cmux-rpc-stdin".into())
-        .spawn(move || {
+    let _reader =
+        cmux_threads::spawn("cmux-rpc-stdin", cmux_threads::ThreadQos::UserInitiated, move || {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
             loop {
@@ -1770,9 +1768,10 @@ async fn wait_for_parent_exit(expected: u32) {
         return;
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
-        let _ = sender.send(wait_for_process_exit(expected));
-    });
+    let waiter =
+        cmux_threads::spawn("cmux-parent-exit", cmux_threads::ThreadQos::Utility, move || {
+            let _ = sender.send(wait_for_process_exit(expected));
+        });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
@@ -2481,7 +2480,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 .block_on(complete_verified_daemon_stop(&state_dir, &parsed.session))?;
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(50));
     }
     Err(anyhow!(catalog().remote.daemon_stop_timeout))
 }
@@ -2741,7 +2740,7 @@ fn wait_for_detached_socket(
                 };
             }
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(50));
     }
     match terminate_detached_process(child) {
         Ok(()) => Err(anyhow!("{process_name} did not create {}", socket.display())),
@@ -2789,7 +2788,7 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool>
         if Instant::now() >= deadline {
             return Ok(false);
         }
-        thread::sleep(Duration::from_millis(10));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(10));
     }
 }
 
@@ -3153,6 +3152,7 @@ mod tests {
     }
 
     use super::*;
+    use std::thread;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
         let auth_state_dir = state_dir.join("auth");

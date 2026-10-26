@@ -38,8 +38,11 @@ struct Mirror {
 fn mirror() -> &'static Mirror {
     static MIRROR: OnceLock<Mirror> = OnceLock::new();
     MIRROR.get_or_init(|| {
-        let spawned =
-            std::thread::Builder::new().name("terminal-host-record-mirror".into()).spawn(run);
+        let spawned = cmux_threads::spawn(
+            "terminal-host-record-mirror",
+            cmux_threads::ThreadQos::Utility,
+            run,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: host record mirror writer did not start: {error}");
         }

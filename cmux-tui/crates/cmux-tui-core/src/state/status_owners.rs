@@ -186,13 +186,14 @@ fn spawn_watch(
     }
     let weak = Arc::downgrade(mux);
     let thread_key = key.clone();
-    let spawned = std::thread::Builder::new().name("cmux-status-owner".into()).spawn(move || {
-        let outcome = wait(&weak);
-        lock(watched()).remove(&thread_key);
-        if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
-            clear_now(&mux, &end);
-        }
-    });
+    let spawned =
+        cmux_threads::spawn("cmux-status-owner", cmux_threads::ThreadQos::Utility, move || {
+            let outcome = wait(&weak);
+            lock(watched()).remove(&thread_key);
+            if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
+                clear_now(&mux, &end);
+            }
+        });
     if let Err(error) = spawned {
         lock(watched()).remove(&key);
         eprintln!("cmux-tui: status owner watch failed to start: {error}");
@@ -358,7 +359,7 @@ fn expiry() -> &'static Expiry {
     static EXPIRY: OnceLock<Expiry> = OnceLock::new();
     EXPIRY.get_or_init(|| {
         let spawned =
-            std::thread::Builder::new().name("cmux-status-expiry".into()).spawn(run_expiry);
+            cmux_threads::spawn("cmux-status-expiry", cmux_threads::ThreadQos::Utility, run_expiry);
         if let Err(error) = spawned {
             eprintln!("cmux-tui: status expiry thread failed to start: {error}");
         }

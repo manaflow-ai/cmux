@@ -297,7 +297,7 @@ pub(crate) fn install() -> anyhow::Result<()> {
     }
     let (reader, writer) = cloexec_pipe()?;
     WAKE_WRITER.store(writer, Ordering::Release);
-    std::thread::Builder::new().name("terminal-host-signals".into()).spawn(move || {
+    cmux_threads::spawn("terminal-host-signals", cmux_threads::ThreadQos::Utility, move || {
         let mut buffer = [0u8; 64];
         loop {
             // SAFETY: reader is owned by this thread for the process lifetime.

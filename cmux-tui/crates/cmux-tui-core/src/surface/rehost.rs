@@ -58,7 +58,7 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a
     // boundary test sees in `/proc` when the custody exchange has finished.
-    let _ = std::thread::Builder::new().name("pty-custody".into()).spawn(move || {
+    let _ = cmux_threads::spawn("pty-custody", cmux_threads::ThreadQos::UserInitiated, move || {
         let discovery = {
             let Some(surface) = surface.upgrade() else { return };
             let Some(pty) = surface.as_pty() else { return };

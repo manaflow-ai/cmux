@@ -292,20 +292,21 @@ fn start_poller_with_source(
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
-    let spawn = std::thread::Builder::new().name("machine-usage-poll".into()).spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                crate::client_log::log(
-                    "DEBUG",
-                    LOG_AREA,
-                    &format!("runtime start failed: {error}"),
-                );
-                return;
-            }
-        };
-        runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, interval));
-    });
+    let spawn =
+        cmux_threads::spawn("machine-usage-poll", cmux_threads::ThreadQos::Utility, move || {
+            let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    crate::client_log::log(
+                        "DEBUG",
+                        LOG_AREA,
+                        &format!("runtime start failed: {error}"),
+                    );
+                    return;
+                }
+            };
+            runtime.block_on(poll_loop(mux, source, stop_for_thread, startup_delay, interval));
+        });
     match spawn {
         Ok(thread) => Some(UsagePoller { stop, thread: Some(thread) }),
         Err(error) => {

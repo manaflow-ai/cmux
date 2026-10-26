@@ -157,7 +157,7 @@ fn answer_later(
     let writer = writer.clone();
     // The job keeps the cause and class of the frame that started it.
     let cause = crate::event_cause::EventCause::current();
-    let spawned = std::thread::Builder::new().name("cmux-script".into()).spawn({
+    let spawned = cmux_threads::spawn("cmux-script", cmux_threads::ThreadQos::Utility, {
         let writer = writer.clone();
         let id = id.clone();
         move || {

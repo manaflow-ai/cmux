@@ -76,13 +76,14 @@ impl OpRouter for MuxRouter {
         let Some(mux) = self.mux.upgrade() else { return };
         let events = mux.subscribe();
         drop(mux);
-        let _ = std::thread::Builder::new().name("cmux-apps-events".into()).spawn(move || {
-            while let Ok(event) = events.recv() {
-                for stream in streams(&event) {
-                    publish(stream);
+        let _ =
+            cmux_threads::spawn("cmux-apps-events", cmux_threads::ThreadQos::Utility, move || {
+                while let Ok(event) = events.recv() {
+                    for stream in streams(&event) {
+                        publish(stream);
+                    }
                 }
-            }
-        });
+            });
     }
 
     fn spawn_backend_terminal(

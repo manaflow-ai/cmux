@@ -197,14 +197,15 @@ pub(super) fn start(
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
     let reply = reply.hand_to_worker();
-    let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
-        let reply = reply.start();
-        let _lock_scope = reply.enter_lock_scope();
-        // Waits on the app, another process.
-        let opened = ipc_reply(|| waits::recv_timeout(&receiver, DEADLINE)).unwrap_or(false);
-        worker_mux.control_clients.url_opens.cancel(&request_id);
-        reply.reply(|| respond(&worker_writer, worker_id, opened));
-    });
+    let spawned =
+        cmux_threads::spawn("mux-url-open", cmux_threads::ThreadQos::UserInitiated, move || {
+            let reply = reply.start();
+            let _lock_scope = reply.enter_lock_scope();
+            // Waits on the app, another process.
+            let opened = ipc_reply(|| waits::recv_timeout(&receiver, DEADLINE)).unwrap_or(false);
+            worker_mux.control_clients.url_opens.cancel(&request_id);
+            reply.reply(|| respond(&worker_writer, worker_id, opened));
+        });
     if spawned.is_err() {
         mux.control_clients.url_opens.cancel(&cleanup_id);
         return respond(writer, id, false);

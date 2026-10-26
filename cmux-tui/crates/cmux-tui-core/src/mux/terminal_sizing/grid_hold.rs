@@ -104,15 +104,17 @@ impl Mux {
     fn schedule_terminal_grid_hold_end(&self, runtime: SurfaceId, grace: Duration) -> bool {
         let Some(mux) = self.exit_settles.owner() else { return false };
         let mux = Arc::downgrade(&mux);
-        std::thread::Builder::new()
-            .name("terminal-grid-hold".into())
-            .spawn(move || {
+        cmux_threads::spawn(
+            "terminal-grid-hold",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 crate::request_path::sleep(grace);
                 if let Some(mux) = mux.upgrade() {
                     mux.end_expired_terminal_grid_hold(runtime);
                 }
-            })
-            .is_ok()
+            },
+        )
+        .is_ok()
     }
 
     fn end_expired_terminal_grid_hold(&self, runtime: SurfaceId) {

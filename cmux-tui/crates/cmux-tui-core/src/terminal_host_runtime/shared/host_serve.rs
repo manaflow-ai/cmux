@@ -549,7 +549,14 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         && let Ok(delay) = delay.parse::<u64>()
                         && delay > 0
                     {
-                        thread::sleep(Duration::from_millis(delay.min(5_000)));
+                        cmux_threads::allow_blocking(
+                            cmux_threads::AllowReason::FailureInjection,
+                            || {
+                                cmux_threads::checked::sync::sleep(Duration::from_millis(
+                                    delay.min(5_000),
+                                ));
+                            },
+                        );
                     }
                     if launch_owner_claimed {
                         command_host.mark_launch_owner_stream_ready();

@@ -425,8 +425,9 @@ impl Surface {
         // completes. This prevents a deadline timeout from detaching a live
         // reaper when teardown drops the last external surface reference.
         let reaper_surface = surface.clone();
-        let reaper_thread = match cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new().name(format!("surface-{id}-wait")),
+        let reaper_thread = match cmux_threads::spawn(
+            format!("surface-{id}-wait"),
+            cmux_threads::ThreadQos::Utility,
             move || {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let end = wait();

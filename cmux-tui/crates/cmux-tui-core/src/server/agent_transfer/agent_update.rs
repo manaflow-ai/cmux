@@ -272,10 +272,11 @@ pub(in crate::server) fn try_handle(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-update".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned = cmux_threads::spawn_with_stack(
+        "mux-agent-update",
+        cmux_threads::ThreadQos::Utility,
+        THREAD_STACK_BYTES,
+        move || {
             let result = match verb {
                 Verb::Plan {} => plan(&socket),
                 Verb::Apply(params) => apply(&worker_mux, &socket, params),
@@ -288,7 +289,8 @@ pub(in crate::server) fn try_handle(
             });
             drop(slot);
             reply(&worker_writer, worker_id, result);
-        });
+        },
+    );
     // A failed spawn drops the closure and with it the slot.
     if spawned.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));

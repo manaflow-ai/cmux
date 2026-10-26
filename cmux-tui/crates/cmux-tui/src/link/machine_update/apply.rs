@@ -302,12 +302,12 @@ fn serving(wanted: impl Fn(&str) -> bool, old_pid: i32) -> bool {
     let deadline = Instant::now() + SERVE_TIMEOUT;
     while Instant::now() < deadline {
         if let Some(pid) = answering(&socket, &wanted, old_pid) {
-            std::thread::sleep(SETTLE);
+            cmux_threads::checked::sync::sleep(SETTLE);
             if answering(&socket, &wanted, old_pid) == Some(pid) {
                 return true;
             }
         }
-        std::thread::sleep(Duration::from_secs(1));
+        cmux_threads::checked::sync::sleep(Duration::from_secs(1));
     }
     false
 }
@@ -335,7 +335,7 @@ fn wait(limit: Duration, mut done: impl FnMut() -> bool) -> bool {
         if done() {
             return true;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(100));
     }
     done()
 }

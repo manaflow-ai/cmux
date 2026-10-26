@@ -184,7 +184,7 @@ pub fn start_apps_when_ready(mux: &Arc<Mux>) {
 }
 
 fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<JoinHandle<()>> {
-    std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
+    cmux_threads::spawn("cmux-apps-start", cmux_threads::ThreadQos::Utility, job)
 }
 
 /// Whether origin `user` is allowed on `client` now: both checks of this

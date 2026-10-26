@@ -36,9 +36,11 @@ impl Timers {
         if !state.started {
             state.started = true;
             let shared = self.shared.clone();
-            let _ = std::thread::Builder::new()
-                .name("cmux-apps-timers".into())
-                .spawn(move || run(&shared));
+            let _ = cmux_threads::spawn(
+                "cmux-apps-timers",
+                cmux_threads::ThreadQos::Utility,
+                move || run(&shared),
+            );
         }
         wake.notify_one();
         TimerId(key.0, key.1)

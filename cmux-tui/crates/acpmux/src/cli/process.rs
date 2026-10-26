@@ -669,18 +669,25 @@ impl Keys {
         }
         let (tx, rx) = mpsc::channel(16);
         // A thread: a blocking read of stdin that ends with the process.
-        std::thread::spawn(move || {
-            let mut byte = [0u8; 1];
-            let mut stdin = std::io::stdin();
-            while let Ok(1) = stdin.read(&mut byte) {
-                if let Some(key) = Input::of(byte[0])
-                    && tx.blocking_send(key).is_err()
-                {
-                    break;
+        let started = cmux_threads::spawn(
+            "acpmux-cli-keys",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let mut byte = [0u8; 1];
+                let mut stdin = std::io::stdin();
+                while let Ok(1) = stdin.read(&mut byte) {
+                    if let Some(key) = Input::of(byte[0])
+                        && tx.blocking_send(key).is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        });
-        Some((Keys { saved }, rx))
+            },
+        );
+        // Keys restores the terminal when it drops, here too.
+        let keys = Keys { saved };
+        started.ok()?;
+        Some((keys, rx))
     }
 
     #[cfg(not(unix))]

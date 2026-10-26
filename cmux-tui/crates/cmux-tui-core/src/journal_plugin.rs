@@ -10,7 +10,7 @@ use cmux_threads::checked::sync as waits;
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, ExitStatus, Stdio};
@@ -396,9 +396,11 @@ impl JournalPluginRuntime {
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
-            let handle = thread::Builder::new()
-                .name("cmux-journal-plugin".into())
-                .spawn(move || supervise(shared));
+            let handle = cmux_threads::spawn(
+                "cmux-journal-plugin",
+                cmux_threads::ThreadQos::Utility,
+                move || supervise(shared),
+            );
             match handle {
                 Ok(handle) => {
                     *self.thread.lock().recover_poison() = Some(handle);
@@ -454,28 +456,32 @@ impl Drop for JournalPluginRuntime {
 /// Returns false when the thread could not start.
 #[cfg(unix)]
 fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
-        loop {
-            // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0
-                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                break;
+    let spawned = cmux_threads::spawn(
+        "cmux-journal-plugin-wait",
+        cmux_threads::ThreadQos::Utility,
+        move || {
+            loop {
+                // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
+                let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+                let result = unsafe {
+                    libc::waitid(
+                        libc::P_PID,
+                        pid as libc::id_t,
+                        &mut info,
+                        libc::WEXITED | libc::WNOWAIT,
+                    )
+                };
+                if result == 0
+                    || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
+                    break;
+                }
             }
-        }
-        let (lock, changed) = &*shared;
-        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        changed.notify_all();
-    });
+            let (lock, changed) = &*shared;
+            let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+            changed.notify_all();
+        },
+    );
     match spawned {
         Ok(_) => true,
         Err(error) => {

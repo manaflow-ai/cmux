@@ -99,10 +99,10 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new()
-                .name("mux-agent-message-pump".into())
-                .stack_size(256 * 1024),
+        let spawned = cmux_threads::spawn_with_stack(
+            "mux-agent-message-pump",
+            cmux_threads::ThreadQos::Utility,
+            256 * 1024,
             move || run(&mux, &woken),
         );
         if spawned.is_err() {
@@ -197,10 +197,12 @@ impl Mux {
         let mux = Arc::clone(self);
         let (session_id, id_owned, recipient_owned) =
             (session_id.to_owned(), id.to_owned(), recipient.to_owned());
-        let spawned = std::thread::Builder::new()
-            .name("mux-agent-message-handover".into())
-            .stack_size(HANDOVER_THREAD_STACK_BYTES)
-            .spawn(move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned));
+        let spawned = cmux_threads::spawn_with_stack(
+            "mux-agent-message-handover",
+            cmux_threads::ThreadQos::UserInitiated,
+            HANDOVER_THREAD_STACK_BYTES,
+            move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned),
+        );
         if spawned.is_err() {
             // Nothing went out: the delivery stays queued for a later pass.
             let _delivering = self.agent_message_delivery_lock();

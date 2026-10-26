@@ -35,7 +35,7 @@ pub(super) fn run(mut session: Session) -> i32 {
     chat.width = screen.width;
     let lines: Vec<Line> = Vec::new();
     let tx = session.tx.clone();
-    let _ = std::thread::Builder::new().name("chief-keys".into()).spawn(move || {
+    let _ = cmux_threads::spawn("chief-keys", cmux_threads::ThreadQos::UserInitiated, move || {
         while let Ok(event) = crossterm::event::read() {
             if tx.send(Input::Term(event)).is_err() {
                 return;

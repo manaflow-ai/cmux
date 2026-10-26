@@ -164,9 +164,10 @@ impl HeadlessChromium {
             CdpConnection::new(Box::new(PipeWire(Mutex::new(File::from(to_browser_write)))));
         let reader_connection = connection.clone();
         let reader = File::from(from_browser_read);
-        let reader_thread = std::thread::Builder::new()
-            .name("cmux-browser-host-cdp-pipe".into())
-            .spawn(move || {
+        let reader_thread = cmux_threads::spawn(
+            "cmux-browser-host-cdp-pipe",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let mut reader = BufReader::new(reader);
                 let mut buffer = Vec::new();
                 loop {
@@ -184,7 +185,8 @@ impl HeadlessChromium {
                     }
                 }
                 reader_connection.close("Chromium closed its CDP pipe");
-            });
+            },
+        );
         let mut child = child;
         if let Err(error) = reader_thread {
             kill_group(&child);

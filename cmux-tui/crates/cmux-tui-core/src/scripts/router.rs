@@ -102,21 +102,25 @@ impl ScriptRouter for DaemonRouter {
         mux.wake_journal_waiters_on(&interrupt);
         // Without a thread the session gets no events: `cmux.wait` then ends
         // at its own timeout.
-        let _ = std::thread::Builder::new().name("cmux-script-events".into()).spawn(move || {
-            let mut epoch = mux.journal_event_epoch();
-            loop {
-                let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
-                if interrupt.is_fired() {
-                    return;
-                }
-                if next != epoch {
-                    epoch = next;
-                    for stream in STREAMS {
-                        publish(stream);
+        let _ = cmux_threads::spawn(
+            "cmux-script-events",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                let mut epoch = mux.journal_event_epoch();
+                loop {
+                    let next = mux.wait_for_journal_event_until_interrupted(epoch, &interrupt);
+                    if interrupt.is_fired() {
+                        return;
+                    }
+                    if next != epoch {
+                        epoch = next;
+                        for stream in STREAMS {
+                            publish(stream);
+                        }
                     }
                 }
-            }
-        });
+            },
+        );
         guard
     }
 }

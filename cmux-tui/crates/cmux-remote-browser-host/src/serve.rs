@@ -456,19 +456,30 @@ unsafe extern "C" fn on_ready(_: *mut c_void) {
         return;
     };
     if lifeline {
-        std::thread::spawn(|| {
+        let watch = cmux_threads::spawn("rb-lifeline", cmux_threads::ThreadQos::Utility, || {
             crate::launch::watch_lifeline(std::io::stdin().lock(), || {
                 eprintln!("serve: lifeline closed, quitting");
                 // SAFETY: `on_quit` runs on the UI thread and takes no context.
                 unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
             });
         });
-    }
-    std::thread::spawn(move || {
-        if let Err(e) = listen(addr) {
-            eprintln!("serve: {e}");
+        if let Err(e) = watch {
+            // Without the watch the host would outlive its launcher.
+            eprintln!("serve: lifeline watch did not start ({e}), quitting");
+            // SAFETY: `on_quit` runs on the UI thread and takes no context.
+            unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
+            return;
         }
-    });
+    }
+    let listener =
+        cmux_threads::spawn("rb-listen", cmux_threads::ThreadQos::UserInitiated, move || {
+            if let Err(e) = listen(addr) {
+                eprintln!("serve: {e}");
+            }
+        });
+    if let Err(e) = listener {
+        eprintln!("serve: listener did not start: {e}");
+    }
 }
 
 unsafe extern "C" fn on_tab_created(_: *mut c_void, _request: c_int, browser: c_int) {
@@ -868,13 +879,14 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
     stream.set_read_timeout(None)?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     let mut out = stream.try_clone()?;
-    let writer = std::thread::spawn(move || {
-        for bytes in rx {
-            if out.write_all(&bytes).is_err() {
-                return;
+    let writer =
+        cmux_threads::spawn("rb-session-out", cmux_threads::ThreadQos::UserInitiated, move || {
+            for bytes in rx {
+                if out.write_all(&bytes).is_err() {
+                    return;
+                }
             }
-        }
-    });
+        })?;
     post_net(Net::Joined { writer: tx, max_datagram });
     let reason = loop {
         while let Ok(Some((kind, payload))) = deframer.next_frame() {

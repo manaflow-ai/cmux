@@ -116,8 +116,10 @@ impl MachineActionWorker {
         let worker_stop = stop.clone();
         let cancellation = EventCancellation::new();
         let worker_cancellation = cancellation.clone();
-        let worker =
-            std::thread::Builder::new().name("machine-actions".into()).spawn(move || {
+        let worker = cmux_threads::spawn(
+            "machine-actions",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let mut next_action_id = 1_u64;
                 let mut pending_replacement: Option<(u64, bool)> = None;
                 while !worker_stop.load(Ordering::Acquire) {
@@ -283,7 +285,8 @@ impl MachineActionWorker {
                     controller.abort_replacement();
                 }
                 controller.close();
-            })?;
+            },
+        )?;
         Ok(Self { sender: Some(sender), stop, cancellation, worker: Some(worker) })
     }
 
@@ -455,9 +458,10 @@ impl MachineUpdatePump {
         let forwarder_stop = stop.clone();
         let cancellation = EventCancellation::new();
         let forwarder_cancellation = cancellation.clone();
-        let forwarder = match std::thread::Builder::new()
-            .name("machine-provider-events".into())
-            .spawn(move || {
+        let forwarder = match cmux_threads::spawn(
+            "machine-provider-events",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 while !forwarder_stop.load(Ordering::Acquire) {
                     match updates.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
@@ -478,7 +482,8 @@ impl MachineUpdatePump {
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
                 }
-            }) {
+            },
+        ) {
             Ok(forwarder) => forwarder,
             Err(error) => {
                 stop.store(true, Ordering::Release);

@@ -854,10 +854,11 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-loopback-open".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned = cmux_threads::spawn_with_stack(
+        "mux-loopback-open",
+        cmux_threads::ThreadQos::UserInitiated,
+        THREAD_STACK_BYTES,
+        move || {
             connect_and_start(
                 worker_mux,
                 client,
@@ -869,7 +870,8 @@ fn open(
                 window,
                 worker_writer,
             );
-        });
+        },
+    );
     if spawned.is_err() {
         forwarder.release(client);
         return open_error(writer, id, OpenError::Limit);
@@ -977,10 +979,12 @@ fn connect_and_start(
     ] {
         let worker = stream.clone();
         let worker_mux = mux.clone();
-        let spawned = std::thread::Builder::new()
-            .name(name.into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || run(worker, worker_mux));
+        let spawned = cmux_threads::spawn_with_stack(
+            name,
+            cmux_threads::ThreadQos::UserInitiated,
+            THREAD_STACK_BYTES,
+            move || run(worker, worker_mux),
+        );
         if spawned.is_err() {
             stream.fail(forwarder, "internal", true);
             return;

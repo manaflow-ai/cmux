@@ -74,7 +74,7 @@ impl Supervisor {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
         let thread =
-            std::thread::Builder::new().name("cmux-host-roles".to_owned()).spawn(move || {
+            cmux_threads::spawn("cmux-host-roles", cmux_threads::ThreadQos::Utility, move || {
                 Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }
                     .run(&rx, &loop_tx);
             })?;

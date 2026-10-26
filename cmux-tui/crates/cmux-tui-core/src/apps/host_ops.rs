@@ -225,13 +225,11 @@ const LINK_PROBE: std::time::Duration = std::time::Duration::from_millis(500);
 fn hub_socket() -> Option<Option<std::path::PathBuf>> {
     let Some(dir) = crate::platform::workspace_state_dir() else { return Some(None) };
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    std::thread::Builder::new()
-        .name("cmux-apps-link-probe".into())
-        .spawn(move || {
-            let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
-            let _ = sender.send(live);
-        })
-        .ok()?;
+    cmux_threads::spawn("cmux-apps-link-probe", cmux_threads::ThreadQos::Utility, move || {
+        let live = cmux_link::registration::read_live(&dir).map(|r| r.socket);
+        let _ = sender.send(live);
+    })
+    .ok()?;
     waits::recv_timeout(&receiver, LINK_PROBE).ok()
 }
 

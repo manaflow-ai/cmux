@@ -369,8 +369,10 @@ impl ProviderMachineController {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
-        let worker =
-            std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
+        let worker = cmux_threads::spawn(
+            "machine-local-overlay",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 while !worker_stop.load(Ordering::Acquire) {
                     match provider_receiver.recv_timeout(Duration::from_millis(250)) {
                         Ok(update) => {
@@ -401,7 +403,8 @@ impl ProviderMachineController {
                 provider_stop.store(true, Ordering::Release);
                 drop(provider_receiver);
                 let _ = provider_worker.join();
-            })?;
+            },
+        )?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))
     }
 
@@ -1148,9 +1151,10 @@ impl ProviderMachineRuntime {
         let worker_snapshot_refresh_pending = snapshot_refresh_pending.clone();
         let refresh_stop = stop.clone();
         let refresh_output = sender.clone();
-        let refresh_worker = std::thread::Builder::new()
-            .name("machine-provider-refresh".into())
-            .spawn(move || {
+        let refresh_worker = cmux_threads::spawn(
+            "machine-provider-refresh",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 // Latest-value cells for connection progress, one per machine
                 // (see MachineUpdate::ConnectionProgress).
                 let mut progress_cells: HashMap<String, Arc<Mutex<Option<String>>>> =
@@ -1465,9 +1469,12 @@ impl ProviderMachineRuntime {
                         break;
                     }
                 }
-            })?;
+            },
+        )?;
         refresh_sender.send(ProviderRefreshSignal::Refresh(None))?;
-        let worker = std::thread::Builder::new().name("machine-provider-events".into()).spawn(
+        let worker = cmux_threads::spawn(
+            "machine-provider-events",
+            cmux_threads::ThreadQos::UserInitiated,
             move || {
                 while !thread_stop.load(Ordering::Acquire) {
                     match events.recv_timeout(Duration::from_millis(250)) {

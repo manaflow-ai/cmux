@@ -120,7 +120,7 @@ pub(crate) fn wait_lock(path: &Path) -> std::io::Result<Option<File>> {
         if Instant::now() >= deadline {
             return Ok(None);
         }
-        std::thread::sleep(Duration::from_millis(50));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(50));
     }
 }
 
@@ -138,7 +138,7 @@ pub(crate) fn wait_free(path: &Path, limit: Duration) -> bool {
         if Instant::now() >= deadline {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(100));
     }
     true
 }

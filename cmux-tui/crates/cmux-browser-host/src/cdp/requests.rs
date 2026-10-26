@@ -45,15 +45,17 @@ pub(super) fn start_worker(
     cors: Arc<Mutex<Cors>>,
 ) -> Result<mpsc::Sender<PausedRequest>, DriverError> {
     let (tx, rx) = mpsc::channel::<PausedRequest>();
-    std::thread::Builder::new()
-        .name("cmux-browser-host-cdp-requests".into())
-        .spawn(move || {
+    cmux_threads::spawn(
+        "cmux-browser-host-cdp-requests",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             for paused in rx {
                 let (method, params) = decide(&filter, &cors, &paused);
                 let _ = conn.call(Some(&paused.session), method, params, INTERNAL_TIMEOUT);
             }
-        })
-        .map_err(|e| DriverError::closed(format!("could not start the request worker: {e}")))?;
+        },
+    )
+    .map_err(|e| DriverError::closed(format!("could not start the request worker: {e}")))?;
     Ok(tx)
 }
 

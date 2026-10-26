@@ -48,28 +48,26 @@ pub async fn bind_unix(path: &Path) -> Result<UnixListener> {
 /// user, a sandboxed process) is logged and dropped.
 pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
     let (tx, mut rx) = mpsc::channel::<cmux::local_socket::Stream>(16);
-    std::thread::Builder::new()
-        .name("acpmux-accept".into())
-        .spawn(move || {
-            loop {
-                match listener.0.accept_with_peer() {
-                    Ok((stream, _peer)) => {
-                        if tx.blocking_send(stream).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                        tracing::warn!("socket peer {e}");
-                    }
-                    Err(e) => {
-                        tracing::warn!("accept failed: {e}");
-                        // No busy loop on a persistent accept error.
-                        std::thread::sleep(Duration::from_millis(100));
+    cmux_threads::spawn("acpmux-accept", cmux_threads::ThreadQos::UserInitiated, move || {
+        loop {
+            match listener.0.accept_with_peer() {
+                Ok((stream, _peer)) => {
+                    if tx.blocking_send(stream).is_err() {
+                        break;
                     }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    tracing::warn!("socket peer {e}");
+                }
+                Err(e) => {
+                    tracing::warn!("accept failed: {e}");
+                    // No busy loop on a persistent accept error.
+                    cmux_threads::checked::sync::sleep(Duration::from_millis(100));
+                }
             }
-        })
-        .context("start the daemon socket's accept thread")?;
+        }
+    })
+    .context("start the daemon socket's accept thread")?;
     while let Some(socket) = rx.recv().await {
         match crate::local_stream::bridge(socket) {
             Ok(stream) => {
@@ -107,7 +105,7 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
                         let _ = std::fs::remove_file(path);
                     }
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                cmux_threads::checked::sync::sleep(Duration::from_millis(50));
             }
             Err(e) => {
                 return Err(anyhow::Error::new(e).context(format!("bind {}", path.display())));
@@ -115,27 +113,25 @@ pub fn router_admin(path: &Path) -> Result<cmux_coderouter::AdminConnections> {
         }
     };
     let (sockets_tx, mut sockets) = mpsc::channel::<cmux::local_socket::Stream>(16);
-    std::thread::Builder::new()
-        .name("router-admin-accept".into())
-        .spawn(move || {
-            loop {
-                match listener.accept_with_peer() {
-                    Ok((stream, _peer)) => {
-                        if sockets_tx.blocking_send(stream).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                        tracing::warn!("router admin peer {e}");
-                    }
-                    Err(e) => {
-                        tracing::warn!("router admin accept failed: {e}");
-                        std::thread::sleep(Duration::from_millis(100));
+    cmux_threads::spawn("router-admin-accept", cmux_threads::ThreadQos::Utility, move || {
+        loop {
+            match listener.accept_with_peer() {
+                Ok((stream, _peer)) => {
+                    if sockets_tx.blocking_send(stream).is_err() {
+                        break;
                     }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    tracing::warn!("router admin peer {e}");
+                }
+                Err(e) => {
+                    tracing::warn!("router admin accept failed: {e}");
+                    cmux_threads::checked::sync::sleep(Duration::from_millis(100));
+                }
             }
-        })
-        .context("start the router admin accept thread")?;
+        }
+    })
+    .context("start the router admin accept thread")?;
     let (tx, rx) = mpsc::channel(16);
     tokio::spawn(async move {
         while let Some(socket) = sockets.recv().await {

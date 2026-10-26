@@ -73,37 +73,44 @@ pub(crate) fn start_with(rule: Arc<dyn Connector>) -> io::Result<Listening> {
     let live: Arc<Live> = Arc::default();
     let stop: Arc<AtomicBool> = Arc::default();
     let stopped = stop.clone();
-    std::thread::Builder::new().name("cmux-browser-host-egress".into()).spawn(move || {
-        loop {
-            let client = match listener.accept() {
-                Ok((client, _)) => client,
-                // Out of descriptors: wait until one of our connections
-                // ends (signalled; bounded) instead of spinning on accept.
-                Err(error) if matches!(error.raw_os_error(), Some(code) if code == EMFILE || code == ENFILE) => {
-                    live.wait_for_end();
+    cmux_threads::spawn(
+        "cmux-browser-host-egress",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            loop {
+                let client = match listener.accept() {
+                    Ok((client, _)) => client,
+                    // Out of descriptors: wait until one of our connections
+                    // ends (signalled; bounded) instead of spinning on accept.
+                    Err(error) if matches!(error.raw_os_error(), Some(code) if code == EMFILE || code == ENFILE) =>
+                    {
+                        live.wait_for_end();
+                        continue;
+                    }
+                    // A connection reset before accept drops that one only.
+                    Err(_) => continue,
+                };
+                if stopped.load(Ordering::SeqCst) {
+                    return;
+                }
+                if !live.enter() {
                     continue;
                 }
-                // A connection reset before accept drops that one only.
-                Err(_) => continue,
-            };
-            if stopped.load(Ordering::SeqCst) {
-                return;
+                let (rule, done) = (rule.clone(), live.clone());
+                let spawned = cmux_threads::spawn(
+                    "cmux-browser-host-egress-conn",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
+                        let _ = serve(client, &*rule, addr);
+                        done.leave();
+                    },
+                );
+                if spawned.is_err() {
+                    live.leave();
+                }
             }
-            if !live.enter() {
-                continue;
-            }
-            let (rule, done) = (rule.clone(), live.clone());
-            let spawned = std::thread::Builder::new()
-                .name("cmux-browser-host-egress-conn".into())
-                .spawn(move || {
-                    let _ = serve(client, &*rule, addr);
-                    done.leave();
-                });
-            if spawned.is_err() {
-                live.leave();
-            }
-        }
-    })?;
+        },
+    )?;
     Ok(Listening { addr, stop })
 }
 
@@ -283,7 +290,9 @@ pub(crate) fn dial(addrs: &[SocketAddr]) -> io::Result<TcpStream> {
 /// the other copy ends too.
 fn copy_both_ways(client: TcpStream, upstream: TcpStream) -> io::Result<()> {
     let (mut client_in, mut upstream_out) = (client.try_clone()?, upstream.try_clone()?);
-    let up = std::thread::Builder::new().name("cmux-browser-host-egress-up".into()).spawn(
+    let up = cmux_threads::spawn(
+        "cmux-browser-host-egress-up",
+        cmux_threads::ThreadQos::UserInitiated,
         move || match io::copy(&mut client_in, &mut upstream_out) {
             Ok(_) => {
                 let _ = upstream_out.shutdown(Shutdown::Write);

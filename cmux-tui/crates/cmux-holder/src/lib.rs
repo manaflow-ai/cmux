@@ -8,6 +8,9 @@
 //! a new daemon re-attaches from the rings. Design:
 //! `plans/cmux-next/terminal-host-model-DESIGN.md`.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #![cfg(unix)]
 
 pub mod client;

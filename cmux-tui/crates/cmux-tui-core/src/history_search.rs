@@ -49,9 +49,11 @@ impl HistorySearch {
         let reader = SearchIndex::open(path)?;
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
-        let worker = std::thread::Builder::new()
-            .name("history-search".into())
-            .spawn(move || index_loop(writer, feeds, pace, &worker_stop))?;
+        let worker = cmux_threads::spawn(
+            "history-search",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || index_loop(writer, feeds, pace, &worker_stop),
+        )?;
         Ok(Self { reader: Mutex::new(reader), stop, worker: Mutex::new(Some(worker)) })
     }
 

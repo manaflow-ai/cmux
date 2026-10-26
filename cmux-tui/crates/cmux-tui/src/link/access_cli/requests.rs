@@ -139,7 +139,7 @@ pub(super) fn request(
                 );
                 withdraws += 1;
                 if withdrawn.is_err() && withdraws < 3 {
-                    std::thread::sleep(POLL);
+                    cmux_threads::checked::sync::sleep(POLL);
                     continue;
                 }
                 let what =
@@ -154,7 +154,7 @@ pub(super) fn request(
                 format!("no answer yet; request {request_id} is still waiting for the person"),
             ));
         }
-        std::thread::sleep(POLL);
+        cmux_threads::checked::sync::sleep(POLL);
     }
 }
 

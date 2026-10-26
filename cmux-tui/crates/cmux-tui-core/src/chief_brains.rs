@@ -566,17 +566,15 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         brains: BTreeMap::new(),
         sender: sender.clone(),
     };
-    let thread = std::thread::Builder::new()
-        .name("chief-brains".into())
-        .spawn(move || {
-            // Before any brain starts: its lock probe cannot race a start.
-            remove_old_acpmux_homes(
-                &supervisor.config.home,
-                supervisor.config.app.acpmux_bin.as_deref(),
-            );
-            supervisor.run(&inbox);
-        })
-        .ok()?;
+    let thread = cmux_threads::spawn("chief-brains", cmux_threads::ThreadQos::Utility, move || {
+        // Before any brain starts: its lock probe cannot race a start.
+        remove_old_acpmux_homes(
+            &supervisor.config.home,
+            supervisor.config.app.acpmux_bin.as_deref(),
+        );
+        supervisor.run(&inbox);
+    })
+    .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
 }
 
@@ -1059,7 +1057,7 @@ impl Supervisor {
         let pid = child.id();
         let reaped = Arc::new(Mutex::new(false));
         let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
-        std::thread::Builder::new().name("chief-brain-wait".into()).spawn(move || {
+        cmux_threads::spawn("chief-brain-wait", cmux_threads::ThreadQos::Utility, move || {
             let zombie = wait_exited(pid);
             {
                 // The leader is a zombie now (its id is still taken): end what
@@ -1113,7 +1111,9 @@ impl Supervisor {
         };
         match spawned {
             Ok(mut child) => {
-                let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
+                let _ = cmux_threads::spawn(
+                    "chief-sessions-end",
+                    cmux_threads::ThreadQos::Utility,
                     move || {
                         let _ = child.wait();
                         remove();

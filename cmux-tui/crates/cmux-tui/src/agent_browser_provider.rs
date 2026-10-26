@@ -150,7 +150,7 @@ fn browser_launch_response(request: &Value) -> anyhow::Result<Value> {
         if remaining.is_zero() {
             return Err(last_error);
         }
-        std::thread::sleep(delay.min(remaining));
+        cmux_threads::checked::sync::sleep(delay.min(remaining));
         delay = (delay * 2).min(Duration::from_millis(250));
     }
 }
@@ -495,11 +495,13 @@ impl MuxControl {
         let socket = socket.to_path_buf();
         let display = socket.display().to_string();
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        let connector = std::thread::Builder::new()
-            .name("agent-browser-provider-connect".into())
-            .spawn(move || {
-            let _ = sender.send(UnixStream::connect(socket));
-        })?;
+        let connector = cmux_threads::spawn(
+            "agent-browser-provider-connect",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let _ = sender.send(UnixStream::connect(socket));
+            },
+        )?;
         let stream = match receiver.recv_timeout(remaining) {
             Ok(result) => {
                 let _ = connector.join();

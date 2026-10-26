@@ -264,7 +264,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {
-        std::thread::sleep(Duration::from_secs(1));
+        cmux_threads::checked::sync::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
             return match outcome["state"].as_str() {
                 Some("updated") => Ok(own.to_owned()),

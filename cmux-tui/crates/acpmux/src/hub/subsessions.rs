@@ -363,7 +363,16 @@ impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
             let (folder, made) = (self.folder.clone(), self.made.clone());
-            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+            let started = cmux_threads::spawn(
+                "acpmux-worktree-remove",
+                cmux_threads::ThreadQos::Utility,
+                move || {
+                    crate::subsession_worktree::remove_worktree(&folder, &made);
+                },
+            );
+            if let Err(e) = started {
+                tracing::warn!(error = %e, "a kept worktree's removal did not start");
+            }
         }
     }
 }

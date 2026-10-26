@@ -110,7 +110,7 @@ pub(super) fn install_if_cloud_host() -> bool {
     }
     // Leftover temporaries of writes a previous daemon did not finish; off
     // the startup path.
-    let _ = std::thread::Builder::new().name("cmux-fs-sweep".into()).spawn(|| {
+    let _ = cmux_threads::spawn("cmux-fs-sweep", cmux_threads::ThreadQos::Utility, || {
         if let Some(service) = cmux_tui_core::fs_ops::installed() {
             service.sweep_stale_temporaries();
         }

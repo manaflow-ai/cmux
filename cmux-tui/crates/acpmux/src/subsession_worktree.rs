@@ -107,7 +107,22 @@ fn output_by(
         .stdin
         .take()
         .zip(input)
-        .map(|(mut stdin, input)| std::thread::spawn(move || stdin.write_all(&input)));
+        .map(|(mut stdin, input)| {
+            cmux_threads::spawn(
+                "acpmux-git-stdin",
+                cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+                move || stdin.write_all(&input),
+            )
+        })
+        .transpose();
+    let stdin = match stdin {
+        Ok(stdin) => stdin,
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("git input thread did not start: {e}"));
+        }
+    };
     let Some(by) = by else {
         let out = child.wait_with_output().map_err(|e| format!("git did not run: {e}"));
         if let Some(Err(e)) = stdin.and_then(|w| w.join().ok()) {
@@ -121,13 +136,21 @@ fn output_by(
         (false, child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>)),
     ] {
         let tx = tx.clone();
-        std::thread::spawn(move || {
-            let mut got = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = pipe.read_to_end(&mut got);
-            }
-            let _ = tx.send((is_stdout, got));
-        });
+        let started = cmux_threads::spawn(
+            "acpmux-git-pipe",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut got = Vec::new();
+                if let Some(mut pipe) = pipe {
+                    let _ = pipe.read_to_end(&mut got);
+                }
+                let _ = tx.send((is_stdout, got));
+            },
+        );
+        if let Err(e) = started {
+            // Its pipe stays unread: git ends at its bound, or sooner.
+            tracing::warn!(error = %e, "a git output reader did not start");
+        }
     }
     drop(tx);
     let stop = |child: &mut std::process::Child| {

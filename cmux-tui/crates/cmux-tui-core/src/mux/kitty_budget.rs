@@ -246,9 +246,10 @@ impl Mux {
             return;
         }
         let mux = Arc::downgrade(self);
-        if let Err(error) = std::thread::Builder::new()
-            .name("kitty-image-budget".into())
-            .spawn(move || Self::run_kitty_image_budget_worker(mux))
+        if let Err(error) =
+            cmux_threads::spawn("kitty-image-budget", cmux_threads::ThreadQos::Utility, move || {
+                Self::run_kitty_image_budget_worker(mux);
+            })
         {
             self.kitty_image_budget.lock().unwrap().worker_running = false;
             self.kitty_image_budget_changed.notify_all();

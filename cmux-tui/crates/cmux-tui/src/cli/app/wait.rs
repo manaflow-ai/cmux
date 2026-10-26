@@ -50,7 +50,7 @@ pub(super) fn request(
         {
             break;
         }
-        std::thread::sleep(wait);
+        cmux_threads::checked::sync::sleep(wait);
         let Ok(fresh) = super::connect_command(global) else { break };
         *stream = fresh;
         response = request_with_retry(stream, method, params, timeout);
@@ -160,24 +160,28 @@ impl Progress {
         };
         let (stop, stopped) = mpsc::channel::<()>();
         let what = what.to_owned();
-        let spawned = std::thread::Builder::new().name("app-wait-notes".into()).spawn(move || {
-            let mut next = FIRST_NOTE_AFTER;
-            while next < total {
-                let left = next.saturating_sub(started.elapsed());
-                match stopped.recv_timeout(left) {
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+        let spawned = cmux_threads::spawn(
+            "app-wait-notes",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let mut next = FIRST_NOTE_AFTER;
+                while next < total {
+                    let left = next.saturating_sub(started.elapsed());
+                    match stopped.recv_timeout(left) {
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                    eprintln!(
+                        "{}",
+                        template
+                            .replace("{what}", &what)
+                            .replace("{elapsed}", &started.elapsed().as_secs().to_string())
+                            .replace("{total}", &total.as_secs().to_string())
+                    );
+                    next += NOTE_EVERY;
                 }
-                eprintln!(
-                    "{}",
-                    template
-                        .replace("{what}", &what)
-                        .replace("{elapsed}", &started.elapsed().as_secs().to_string())
-                        .replace("{total}", &total.as_secs().to_string())
-                );
-                next += NOTE_EVERY;
-            }
-        });
+            },
+        );
         // No thread, no notes: the request itself still runs.
         match spawned {
             Ok(thread) => Self { started, stop: Some(stop), thread: Some(thread) },

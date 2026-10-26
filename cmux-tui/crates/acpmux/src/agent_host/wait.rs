@@ -100,13 +100,22 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     });
     map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
-    std::thread::spawn(move || {
-        let end = take_death_lock(file);
-        watches().lock_or_recover().remove(&key);
-        *watch.state.lock_or_recover() = end;
-        watch.changed.notify_all();
-        watch.ended.send_replace(end);
-    });
+    let started =
+        cmux_threads::spawn("acpmux-death-wait", cmux_threads::ThreadQos::Utility, move || {
+            let end = take_death_lock(file);
+            watches().lock_or_recover().remove(&key);
+            *watch.state.lock_or_recover() = end;
+            watch.changed.notify_all();
+            watch.ended.send_replace(end);
+        });
+    if let Err(e) = started {
+        // Without its thread the watch never ends: it fails now (proves no
+        // death), and the next look starts a new one.
+        tracing::warn!(error = %e, "the host death watch did not start");
+        map.remove(path);
+        *w.state.lock_or_recover() = Watch::Failed;
+        w.ended.send_replace(Watch::Failed);
+    }
     Some(w)
 }
 

@@ -130,9 +130,10 @@ impl Mux {
         let cleanup_id = terminal_id.clone();
         let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-exit-detach-{terminal_id}"))
-            .spawn(move || {
+        let spawn_result = cmux_threads::spawn(
+            format!("terminal-exit-detach-{terminal_id}"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let _detach_lease = detach_lease;
                 let mut delay = Duration::from_millis(25);
                 loop {
@@ -158,7 +159,8 @@ impl Mux {
                         }
                     }
                 }
-            });
+            },
+        );
         if let Err(error) = spawn_result {
             eprintln!(
                 "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"

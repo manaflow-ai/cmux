@@ -564,10 +564,11 @@ impl BrowserInputScheduler {
         });
         for worker_index in 0..worker_count {
             let worker = scheduler.clone();
-            if let Err(error) = std::thread::Builder::new()
-                .name(format!("mux-browser-input-{worker_index}"))
-                .spawn(move || worker.run())
-            {
+            if let Err(error) = cmux_threads::spawn(
+                format!("mux-browser-input-{worker_index}"),
+                cmux_threads::ThreadQos::UserInitiated,
+                move || worker.run(),
+            ) {
                 scheduler.shutdown();
                 return Err(error);
             }

@@ -310,7 +310,7 @@ pub(crate) fn ensure_owner(
             Attempt::Starting(pid) => {
                 progress.restoring(pid);
                 drop(lock);
-                std::thread::sleep(POLL_INTERVAL);
+                cmux_threads::checked::sync::sleep(POLL_INTERVAL);
                 continue;
             }
             // The lock is released once the spawn is issued. A redundant
@@ -383,7 +383,7 @@ fn wait_while_starting(
         if Instant::now() >= restore_deadline {
             return Err(EnsureError::RestoreTimeout);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_threads::checked::sync::sleep(POLL_INTERVAL);
     }
 }
 
@@ -425,7 +425,7 @@ fn wait_until_ready(
         if !seen_alive && now >= contact_deadline {
             return Ok(None);
         }
-        std::thread::sleep(POLL_INTERVAL);
+        cmux_threads::checked::sync::sleep(POLL_INTERVAL);
     }
 }
 
@@ -804,7 +804,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     #[cfg(not(unix))]
     let reaper = move || reap_on_tick(&reaper_state);
     if let Err(_error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
+        cmux_threads::spawn("local-owner-reaper", cmux_threads::ThreadQos::Utility, reaper)
     {
         // If the helper thread cannot be created, reap synchronously before
         // returning. This preserves the no-zombie guarantee even under

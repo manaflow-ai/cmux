@@ -152,10 +152,9 @@ impl Mux {
         }
         retries.worker_running = true;
         let mux = Arc::downgrade(self);
-        match std::thread::Builder::new()
-            .name("cell-pixel-retry".to_string())
-            .spawn(move || Self::run_cell_pixel_retry_worker(mux))
-        {
+        match cmux_threads::spawn("cell-pixel-retry", cmux_threads::ThreadQos::Utility, move || {
+            Self::run_cell_pixel_retry_worker(mux);
+        }) {
             Ok(_) => Ok(()),
             Err(error) => {
                 retries.worker_running = false;

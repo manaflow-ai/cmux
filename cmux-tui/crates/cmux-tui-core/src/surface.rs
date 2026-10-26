@@ -945,7 +945,9 @@ impl Surface {
             .and_then(|mux| mux.take_test_terminal_host_disconnect_after_spawn())
         {
             let test_surface = surface.clone();
-            let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
+            let _ = cmux_threads::spawn(
+                "terminal-host-test-disconnect",
+                cmux_threads::ThreadQos::Utility,
                 move || {
                     crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()

@@ -80,7 +80,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(stopped.last().copied().unwrap_or(0), limit));
             }
-            std::thread::sleep(Duration::from_millis(20));
+            cmux_threads::checked::sync::sleep(Duration::from_millis(20));
             continue;
         };
         if stopped.len() >= MAX_BRAINS {
@@ -101,7 +101,7 @@ pub(super) fn stop_brain(lock: &Path, limit: Duration) -> Result<bool, String> {
             if Instant::now() >= deadline {
                 return Err(timeout(pid, limit));
             }
-            std::thread::sleep(Duration::from_millis(100));
+            cmux_threads::checked::sync::sleep(Duration::from_millis(100));
         }
     }
     Ok(!stopped.is_empty())
@@ -117,7 +117,7 @@ fn held_within(lock: &Path, grace: Duration) -> bool {
         if Instant::now() >= until {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(20));
+        cmux_threads::checked::sync::sleep(Duration::from_millis(20));
     }
 }
 

@@ -117,7 +117,7 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
+        cmux_threads::spawn("remote-reader", cmux_threads::ThreadQos::UserInitiated, move || {
             let mut report_progress = |partial: &[u8]| {
                 if let Some(session) = reader_session.upgrade() {
                     session.report_read_progress(partial);

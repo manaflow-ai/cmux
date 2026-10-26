@@ -115,9 +115,13 @@ pub(crate) fn stop_running() {
 fn lock_released_within(bound: Duration) -> bool {
     let Ok(Some(file)) = open_lock(false) else { return true };
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(file.lock().is_ok());
-    });
+    let started =
+        cmux_threads::spawn("remote-host-lock-wait", cmux_threads::ThreadQos::Utility, move || {
+            let _ = tx.send(file.lock().is_ok());
+        });
+    if started.is_err() {
+        return false;
+    }
     rx.recv_timeout(bound).unwrap_or(false)
 }
 
@@ -198,11 +202,12 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
 #[cfg(unix)]
 fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
+    cmux_threads::spawn("remote-host-ready", cmux_threads::ThreadQos::UserInitiated, move || {
         let mut line = String::new();
         let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
         let _ = tx.send(line);
-    });
+    })
+    .context("cannot wait for cmux host serve")?;
     match rx.recv_timeout(READY_BOUND) {
         Ok(line) if line.trim() == "ready" => Ok(()),
         Ok(line) if line.trim() == "disabled" => {

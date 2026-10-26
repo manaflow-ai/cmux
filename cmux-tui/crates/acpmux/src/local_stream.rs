@@ -80,7 +80,7 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
     let mut writer = socket;
     let runtime = tokio::runtime::Handle::current();
     let reads = runtime.clone();
-    std::thread::Builder::new().name("acpmux-socket-read".into()).spawn(move || {
+    cmux_threads::spawn("acpmux-socket-read", cmux_threads::ThreadQos::UserInitiated, move || {
         let mut buf = vec![0u8; BRIDGE_BUFFER];
         loop {
             let n = match reader.read(&mut buf) {
@@ -94,19 +94,23 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
         }
         // Dropping `inbound`: the read half reads end of file.
     })?;
-    std::thread::Builder::new().name("acpmux-socket-write".into()).spawn(move || {
-        let mut buf = vec![0u8; BRIDGE_BUFFER];
-        loop {
-            // End of file once this process dropped its write half.
-            let n = match runtime.block_on(outbound.read(&mut buf)) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
-            };
-            if writer.write_all(&buf[..n]).is_err() {
-                break;
+    cmux_threads::spawn(
+        "acpmux-socket-write",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let mut buf = vec![0u8; BRIDGE_BUFFER];
+            loop {
+                // End of file once this process dropped its write half.
+                let n = match runtime.block_on(outbound.read(&mut buf)) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                if writer.write_all(&buf[..n]).is_err() {
+                    break;
+                }
             }
-        }
-        let _ = writer.shutdown(std::net::Shutdown::Write);
-    })?;
+            let _ = writer.shutdown(std::net::Shutdown::Write);
+        },
+    )?;
     Ok(Stream { read, write })
 }

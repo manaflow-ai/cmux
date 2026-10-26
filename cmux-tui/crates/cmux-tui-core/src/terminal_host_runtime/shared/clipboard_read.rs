@@ -33,7 +33,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use ghostty_vt::Terminal;
@@ -515,10 +514,12 @@ impl ClipboardReads {
     pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
         let shared = self.shared.clone();
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-clipboard".into())
-            .spawn(move || shared.run_timer(&host))
-            .map(drop)
+        cmux_threads::spawn(
+            "terminal-host-clipboard",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || shared.run_timer(&host),
+        )
+        .map(drop)
     }
 }
 

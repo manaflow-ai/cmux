@@ -606,9 +606,13 @@ impl CdpClient {
         event_output: SyncSender<CdpEvent>,
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
-        std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
-            reader_loop(&weak, ws, &outbound, &event_output);
-        })?;
+        cmux_threads::spawn(
+            "cmux-tui-cdp-reader",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                reader_loop(&weak, ws, &outbound, &event_output);
+            },
+        )?;
         Ok(())
     }
 

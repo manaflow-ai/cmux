@@ -61,6 +61,8 @@ path = "src/bin/cmux-tui-host.rs"
 
 [dependencies]
 cmux-blocking.workspace = true
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
 cmux-lock-rank.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
@@ -155,7 +157,6 @@ windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
 [dev-dependencies]
 cmux-pty.workspace = true
-cmux-threads.workspace = true
 cmux-trace.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"

@@ -96,7 +96,7 @@ fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     match ask_agent(socket, ask) {
         Err(e) => match retry_delay(&e) {
             Some(delay) => {
-                std::thread::sleep(delay);
+                cmux_threads::checked::sync::sleep(delay);
                 ask_agent(socket, ask)
             }
             None => Err(e),

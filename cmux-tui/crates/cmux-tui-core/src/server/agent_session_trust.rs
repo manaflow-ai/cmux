@@ -114,17 +114,19 @@ pub(super) fn trust(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-trust".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
+    let spawned = cmux_threads::spawn_with_stack(
+        "mux-agent-trust",
+        cmux_threads::ThreadQos::UserInitiated,
+        THREAD_STACK_BYTES,
+        move || {
             let result = run(&worker_mux, &socket, &params);
             drop(slot);
             match result {
                 Ok(data) => ok(&worker_writer, worker_id, data),
                 Err(refusal) => refuse(&worker_writer, worker_id, refusal),
             }
-        });
+        },
+    );
     if spawned.is_err() {
         return refuse(writer, id, Refusal::Limit);
     }

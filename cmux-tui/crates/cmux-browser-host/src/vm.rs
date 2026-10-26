@@ -89,9 +89,11 @@ impl VmSession {
     pub fn spawn(config: VmConfig, host: Arc<dyn VmHost>) -> io::Result<VmSession> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
-        std::thread::Builder::new()
-            .name(format!("cmux-browser-host-vm-{}", config.session_id))
-            .spawn(move || run(config, host, rx, loop_tx))?;
+        cmux_threads::spawn(
+            format!("cmux-browser-host-vm-{}", config.session_id),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || run(config, host, rx, loop_tx),
+        )?;
         Ok(VmSession { tx })
     }
 
@@ -358,9 +360,11 @@ fn run(
                 // engine calls run off the VM thread.
                 if timed_out {
                     let host = host.clone();
-                    let _ = std::thread::Builder::new()
-                        .name("cmux-browser-host-fetch-cancel".into())
-                        .spawn(move || host.cancel_fetches(cell));
+                    let _ = cmux_threads::spawn(
+                        "cmux-browser-host-fetch-cancel",
+                        cmux_threads::ThreadQos::Utility,
+                        move || host.cancel_fetches(cell),
+                    );
                 }
             }
             if running.is_none() && !queued.is_empty() {
@@ -562,13 +566,15 @@ fn install(
                 if let Some(object) = request.as_object_mut() {
                     object.insert("cell".into(), json!(fetch_shared.borrow().cell));
                 }
-                let spawned = std::thread::Builder::new()
-                    .name("cmux-browser-host-fetch".into())
-                    .spawn(move || {
+                let spawned = cmux_threads::spawn(
+                    "cmux-browser-host-fetch",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
                         let outcome =
                             host.driver_call("net.fetch", request).map(crate::driver::Reply::Value);
                         let _ = sender.send(Input::Result { call_id, outcome });
-                    });
+                    },
+                );
                 if spawned.is_err() {
                     let _ = results.send(Input::Result {
                         call_id,
@@ -624,12 +630,14 @@ fn install(
                 let results = results.clone();
                 let sender = results.clone();
                 let params: Value = serde_json::from_str(&params).unwrap_or(json!({}));
-                let spawned = std::thread::Builder::new()
-                    .name("cmux-browser-host-driver-call".into())
-                    .spawn(move || {
+                let spawned = cmux_threads::spawn(
+                    "cmux-browser-host-driver-call",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
                         let outcome = host.driver_call_reply(&method, params);
                         let _ = sender.send(Input::Result { call_id, outcome });
-                    });
+                    },
+                );
                 if spawned.is_err() {
                     let _ = results.send(Input::Result {
                         call_id,

@@ -92,9 +92,8 @@ pub(super) fn start(
     let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new() };
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
-    let thread = std::thread::Builder::new()
-        .name("cmux-config-watch".to_string())
-        .spawn(move || {
+    let thread =
+        cmux_threads::spawn("cmux-config-watch", cmux_threads::ThreadQos::Utility, move || {
             on_hint();
             run(&mut watches, &stopped, &files, &mut on_hint);
         })

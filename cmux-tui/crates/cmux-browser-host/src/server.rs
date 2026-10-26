@@ -77,10 +77,13 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
             continue;
         }
         let host = host.clone();
-        let _ =
-            std::thread::Builder::new().name("cmux-browser-host-conn".into()).spawn(move || {
+        let _ = cmux_threads::spawn(
+            "cmux-browser-host-conn",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let _ = handle(stream, &host);
-            });
+            },
+        );
     }
     Ok(())
 }
@@ -178,7 +181,9 @@ pub fn serve_providers_notifying(
         }
         let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
         let on_change = on_change.clone();
-        let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
+        let _ = cmux_threads::spawn(
+            "cmux-browser-host-provider-accept",
+            cmux_threads::ThreadQos::UserInitiated,
             move || {
                 let _ = accept_provider(stream, &secret, &slot, &agent_bundle, on_change);
             },

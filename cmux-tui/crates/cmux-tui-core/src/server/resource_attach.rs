@@ -431,8 +431,10 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-terminal-attach".into()).spawn(move || {
+    let spawn = cmux_threads::spawn(
+        "mux-resource-terminal-attach",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
@@ -495,7 +497,8 @@ pub(super) fn start_terminal_resource_attach(
                 &start.common,
                 "closed",
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,
@@ -659,8 +662,10 @@ pub(super) fn start_browser_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-browser-attach".into()).spawn(move || {
+    let spawn = cmux_threads::spawn(
+        "mux-resource-browser-attach",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             if waits::recv(&worker_committed).is_err() {
                 return;
             }
@@ -750,7 +755,8 @@ pub(super) fn start_browser_resource_attach(
                 &start.common,
                 "closed",
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,
@@ -843,8 +849,10 @@ pub(super) fn start_sidebar_resource_attach(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn =
-        std::thread::Builder::new().name("mux-resource-sidebar-attach".into()).spawn(move || {
+    let spawn = cmux_threads::spawn(
+        "mux-resource-sidebar-attach",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             let mut sequence = 0u64;
             if !send_resource_uncursored_stream_item(
                 &worker_writer,
@@ -908,7 +916,8 @@ pub(super) fn start_sidebar_resource_attach(
                 &start.stream_id,
                 start.outbound.id,
             );
-        });
+        },
+    );
     if let Err(error) = spawn {
         let end = resource_stream_end(
             &stream_id,

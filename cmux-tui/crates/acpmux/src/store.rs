@@ -1222,7 +1222,7 @@ impl Store for LocalStore {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
-                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    cmux_threads::checked::sync::sleep(std::time::Duration::from_millis(40));
                 }
             }
         }

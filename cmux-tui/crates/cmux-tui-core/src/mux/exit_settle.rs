@@ -156,10 +156,11 @@ impl Mux {
         state.worker_running = true;
         drop(state);
         let worker = Arc::clone(timer);
-        if let Err(error) = std::thread::Builder::new()
-            .name("terminal-exit-settle".to_string())
-            .spawn(move || worker.run_worker(mux))
-        {
+        if let Err(error) = cmux_threads::spawn(
+            "terminal-exit-settle",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || worker.run_worker(mux),
+        ) {
             timer.state.lock().unwrap().worker_running = false;
             eprintln!("cmux-tui: could not start the terminal exit settle worker: {error:#}");
         }

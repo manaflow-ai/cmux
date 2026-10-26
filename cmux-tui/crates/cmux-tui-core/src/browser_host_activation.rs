@@ -136,10 +136,11 @@ pub(super) fn arm(inner: &Arc<Inner>) {
         return;
     }
     let weak = Arc::downgrade(inner);
-    match std::thread::Builder::new()
-        .name("browser-host-activate".into())
-        .spawn(move || run(&weak, agent, cancel))
-    {
+    match cmux_threads::spawn(
+        "browser-host-activate",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || run(&weak, agent, cancel),
+    ) {
         Ok(handle) => *thread = Some(handle),
         Err(error) => eprintln!("cmux-tui: cannot start browser host activation: {error}"),
     }

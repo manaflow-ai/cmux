@@ -232,10 +232,12 @@ impl Mux {
         let (sender, receiver) =
             std::sync::mpsc::sync_channel::<CommandHistoryMessage>(MAX_QUEUED_COMMANDS);
         let mux = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("terminal-command-history".into())
-            .spawn(move || Worker { mux, checkpoint_pending }.run(receiver, deadline))
-            .ok()?;
+        cmux_threads::spawn(
+            "terminal-command-history",
+            cmux_threads::ThreadQos::Utility,
+            move || Worker { mux, checkpoint_pending }.run(receiver, deadline),
+        )
+        .ok()?;
         *slot = Some(sender.clone());
         Some(sender)
     }

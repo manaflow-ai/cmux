@@ -207,7 +207,7 @@ pub fn serve(
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
-    std::thread::Builder::new().name("provider-management".into()).spawn(move || {
+    cmux_threads::spawn("provider-management", cmux_threads::ThreadQos::Utility, move || {
         // Descriptor exhaustion persists across accepts; an immediate retry
         // spun this thread at 100% CPU.
         let mut backoff =
@@ -226,7 +226,9 @@ pub fn serve(
                 }
             };
             let mux = mux.clone();
-            let _ = std::thread::Builder::new().name("provider-management-peer".into()).spawn(
+            let _ = cmux_threads::spawn(
+                "provider-management-peer",
+                cmux_threads::ThreadQos::Utility,
                 move || {
                     let Ok(uid) = peer_uid(&stream) else { return };
                     if uid != 0 {

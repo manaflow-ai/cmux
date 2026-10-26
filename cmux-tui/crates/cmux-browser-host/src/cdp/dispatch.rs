@@ -19,9 +19,10 @@ pub(super) enum Dispatch {
 /// Starts the event thread for `sink`.
 pub(super) fn start(sink: EventSink) -> Result<mpsc::Sender<Dispatch>, DriverError> {
     let (tx, rx) = mpsc::channel::<Dispatch>();
-    std::thread::Builder::new()
-        .name("cmux-browser-host-cdp-events".into())
-        .spawn(move || {
+    cmux_threads::spawn(
+        "cmux-browser-host-cdp-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
             for item in rx {
                 match item {
                     Dispatch::Event(event) => sink(event),
@@ -30,8 +31,9 @@ pub(super) fn start(sink: EventSink) -> Result<mpsc::Sender<Dispatch>, DriverErr
                     }
                 }
             }
-        })
-        .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        },
+    )
+    .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
     Ok(tx)
 }
 

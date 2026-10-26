@@ -3,6 +3,9 @@
 //! and as the local dev owner (`cmux task serve`, or in-process under the
 //! store lock when no server runs).
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
 #![cfg_attr(

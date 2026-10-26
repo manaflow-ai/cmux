@@ -95,9 +95,11 @@ impl ActivityStream {
             if !state.worker {
                 state.worker = true;
                 let shared = Arc::clone(&self.shared);
-                std::thread::Builder::new()
-                    .name("cmux-activity".into())
-                    .spawn(move || run_worker(shared))?;
+                cmux_threads::spawn(
+                    "cmux-activity",
+                    cmux_threads::ThreadQos::Utility,
+                    move || run_worker(shared),
+                )?;
             }
             (state.user_input_ms, state.agent_action_ms)
         };

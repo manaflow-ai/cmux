@@ -210,7 +210,7 @@ pub fn run(paths: &Paths, once: bool) -> u8 {
         if once {
             return code;
         }
-        std::thread::sleep(SYNC_INTERVAL);
+        cmux_threads::checked::sync::sleep(SYNC_INTERVAL);
     }
 }
 
@@ -237,6 +237,6 @@ fn wait_for_binding(paths: &Paths) {
                 let _ = inotify.read_events();
             }
         }
-        Err(_) => std::thread::sleep(SYNC_INTERVAL),
+        Err(_) => cmux_threads::checked::sync::sleep(SYNC_INTERVAL),
     }
 }

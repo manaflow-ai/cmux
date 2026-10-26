@@ -349,20 +349,20 @@ impl RecordWait for SignalWait {
         let deadline = Instant::now() + duration;
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
-        std::thread::Builder::new()
-            .name("cmux-trace-wait".into())
-            .spawn(move || {
-                crate::wait_for_shutdown_signal_peek();
-                let _ = signalled.send(());
-            })
-            .ok();
+        cmux_threads::spawn("cmux-trace-wait", cmux_threads::ThreadQos::Utility, move || {
+            crate::wait_for_shutdown_signal_peek();
+            let _ = signalled.send(());
+        })
+        .ok();
         // wakeup-allow: cli-only `cmux trace`'s recording window, once; a shutdown signal ends it first
         match signal.recv_timeout(duration) {
             Ok(()) if crate::shutdown_requested() => Waited::Interrupted,
             // No handler is installed (the watcher returned at once): only the clock ends it.
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // wakeup-allow: cli-only `cmux trace`'s rest of the recording window, once, when no signal watcher runs
-                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                cmux_threads::checked::sync::sleep(
+                    deadline.saturating_duration_since(Instant::now()),
+                );
                 Waited::Elapsed
             }
             Err(mpsc::RecvTimeoutError::Timeout) => Waited::Elapsed,

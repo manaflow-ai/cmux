@@ -93,7 +93,7 @@ pub(super) fn record(
 pub(super) fn spawn(panic_log: Option<PathBuf>, forwarder: Option<Forwarder>) {
     let Some(log) = panic_log.map(|path| memory_log_path(&path)) else { return };
     let (threshold, interval) = limits();
-    let _ = std::thread::Builder::new().name("memory-guard".into()).spawn(move || {
+    let _ = cmux_threads::spawn("memory-guard", cmux_threads::ThreadQos::Utility, move || {
         let started = Instant::now();
         let mut guard = MemoryGuard::new(threshold);
         let pid = std::process::id();
@@ -116,7 +116,7 @@ pub(super) fn spawn(panic_log: Option<PathBuf>, forwarder: Option<Forwarder>) {
                 }
             }
             // A periodic sample is this thread's intended behavior, not a wait on a condition.
-            std::thread::sleep(interval);
+            cmux_threads::checked::sync::sleep(interval);
         }
     });
 }

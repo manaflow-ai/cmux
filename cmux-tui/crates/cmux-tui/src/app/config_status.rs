@@ -128,7 +128,9 @@ impl App {
             let poke = self.status_poke_pending.clone();
             let events = self.app_events.clone();
             let worker_stop = stop.clone();
-            match std::thread::Builder::new().name(format!("status-segment-{index}")).spawn(
+            match cmux_threads::spawn(
+                format!("status-segment-{index}"),
+                cmux_threads::ThreadQos::Utility,
                 move || {
                     run_status_segment_loop(StatusSegmentWorker {
                         index,

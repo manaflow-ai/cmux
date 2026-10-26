@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -124,7 +124,9 @@ impl ProviderIoGuard {
         let (cancel, cancelled) = mpsc::sync_channel(1);
         let timed_out = Arc::new(AtomicBool::new(false));
         let thread_timed_out = Arc::clone(&timed_out);
-        let worker = thread::Builder::new().name("machine-provider-deadline".to_string()).spawn(
+        let worker = cmux_threads::spawn(
+            "machine-provider-deadline",
+            cmux_threads::ThreadQos::UserInitiated,
             move || {
                 if cancelled.recv_timeout(timeout).is_err() {
                     thread_timed_out.store(true, Ordering::Release);
@@ -548,9 +550,11 @@ fn spawn_command(
         closed: AtomicBool::new(false),
     });
     let worker_diagnostics = Arc::clone(&diagnostics);
-    let worker = thread::Builder::new()
-        .name("machine-provider-stderr".to_string())
-        .spawn(move || worker_diagnostics.drain_cancellable(stderr, stderr_cancel_worker));
+    let worker = cmux_threads::spawn(
+        "machine-provider-stderr",
+        cmux_threads::ThreadQos::Utility,
+        move || worker_diagnostics.drain_cancellable(stderr, stderr_cancel_worker),
+    );
     match worker {
         Ok(worker) => {
             *cleanup
@@ -596,7 +600,7 @@ impl ProcessCleanup {
                 if let Some(child) = &mut child {
                     let _ = child.try_wait();
                 }
-                thread::sleep(Duration::from_millis(10));
+                cmux_threads::checked::sync::sleep(Duration::from_millis(10));
             }
             if self.group_is_alive() {
                 self.signal_group(libc::SIGKILL);
@@ -750,6 +754,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
+    use std::thread;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(1);
 

@@ -343,8 +343,10 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut events = mux.subscribe_launch_snapshot();
-    let spawned =
-        std::thread::Builder::new().name("mux-host-replica-changes".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-host-replica-changes",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
                 match events.recv() {
@@ -360,14 +362,17 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica change watcher unavailable: {error}");
     }
     let weak = Arc::downgrade(mux);
     let mut chats = mux.subscribe_conversations();
-    let spawned =
-        std::thread::Builder::new().name("mux-host-replica-chief".into()).spawn(move || {
+    let spawned = cmux_threads::spawn(
+        "mux-host-replica-chief",
+        cmux_threads::ThreadQos::Utility,
+        move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
                 match chats.recv() {
@@ -382,7 +387,8 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica chief watcher unavailable: {error}");
     }

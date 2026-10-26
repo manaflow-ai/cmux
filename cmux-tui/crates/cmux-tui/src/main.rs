@@ -6,6 +6,9 @@
 //! `cmux-tui attach` connects the same TUI to an existing (usually
 //! headless) session over that socket, which is how detach/reattach works.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #[cfg(unix)]
 mod acp;
 #[cfg(unix)]
@@ -2079,11 +2082,12 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
         crossterm::terminal::enable_raw_mode()?;
     }
 
-    let input = std::thread::Builder::new().name("relay-input".into()).spawn(move || {
-        let result = io::copy(&mut io::stdin().lock(), &mut writer);
-        let _ = writer.shutdown(Shutdown::Write);
-        result
-    })?;
+    let input =
+        cmux_threads::spawn("relay-input", cmux_threads::ThreadQos::UserInitiated, move || {
+            let result = io::copy(&mut io::stdin().lock(), &mut writer);
+            let _ = writer.shutdown(Shutdown::Write);
+            result
+        })?;
     let output_result = io::copy(&mut reader, &mut io::stdout().lock());
     let _ = reader.shutdown(Shutdown::Read);
     if raw_stdio {
@@ -2770,22 +2774,29 @@ fn start_local_owner_event_loop_with_completion(
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
-    let thread = std::thread::spawn(move || {
-        while let Ok(event) = events.recv() {
-            let mux = weak_mux.upgrade();
-            dispatch_local_owner_event(&event, move || {
-                if let Some(mux) = mux {
-                    let request = mux.begin_config_reload_application();
-                    let config = config::load();
-                    session::apply_config_to_local_owner(&mux, &config);
-                    if complete_reload {
-                        mux.complete_config_reload_application(request);
+    let thread = cmux_threads::spawn(
+        "local-owner-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            while let Ok(event) = events.recv() {
+                let mux = weak_mux.upgrade();
+                dispatch_local_owner_event(&event, move || {
+                    if let Some(mux) = mux {
+                        let request = mux.begin_config_reload_application();
+                        let config = config::load();
+                        session::apply_config_to_local_owner(&mux, &config);
+                        if complete_reload {
+                            mux.complete_config_reload_application(request);
+                        }
                     }
-                }
-            });
-        }
-    });
-    LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
+                });
+            }
+        },
+    );
+    let thread = thread
+        .inspect_err(|error| eprintln!("cmux-tui: local owner event loop did not start: {error}"))
+        .ok();
+    LocalOwnerEventLoop { stop: Some(stop), thread }
 }
 
 /// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the

@@ -347,10 +347,11 @@ impl HostInputRuntime {
         body: impl FnOnce() + Send + 'static,
     ) -> std::io::Result<()> {
         let control = self.reader.clone();
-        let reader = std::thread::Builder::new().name(name.into()).spawn(move || {
-            let _exit = HostInputReaderExit(control);
-            body();
-        })?;
+        let reader =
+            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+                let _exit = HostInputReaderExit(control);
+                body();
+            })?;
         self.attach_reader(reader);
         Ok(())
     }

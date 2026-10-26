@@ -169,16 +169,14 @@ impl HostTraceQueue {
         }
         let (sender, receiver) = sync_channel::<TraceJob>(TRACE_QUEUE_CAPACITY);
         let apply = self.apply;
-        std::thread::Builder::new()
-            .name("cmux-host-trace".into())
-            .spawn(move || {
-                // Ends when the host drops its queue.
-                for job in receiver {
-                    let outcome = apply(job.op, &job.dir, Role::TerminalHost);
-                    (job.reply)(TraceReport::of_this_process(outcome));
-                }
-            })
-            .ok()?;
+        cmux_threads::spawn("cmux-host-trace", cmux_threads::ThreadQos::Utility, move || {
+            // Ends when the host drops its queue.
+            for job in receiver {
+                let outcome = apply(job.op, &job.dir, Role::TerminalHost);
+                (job.reply)(TraceReport::of_this_process(outcome));
+            }
+        })
+        .ok()?;
         // Two connections that race here both use the winner's thread; the
         // loser's ends with its sender.
         let _ = self.jobs.set(sender);

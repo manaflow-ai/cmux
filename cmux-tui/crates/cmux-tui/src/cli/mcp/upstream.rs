@@ -237,17 +237,19 @@ impl Upstream {
         let stdin = child.stdin.take().ok_or("no stdin")?;
         let stdout = child.stdout.take().ok_or("no stdout")?;
         let (tx, lines) = mpsc::channel();
-        std::thread::Builder::new()
-            .name(format!("cmux-mcp-upstream-{}", self.prefix))
-            .spawn(move || {
+        cmux_threads::spawn(
+            format!("cmux-mcp-upstream-{}", self.prefix),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 for line in BufReader::new(stdout).lines() {
                     let Ok(line) = line else { break };
                     if tx.send(line).is_err() {
                         break;
                     }
                 }
-            })
-            .map_err(|error| error.to_string())?;
+            },
+        )
+        .map_err(|error| error.to_string())?;
         self.conn = Some(Conn { child, stdin, lines, next_id: 1 });
         let init = self
             .request(

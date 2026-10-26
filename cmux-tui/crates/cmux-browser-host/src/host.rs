@@ -373,14 +373,16 @@ impl Host {
         // Forward masked driver events into the VM from one thread per session.
         let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
         let events_vm = vm.events();
-        std::thread::Builder::new()
-            .name(format!("cmux-browser-host-events-{name}"))
-            .spawn(move || {
+        cmux_threads::spawn(
+            format!("cmux-browser-host-events-{name}"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 for event in rx {
                     events_vm.event(&event.name, event.payload);
                 }
-            })
-            .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
+            },
+        )
+        .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
         *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((gate.clone(), tx));
         let resolved = if engine == "auto" { "headless".to_owned() } else { engine };
         let idle = Idle::new(self.idle_timeout);
@@ -531,7 +533,9 @@ fn watch_idle(
     reaped: ReapedSink,
     changed: ChangedSink,
 ) {
-    let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
+    let spawned = cmux_threads::spawn(
+        format!("cmux-browser-host-idle-{name}"),
+        cmux_threads::ThreadQos::Utility,
         move || {
             while idle.wait_expired() {
                 let Some(sessions) = sessions.upgrade() else { return };

@@ -26,7 +26,6 @@ use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, Stdio};
@@ -245,28 +244,34 @@ impl Pipe {
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
         let half = limit / 2;
-        thread::spawn(move || {
-            let mut chunk = [0_u8; 16 * 1024];
-            loop {
-                match reader.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(read) => {
-                        let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
-                        let room = half.saturating_sub(kept.head.len());
-                        let (head, rest) = chunk[..read].split_at(read.min(room));
-                        kept.head.extend_from_slice(head);
-                        kept.tail.extend(rest.iter().copied());
-                        while kept.tail.len() > half {
-                            kept.tail.pop_front();
-                            kept.dropped = true;
+        // A reader that cannot start drops the pipe: the child's writes fail
+        // (EPIPE) instead of filling it, and `collect` returns at once.
+        let _ = cmux_threads::spawn(
+            "git-user-run-pipe",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
+                let mut chunk = [0_u8; 16 * 1024];
+                loop {
+                    match reader.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
+                            let room = half.saturating_sub(kept.head.len());
+                            let (head, rest) = chunk[..read].split_at(read.min(room));
+                            kept.head.extend_from_slice(head);
+                            kept.tail.extend(rest.iter().copied());
+                            while kept.tail.len() > half {
+                                kept.tail.pop_front();
+                                kept.dropped = true;
+                            }
                         }
+                        Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                        Err(_) => break,
                     }
-                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
-                    Err(_) => break,
                 }
-            }
-            let _ = sender.send(());
-        });
+                let _ = sender.send(());
+            },
+        );
         Self { kept, done }
     }
 

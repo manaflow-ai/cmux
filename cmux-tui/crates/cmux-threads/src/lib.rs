@@ -68,4 +68,4 @@ pub use qos::{
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,
 };
-pub use spawn::spawn;
+pub use spawn::{Scope, caller_qos, scope, spawn, spawn_with_stack};

@@ -102,9 +102,11 @@ impl Hub {
         // Weak: dropping the hub drops the watcher, which closes the channel
         // and ends the thread.
         let watch = Arc::downgrade(&watch);
-        let thread = std::thread::Builder::new()
-            .name("acpmux-settings-watch".into())
-            .spawn(move || run(&rx, &watch, &files, &signal));
+        let thread = cmux_threads::spawn(
+            "acpmux-settings-watch",
+            cmux_threads::ThreadQos::Utility,
+            move || run(&rx, &watch, &files, &signal),
+        );
         if let Err(e) = thread {
             tracing::warn!("settings watch thread cannot start: {e}");
         }

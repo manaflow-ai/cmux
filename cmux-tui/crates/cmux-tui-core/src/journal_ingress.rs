@@ -435,10 +435,11 @@ struct JournalWriter {
 impl JournalWriter {
     fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
         let (finished_sender, finished) = sync_channel(1);
-        let thread = std::thread::Builder::new().name(name.into()).spawn(move || {
-            task();
-            let _ = finished_sender.send(());
-        })?;
+        let thread =
+            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+                task();
+                let _ = finished_sender.send(());
+            })?;
         Ok(Self { thread, finished })
     }
 
@@ -450,9 +451,10 @@ impl JournalWriter {
         let Self { thread, finished } = self;
         if thread.thread().id() == std::thread::current().id() {
             let reaper_completion = completion.clone();
-            let spawn = std::thread::Builder::new()
-                .name("mux-session-journal-writer-reaper".into())
-                .spawn(move || {
+            let spawn = cmux_threads::spawn(
+                "mux-session-journal-writer-reaper",
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     let result = waits::join(thread).map_err(|_| {
                         eprintln!(
                             "cmux-tui: session journal writer panicked during self-join handoff"
@@ -460,7 +462,8 @@ impl JournalWriter {
                         "session journal writer panicked during self-join handoff".to_string()
                     });
                     reaper_completion.finish(result);
-                });
+                },
+            );
             if let Err(error) = spawn {
                 let error =
                     format!("hand off session journal writer self-join to reaper thread: {error}");

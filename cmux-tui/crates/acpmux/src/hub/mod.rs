@@ -738,13 +738,18 @@ impl Hub {
     ) {
         let workers = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(1, 8);
         let next = std::sync::atomic::AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..workers.min(sessions.len()) {
-                scope.spawn(|| {
-                    while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        work(session);
-                    }
-                });
+        let drain = || {
+            while let Some(session) = sessions.get(next.fetch_add(1, Ordering::Relaxed)) {
+                work(session);
+            }
+        };
+        let qos = cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility);
+        cmux_threads::scope(|scope| {
+            let started = (0..workers.min(sessions.len()))
+                .filter(|_| scope.spawn("acpmux-session-worker", qos, drain).is_ok())
+                .count();
+            if started == 0 {
+                drain();
             }
         });
     }
@@ -1215,7 +1220,16 @@ impl Hub {
             return;
         }
         tracing::info!(count = stale.len(), "removing temporary folders of forgotten sessions");
-        std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
+        let started = cmux_threads::spawn(
+            "acpmux-session-tmp-remove",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                crate::agent::session_tmp::remove_all(&stale);
+            },
+        );
+        if let Err(e) = started {
+            tracing::warn!(error = %e, "the temporary folder removal did not start");
+        }
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {

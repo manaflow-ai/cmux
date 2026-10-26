@@ -230,7 +230,7 @@ pub(in crate::server) fn subscribe(
     let event_mux = mux.clone();
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-    std::thread::Builder::new().name("mux-remote-events".into()).spawn(move || {
+    cmux_threads::spawn("mux-remote-events", cmux_threads::ThreadQos::UserInitiated, move || {
         let interrupt = StreamInterrupt::new();
         writer.register_interrupt(&interrupt);
         outbound_stream.register_interrupt(&interrupt);

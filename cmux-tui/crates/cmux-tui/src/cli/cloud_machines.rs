@@ -59,14 +59,11 @@ fn app_found() -> bool {
 /// the command's exit ends it.
 fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
     let (sender, receiver) = mpsc::channel();
-    std::thread::Builder::new()
-        .name("cmux-cloud-machines".into())
-        .spawn(move || {
-            let cloud =
-                super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
-            let _ = sender.send(cloud);
-        })
-        .map_err(|error| error.to_string())?;
+    cmux_threads::spawn("cmux-cloud-machines", cmux_threads::ThreadQos::Utility, move || {
+        let cloud = super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
+        let _ = sender.send(cloud);
+    })
+    .map_err(|error| error.to_string())?;
     receiver.recv_timeout(CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
         let messages = &crate::localization::catalog().app_control;
         Err(messages.timeout.replace("{seconds}", &CLOUD_READ_TIMEOUT.as_secs().to_string()))

@@ -85,10 +85,10 @@ pub(super) fn schedule_terminal_host_record_cleanup(
     let fallback_record = record.clone();
     let fallback_path = record_path.clone();
     let name = format!("terminal-clean-{}", record.terminal_id);
-    if std::thread::Builder::new()
-        .name(name)
-        .spawn(move || retry_terminal_host_record_cleanup(record, record_path))
-        .is_err()
+    if cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+        retry_terminal_host_record_cleanup(record, record_path);
+    })
+    .is_err()
     {
         // Thread exhaustion cannot turn a durable close into a permanent
         // orphan. The request may remain blocked, but the exact host keeps
