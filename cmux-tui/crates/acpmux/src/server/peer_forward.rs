@@ -226,11 +226,17 @@ async fn forward_inner(
                 }),
             )
         });
-        // A client that left takes its request along: a prompt waits on the peer's turn with no
-        // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer.
-        let result = tokio::select! {
-            result = peer.request(m, p) => result,
-            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        // A client that left takes its prompt or wait along: those wait on the peer's turn with no
+        // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
+        // request keeps its deadline and always goes out: an attach the marker above stands for
+        // must reach the peer even when its client is gone.
+        let result = if crate::peer::waits_on_turn(m) {
+            tokio::select! {
+                result = peer.request(m, p) => result,
+                () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+            }
+        } else {
+            peer.request(m, p).await
         };
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);

@@ -183,10 +183,21 @@ async fn peer_long_turn_a_forwarded_prompt_stops_waiting_when_its_client_goes() 
     // The outbox gives an attempt up after 120 s and drops its connection; a CLI may exit.
     // The forwarded prompt must not wait on the peer's turn for nobody.
     let Pair { a, home } = pair("gone").await;
-    let ca = client(a.clone()).await;
+    let mut ca = client(a.clone()).await;
     let prompt =
         json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": "until-cancel"}]});
     ca.tx.send(Message::request(99, method::SESSION_PROMPT, prompt).to_line()).await.unwrap();
+    // The turn streams "running" only once the prompt itself reached the peer's agent, so the
+    // one request still waiting is the prompt, not the hidden attach sent ahead of it.
+    let running = async {
+        while let Some(line) = ca.rx.recv().await {
+            if line.contains("running") {
+                return;
+            }
+        }
+        panic!("the client's connection ended before the turn started");
+    };
+    tokio::time::timeout(Duration::from_secs(20), running).await.expect("the turn never started");
     assert_eq!(until_pending(&a, 1).await, 1, "the prompt waits on the peer");
     drop(ca);
     assert_eq!(until_pending(&a, 0).await, 0, "the prompt still waits after its client went");

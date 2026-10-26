@@ -696,7 +696,7 @@ impl Peer {
 }
 
 /// The requests whose answer waits on the agent's turn, never on the link alone.
-fn waits_on_turn(m: &str) -> bool {
+pub(crate) fn waits_on_turn(m: &str) -> bool {
     matches!(m, method::SESSION_PROMPT | method::MUX_WAIT)
 }
 
