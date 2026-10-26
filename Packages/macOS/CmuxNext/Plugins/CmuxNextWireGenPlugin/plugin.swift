@@ -56,7 +56,7 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
     /// CmuxNextWireGen names them the same way (`ResourceEmitter.fileName(family:)`), and a name
     /// declared here that it does not write fails the build.
     private static func resourceFileNames(_ operations: [String]) -> [String] {
-        let families = Set(operations.map { String($0.prefix { $0 != "." }) })
+        let families = Set(operations.map { name in String(name.prefix { $0 != "." }) })
         return ["ResourceOperations.swift"] + families.sorted().map { "ResourceOperations+\($0).swift" }
     }
 
