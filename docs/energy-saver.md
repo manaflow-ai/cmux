@@ -53,8 +53,8 @@ When Energy Saver is on:
   the tab that you see are not kept ready, and hidden cmux pages are put to sleep sooner.
 - Spinners, pulses and other animations that repeat show a still icon.
 - Timers that are not urgent fire in groups 32 ms apart, not 8 ms apart, so the Mac wakes up less often.
-- Background checks wait 4 times longer: the GitHub feed, the check for web page updates, the collection of error reports and
-  the check for Cloud access requests.
+- Background checks wait 4 times longer: the GitHub feed, the check for web page updates, the collection of error
+  reports and the check for Cloud access requests.
 
 ## What never changes
 
