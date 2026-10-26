@@ -25174,7 +25174,7 @@ mod tests {
             super::host_input_failure_reason(&std::io::Error::from(
                 std::io::ErrorKind::UnexpectedEof
             )),
-            crate::localization::catalog().runtime.host_input_closed()
+            localization::catalog().runtime.host_input_closed()
         );
     }
 

@@ -171,7 +171,12 @@ fn await_file(path: &Path, child: &mut Child) {
             "reader child never reported a ready reader at {}",
             path.display()
         );
-        assert!(child.try_wait().expect("child status").is_none(), "reader child exited early");
+        if let Some(status) = child.try_wait().expect("child status") {
+            // The child can report readiness and exit between the existence
+            // check above and try_wait. Its ready file remains authoritative.
+            assert!(path.exists(), "reader child exited with {status} before reporting readiness");
+            return;
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
