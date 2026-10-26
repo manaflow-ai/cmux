@@ -229,13 +229,13 @@ public final class InputLatencyTracker {
         } else {
             pending.removeFirst(count)
         }
-        checkWaiting(now: commitEnd)
+        checkWaiting(at: commitEnd)
         if !pending.isEmpty || !waiting.isEmpty { boundary.arm() }
     }
 
     /// Asks for the estimate of every waiting slot whose target submitted its frame, and closes those that took
     /// longer than ``contentDeadlineNanos`` (no echo) or whose producer stamped `presented` itself.
-    private func checkWaiting(now: UInt64) {
+    private func checkWaiting(at time: UInt64) {
         var kept = 0
         for index in waiting.indices {
             let entry = waiting[index]
@@ -247,7 +247,7 @@ public final class InputLatencyTracker {
                 } else {
                     close(entry.token, presented: nil)
                 }
-            } else if now > entry.deadline {
+            } else if time > entry.deadline {
                 close(entry.token, presented: nil)
             } else {
                 waiting[kept] = entry
