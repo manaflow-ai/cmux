@@ -93,8 +93,8 @@ final class AppControl {
     /// settle. Every other method family is a group of ``launchGroups(_:settings:)``
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+        let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
+                                                 mainWork: mainWork, memory: AppMemoryConsumers(services: services).controlCachesRegistry)
         self.service = service
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,

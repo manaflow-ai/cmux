@@ -1,5 +1,5 @@
+public import CmuxNextCompat
 public import CmuxNextSettings
-import CmuxNextCompat
 
 /// Recent `action.run` and `action.batch` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///
@@ -8,6 +8,12 @@ import CmuxNextCompat
 /// (`not_run`) leaves no entry, so its retry runs. A key reused for a
 /// different request is a conflict. Bounded: the oldest finished entries go
 /// first; in-flight entries stay until their run settles.
+///
+/// A memory consumer off the main actor (`control-idempotency`, through
+/// `AsyncMemoryConsumerRegistration`): the coordinator's limit scales ``limit``, and a release drops
+/// the oldest finished entries down to it, as eviction does. The newest ``workingSet`` entries stay
+/// at any limit (a retry comes right after its timeout), so a limit of 0 never makes a prompt
+/// retry run its action twice. Lossy, so only critical pressure and Memory Saver shrink it.
 public final class ControlIdempotencyCache: Sendable {
     public typealias Outcome = Result<JSONValue, ControlError>
 
@@ -51,13 +57,24 @@ public final class ControlIdempotencyCache: Sendable {
     private struct State {
         var entries: [String: Entry] = [:]
         var order: [String] = []
+        /// Entries kept at the coordinator's current limit: ``limit`` at 100 %.
+        var kept: Int
     }
 
+    /// Entries kept at the full memory limit.
     public let limit: Int
-    private let state = Mutex(State())
+    /// Entries kept at any memory limit: the newest runs, whose retries may still come.
+    static let workingSet = 16
+    private let state: Mutex<State>
 
     public init(limit: Int = 256) {
         self.limit = limit
+        state = Mutex(State(kept: limit))
+    }
+
+    /// The entries kept at `memoryLimit`: ``limit`` scaled, never below the working set.
+    private func keptEntries(at memoryLimit: MemoryLimit) -> Int {
+        max(memoryLimit.scale(limit), min(Self.workingSet, limit))
     }
 
     func claim(_ key: String, fingerprint: Fingerprint) -> Claim {
@@ -72,12 +89,18 @@ public final class ControlIdempotencyCache: Sendable {
             // Oldest finished entry first. An in-flight entry stays until its
             // run calls `finish` or `forget`: those carry only the key, so a
             // recycled key would hand one run's outcome to another.
-            while state.order.count > limit {
-                guard let index = state.order.firstIndex(where: { state.entries[$0]?.outcome != nil }) else { break }
-                let evicted = state.order.remove(at: index)
-                state.entries.removeValue(forKey: evicted)
-            }
+            let kept = state.kept
+            Self.evictFinished(&state, downTo: kept)
             return .run
+        }
+    }
+
+    /// Drops the oldest finished entries until at most `kept` entries remain or only in-flight ones do.
+    private static func evictFinished(_ state: inout State, downTo kept: Int) {
+        while state.order.count > kept {
+            guard let index = state.order.firstIndex(where: { state.entries[$0]?.outcome != nil }) else { break }
+            let evicted = state.order.remove(at: index)
+            state.entries.removeValue(forKey: evicted)
         }
     }
 
@@ -118,4 +141,37 @@ public final class ControlIdempotencyCache: Sendable {
 
     /// Whether the run under `key` recorded its outcome (a retry then replays it at once).
     func hasOutcome(_ key: String) -> Bool { state.withLock { $0.entries[key]?.outcome != nil } }
+}
+
+extension ControlIdempotencyCache: AsyncMemoryConsumer {
+    /// Small replies of recent runs; a dropped one makes its retry run again.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .small, dataAccess: .none, retention: .lossy, recreateCost: .notApplicable,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    public func updateMemoryLimit(_ limit: MemoryLimit) async -> MemoryUsage? {
+        let kept = keptEntries(at: limit)
+        return state.withLock { state in
+            state.kept = kept
+            return Self.usage(of: state)
+        }
+    }
+
+    public func releaseMemory(downTo limit: MemoryLimit) async -> MemoryUsage? {
+        let kept = keptEntries(at: limit)
+        return state.withLock { state in
+            Self.evictFinished(&state, downTo: kept)
+            return Self.usage(of: state)
+        }
+    }
+
+    /// The entries and their replies' compact JSON bytes: a walk, run only on the coordinator's
+    /// calls, off the main actor, once per pressure change.
+    private static func usage(of state: State) -> MemoryUsage {
+        var text = ""
+        for entry in state.entries.values {
+            if case .success(let reply)? = entry.outcome { reply.appendCompactText(to: &text) }
+        }
+        return MemoryUsage(footprintBytes: text.utf8.count, entries: state.entries.count)
+    }
 }

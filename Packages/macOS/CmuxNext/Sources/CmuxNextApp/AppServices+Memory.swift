@@ -7,6 +7,7 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -58,12 +59,27 @@ struct AppMemoryConsumers {
         _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
+        registerAgentPaneCaches()  // CmuxNextAgentPane
         registerInternalPageDiscards()  // CmuxNextApp
         registerBrowserCaches()  // CmuxNextBrowser
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryAgentAndControlCaches` (default off): the agent pane's New Tab frames, chat tails and
+    /// project icons (p07-memory-060).
+    private func registerAgentPaneCaches() {
+        guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
+        AgentPaneMemoryConsumers(registry: services.memoryCoordinator).register()
+    }
+
+    /// `memoryAgentAndControlCaches` (default off): where the control service registers its router's
+    /// idempotency cache (p07-memory-060). The service is made after ``registerMemoryConsumers()``,
+    /// so `AppControl.start` hands this to `ControlService.prepare`; nil registers nothing.
+    var controlCachesRegistry: (any MemoryConsumerRegistry)? {
+        services.features.isEnabled(.memoryAgentAndControlCaches) ? services.memoryCoordinator : nil
     }
 
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical

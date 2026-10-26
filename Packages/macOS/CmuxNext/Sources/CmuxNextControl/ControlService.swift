@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -26,6 +27,8 @@ public final class ControlService {
     public let server: ControlSocketServer
     public let router: ControlRouter
     public let bridge: RegistryControlBridge
+    /// The router's idempotency cache in the app's memory coordinator (`control-idempotency`).
+    private var memoryRegistration: AsyncMemoryConsumerRegistration?
 
     init(server: ControlSocketServer, router: ControlRouter, bridge: RegistryControlBridge) {
         self.server = server
@@ -55,7 +58,8 @@ public final class ControlService {
 
     /// Resolves path and access mode and builds the router, which takes method registrations, but
     /// accepts no connection until ``serve(adopting:)`` (p08-startup-019): a request never reaches a
-    /// router whose methods are not all registered. Throws `disabled` when the mode is `off`.
+    /// router whose methods are not all registered. Throws `disabled` when the mode is `off`. With
+    /// `memory`, the router's idempotency cache is one of its consumers while the service lives.
     public static func prepare(
         registry: ActionRegistry,
         settings: SettingsController?,
@@ -65,7 +69,8 @@ public final class ControlService {
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        memory: (any MemoryConsumerRegistry)? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -90,7 +95,8 @@ public final class ControlService {
             identity: identity,
             frameSource: frameSource,
             watchdog: watchdog,
-            mainWork: mainWork
+            mainWork: mainWork,
+            memory: memory
         )
     }
 
@@ -112,7 +118,7 @@ public final class ControlService {
         return service
     }
 
-    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:)`` with an
+    /// ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:memory:)`` with an
     /// explicit configuration (tests, demos).
     public static func prepare(
         registry: ActionRegistry,
@@ -122,7 +128,8 @@ public final class ControlService {
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil,
-        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        memory: (any MemoryConsumerRegistry)? = nil
     ) throws -> ControlService {
         guard configuration.accessMode != .off else { throw ControlSocketServer.StartError.disabled }
         let bridge = RegistryControlBridge(registry: registry, work: mainWork)
@@ -131,7 +138,12 @@ public final class ControlService {
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
-        return ControlService(server: server, router: router, bridge: bridge)
+        let service = ControlService(server: server, router: router, bridge: bridge)
+        service.memoryRegistration = memory.map {
+            AsyncMemoryConsumerRegistration(
+                name: "control-idempotency", traits: ControlIdempotencyCache.memoryTraits, consumer: router.idempotency, registry: $0)
+        }
+        return service
     }
 
     /// Starts accepting, once every method group is registered: on `listener` when the app bound it

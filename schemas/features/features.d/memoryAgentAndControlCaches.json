@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "memoryAgentAndControlCaches",
+  "owner": "PL-memory",
+  "description": "The agent pane's New Tab frames, chat tails and project icons and the control socket's recent run replies join the memory coordinator: they keep less as the limit falls and only their working set at critical pressure.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

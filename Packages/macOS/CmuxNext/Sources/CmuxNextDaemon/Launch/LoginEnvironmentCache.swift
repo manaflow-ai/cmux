@@ -1,5 +1,7 @@
 import Foundation
 
+// memory: fixed one environment of a few KB: the store's copy until this launch's capture lands, then
+// the capture (`record` drops the copy). Launch state, not a cache: dropping it costs a login shell.
 /// The user's login environment for this app launch.
 ///
 /// Capturing it runs `$SHELL -l -i`, which takes 5-17 s on some setups, so
@@ -122,6 +124,7 @@ actor LoginEnvironmentCache {
 
     private func record(_ environment: [String: String]) {
         captured = environment
+        remembered = .some(nil)  // `known()` reads the capture from now on
         store?.save(environment)
     }
 }

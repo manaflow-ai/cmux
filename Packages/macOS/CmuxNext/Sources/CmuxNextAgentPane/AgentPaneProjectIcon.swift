@@ -1,5 +1,6 @@
-import Foundation
+import CmuxNextCompat
 import CmuxNextSettings
+import Foundation
 
 /// A project's own favicon for its picker badge (`project.icon {cwd}`): the New Tab page's folder
 /// strip and the composer's folder menu draw it in place of the letter tile. The page reads no
@@ -187,13 +188,32 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
 
 /// The icons the pickers asked for, read off the main actor and kept by file path and
 /// modification date: a project's icon is read once until the file changes.
+///
+/// A memory consumer on its own actor (`agent-project-icons`, through
+/// `AsyncMemoryConsumerRegistration`): up to ``capacity`` data URLs of at most 64 KiB each at the
+/// full limit; the limit scales that count and a release forgets icons until it fits. A forgotten
+/// icon is read again the next time a picker asks.
 actor AgentPaneProjectIcons {
     static let shared = AgentPaneProjectIcons(reader: AgentPaneProjectIcon())
+    /// Icons kept at the full memory limit.
+    static let capacity = 512
 
     private let reader: AgentPaneProjectIcon
     private let repos: AgentPaneProjectRepoReader
     private let avatars: AgentPaneOwnerAvatars
     private var cache: [String: (file: AgentPaneProjectIcon.File, url: String?)] = [:]
+    /// Icons kept at the coordinator's current limit.
+    private var keptIcons = AgentPaneProjectIcons.capacity
+    /// UTF-8 bytes of the kept data URLs.
+    private(set) var bytes = 0
+    /// The registration in the app's memory coordinator, kept on the main actor that makes it.
+    private nonisolated let memorySlot = MemorySlot()
+
+    /// Holds the main-actor registration of an actor that is not on the main actor.
+    @MainActor final class MemorySlot {
+        var registration: AsyncMemoryConsumerRegistration?
+        nonisolated init() {}
+    }
 
     init(reader: AgentPaneProjectIcon, repos: AgentPaneProjectRepoReader = .shared, avatars: AgentPaneOwnerAvatars = .shared) {
         self.reader = reader
@@ -231,10 +251,57 @@ actor AgentPaneProjectIcons {
                 continue
             }
             let url = reader.dataURL(picked.path)
-            if cache.count >= 512 { cache.removeAll() }
-            cache[picked.path] = (picked.file, url)
+            keep(url, file: picked.file, at: picked.path)
             if let url { return url }
         }
         return nil
+    }
+
+    /// Keeps `url` for `path` while the limit leaves room; a full cache starts over, as before.
+    private func keep(_ url: String?, file: AgentPaneProjectIcon.File, at path: String) {
+        if let old = cache.removeValue(forKey: path) { bytes -= old.url?.utf8.count ?? 0 }
+        if cache.count >= keptIcons {
+            cache.removeAll()
+            bytes = 0
+        }
+        guard keptIcons > 0 else { return }
+        cache[path] = (file, url)
+        bytes += url?.utf8.count ?? 0
+    }
+
+    /// How many icons are kept now.
+    var count: Int { cache.count }
+}
+
+extension AgentPaneProjectIcons: AsyncMemoryConsumer {
+    /// Up to about 44 MiB of base64 at 512 icons, only memory; an icon reads its file again.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
+        keptIcons = limit.scale(Self.capacity)
+        return usage
+    }
+
+    func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
+        let kept = limit.scale(Self.capacity)
+        while cache.count > kept, let path = cache.keys.first {
+            bytes -= cache.removeValue(forKey: path)?.url?.utf8.count ?? 0
+        }
+        return usage
+    }
+
+    private var usage: MemoryUsage {
+        MemoryUsage(footprintBytes: bytes, entries: cache.count)
+    }
+
+    /// Registers the icons with the app's memory coordinator (`agent-project-icons`); the icons keep
+    /// the registration, so the coordinator calls them while they live.
+    ///
+    /// - Parameter registry: The memory coordinator.
+    @MainActor func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memorySlot.registration = AsyncMemoryConsumerRegistration(
+            name: "agent-project-icons", traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 }

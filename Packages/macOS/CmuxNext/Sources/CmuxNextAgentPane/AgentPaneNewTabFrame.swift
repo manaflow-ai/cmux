@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextWakeups
 
 /// The app's last New Tab page frames (cx-ec99), one per pane size: a New Tab page that has not
@@ -8,6 +9,10 @@ import CmuxNextWakeups
 /// what they show: a change of the chat list or of the picked model drops them (and every page's
 /// own remembered frame, `AgentPageRedraw`), so no page ever draws old chats or an old model; a
 /// frame's size and appearance must match the pane's.
+///
+/// A memory consumer (`agent-new-tab-frames`): each frame is a whole pane's bitmap, so the
+/// coordinator's limit scales how many are kept (``sizes`` at 100 %) and a release drops the oldest.
+/// A dropped frame is taken again 400 ms after the next New Tab page paints.
 @MainActor
 public final class AgentPaneNewTabFrame {
     public static let shared = AgentPaneNewTabFrame()
@@ -23,9 +28,12 @@ public final class AgentPaneNewTabFrame {
     public private(set) var content = Content()
     /// Bumped on every content change: a frame from an older generation shows old content.
     public private(set) var generation: UInt64 = 0
-    private var frames: [(image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)] = []
-    /// Frames kept: the sizes of a split workspace's panes and of the whole area.
+    private var frames: [(image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64, bytes: Int)] = []
+    /// Frames kept at the full memory limit: the sizes of a split workspace's panes and of the whole area.
     static let sizes = 4
+    /// Frames kept at the coordinator's current limit.
+    private var keptFrames = AgentPaneNewTabFrame.sizes
+    private var memoryRegistration: MemoryConsumerRegistration?
 
     public init() {}
 
@@ -37,8 +45,16 @@ public final class AgentPaneNewTabFrame {
     /// Keeps `image` as the frame at `size` and `appearance`, the newest one.
     func store(_ image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64) {
         frames.removeAll { $0.size == size && $0.appearance == appearance }
-        frames.append((image, size, appearance, generation))
-        if frames.count > Self.sizes { frames.removeFirst(frames.count - Self.sizes) }
+        frames.append((image, size, appearance, generation, Self.bytes(of: image)))
+        if frames.count > keptFrames { frames.removeFirst(frames.count - keptFrames) }
+    }
+
+    /// How many frames are held now.
+    var frameCount: Int { frames.count }
+
+    /// The bitmap bytes of a page snapshot: its largest representation, 4 bytes a pixel.
+    private static func bytes(of image: NSImage) -> Int {
+        image.representations.map { $0.pixelsWide * $0.pixelsHigh * 4 }.max() ?? 0
     }
 
     /// What one page draws: the chat list and model it last drew, and how many answers it got.
@@ -119,5 +135,38 @@ public final class AgentPaneNewTabFrame {
         content[keyPath: field] = value
         generation &+= 1
         frames = []
+    }
+}
+
+extension AgentPaneNewTabFrame: MemoryConsumer {
+    /// Large (a pane-sized bitmap each), only memory, and taken again by the next New Tab paint.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .large, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        keptFrames = limit.scale(Self.sizes)
+    }
+
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        let kept = slice.limit.scale(Self.sizes)
+        while frames.count > kept {
+            if slice.isExpired { return .more }
+            frames.removeFirst()
+        }
+        return .done
+    }
+
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: frames.reduce(0) { $0 + $1.bytes }, entries: frames.count)
+    }
+
+    /// Registers the frames with the app's memory coordinator (`agent-new-tab-frames`); this keeps
+    /// the registration.
+    ///
+    /// - Parameter registry: The memory coordinator.
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration = MemoryConsumerRegistration(
+            name: "agent-new-tab-frames", traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 }
