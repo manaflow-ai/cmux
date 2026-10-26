@@ -12,6 +12,8 @@ import Testing
     /// The fork side: every call in order, as `name browser`.
     final class FakeFork {
         private(set) var calls: [String] = []
+        /// The embedder visibility the fork keeps per page window, across hosting off and on (058's header).
+        private(set) var stored: [Int32: CEFLayerHosting.PageVisibility] = [:]
         var acceptsVisibility = true
         var hasVisibility = true
         var syncs: [Int32] = []
@@ -21,6 +23,7 @@ import Testing
             if hasVisibility {
                 setVisibility = { [self] browser, visibility in
                     calls.append("visibility \(browser) \(visibility)")
+                    if acceptsVisibility { stored[browser] = visibility }
                     return acceptsVisibility
                 }
             }
@@ -45,6 +48,7 @@ import Testing
     final class FakeFrames: CEFHiddenFrames {
         private(set) var log: [String] = []
         private var evictions: [ObjectIdentifier: @MainActor () -> Void] = [:]
+        func clearLog() { log = [] }
         func addFrame(_ owner: ObjectIdentifier, locked: Bool, evict: @escaping @MainActor () -> Void) {
             log.append(locked ? "lock" : "keep")
             evictions[owner] = locked ? nil : evict
@@ -77,10 +81,11 @@ import Testing
         window.contentView?.addSubview(view)
     }
 
-    /// A hosted page window for browser 3, every creation step run, its calls cleared.
-    func makeHostedPage(withList: Bool = true) -> CEFLayerHosting {
+    /// A hosted page window for browser 3, every creation step run (the first pass made it visible), its
+    /// calls and the list's log cleared.
+    func makeHostedPage(withList: Bool = true, isEnabled: @escaping () -> Bool = { true }) -> CEFLayerHosting {
         let turn = turn, commit = commit
-        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
+        let hosting = CEFLayerHosting(isEnabled: isEnabled, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
                                       afterCommit: { commit.add($0) })
@@ -90,11 +95,31 @@ import Testing
         turn.end()
         commit.end()
         fake.clear()
+        frames.clearLog()
         return hosting
+    }
+
+    /// The fork's default lets the page window's order decide, and a hosted page window never orders in:
+    /// the first pass after hosting tells the fork the page shows.
+    @Test func aNewlyHostedPageIsMadeVisibleAfterTheCommit() {
+        let turn = turn, commit = commit
+        let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 8 }, refreshIntervals: { [] },
+                                      afterCommit: { commit.add($0) })
+        hosting.view = view
+        #expect(hosting.switchCommit.applied == .window)
+        hosting.pageWindowCreated(browser: 3, fork: fake.fork)
+        turn.end()
+        #expect(fake.calls == ["hosting 3 true"])
+        commit.end()
+        #expect(fake.calls == ["hosting 3 true", "visibility 3 visible"])
+        #expect(hosting.switchCommit.applied == .visible)
     }
 
     @Test func aWorkspaceSwitchMakesNoForkCallInItsTurnAndOneAfterTheCommit() {
         let hosting = makeHostedPage()
+        let before = hosting.switchCommit.forkCalls
         #expect(hosting.showsInSwitchTransaction)
         // Switch away: the content lifecycle hides the page's view; its layer leaves with it in this transaction.
         view.isHidden = true
@@ -110,7 +135,7 @@ import Testing
         #expect(fake.calls.isEmpty)
         commit.end()
         #expect(fake.calls == ["visibility 3 visible"])
-        #expect(hosting.switchCommit.forkCalls == 2)
+        #expect(hosting.switchCommit.forkCalls == before + 2)
     }
 
     @Test func aTurnThatHidesAndShowsThePageAgainMakesNoCall() {
@@ -256,8 +281,101 @@ import Testing
         commit.end()
         hosting.stop()
         #expect(frames.log == ["keep", "remove"])
-        #expect(hosting.switchCommit.applied == .visible)
+        #expect(fake.calls == ["visibility 3 hidden", "hosting 3 false", "visibility 3 window"],
+                "the fork keeps a value across hosting off and on, so the page window's order decides again")
+        #expect(hosting.switchCommit.applied == .window)
         frames.evictAll()
         #expect(!fake.calls.contains("evict 3"))
+    }
+
+    /// The fork keeps the embedder visibility across hosting off and on: a page hidden, un-hosted, hosted
+    /// again and shown must not keep the hidden value it had before.
+    @Test func aPageHiddenThenUnhostedShowsWhenItIsHostedAgain() {
+        final class Switch { var on = true }
+        let hostingOn = Switch()
+        let hosting = makeHostedPage(isEnabled: { hostingOn.on })
+        view.isHidden = true
+        hosting.visibilityMayHaveChanged()
+        commit.end()
+        #expect(fake.stored[3] == .hidden)
+        hostingOn.on = false
+        hosting.pageShown(browser: 3)
+        #expect(hosting.page == nil)
+        #expect(fake.stored[3] == .window)
+        hostingOn.on = true
+        view.isHidden = false
+        hosting.pageShown(browser: 3)
+        commit.end()
+        #expect(fake.calls == ["visibility 3 hidden", "hosting 3 false", "visibility 3 window",
+                               "hosting 3 true", "visibility 3 visible"])
+        #expect(fake.stored[3] == .visible)
+        #expect(hosting.switchCommit.applied == .visible)
+    }
+
+    /// A page window that never had a value from the app makes no call when it stops being hosted.
+    @Test func aPageThatNeverTookAValueMakesNoCallWhenItStops() {
+        fake.acceptsVisibility = false
+        let hosting = makeHostedPage()
+        hosting.stop()
+        #expect(fake.calls == ["hosting 3 false"])
+    }
+}
+
+/// The shim side of the page window's visibility (p03-rendering-058's `cmux_shim_browser_set_embedder_visibility`):
+/// the integers the shim receives are its `cmux_shim_embedder_visibility_t`, and the call is made only from fork
+/// API 34 on a shim with the export.
+@MainActor
+@Suite(.serialized) struct CEFEmbedderVisibilityShimTests {
+    @Test func theShimReceivesTheHeadersValueForEachVisibility() throws {
+        VisibilitySpy.reset()
+        let shim = try CEFShimLibrary.resolving(VisibilitySpy.symbol)
+        let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.embedderVisibilityForkAPI,
+                                                     trackA: [.resizeFence]))
+        let setVisibility = try #require(fork.setVisibility)
+        let all: [CEFLayerHosting.PageVisibility] = [.window, .visible, .occluded, .hidden]
+        for visibility in all { #expect(setVisibility(3, visibility)) }
+        // CMUX_SHIM_EMBEDDER_VISIBILITY_WINDOW, _VISIBLE, _OCCLUDED, _HIDDEN.
+        #expect(VisibilitySpy.calls.map(\.visibility) == [0, 1, 2, 3])
+        #expect(VisibilitySpy.calls.allSatisfy { $0.browser == 3 })
+        #expect(fork.trackA == .required, "the app makes the embedder visibility call for this fork")
+    }
+
+    @Test func belowForkAPI34OrWithoutTheExportTheAppMakesNoVisibilityCall() throws {
+        VisibilitySpy.reset()
+        let shim = try CEFShimLibrary.resolving(VisibilitySpy.symbol)
+        let older = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.embedderVisibilityForkAPI - 1,
+                                                      trackA: [.resizeFence]))
+        #expect(older.setVisibility == nil)
+        #expect(older.trackA == [.resizeFence])
+        VisibilitySpy.hasExport = false
+        let noExport = try CEFShimLibrary.resolving(VisibilitySpy.symbol)
+        let fork = try #require(CEFLayerHosting.Fork(shim: noExport, apiVersion: CEFLayerHosting.embedderVisibilityForkAPI))
+        #expect(fork.setVisibility == nil)
+        #expect(fork.trackA == nil, "the feature off stays off")
+        #expect(VisibilitySpy.calls.isEmpty)
+    }
+}
+
+/// Stand-in shim functions: `browser_set_embedder_visibility` records each call and takes it (when
+/// `hasExport`); every other function does nothing and returns 0.
+private nonisolated enum VisibilitySpy {
+    nonisolated(unsafe) static var calls: [(browser: Int32, visibility: Int32)] = []
+    nonisolated(unsafe) static var hasExport = true
+
+    static func reset() {
+        calls = []
+        hasExport = true
+    }
+
+    static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
+        let embedderVisibility: @convention(c) (Int32, Int32) -> Int32 = { browser, visibility in
+            VisibilitySpy.calls.append((browser, visibility))
+            return 1
+        }
+        let nothing: @convention(c) () -> Int = { 0 }
+        if name == "cmux_shim_browser_set_embedder_visibility" {
+            return hasExport ? unsafeBitCast(embedderVisibility, to: UnsafeMutableRawPointer.self) : nil
+        }
+        return unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
     }
 }

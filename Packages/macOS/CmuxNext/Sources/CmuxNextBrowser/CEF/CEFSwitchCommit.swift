@@ -49,12 +49,15 @@ extension CEFLayerHosting {
         held?.place()
     }
 
-    /// A page window's visibility as the app gives it to the fork (`cmux_browser_set_embedder_visibility`,
-    /// task p03-rendering-058), with Chrome's values (`content::Visibility`, content/public/browser/visibility.h).
+    /// A page window's visibility as the app gives it to the fork: the raw values are the shim's
+    /// `cmux_shim_embedder_visibility_t` (`cmux_shim_browser_set_embedder_visibility`, task p03-rendering-058).
+    /// `visible`, `occluded` and `hidden` mean Chrome's `content::Visibility` (content/public/browser/visibility.h).
     nonisolated enum PageVisibility: Int32, Sendable {
-        case hidden = 0
-        case occluded = 1
-        case visible = 2
+        /// The page window's order and occlusion decide (the fork's default).
+        case window = 0
+        case visible = 1
+        case occluded = 2
+        case hidden = 3
     }
 }
 
@@ -82,8 +85,8 @@ final class CEFSwitchCommit {
 
     /// Visibility and eviction calls into the fork so far.
     private(set) var forkCalls = 0
-    /// The visibility the fork took last: a page window starts visible to Chromium.
-    private(set) var applied = CEFLayerHosting.PageVisibility.visible
+    /// The visibility the fork took last: a page window starts with its window's order and occlusion deciding.
+    private(set) var applied = CEFLayerHosting.PageVisibility.window
     /// The page's hidden frame waits in the list (unlocked).
     private(set) var isFrameKept = false
     /// The app-wide list of kept frames; nil drops a hidden page's frame at once.
@@ -131,23 +134,34 @@ final class CEFSwitchCommit {
         forkCalls += 1
         guard setVisibility(browser, wanted) else { return }
         applied = wanted
-        if wanted == .visible {
+        switch wanted {
+        case .visible:
             isFrameKept = false
             hiddenFrames?.addFrame(ObjectIdentifier(self), locked: true) {}
-        } else if let hiddenFrames {
+        case .occluded, .hidden:
             isFrameKept = true
-            hiddenFrames.addFrame(ObjectIdentifier(self), locked: false) { [weak self] in self?.evict() }
-        } else {
-            isFrameKept = true
-            evict()
+            if let hiddenFrames {
+                hiddenFrames.addFrame(ObjectIdentifier(self), locked: false) { [weak self] in self?.evict() }
+            } else {
+                evict()
+            }
+        case .window:
+            isFrameKept = false
+            hiddenFrames?.removeFrame(ObjectIdentifier(self))
         }
     }
 
-    /// The page stopped being hosted, or its page window went: the fork follows the window again, and no
-    /// frame is kept for it. A held show stays: its tab still needs its activation.
+    /// The page stopped being hosted, or its page window went: the fork keeps an embedder visibility across
+    /// hosting off and on, so a value it took goes back to `window` (the page window's order decides again),
+    /// and no frame is kept for it. A held show stays: its tab still needs its activation.
     func reset() {
         if target != nil || isFrameKept { hiddenFrames?.removeFrame(ObjectIdentifier(self)) }
-        applied = .visible
+        if applied != .window, let target, let setVisibility = target.fork.setVisibility {
+            forkCalls += 1
+            // A refusal means the page window is gone, and its value with it.
+            _ = setVisibility(target.browser, .window)
+        }
+        applied = .window
         isFrameKept = false
         target = nil
     }
@@ -155,7 +169,7 @@ final class CEFSwitchCommit {
     /// The list dropped the hidden page's frame (or there is no list): the fork lets it go; the next show
     /// draws the page's background until Chromium's next frame.
     private func evict() {
-        guard isFrameKept, applied != .visible, let target else { return }
+        guard isFrameKept, applied == .hidden || applied == .occluded, let target else { return }
         isFrameKept = false
         guard let evictFrame = target.fork.evictFrame else { return }
         forkCalls += 1

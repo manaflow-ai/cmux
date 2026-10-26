@@ -89,16 +89,22 @@ final class CEFLayerHosting {
         }
 
         /// The shim's call; nil without a shim or below fork API 26, where
-        /// nothing changes and showing a tab costs nothing here.
+        /// nothing changes and showing a tab costs nothing here. From fork API 34
+        /// the app gives a hosted page its visibility, so the feature's Track A
+        /// calls include ``TrackA/embedderVisibility``.
         init?(shim: CEFShimLibrary?, apiVersion: Int32, trackA: TrackA? = nil) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
             setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
-            self.trackA = trackA
-            // Bound by the shim exports of task p03-rendering-058 and the fork's keep-frame-while-hidden
-            // call; until then a hosted page's visibility follows its window, in the switch's turn.
-            setVisibility = nil
+            if apiVersion >= CEFLayerHosting.embedderVisibilityForkAPI, let call = shim.browserSetEmbedderVisibility {
+                setVisibility = { browser, visibility in call(browser, visibility.rawValue) == 1 }
+                self.trackA = trackA?.union(.embedderVisibility)
+            } else {
+                setVisibility = nil
+                self.trackA = trackA
+            }
+            // The fork's keep-frame-while-hidden call has no shim export yet: Chromium's own eviction decides.
             evictFrame = nil
         }
 
@@ -124,6 +130,8 @@ final class CEFLayerHosting {
     /// The first fork API where a page window never holds the commit
     /// (`cmux_browser_set_resize_fence`): the resize deadline has no effect.
     static let resizeFenceForkAPI: Int32 = 32
+    /// The first fork API with `cmux_browser_set_embedder_visibility` (p03-rendering-058).
+    static let embedderVisibilityForkAPI: Int32 = 34
 
     /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
     static func hasResizeSync(apiVersion: Int32) -> Bool {
