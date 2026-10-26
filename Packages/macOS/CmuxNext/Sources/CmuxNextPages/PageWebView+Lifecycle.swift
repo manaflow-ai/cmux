@@ -80,9 +80,9 @@ extension PageWebView {
         firstShowStart = nil // a page closed before it showed never starts
         firstShowWatch = nil
         router.close()
-        bridge.uninstall()
+        webKitPieces?.bridge.uninstall()
         endChromium()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
+        userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
         traceOpenEnd(.closedBeforePaint)
     }
