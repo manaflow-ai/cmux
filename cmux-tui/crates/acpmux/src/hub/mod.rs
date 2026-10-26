@@ -826,6 +826,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            stops: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -1268,23 +1269,30 @@ impl Hub {
     /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
     /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        self.write_status(session, status, false);
+        self.write_status(session, status, None);
     }
 
-    /// A stopped session starts again: a new agent start for it (`ready_to_start`). Its status
-    /// leaves Closed for Idle.
-    /// Not while a stop is under way (`Session::closing`): false then, and it stays closed.
-    pub(super) fn reopen(&self, session: &Session) -> bool {
-        self.write_status(session, SessionStatus::Idle, true)
+    /// A stopped session starts again, for a request that came after its last stop: `stops` is
+    /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
+    /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
+    pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
+        if reopened {
+            self.append(session, "mux", "reopened", json!({}));
+        }
+        reopened
     }
 
-    fn write_status(&self, session: &Session, status: SessionStatus, reopen: bool) -> bool {
+    /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
+    /// which `kill`'s close takes after it counts the stop.
+    fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
-            if was == SessionStatus::Closed
-                && status != SessionStatus::Closed
-                && (!reopen || session.closing.load(Ordering::SeqCst))
+            let reopens = reopen
+                .is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
+            if (was == SessionStatus::Closed && status != SessionStatus::Closed && !reopens)
+                || (reopen.is_some() && was != SessionStatus::Closed)
             {
                 return false;
             }

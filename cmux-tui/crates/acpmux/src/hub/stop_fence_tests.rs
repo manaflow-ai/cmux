@@ -1,0 +1,88 @@
+//! A stop (`kill`) against agent starts that race it (`ensure_child`, ergo-walk2 2026-10-25:
+//! "session stop says closed but acpmux ls still shows it ready"). Each test fixes the order by
+//! hand: the stop count a start was asked under, the spawn lock a start in flight holds.
+
+use super::*;
+use crate::config::{Config, StoreMode};
+use std::path::Path;
+
+/// A hub with one open chat whose stand-in agent is running.
+async fn chat() -> (Arc<Hub>, Arc<Session>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    (hub, session)
+}
+
+/// The kinds of `session`'s mux records after `seq`.
+fn kinds_after(hub: &Hub, session: &Session, seq: u64) -> Vec<String> {
+    let events = hub.events(&session.id, seq, 10_000).unwrap();
+    events.into_iter().filter(|e| e.dir == "mux").map(|e| e.kind).collect()
+}
+
+fn last_seq(hub: &Hub, session: &Session) -> u64 {
+    hub.events(&session.id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq)
+}
+
+async fn has_live_child(session: &Session) -> bool {
+    let child = session.child.lock().await.clone();
+    match child {
+        Some(child) => child.is_alive().await,
+        None => false,
+    }
+}
+
+/// A prompt that came before the stop and reaches its agent start after it (it waited on the
+/// spawn lock a start in flight held): the start ends, nothing reopens the chat, and a request
+/// after the stop still reopens it.
+#[tokio::test]
+async fn a_start_asked_for_before_a_stop_leaves_the_session_closed() {
+    let (hub, session) = chat().await;
+    hub.kill(&session, false).await.unwrap();
+    // The chat is closed; a prompt for it comes, and the start it needs waits for the lock.
+    let asked = session.stops.load(Ordering::SeqCst);
+    let held = session.spawn_lock.lock().await;
+    let start = {
+        let (hub, session) = (hub.clone(), session.clone());
+        tokio::spawn(async move { hub.child_for_since(&session, asked).await })
+    };
+    // Stopped again before that start gets the lock.
+    hub.kill(&session, false).await.unwrap();
+    let seq = last_seq(&hub, &session);
+    drop(held);
+    let started = start.await.unwrap();
+    assert!(started.is_err(), "a start asked for before the stop went on");
+    assert_eq!(session.status(), SessionStatus::Closed);
+    assert!(!has_live_child(&session).await, "the stopped start left an agent running");
+    let later = kinds_after(&hub, &session, seq);
+    assert!(!later.iter().any(|k| k == "reopened"), "{later:?}");
+    assert!(!later.iter().any(|k| k == "status"), "{later:?}");
+
+    // A request after the stop reopens it, as before.
+    hub.child_for(&session).await.unwrap();
+    assert_ne!(session.status(), SessionStatus::Closed);
+    assert!(kinds_after(&hub, &session, seq).iter().any(|k| k == "reopened"));
+}
+
+/// A closed chat whose agent is still running (a host the daemon adopted at its start that
+/// outlived the stop): a request reopens it and finds it ready, never a running agent behind a
+/// chat `acpmux ls` lists as closed.
+#[tokio::test]
+async fn a_closed_session_with_a_live_agent_reopens_for_a_request() {
+    let (hub, session) = chat().await;
+    assert!(has_live_child(&session).await);
+    hub.set_status(&session, SessionStatus::Closed);
+    let seq = last_seq(&hub, &session);
+    hub.child_for(&session).await.unwrap();
+    assert_eq!(session.status(), SessionStatus::Ready);
+    let later = kinds_after(&hub, &session, seq);
+    assert!(later.iter().any(|k| k == "reopened"), "{later:?}");
+}

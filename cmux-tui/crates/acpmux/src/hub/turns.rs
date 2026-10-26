@@ -198,6 +198,8 @@ impl Hub {
         joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+        // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
+        let stops = session.stops.load(Ordering::SeqCst);
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let no_queue = opts.no_queue;
@@ -374,7 +376,7 @@ impl Hub {
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
-        let started = match self.child_for(session).await {
+        let started = match self.child_for_since(session, stops).await {
             Ok(child) => session
                 .meta()
                 .agent_session_id
@@ -487,7 +489,7 @@ impl Hub {
             // moves the session too, not only a usage or auth limit.
             // A stopped session's agent closed because of the stop: no failover starts it again.
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
-                && !session.closing.load(Ordering::SeqCst)
+                && session.stops.load(Ordering::SeqCst) == stops
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -519,7 +521,7 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = self.child_for(session).await;
+                let fallback = self.child_for_since(session, stops).await;
                 let refusal = match &fallback {
                     Ok(_) => self
                         .check_dispatch(
@@ -1184,6 +1186,8 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        // Counted first: a start for a request from before this stop ends (`ensure_child`).
+        session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
         self.stop_subagent_retries(session, true);
