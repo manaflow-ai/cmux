@@ -89,7 +89,7 @@ import Testing
                 labels: FindPillLabels(placeholder: "Find", previous: "Previous", next: "Next", close: "Close"),
                 icons: FindPillIcons(search: image, previous: image, next: image, close: image),
                 accessibilityPrefix: "test.find")
-            let original = pill.field.font?.pointSize
+            let original = try #require(pill.field.font).pointSize
             let changes = AsyncStream<CGFloat>.makeStream()
             let observation = pill.field.observe(\.font, options: .new) { _, change in
                 if let font = change.newValue ?? nil { changes.continuation.yield(font.pointSize) }
@@ -97,12 +97,15 @@ import Testing
             defer { observation.invalidate(); changes.continuation.finish() }
             var sizes = changes.stream.makeAsyncIterator()
             try await call(page, "set", "appearance.metrics.chromeFontSize", .number(16))
-            while let size = await sizes.next() { if size == TypeScale.body { break } }
-            #expect(pill.field.font?.pointSize == TypeScale.body)
-            #expect(pill.field.font?.pointSize != original)
+            // CheckedFont rounds its cache key to hundredths of a point.
+            while let size = await sizes.next() { if abs(size - TypeScale.body) < 0.01 { break } }
+            let enlarged = try #require(pill.field.font).pointSize
+            #expect(abs(enlarged - TypeScale.body) < 0.01)
+            #expect(enlarged > original)
             try await call(page, "reset", "appearance.metrics.chromeFontSize")
-            while let size = await sizes.next() { if size == original { break } }
-            #expect(pill.field.font?.pointSize == original)
+            while let size = await sizes.next() { if abs(size - original) < 0.01 { break } }
+            let restored = try #require(pill.field.font).pointSize
+            #expect(abs(restored - original) < 0.01)
         }
     }
 
