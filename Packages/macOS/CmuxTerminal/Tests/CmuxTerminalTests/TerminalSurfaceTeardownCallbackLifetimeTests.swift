@@ -112,33 +112,8 @@ import Testing
         )
     }
 
-    @Test func teardownRetiresNativeSurfaceBeforeDeferredFree() async throws {
-        let recorder = TeardownOrderRecorder()
-        let surface = makeSurface()
-        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
-        defer { runtimeSurface.deallocate() }
-        defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
-        surface.installRuntimeSurfaceForTesting(runtimeSurface)
-        cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
-        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
-            #expect(
-                cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
-                "native app routing must be retired before deferred free starts"
-            )
-            recorder.record(.nativeFree)
-        }
-        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
-
-        surface.teardownSurface()
-
-        #expect(
-            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 1,
-            "teardown must retire the native surface synchronously"
-        )
-        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
-    }
-
-    @Test func deinitRetiresNativeSurfaceBeforeDeferredFree() async throws {
+    @Test(arguments: [false, true])
+    func teardownDrainsRemoteOutputBeforeNativeRetirement(deinitOnly: Bool) async throws {
         let recorder = TeardownOrderRecorder()
         var surface: TerminalSurface? = makeSurface()
         let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
@@ -146,21 +121,36 @@ import Testing
         defer { cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface) }
         surface?.installRuntimeSurfaceForTesting(runtimeSurface)
         cmux_test_ghostty_surface_request_process_termination_reset(runtimeSurface)
+        cmux_test_ghostty_process_output_blocking_begin(runtimeSurface)
+        defer {
+            cmux_test_ghostty_process_output_release()
+            cmux_test_ghostty_process_output_blocking_reset()
+        }
         TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { surface in
             #expect(
                 cmux_test_ghostty_surface_request_process_termination_call_count(surface) == 1,
-                "deinit must retire native app routing before deferred free starts"
+                "native routing must be retired after output drains and before free"
             )
             recorder.record(.nativeFree)
         }
         defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
 
-        surface = nil
+        surface?.remoteOutputLane.enqueue(Data("pending output".utf8), to: runtimeSurface)
+        let started = await Task.detached {
+            cmux_test_ghostty_process_output_wait_until_started()
+        }.value
+        try #require(started, "remote output did not reach the native parser")
+        if deinitOnly {
+            surface = nil
+        } else {
+            surface?.teardownSurface()
+        }
 
         #expect(
-            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 1,
-            "deinit must retire the native surface synchronously"
+            cmux_test_ghostty_surface_request_process_termination_call_count(runtimeSurface) == 0,
+            "retirement must wait for admitted output and refresh calls to finish"
         )
+        cmux_test_ghostty_process_output_release()
         #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
     }
 
