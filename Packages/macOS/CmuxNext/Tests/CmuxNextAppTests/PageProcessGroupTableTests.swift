@@ -75,7 +75,7 @@ import Testing
 
     /// A page whose namespace has no op table never shares a renderer.
     @Test func undeclaredNamespacesAreOnlyOnPagesThatShareNothing() {
-        let sharing = Set(Self.groups.filter(\.key.sharesRenderer).values.flatMap { $0 }.map(\.id))
+        let sharing = Set(Self.groups.filter { $0.key.sharesRenderer }.values.flatMap { $0 }.map(\.id))
         for page in Self.shipped where !Self.capability(page).undeclaredNamespaces.isEmpty {
             #expect(!sharing.contains(page.id), "\(page.id) shares with undeclared \(Self.capability(page).undeclaredNamespaces)")
         }

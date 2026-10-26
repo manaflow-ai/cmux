@@ -138,6 +138,8 @@ public extension PageDescriptor {
         commands: PageNativeOp.commands.union(DiffPageCommand.all),
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
         entry: diffEntry, dynamicPrefixes: ["__patch"],
+        // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
+        acceptsFirstMouse: false,
         // DiffPageProvider (CmuxNextDiff) and its Git, Revert, Stores and Open extensions.
         opTables: [PageOpTable(
             namespace: "cmux.diff.",
@@ -145,9 +147,7 @@ public extension PageDescriptor {
                    "fileContents", "git.status", "git.diff", "git.fingerprint", "prefs.get", "viewed.list", "prefs"],
             act: ["chooseFolder", "open", "openFile", "prefs.set", "viewed.set", "viewed.clear"],
             hostPower: ["branchChange", "git.commit", "git.push", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk",
-                        "git.discard", "git.discardHunk", "git.undoDiscard"])],
-        // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
-        acceptsFirstMouse: false)
+                        "git.discard", "git.discardHunk", "git.undoDiscard"])])
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
     /// highlighting Shiki's JavaScript engine) plus `'wasm-unsafe-eval'` for Ondine, the Mermaid
