@@ -6,7 +6,9 @@ Chrome's model: cc::RenderingStatsInstrumentation (cc/debug/rendering_stats_inst
 per-frame counts only while `record_rendering_stats` is on, and a timing trace is a separate run. The same split
 here: this script arms RenderStats (`debug.frames` with `render: true`, task p03-rendering-001) and reports
 counts only; its hooks cost time, so no millisecond from an armed pass is ever reported. Timing comes from
-motion-hitches.py (task p03-rendering-007), with RenderStats disarmed.
+motion-hitches.py (task p03-rendering-007), with RenderStats disarmed: same --sessions, --tunable and --vdisplay,
+and its scenarios (motion_scenarios.py) carry the names of the rows below, so the count and time reports join by
+scenario name (the self-test checks every timed scenario is a row here).
 
 Launches a tagged DEV app through bench_launch.py, once per session (fresh state each time, so STRESS is
 perf-stress-session.py's shape and not STRESS plus the light workspace), and runs each scenario --rounds times:
@@ -1181,6 +1183,8 @@ def self_test():
     check("render server read back", report["launches"]["light"]["tunables"], {RENDER_SERVER: False})
     rows = {(r["session"], r["scenario"], r["phase"]): r for r in report["summary"]}
     check("every scenario ran", len({k[1] for k in rows}), 15)
+    timed = load("motion_scenarios", "motion_scenarios.py")
+    check("every timed scenario (motion-hitches.py) is a row", sorted(set(timed.names()) - {k[1] for k in rows}), [])
     check("hover-card undo counted", rows.get(("light", "hover-card", "undo"), {}).get("counted"), 1)
     check("band-reveal undo counted", rows.get(("light", "band-reveal", "undo"), {}).get("counted"), 1)
     check("clean build: zero frames 2..n", sorted({r["zero_frames_2_n"] for r in report["summary"]}, key=str), [True])
