@@ -419,3 +419,57 @@ EOF
 
 After 014 splits `AppDelegate.swift` into `Startup/*.swift`, the Q2 rows are checked with
 `startup-lint.py` (104) instead of the awk range; the allowlist check is the same.
+
+## 9. Swift PGO and order toolchain (048)
+
+Spike for section F of [p08-startup.md](chrome-parity/p08-startup.md): which instrumentation, merge and
+`-profile-use` paths work on the Xcode the nightly builds with. The probe builds small fixtures in a
+scratch directory, one path at a time, and exits 0 or 1 for each:
+
+```sh
+cmux-ci run --class isolated --script scripts/cmux-next/pgo/probe-toolchain.sh --ref SHA
+scripts/cmux-next/pgo/probe-toolchain.sh flush        # one path: exit 0 works, 1 does not
+scripts/cmux-next/pgo/probe-toolchain.sh --keep merge # keep fixtures, logs and profiles
+```
+
+Xcode: Xcode 26.6 (Swift 6.2), the macOS 26 and 27 pool pin in `scripts/ci/xcode-pins.txt`, selected
+the way `check-release-compile.sh` selects it (`DEVELOPER_DIR`, else `CMUX_PGO_PROBE_XCODE`, else
+`/Applications/Xcode_<pin>.app`). The probe prints `xcodebuild -version`, `swiftc --version` and
+`llvm-profdata --version` first; a changed pin means the probe runs again before 049 to 054 rely on it.
+With no path named, the exit is 0 only when F's plan holds: (`flush` and `merge`) or `trace-pc-guard`,
+and `use`, and `scope-xcodebuild`.
+
+Result: not run yet. The p08-startup lead runs the command above on the fleet and replaces this line with
+the job id, the Xcode build number and the PASS/FAIL table. Until then the plan below is what the probe
+checks, not a measured fact.
+
+| Path | Command the later tasks use | What the probe checks | Used by |
+| --- | --- | --- | --- |
+| `generate` | `swiftc -O -profile-generate`; `LLVM_PROFILE_FILE=<path>` at run time | a non-empty profraw at exit | 049 |
+| `flush` | `__llvm_profile_set_filename(launch)`, `__llvm_profile_write_file()`, `__llvm_profile_reset_counters()`, then `set_filename(rest)` and `write_file()` before quit | a launch-only function counts only in launch.profraw, a rest-only one only in rest.profraw | 103 (`startup_complete`, `debug.pgo_flush`) |
+| `merge` | `xcrun llvm-profdata merge -o cmux-next.profdata launch.profraw rest.profraw` | both functions keep their counts | 050 |
+| `use` | `swiftc -O -profile-use=cmux-next.profdata` | compiles, links and runs | 052 |
+| `use-weights` | the same with `-emit-ir` | `branch_weights` in the IR: the flag is applied, not ignored | 052 |
+| `trace-pc-guard` | `swiftc -O -sanitize=undefined -sanitize-coverage=func,trace-pc-guard` (`-sanitize=address` when undefined is refused) and a C `__sanitizer_cov_trace_pc_guard` that writes each function's first-hit PC; `atos -o` names them | the launch function comes before the rest function | 109 fallback |
+| `scope-swiftpm` | `Package.swift`: `Context.environment["CMUX_PGO_PROFDATA"]` adds `.unsafeFlags(["-profile-use=<file>"], .when(configuration: .release))`; `swift build -c release -v` | the root and a local path package get the flag; a package that does not ask (Sentry, Sparkle) does not | 052 |
+| `scope-xcodebuild` | the same manifest through `xcodebuild -configuration Release` | as above, and with the variable unset a fresh build has no `-profile-use` anywhere (no cached manifest keeps it) | 052 |
+| `cmdline-scoped` | `OTHER_SWIFT_FLAGS='$(inherited) -profile-use=<file>'` on the xcodebuild command line | expected FAIL: the command line reaches every target, remote packages too | rejected |
+
+Decisions the probe confirms or refutes:
+
+- `-profile-use` reaches CmuxNext targets only through `Package.swift`: the env var names the profile,
+  the flag is under `.when(configuration: .release)`, and the Release build sets the variable only when
+  the profile's sha256 matches (052). The command line (`OTHER_SWIFT_FLAGS`) is not used: it also
+  passes the profile to Sentry, Sparkle and the other remote packages, which have no functions in it and
+  warn for each. When `scope-xcodebuild` fails, 052 stops and this section names the next mechanism.
+- Two profiles from one run use `write_file` plus `reset_counters`, not `__llvm_profile_dump`, which
+  writes once and then refuses (compiler-rt `InstrProfilingFile.c`). The runtime also writes at exit to
+  the last name set, so the rest profile is rewritten at quit with the same counters plus the quit path.
+  Chrome does the same flush on demand for its profiling builds
+  (`base/test/clang_profiling.cc`, `WriteClangProfilingProfile`), and merges with `llvm-profdata` in
+  `tools/pgo/generate_profile.py`.
+- The app target links with clang, not swiftc, so the profile build (049) adds `-fprofile-instr-generate`
+  to `OTHER_LDFLAGS` to link the profile runtime; the probe links with swiftc and does not cover this.
+- The trace-pc-guard fallback needs a sanitizer in the profile build only, and gives first-hit order, not
+  counts. It is the order-file input when `flush` fails; Chrome's Android order file uses the same kind of
+  first-call instrumentation (`base/android/orderfile/orderfile_instrumentation.cc`).
