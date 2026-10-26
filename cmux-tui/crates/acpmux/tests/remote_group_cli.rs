@@ -20,6 +20,7 @@ fn hub(root: &Path) -> Arc<Hub> {
         "harnesses": {"fake": {"argv": ["python3", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py")]}},
         "defaultHarness": "fake",
         "webRoots": [root],
+        "webAskingModes": {"fake": ["normal", "strict"]},
     })).unwrap();
     config.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&config.store, root).unwrap();
