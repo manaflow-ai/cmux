@@ -22,18 +22,25 @@ EXPECT_EQ prints both sides; here every violation names its JSON pointer.
 
 The checks run on raw checkpoints, before normalize.py: I4 pairs the cut by the raw sequences that the
 canonical form drops (x-oracle-volatile), and ids of one run need no relabeling to be compared with
-each other. I3 compares projections with the schema's volatile fields removed (`VolatileMask`), so
-commit counters do not count as a difference.
+each other. I3 compares projections (`Projector`) that apply normalize.py's value rules to turn and
+settled alike: volatile fields out, numbers rounded to x-oracle-precision, x-oracle-order: set arrays
+sorted. Raw ids stay, so commit counters, set order and float jitter never count as a difference.
 
-Trace (`cmux.oracle.trace/v1`), written by the product drivers (driver_daemon.py 023, driver_app.py 050):
+Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, driver_app.py 047):
     {"schema": "cmux.oracle.trace/v1", "case": "suite/name",
      "steps": [{"id", "op", "readOnly"?, "expect"?, "args"?,
                 "target"?: {kind: public id}      (handles and $step refs already resolved),
+                "action"?: action id              (a key step: the action its keys ran, for I3's lastRefusal),
                 "replies": [{"receipt": KIND} | {"error": CODE}, ...]   (every reply the step got),
                 "checkpoints": {"before"?|"turn"?|"settled"?: snapshot-v1 (raw)},
                 "layoutCounters"?: {"before": {name: n}, "after": {name: n}}   (debug.layout_counters)}],
      "teardown"?: {"processes": [{"pid", "command"}], "sockets": [path]}}
 Step fields missing from the trace come from the case (`--case`), matched by step id.
+
+Not run by any run yet: the driver protocol of oracle.py (017) returns canonical checkpoints only, and no
+driver writes this trace (raw checkpoints, replies, layoutCounters, teardown). A follow-up of 017, 023 and
+047 carries those fields in the driver result and makes `perform_run` turn a violation into a case
+Failure; until then `invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
 "in": "snapshot"|"step"|"teardown", "pointer", "message"}], "notChecked": [{"invariant", "step",
@@ -62,6 +69,10 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Seque
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
+# `python3 -I` does not put the script's directory on sys.path; normalize.py owns the value rules I3 reuses.
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+from normalize import MAX_SAFE_INT, _precision_decimals, canonical_json  # noqa: E402
 SNAPSHOT_SCHEMA = REPO / "schemas" / "oracle" / "snapshot-v1.schema.json"
 EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
 
@@ -71,8 +82,11 @@ CHECKPOINT_ORDER = ("before", "turn", "settled")
 # Typed outcomes, the patterns of case-v1 $defs.expect.error and .receipt.
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 RECEIPT_KIND = re.compile(r"^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$")
-# Ops that change state; the rest (settle, snapshot, kill, restart, advance_clock) give no receipt.
+# Ops that change the model (I2 attributes id changes to them, I7 checks their view work).
 MUTATING_OPS = frozenset({"resource.call", "action.run", "key", "cli", "mcp", "tui.key"})
+# Process lifecycle ops: case-v1 lists them as always mutating with an expected outcome, so I1 holds
+# their receipt (a restart's identify) or noReceiptReason; they may change no structural id (I2).
+LIFECYCLE_OPS = frozenset({"kill", "restart"})
 READ_CAPABLE_OPS = frozenset({"resource.call", "cli", "mcp"})
 KEY_OPS = frozenset({"key", "tui.key"})
 # Facets that count the pipeline, not the model: a pending intent at the turn becomes applied at the
@@ -204,6 +218,17 @@ class Step:
         return self.op in MUTATING_OPS and not self.read_only
 
     @property
+    def answers(self) -> bool:
+        """I1 holds its replies: a mutation, a kill or a restart."""
+        return self.mutating or self.op in LIFECYCLE_OPS
+
+    @property
+    def action_id(self) -> Optional[str]:
+        """The action an action.run ran, or the action a key step's keys resolved to (from the driver)."""
+        value = (self.record.get("args") or {}).get("action") if self.op == "action.run" else self.record.get("action")
+        return value if isinstance(value, str) else None
+
+    @property
     def checkpoints(self) -> Mapping[str, Any]:
         return self.record.get("checkpoints") or {}
 
@@ -265,16 +290,20 @@ def load_trace(document: Any, case: Optional[Mapping[str, Any]] = None) -> Trace
 # ---------------------------------------------------------------------------------------------- volatile mask
 
 
-class VolatileMask:
-    """Removes the fields the snapshot schema marks `x-oracle-volatile`, and the members of open objects
-    that match a volatile `x-oracle-open-keys` pattern (normalize.py's step 1). Branches of oneOf, anyOf
-    and allOf all apply: the facet branches are an object or notComparable, which share no field."""
+class Projector:
+    """normalize.py's value rules on a raw facet, ids kept: step 1 drops the fields the schema marks
+    `x-oracle-volatile` and the members of open objects that match a volatile `x-oracle-open-keys`
+    pattern, step 4 rounds numbers to `x-oracle-precision` (`x-oracle-precision-default` where no schema
+    covers them), step 5 sorts `x-oracle-order: set` arrays by each item's canonical JSON. Branches of
+    oneOf, anyOf and allOf all apply: the facet branches are an object or notComparable, which share no
+    field."""
 
     def __init__(self, schema: Mapping[str, Any]):
         self.definitions = schema.get("definitions", {})
         self.facets = schema["properties"]["facets"]["properties"]
         self.open_volatile = [re.compile(e["key"]) for e in schema.get("x-oracle-open-keys", [])
                               if "x-oracle-volatile" in e]
+        self.default_decimals = _precision_decimals(schema.get("x-oracle-precision-default", 0.001))
 
     def _resolve(self, node: Any) -> Any:
         while isinstance(node, Mapping) and "$ref" in node:
@@ -313,8 +342,25 @@ class VolatileMask:
         if isinstance(value, list):
             items = [b["items"] for b in branches if isinstance(b.get("items"), Mapping)]
             item_node = {"anyOf": items} if items else None
-            return [self.strip(item, item_node) for item in value]
+            out_items = [self.strip(item, item_node) for item in value]
+            if any(b.get("x-oracle-order") == "set" for b in branches):
+                out_items.sort(key=canonical_json)
+            return out_items
+        if isinstance(value, float):
+            return self.round(value, branches)
         return value
+
+    def round(self, value: float, branches: List[Mapping[str, Any]]) -> Any:
+        """normalize.py's step 4: an open number takes the default precision, a typed one its own."""
+        if not branches:
+            decimals: Optional[int] = self.default_decimals
+        else:
+            steps = [b["x-oracle-precision"] for b in branches if "x-oracle-precision" in b]
+            decimals = _precision_decimals(steps[0]) if steps else None
+        if decimals is None:
+            return value
+        rounded = round(value, decimals) or 0.0  # -0.0 and 0.0 are one value
+        return int(rounded) if rounded.is_integer() and abs(rounded) < MAX_SAFE_INT else rounded
 
 
 def first_difference(a: Any, b: Any, at: str = "") -> Optional[Tuple[str, Any, Any]]:
@@ -410,21 +456,30 @@ def id_sources(snapshot: Mapping[str, Any]) -> Dict[str, Dict[str, Node]]:
     return out
 
 
-def merged_ids(snapshot: Mapping[str, Any]) -> Dict[str, Node]:
-    nodes: Dict[str, Node] = {}
-    for source in id_sources(snapshot).values():
-        for key, node in source.items():
-            nodes.setdefault(key, node)
-    return nodes
+Graph = Dict[str, Set[str]]
 
 
-def ancestors(nodes: Mapping[str, Node], start: str) -> Iterator[str]:
-    seen: Set[str] = set()
-    current = nodes.get(start)
-    while current is not None and current.parent and current.parent not in seen:
-        seen.add(current.parent)
-        yield current.parent
-        current = nodes.get(current.parent)
+def parent_graph(sources: Iterable[Mapping[str, Node]]) -> Graph:
+    """Every id's containers over all sources: a workspace is in its window (topology) and in its session
+    (daemon), so a window or a session target covers it whichever facet holds it."""
+    graph: Graph = {}
+    for nodes in sources:
+        for key, node in nodes.items():
+            parents = graph.setdefault(key, set())
+            if node.parent:
+                parents.add(node.parent)
+    return graph
+
+
+def ancestors(graph: Mapping[str, Set[str]], start: str) -> Set[str]:
+    out: Set[str] = set()
+    todo = list(graph.get(start, ()))
+    while todo:
+        parent = todo.pop()
+        if parent not in out:
+            out.add(parent)
+            todo.extend(graph.get(parent, ()))
+    return out
 
 
 def strings_in(value: Any) -> Iterator[str]:
@@ -442,9 +497,9 @@ def strings_in(value: Any) -> Iterator[str]:
 
 
 class Checker:
-    def __init__(self, trace: Trace, mask: VolatileMask):
+    def __init__(self, trace: Trace, projector: "Projector"):
         self.trace = trace
-        self.mask = mask
+        self.projector = projector
         self.report = Report(trace.case)
         self.states = trace.states()
 
@@ -478,12 +533,12 @@ class Checker:
     # I1 -----------------------------------------------------------------------------------------------
     def i1(self) -> None:
         for step in self.trace.steps:
-            if not step.mutating:
+            if not step.answers:
                 continue
             self.checked("I1")
             replies = step.record.get("replies")
             if not isinstance(replies, list):
-                self.violate("I1", step, None, "/replies", "the trace has no replies for this mutation", "step")
+                self.violate("I1", step, None, "/replies", "the trace has no replies for this step", "step")
                 continue
             expect = step.record.get("expect") or {}
             keys = (step.record.get("args") or {}).get("keys")
@@ -510,61 +565,117 @@ class Checker:
                              f"{len(replies)} replies for {want} mutation(s): neither a receipt nor a typed error", "step")
 
     # I2 -----------------------------------------------------------------------------------------------
-    def covered(self, step: Step, before: Mapping[str, Node], after: Mapping[str, Node]) -> Set[str]:
-        """Ids the step may create under or close: its targets, their containers, the ids its replies name
-        and, for a key with no target, the focused objects it acts on."""
-        roots = {v for v in self.target_ids(step) if isinstance(v, str)}
-        roots |= {s for s in strings_in(step.record.get("replies") or []) if s in before or s in after}
-        out = set(roots)
-        for root in roots:
-            out |= set(ancestors(before, root)) | set(ancestors(after, root))
+    def roots(self, step: Step, known: Set[str]) -> Set[str]:
+        """The objects a mutating step acts on: its targets, the ids its replies name and, for a key, the
+        focused pane and tab its keys go to. A key's window target only says which window has the keys:
+        a root covers its children's closes, and the whole window would cover every tab in it."""
+        out = set(self.acted_targets(step))
+        if step.op in KEY_OPS:
+            out |= set(self.focused_ids(step))
+        out |= {s for s in strings_in(step.record.get("replies") or []) if s in known}
         return out
 
-    def target_ids(self, step: Step) -> List[str]:
-        targets = [v for k, v in step.target.items() if k != "process" and isinstance(v, str)]
-        if targets or step.op not in KEY_OPS:
-            return targets
+    @staticmethod
+    def target_ids(step: Step) -> List[str]:
+        return [v for k, v in step.target.items() if k != "process" and isinstance(v, str)]
+
+    @staticmethod
+    def acted_targets(step: Step) -> List[str]:
+        """The targets the step acts on; a key's window or workspace target only routes its keys."""
+        skip = ("process", "window", "workspace") if step.op in KEY_OPS else ("process",)
+        return [v for k, v in step.target.items() if k not in skip and isinstance(v, str)]
+
+    def focused_ids(self, step: Step) -> List[str]:
+        """The pane and tab a key acts on, from the before state: the targeted window's focused pane and its
+        selected tab, and the topology focus when the key targets the focused window or no window. Their
+        containers (screen, workspace, window) come into `may` as their ancestors."""
         prior = self.before_state(step)
-        focus = ((facet(prior.snapshot, "topology") or {}).get("topology") or {}).get("focus") if prior else None
-        return [v for v in (focus or {}).values() if isinstance(v, str)]
+        tree = ((facet(prior.snapshot, "topology") or {}).get("topology") or {}) if prior else {}
+        windows = {w.get("id"): w for w in tree.get("windows") or [] if isinstance(w, Mapping)}
+        focus = tree.get("focus") or {}
+        targeted = [v for k, v in step.target.items() if k == "window" and v in windows]
+        out: List[Any] = []
+        if not targeted or focus.get("window") in targeted:
+            out += [focus.get("pane"), focus.get("tab")]
+            targeted = targeted or [focus.get("window")]
+        selected = {pane["id"]: pane.get("selected_tab")
+                    for ws in tree.get("workspaces") or [] for screen in ws.get("screens") or []
+                    for pane in screen.get("panes") or []}
+        for window in (windows[w] for w in targeted if w in windows):
+            out += [window.get("focused_pane"), selected.get(window.get("focused_pane"))]
+        return [v for v in out if isinstance(v, str)]
+
+    def owner(self, index: int) -> Step:
+        """The step that changes the state from checkpoint index-1 to index: changes up to a before
+        checkpoint are the previous step's late effects."""
+        state = self.states[index]
+        return self.states[index - 1].step if state.checkpoint == "before" and index > 0 else state.step
 
     def i2(self) -> None:
-        for previous, current in zip(self.states, self.states[1:]):
-            # Changes up to a before checkpoint are the previous step's late effects.
-            owner = current.step if current.checkpoint != "before" else previous.step
-            a_sources, b_sources = id_sources(previous.snapshot), id_sources(current.snapshot)
-            shared = [s for s in ("topology", "daemon") if s in a_sources and s in b_sources]
-            if not shared:
-                continue
-            self.checked("I2")
-            a_all, b_all = merged_ids(previous.snapshot), merged_ids(current.snapshot)
-            may = self.covered(owner, a_all, b_all) if owner.mutating else set()
+        """Each source is compared with the last earlier state that has it, so a checkpoint without the
+        daemon facet (a turn holds only the armed facets) never breaks the daemon's id chain."""
+        sources = [id_sources(state.snapshot) for state in self.states]
+        last: Dict[str, int] = {}
+        for j, current in enumerate(self.states):
             reported: Set[str] = set()
-            for source in shared:
-                a, b = a_sources[source], b_sources[source]
+            for source in ("topology", "daemon"):
+                if source not in sources[j]:
+                    continue
+                i, last[source] = last.get(source), j
+                if i is None:
+                    continue
+                self.checked("I2")
+                previous = self.states[i]
+                owners: List[Step] = []
+                for k in range(i + 1, j + 1):
+                    if all(o.index != self.owner(k).index for o in owners):
+                        owners.append(self.owner(k))
+                mutating = [o for o in owners if o.mutating]
+                if j - i > 1 and len(owners) > 1 and mutating:
+                    self.skip("I2", current.step,
+                              f"the {source} facet is missing between {previous.step.id}/{previous.checkpoint} and "
+                              f"{current.step.id}/{current.checkpoint}: its id changes are checked against steps "
+                              f"{', '.join(o.id for o in owners)} together, not each one")
+                graph = parent_graph([*sources[i].values(), *sources[j].values()])
+                roots: Set[str] = set()
+                may: Set[str] = set()
+                # The direct containers of explicit targets: "close other tabs" closes a target's siblings.
+                beside: Set[str] = set()
+                for step in mutating:
+                    roots |= self.roots(step, set(graph))
+                    may |= set(self.target_ids(step))
+                    for target in self.acted_targets(step):
+                        beside |= graph.get(target, set())
+                may |= roots
+                for root in roots:
+                    may |= ancestors(graph, root)
+                by = " or ".join(f"step {o.id} ({o.op})" for o in owners)
+                a, b = sources[i][source], sources[j][source]
                 for key in sorted(set(a) - set(b)):
                     node = a[key]
                     if node.parent in a and node.parent not in b:
                         continue  # closed with its container
-                    if key in may or key in reported:
+                    # The step closed it: a target or a container of one, a child of a target (close a pane's
+                    # tabs) or a sibling of an explicit target (close other tabs).
+                    if key in may or roots & ancestors(graph, key) or graph.get(key, set()) & beside or key in reported:
                         continue
                     reported.add(key)
                     self.violate("I2", current.step, current.checkpoint, node.pointer,
-                                 f"{node.kind} {key} disappeared, but step {owner.id} ({owner.op}) did not close it "
+                                 f"{node.kind} {key} disappeared, but {by} did not close it "
                                  f"(it was at {node.pointer} in {previous.step.id}/{previous.checkpoint})")
                 for key in sorted(set(b) - set(a)):
                     node = b[key]
                     if node.parent in b and node.parent not in a:
                         continue  # created with its container
-                    if key in may or node.parent in may or key in reported:
+                    if key in may or graph.get(key, set()) & may or key in reported:
                         continue
                     reported.add(key)
                     self.violate("I2", current.step, current.checkpoint, node.pointer,
-                                 f"{node.kind} {key} appeared, but step {owner.id} ({owner.op}) did not create it")
+                                 f"{node.kind} {key} appeared, but {by} did not create it")
 
     # I3 -----------------------------------------------------------------------------------------------
     def projection(self, snapshot: Mapping[str, Any], names: Iterable[str]) -> Dict[str, Any]:
-        return {name: self.mask.facet(name, facet(snapshot, name)) for name in names}
+        return {name: self.projector.facet(name, facet(snapshot, name)) for name in names}
 
     def i3(self) -> None:
         for step in self.trace.steps:
@@ -584,14 +695,21 @@ class Checker:
             if found is None:
                 continue
             prior = self.before_state(step)
-            refusal = self.refusal(prior.snapshot if prior else None, settled)
+            refusal, named = self.refusal(step, prior.snapshot if prior else None, turn, settled)
             reverted = prior is not None and first_difference(
                 self.projection(prior.snapshot, names), self.projection(settled, names)) is None
-            if reverted and refusal:
+            if reverted and refusal == "own":
+                continue
+            if reverted and refusal == "unknown":
+                self.skip("I3", step, f"settled equals before after a refusal ({named}), but the key step names "
+                                      "no action id to match it to")
                 continue
             at, turn_value, settled_value = found
-            if refusal and prior is not None:
-                why = "a refusal was counted but settled is not the before state"
+            if refusal == "own":
+                why = f"this step's refusal ({named}) was counted but settled is not the before state"
+            elif reverted and refusal == "foreign":
+                why = (f"settled equals before, but the counted refusal ({named}) names neither this step's "
+                       "action nor an intent pending at its turn")
             elif reverted:
                 why = "settled equals before but no refusal or rollback was counted"
             elif prior is None:
@@ -602,12 +720,31 @@ class Checker:
                          f"turn {json.dumps(turn_value)[:120]} vs settled {json.dumps(settled_value)[:120]}: {why}")
 
     @staticmethod
-    def refusal(before: Optional[Mapping[str, Any]], settled: Mapping[str, Any]) -> bool:
+    def refusal(step: Step, before: Optional[Mapping[str, Any]], turn: Mapping[str, Any],
+                settled: Mapping[str, Any]) -> Tuple[str, str]:
+        """("none" | "own" | "foreign" | "unknown", the lastRefusal it read). A refused or rolledBack delta
+        is this step's only when the raw settled lastRefusal names it: a refused perform turn by the step's
+        action id, a rollback by the case name of an intent that its turn added to the pending log."""
         a, b = facet(before, "intents"), facet(settled, "intents")
         if a is None or b is None:
-            return False
+            return "none", ""
         ta, tb = a.get("totals") or {}, b.get("totals") or {}
-        return any(int(tb.get(k, 0)) > int(ta.get(k, 0)) for k in ("refused", "rolledBack"))
+        refused, rolled_back = (int(tb.get(k, 0)) > int(ta.get(k, 0)) for k in ("refused", "rolledBack"))
+        if not (refused or rolled_back):
+            return "none", ""
+        last = b.get("lastRefusal") or {}
+        named = f"lastRefusal action {last.get('action')}, intent {last.get('intent')}"
+        if refused and step.action_id is not None and last.get("action") == step.action_id:
+            return "own", named
+        if rolled_back and last.get("intent") is not None:
+            earlier = {p.get("intent") for p in a.get("pending") or []}
+            added = {p.get("op") for p in (facet(turn, "intents") or {}).get("pending") or []
+                     if p.get("intent") not in earlier}
+            if last["intent"] in added:
+                return "own", named
+        if refused and step.action_id is None and step.op in KEY_OPS:
+            return "unknown", named
+        return "foreign", named
 
     # I4 -----------------------------------------------------------------------------------------------
     def i4(self) -> None:
@@ -677,7 +814,7 @@ class Checker:
         for value in step.target.values():
             if not isinstance(value, str) or value not in nodes:
                 continue
-            chain = [value, *ancestors(nodes, value)]
+            chain = [value, *ancestors(parent_graph([nodes]), value)]
             workspaces |= {k for k in chain if nodes.get(k) and nodes[k].kind == "workspace"}
         shown = shown_workspaces(a) | shown_workspaces(b)
         hidden = sorted(workspaces - shown)
@@ -794,7 +931,7 @@ def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
     """I1-I7 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
-    return Checker(trace, VolatileMask(schema if schema is not None else load_schema())).run()
+    return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
 
 
 # ---------------------------------------------------------------------------------------------- self test
@@ -817,6 +954,38 @@ PANE2 = "pane_000000000000000000000000000000d2"
 TAB1 = "tab_000000000000000000000000000000e1"
 TAB2 = "tab_000000000000000000000000000000e2"
 HIDDEN_WS = "ws_000000000000000000000000000000b9"
+WIN = "win_000000000000000000000000000000a1"
+PANE3 = "pane_000000000000000000000000000000d3"
+TAB3 = "tab_000000000000000000000000000000e3"
+TERM3 = "term_000000000000000000000000000000f3"
+
+
+def _add_tab(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str) -> Dict[str, Any]:
+    """The snapshot plus a terminal tab at the end of pane `pane_id`, in both facets."""
+    snap = copy.deepcopy(snapshot)
+    tree = snap["facets"]["topology"]["topology"]
+    template = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]
+    for screen in tree["workspaces"][0]["screens"]:
+        for pane in screen["panes"]:
+            if pane["id"] == pane_id:
+                pane["tabs"].append({**copy.deepcopy(template), "id": tab_id, "surface": tab_id, "terminal": terminal})
+    session = snap["facets"]["daemon"]["session"]
+    index = sum(1 for t in session["tabs"] if t["pane_id"] == pane_id)
+    session["tabs"].append({**copy.deepcopy(session["tabs"][0]), "id": tab_id, "pane_id": pane_id, "index": index,
+                            "focused": False, "content_id": terminal})
+    session["terminals"].append({**copy.deepcopy(session["terminals"][0]), "id": terminal, "tab_id": tab_id,
+                                 "tab_ids": [tab_id]})
+    return snap
+
+
+def _add_pane(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str) -> Dict[str, Any]:
+    """The snapshot after a split of screen c1: a new pane with one terminal tab, in both facets."""
+    snap = copy.deepcopy(snapshot)
+    screen = snap["facets"]["topology"]["topology"]["workspaces"][0]["screens"][0]
+    screen["panes"].append({**copy.deepcopy(screen["panes"][0]), "id": pane_id, "selected_tab": tab_id, "tabs": []})
+    session = snap["facets"]["daemon"]["session"]
+    session["panes"].append({**session["panes"][0], "id": pane_id, "focused": False})
+    return _add_tab(snap, pane_id, tab_id, terminal)
 
 
 def _with_hidden_workspace(snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -937,16 +1106,30 @@ class InvariantsSelfTest(unittest.TestCase):
                                ("said-none", "/replies/0"), ("lost", "/replies")])
         self.assertTrue(all(v.where == "step" for v in report.violations if v.invariant == "I1"))
 
-    def test_i1_ignores_reads_settles_and_kills_and_allows_no_receipt_with_a_reason(self) -> None:
+    def test_i1_ignores_reads_and_settles_and_allows_no_receipt_with_a_reason(self) -> None:
         steps = [
             {"id": "read", "op": "resource.call", "readOnly": True},
             {"id": "settle", "op": "settle"},
-            {"id": "kill", "op": "kill", "target": {"process": "holder"}},
+            {"id": "kill-daemon", "op": "kill", "target": {"process": "daemon"}, "replies": [],
+             "expect": {"outcome": "ok", "noReceiptReason": "a killed process answers nothing"}},
             {"id": "quiet", "op": "action.run", "target": {"tab": TAB1}, "replies": [],
              "expect": {"outcome": "ok", "noReceiptReason": "focus moves only in the app"}},
         ]
         report = self.check(_trace(*steps))
         self.assertEqual([v for v in report.violations if v.invariant == "I1"], [])
+        self.assertEqual(report.checked["I1"], 2)
+
+    def test_i1_holds_a_restart_to_its_receipt(self) -> None:
+        # case-example-daemon.json restart-daemon: expect.receipt identify.
+        restart = {"id": "restart-daemon", "op": "restart", "target": {"process": "daemon"},
+                   "expect": {"outcome": "ok", "receipt": "identify"}}
+        steps = [dict(restart, id="silent", replies=[]),
+                 dict(restart, id="twice", replies=[{"receipt": "identify"}, {"receipt": "identify"}]),
+                 dict(restart, id="wrong", replies=[{"receipt": "mutation_result"}]),
+                 dict(restart, id="ok", replies=[{"receipt": "identify"}])]
+        report = self.check(_trace(*steps))
+        self.assertEqual([(v.step, v.pointer) for v in report.violations if v.invariant == "I1"],
+                         [("silent", "/replies"), ("twice", "/replies/1"), ("wrong", "/replies/0")])
 
     def test_i1_reads_op_and_expect_from_the_case(self) -> None:
         case = {"id": "c", "steps": [{"id": "s", "op": "action.run", "expect": {"outcome": "ok", "receipt": "action.done"}}]}
@@ -974,16 +1157,74 @@ class InvariantsSelfTest(unittest.TestCase):
                                ("/topology/topology/workspaces/0/screens/0/panes/0/tabs/0",
                                 "tab_000000000000000000000000000000ee")])
 
-    def test_i2_a_key_acts_on_focus_and_a_read_changes_nothing(self) -> None:
+    def i2(self, report: Report) -> List[Tuple[Optional[str], str]]:
+        return [(v.step, v.pointer) for v in report.violations if v.invariant == "I2"]
+
+    def test_i2_a_key_acts_on_the_focus_of_its_target_window_and_a_read_changes_nothing(self) -> None:
+        # case-example-app.json split-key: op key, target {window: main}, keys [cmd+d]; case-v1 requires the target.
+        key = {"op": "key", "target": {"window": WIN}, "replies": [{"receipt": "action.done"}]}
+        split = _add_pane(self.base, PANE3, TAB3, TERM3)
+        report = self.check(_trace(dict(key, id="split-key", args={"keys": ["cmd+d"]},
+                                        checkpoints={"before": self.base, "settled": split})))
+        self.assertEqual(self.i2(report), [])
+        new_tab = _add_tab(self.base, PANE1, TAB3, TERM3)
+        report = self.check(_trace(dict(key, id="new-tab", args={"keys": ["cmd+t"]},
+                                        checkpoints={"before": self.base, "settled": new_tab})))
+        self.assertEqual(self.i2(report), [])
         closed = _close_tab2(self.base)
         focused = copy.deepcopy(self.base)
         focused["facets"]["topology"]["topology"]["focus"].update(pane=PANE2, tab=TAB2)
-        ok = self.check(_trace({"id": "w", "op": "key", "args": {"keys": ["cmd+w"]}, "replies": [{"receipt": "action.done"}],
-                                "checkpoints": {"before": focused, "settled": closed}}))
-        self.assertEqual([v for v in ok.violations if v.invariant == "I2"], [])
+        focused["facets"]["topology"]["topology"]["windows"][0]["focused_pane"] = PANE2
+        close = dict(key, id="close-key", args={"keys": ["cmd+w"]})
+        report = self.check(_trace(dict(close, checkpoints={"before": focused, "settled": closed})))
+        self.assertEqual(self.i2(report), [])
+        # The same cmd+w with the focus on d1 closed the tab of another pane.
+        report = self.check(_trace(dict(close, checkpoints={"before": self.base, "settled": closed})))
+        self.assertEqual(self.i2(report), [("close-key", "/topology/topology/workspaces/0/screens/0/panes/1")])
         read = self.check(_trace({"id": "r", "op": "resource.call", "readOnly": True, "target": {"tab": TAB2},
                                   "checkpoints": {"before": self.base, "settled": closed}}))
         self.assertEqual([v.invariant for v in read.violations], ["I2"])
+
+    def test_i2_a_step_closes_its_targets_children_and_siblings_but_not_a_cousin(self) -> None:
+        three = _add_tab(self.base, PANE1, TAB3, TERM3)
+        for name, target in (("close-pane-tabs", {"pane": PANE1}), ("close-other-tabs", {"tab": TAB1})):
+            report = self.check(_trace({"id": name, "op": "action.run", "target": target,
+                                        "replies": [{"receipt": "action.done"}],
+                                        "checkpoints": {"before": three, "settled": self.base}}))
+            self.assertEqual(self.i2(report), [], name)
+        cousin = _add_tab(self.base, PANE2, TAB3, TERM3)
+        report = self.check(_trace({"id": "close-other-tabs", "op": "action.run", "target": {"tab": TAB1},
+                                    "replies": [{"receipt": "action.done"}],
+                                    "checkpoints": {"before": cousin, "settled": self.base}}))
+        self.assertEqual(self.i2(report), [("close-other-tabs", "/topology/topology/workspaces/0/screens/0/panes/1/tabs/1")])
+
+    def test_i2_a_window_target_covers_a_new_workspace_in_both_facets(self) -> None:
+        report = self.check(_trace({"id": "new-workspace", "op": "action.run", "target": {"window": WIN},
+                                    "args": {"action": "newWorkspace"}, "replies": [{"receipt": "action.done"}],
+                                    "checkpoints": {"before": self.base, "settled": _with_hidden_workspace(self.base)}}))
+        self.assertEqual(self.i2(report), [])
+
+    def test_i2_a_turn_without_the_daemon_facet_keeps_the_daemon_id_chain(self) -> None:
+        replaced = copy.deepcopy(self.base)
+        session = replaced["facets"]["daemon"]["session"]
+        session["browsers"][0]["id"] = session["tabs"][1]["content_id"] = "browser_000000000000000000000000000000ff"
+        turn = copy.deepcopy(self.base)
+        turn["facets"] = {k: turn["facets"][k] for k in ("topology", "intents")}
+        turn["meta"]["facets"] = ["topology", "intents"]
+        report = self.check(_trace({"id": "focus", "op": "action.run", "target": {"tab": TAB1},
+                                    "replies": [{"receipt": "action.applied"}],
+                                    "checkpoints": {"before": self.base, "turn": turn, "settled": replaced}}))
+        self.assertEqual(self.i2(report), [("focus", "/daemon/session/browsers/0")] * 2)
+        self.assertEqual([n for n in report.not_checked if n.invariant == "I2"], [])
+        app_only = copy.deepcopy(self.base)
+        del app_only["facets"]["daemon"]
+        app_only["meta"]["facets"] = [f for f in app_only["meta"]["facets"] if f != "daemon"]
+        report = self.check(_trace({"id": "a", "op": "settle", "checkpoints": {"settled": self.base}},
+                                   {"id": "b", "op": "action.run", "target": {"tab": TAB1},
+                                    "replies": [{"receipt": "action.done"}], "checkpoints": {"settled": app_only}},
+                                   {"id": "c", "op": "settle", "checkpoints": {"settled": replaced}}))
+        self.assertEqual(self.i2(report), [("c", "/daemon/session/browsers/0")] * 2)
+        self.assertEqual([n.step for n in report.not_checked if n.invariant == "I2"], ["c"])
 
     # I3
     def test_i3_a_turn_that_settles_elsewhere_without_a_refusal(self) -> None:
@@ -996,24 +1237,62 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual(self.ids(report), [("I3", "/topology/topology/focus/pane")])
         self.assertIn("no refusal", report.violations[0].message)
 
-    def test_i3_a_rolled_back_turn_passes_only_with_a_counted_refusal(self) -> None:
+    def test_i3_a_rolled_back_turn_passes_only_with_its_own_counted_refusal(self) -> None:
         turn = copy.deepcopy(self.base)
         turn["facets"]["topology"]["topology"]["focus"]["pane"] = PANE2
+        turn["facets"]["intents"]["pending"] = [{"intent": "intent_7", "op": "focusPane", "target": PANE2}]
         settled = copy.deepcopy(self.base)
         settled["facets"]["intents"]["totals"]["rolledBack"] += 1
-        step = {"id": "focus", "op": "action.run", "target": {"pane": PANE2}, "replies": [{"error": "intent.rolled_back"}],
+        settled["facets"]["intents"]["lastRefusal"]["intent"] = "focusPane"
+        step = {"id": "focus", "op": "action.run", "target": {"pane": PANE2}, "args": {"action": "pane.focus"},
+                "replies": [{"error": "intent.rolled_back"}],
                 "checkpoints": {"before": self.base, "turn": turn, "settled": settled}}
         self.assertEqual(self.check(_trace(step)).violations, [])
         half = copy.deepcopy(settled)
         half["facets"]["layout"] = {"status": "not-comparable", "reason": "x"}
         half["facets"]["topology"]["topology"]["focus"]["tab"] = TAB2
-        step["checkpoints"]["settled"] = half
-        report = self.check(_trace(step))
+        report = self.check(_trace(dict(step, checkpoints={**step["checkpoints"], "settled": half})))
         self.assertEqual([v.invariant for v in report.violations], ["I3"])
         self.assertIn("not the before state", report.violations[0].message)
+        # A scripted rename of a background workspace was rolled back in the same step: not this step's refusal.
+        other = copy.deepcopy(settled)
+        other["facets"]["intents"]["lastRefusal"]["intent"] = "renameWorkspace"
+        report = self.check(_trace(dict(step, checkpoints={**step["checkpoints"], "settled": other})))
+        self.assertEqual(self.ids(report), [("I3", "/topology/topology/focus/pane")])
+        self.assertIn("names neither", report.violations[0].message)
+
+    def test_i3_a_refused_turn_is_matched_by_its_action_id(self) -> None:
+        turn = copy.deepcopy(self.base)
+        turn["facets"]["topology"]["topology"]["focus"]["pane"] = PANE2
+        settled = copy.deepcopy(self.base)
+        settled["facets"]["intents"]["totals"]["refused"] += 1
+        settled["facets"]["intents"]["lastRefusal"]["action"] = "pane.focus"
+        step = {"id": "focus", "op": "action.run", "target": {"pane": PANE2}, "args": {"action": "pane.focus"},
+                "replies": [{"error": "action.refused"}],
+                "checkpoints": {"before": self.base, "turn": turn, "settled": settled}}
+        self.assertEqual(self.check(_trace(step)).violations, [])
+        report = self.check(_trace(dict(step, args={"action": "workspace.rename"})))
+        self.assertEqual(self.ids(report), [("I3", "/topology/topology/focus/pane")])
+        key = dict(step, op="key", target={"window": WIN}, args={"keys": ["cmd+opt+right"]})
+        report = self.check(_trace(key))
+        self.assertEqual(report.violations, [])
+        self.assertEqual([n.invariant for n in report.not_checked], ["I3"])
+        self.assertEqual(self.check(_trace(dict(key, action="pane.focus"))).violations, [])
+
+    def test_i3_set_order_and_float_jitter_do_not_count(self) -> None:
+        turn = copy.deepcopy(self.base)
+        turn["facets"]["layout"]["screens"].reverse()
+        turn["facets"]["layout"]["screens"][-1]["root"]["ratios"] = [0.49999999, 0.50000001]
+        turn["facets"]["daemon"]["session"]["panes"].reverse()
+        self.assertIsNotNone(first_difference(turn["facets"]["layout"], self.base["facets"]["layout"]))
+        step = {"id": "focus", "op": "action.run", "target": {"pane": PANE1}, "replies": [{"receipt": "action.applied"}],
+                "checkpoints": {"before": self.base, "turn": turn, "settled": self.base}}
+        report = self.check(_trace(step))
+        self.assertEqual([v for v in report.violations if v.invariant == "I3"], [])
+        self.assertEqual(report.checked["I3"], 1)
 
     def test_i3_volatile_fields_and_bookkeeping_facets_do_not_count(self) -> None:
-        mask = VolatileMask(self.schema)
+        mask = Projector(self.schema)
         a = mask.facet("topology", self.base["facets"]["topology"])
         b = mask.facet("topology", _bump_sequences(self.base, 9)["facets"]["topology"])
         self.assertIsNone(first_difference(a, b))
