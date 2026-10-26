@@ -1,4 +1,5 @@
 import CmuxNextSignposts
+import CmuxNextTrace
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
@@ -44,19 +45,34 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
+    /// Where the `webui.scheme` slices go (``PageTraceSink``).
+    private let trace: any PageTraceSink
+
+    /// The handler's main-thread steps of one task, each a ``SignpostName/webuiScheme`` slice (begin arg0).
+    nonisolated enum TracePart: UInt64 {
+        /// The start callback: the request checks.
+        case start = 0
+        /// The answer turn: the response and body handed to WebKit.
+        case answer = 1
+        /// A synchronous step of ``reply(to:page:)`` between its awaits: the lookup, the route, the headers.
+        case reply = 2
+    }
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
-         devServer: PageDevServer? = PageDevServer.current) {
+         devServer: PageDevServer? = PageDevServer.current, trace: any PageTraceSink = TraceRuntime.shared) {
         self.devServer = devServer
+        self.trace = trace
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current,
+         trace: any PageTraceSink = TraceRuntime.shared) {
         self.resolve = resolve
         self.devServer = devServer
+        self.trace = trace
     }
 
     private func served(_ url: URL) -> Served? {
@@ -71,9 +87,10 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
-        Signposter.begin(.webuiScheme, arg0: 0)
+        let page = PageWebView.traceID(showing: webView)
+        trace.begin(.webuiScheme, arg0: TracePart.start.rawValue, arg1: page)
         var failed: UInt64 = 0
-        defer { Signposter.end(.webuiScheme, arg0: failed) }
+        defer { trace.end(.webuiScheme, arg0: failed, arg1: 0) }
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
@@ -90,18 +107,18 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         // task-owner: one file read or dynamic lookup per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let reply = await self.reply(to: url)
+            let reply = await self.reply(to: url, page: page)
             guard self.active.remove(id) != nil else { return }
-            Signposter.begin(.webuiScheme, arg0: 1)
+            self.trace.begin(.webuiScheme, arg0: TracePart.answer.rawValue, arg1: page)
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
-                Signposter.end(.webuiScheme, arg0: 1)
+                self.trace.end(.webuiScheme, arg0: 1, arg1: 0)
                 return
             }
             task.didReceive(reply.response)
             if !reply.body.isEmpty { task.didReceive(reply.body) }
             task.didFinish()
-            Signposter.end(.webuiScheme, arg0: 0, arg1: UInt64(reply.body.count))
+            self.trace.end(.webuiScheme, arg0: 0, arg1: UInt64(reply.body.count))
         }
     }
 
@@ -111,31 +128,60 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
     /// folder's file, else, with an active web update (``WebBundleOverlay``), the update's copy
     /// of the page's folder, else the bundled one.
-    func reply(to url: URL) async -> Reply? {
-        guard let served = served(url) else { return nil }
-        let live = liveOverride()
-        if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
-            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
-               self.devServer != nil || response.statusCode < 400 {
-                let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
-                    ?? Self.mimeType(forExtension: remote.pathExtension)
-                return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+    ///
+    /// `page` is the asking page's trace id: each synchronous step runs in a ``SignpostName/webuiScheme``
+    /// slice of part ``TracePart/reply``, so with the start and answer turns the slices of a page sum the
+    /// handler's main-thread time (a dynamic source's own work is the source's).
+    func reply(to url: URL, page: UInt64 = 0) async -> Reply? {
+        let start = step(page) { () -> (served: Served, live: WebDevOverride, server: PageDevServer?, remote: URL?)? in
+            guard let found = self.served(url) else { return nil }
+            let live = self.liveOverride()
+            let server = self.devServer ?? live.server
+            return (found, live, server, server?.url(for: url, page: found.page))
+        }
+        guard let start else { return nil }
+        let served = start.served
+        if let server = start.server, let remote = start.remote {
+            if let (body, response) = await fetchDevServer(remote) {
+                let answer = step(page) { () -> Reply? in
+                    guard server.isOwn(response.url), self.devServer != nil || response.statusCode < 400 else { return nil }
+                    let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
+                        ?? Self.mimeType(forExtension: remote.pathExtension)
+                    return Self.reply(url: url, csp: server.csp(for: served.page), status: response.statusCode,
+                                      mimeType: type, body: body)
+                }
+                if let answer { return answer }
             }
             // The launch variable's server (Debug) fails the request, as before.
             if self.devServer != nil { return nil }
         }
         let update = await WebBundleOverlay.shared.root(for: served.root)
-        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update
-        switch Self.route(for: url, page: served.page, root: root) {
+        let destination = step(page) {
+            Self.route(for: url, page: served.page,
+                       root: start.live.overlayRoot(for: served.page, bundledRoot: served.root) ?? update)
+        }
+        switch destination {
         case nil:
             return nil
         case .file(let file):
             guard let data = await Self.read(file) else { return nil }
-            return Self.reply(url: url, page: served.page, status: 200, mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
+            return step(page) {
+                Self.reply(url: url, page: served.page, status: 200,
+                           mimeType: Self.mimeType(forExtension: file.pathExtension), body: data)
+            }
         case .dynamic(let request):
             let answer = await Self.dynamicResponse(to: request, source: served.dynamicSource)
-            return Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            return step(page) {
+                Self.reply(url: url, page: served.page, status: answer.status, mimeType: answer.mimeType, body: answer.body)
+            }
         }
+    }
+
+    /// Runs one synchronous main-thread step of a reply to `page` inside a ``TracePart/reply`` slice.
+    private func step<T>(_ page: UInt64, _ body: () -> T) -> T {
+        trace.begin(.webuiScheme, arg0: TracePart.reply.rawValue, arg1: page)
+        defer { trace.end(.webuiScheme, arg0: 0, arg1: 0) }
+        return body()
     }
 
     /// The answer to a request under a dynamic prefix, in either engine: the source's resource with

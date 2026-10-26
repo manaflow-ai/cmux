@@ -285,16 +285,20 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 022, p13-webui). A page's lifecycle change (`PageLifecycle`). Ring: instant; arg0 the page
     /// trace id, arg1 the new state (0 active, 1 hidden, 2 frozen, 3 discarded).
     case webuiLifecycle = 69
-    /// A page's open: its load start to the first painted frame (`PagePaintProbe`, either engine). Ring: AB/AE
-    /// keyed by the page trace id; begin arg0 the engine (0 WebKit, 1 Chromium), end arg0 the outcome (0 painted,
-    /// 1 closed before its first paint).
+    /// A page's open, from its request to its document's first painted frame (`PagePaintProbe`, either engine):
+    /// a new view, a pooled spare's first load, a pool claim or retarget, a route loaded before the first load, a
+    /// reload, or a document the page navigated to (from its commit). Ring: AB/AE keyed by the page trace id; begin
+    /// arg0 bits 0-7 the kind (0 new view, 1 spare, 2 claim, 3 other document, 4 reload, 5 navigated), bits 8-63 a
+    /// new view's construction time in microseconds before the begin; end arg0 the outcome (0 painted in WebKit,
+    /// 1 painted in Chromium, 2 closed before its first paint, 3 replaced by a newer open of the same view).
     case webuiOpen = 70
     /// Reserved (task 043, p13-webui). A preload slot move (`PagePreloadSlot`). Ring: instant; arg0 the page trace
     /// id, arg1 the move (0 park, 1 claim, 2 drop).
     case webuiPreload = 71
-    /// One main-thread turn of a WebKit `cmux-page://` scheme task (`PageSchemeHandler`): its start or its answer.
-    /// Ring: B/E; begin arg0 the part (0 start, 1 answer); end arg0 the outcome (0 ok, 1 failed), arg1 the body
-    /// bytes. Starts inside a ``webuiOpen`` slice are that open's requests; the slices sum its main-thread time.
+    /// One main-thread step of a WebKit `cmux-page://` scheme task (`PageSchemeHandler`). Ring: B/E; begin arg0 the
+    /// part (0 start, 1 answer, 2 a synchronous step of the reply), arg1 the asking page's trace id (0 for no page);
+    /// end arg0 the outcome (0 ok, 1 failed), arg1 the answer's body bytes. The part-0 slices of a page id during its
+    /// ``webuiOpen`` are that open's requests, and all its slices sum the handler's main-thread time for it.
     case webuiScheme = 72
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).

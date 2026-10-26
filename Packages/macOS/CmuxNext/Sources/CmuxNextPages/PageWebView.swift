@@ -6,6 +6,7 @@ import Observation
 import os
 import CmuxNextErrorJournal
 public import WebKit
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
@@ -165,12 +166,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+        let requested = ProcessInfo.processInfo.systemUptime
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
         let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true)
+                  dynamicResources: dynamicResources, pooled: false, load: true, openRequested: requested)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -248,19 +250,24 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
                              chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+        let requested = ProcessInfo.processInfo.systemUptime
         guard Self.mayServe(descriptor, from: root) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
                                           documentAttributes: documentAttributes, options: options)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium)
+                  dynamicResources: dynamicResources, pooled: false, load: true, openRequested: requested,
+                  chromium: chromium)
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
          inputReadiness: PageInputReadiness, routes: [PageRoute], route: String?, options: PageEngineOptions,
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
-         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+         openRequested: TimeInterval? = nil, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+         trace: any PageTraceSink = TraceRuntime.shared) {
+        let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
+        self.trace = trace
         self.descriptor = descriptor
         engineOptions = options
         isPooled = pooled
@@ -338,7 +345,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
-        traceOpenBegin()
+        traceOpenRequested(.newView, constructedSince: constructionStart)
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
@@ -355,7 +362,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         traceMark(.pagePainted)
         #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
-        traceOpenEnd()
+        traceOpenEnd(showsChromium ? .paintedInChromium : .paintedInWebKit)
         let waiters = paintWaiters
         paintWaiters = []
         waiters.forEach { $0() }
@@ -488,8 +495,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
-    /// A ``SignpostName/webuiOpen`` slice is open until the first paint (`traceOpenEnd`).
+    /// A ``SignpostName/webuiOpen`` slice is open until the document's first paint (`traceOpenEnd`).
     var openTracePending = false
+    /// Where the `webui.open` slices go (``PageTraceSink``).
+    let trace: any PageTraceSink
     /// A claimed spare painted while parked at its window's full size: it counts as painted again
     /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
     var repaintsAtNextLayout = false
