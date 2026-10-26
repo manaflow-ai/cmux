@@ -318,7 +318,7 @@ extension CloudHandlers {
     /// A machine action's `action.run` result: the machine's id and the
     /// `--target` that names it in the next command, plus `extra`.
     static func machineFields(_ machineID: String, _ extra: [String: ActionResultValue] = [:]) -> [String: ActionResultValue] {
-        extra.merging(["machine_id": .string(machineID), "target": .string("machine:\(machineID)")]) { field, _ in field }
+        extra.merging(["machine_id": .string(machineID), "target": .string("machine:\(machineID)")]) { _, own in own }
     }
 
     /// How long a CLI or agent fork, restore, resize or kill waits for the
