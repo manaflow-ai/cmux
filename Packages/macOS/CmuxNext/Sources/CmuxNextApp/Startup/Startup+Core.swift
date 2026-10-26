@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextFeatures
 import CmuxNextLaunch
 import CmuxNextPalette
 import CmuxNextSettings

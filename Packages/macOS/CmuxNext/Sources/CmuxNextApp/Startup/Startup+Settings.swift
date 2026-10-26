@@ -1,8 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
-import CmuxNextControl
 import CmuxNextSettings
-import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 
