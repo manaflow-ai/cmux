@@ -1,8 +1,8 @@
 import CmuxNextWakeups
 
-/// The `energy.saver` row (``EnergySaverSetting``): Settings > General > Energy Saver. Off the
-/// Settings page and the palette while the `energySaver` feature is off by default; the page row,
-/// which hides "On Battery" on a Mac with no battery, lands with p14-energy-129.
+/// The `energy.saver` row (``EnergySaverSetting``): Settings > General > Energy Saver. The page and
+/// the palette leave it out while the `energySaver` feature is off, and leave out "On Battery" on a
+/// Mac with no battery (``EnergySaverSetting/availability(featureEnabled:hasBattery:)``).
 nonisolated enum EnergySettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.energy", "Energy Saver")
@@ -23,8 +23,7 @@ nonisolated enum EnergySettingsSchema {
                 default: .string(EnergySaverSetting.defaultValue.rawValue),
                 keywords: ["energy", "energy saver", "battery", "battery saver", "power", "low power mode", "thermal",
                            "hot", "fan", "frame rate", "save power"]
-            )
-            .hiddenFromSettingsPage("behind the energySaver feature (off by default); the page row lands with p14-energy-129"),
+            ),
         ]
     }
 }

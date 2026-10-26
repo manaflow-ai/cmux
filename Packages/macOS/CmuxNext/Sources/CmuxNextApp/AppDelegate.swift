@@ -335,7 +335,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settings?.followActivation(on: events)
         }
         // Every palette-exposed schema setting in the palette (R93).
-        services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
+        services.palettes.sources.settings = SettingsPaletteSource(
+            settings: settings, themes: services.themes.catalog,
+            availability: { [weak services] in services?.settingsAvailability ?? SettingsAvailability() }
+        ) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
         // Neither the first frame nor a page engine reads these (p08-startup-028).

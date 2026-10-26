@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { hiddenRowKeys } from "../availability";
 import { shownCategories } from "../categories";
 import { useSettingsState } from "../context";
 import { filterRows } from "../search";
@@ -20,6 +21,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     valueOf: (key) => valueOf(state, key),
     isChanged: (key) => state.rows.get(key)?.customized ?? false,
     devBuild: state.host?.dev_build === true,
+    hidden: hiddenRowKeys(state.host),
   });
   const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
   const empty = shown.size === 0;

@@ -187,6 +187,8 @@ final class CaptureSceneRegistry {
             return .object(["hint": hint, "menu": menu])
         case Self.energySaverScene:
             return await showEnergySaver()
+        case "settings-energy":
+            return showEnergySetting()
         case "hints-ctrl-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -227,6 +229,20 @@ final class CaptureSceneRegistry {
         report["energy_frames"] = frames.stop()
         if settled == nil { report["error"] = .string("the Energy Saver leaf or its card did not show before the deadline") }
         return .object(report)
+    }
+
+    /// `settings-energy` (p14-energy-129): Settings opened on General > Energy Saver, with the choices
+    /// this Mac offers ("On Battery" only with a battery). The report says what the page leaves out.
+    private func showEnergySetting() -> JSONValue {
+        guard services.energy.driver.isEnabled else {
+            return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
+        }
+        do {
+            try services.settingsWindow.show(section: nil, setting: EnergySaverSetting.path.joined(separator: "."))
+        } catch {
+            return .object(["error": .string(String(describing: error))])
+        }
+        return .object(["availability": services.settingsAvailability.json])
     }
 
     static let taskManagerScene = "task-manager"
@@ -294,6 +310,8 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "energy-saver",
                                description: "Energy Saver on through simulated Low Power Mode (feature energySaver): the sidebar footer's leaf and its card with the reason and Turn Off for Now."),
+        CaptureSceneDefinition(name: "settings-energy",
+                               description: "Settings > General opened on the Energy Saver row (feature energySaver), with the modes this Mac offers: On Battery only on a Mac with a battery."),
         CaptureSceneDefinition(name: "task-manager",
                                description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
     ]

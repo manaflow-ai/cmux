@@ -571,6 +571,11 @@ final class AppServices {
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// What the Settings page and the settings palette leave out now: Energy Saver's row while its
+    /// feature is off, its "On Battery" on a Mac with no battery. An observing reader follows the inputs.
+    var settingsAvailability: SettingsAvailability {
+        EnergySaverSetting().availability(featureEnabled: energy.driver.isEnabled, hasBattery: energyMonitor.inputs.hasBattery)
+    }
     /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
     private(set) var idleWakeups: IdleWakeupSampler?
     /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useHiddenRows } from "../availability";
 import { categoryById, type CategoryCard } from "../categories";
 import { sections } from "../schema";
 import { text } from "../strings";
@@ -72,6 +73,8 @@ export function SectionView({
   workspace?: string | null;
 }) {
   const category = categoryById(section);
+  // Rows the host leaves out on this Mac now (Energy Saver while its feature is off).
+  const hidden = useHiddenRows();
   // The theme studio draws appearance.theme, appearance.appTheme and appearance.accent itself; the
   // schema's group for them would draw each a second time (a second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
@@ -91,6 +94,7 @@ export function SectionView({
       rows: group.rows.filter(
         (row) =>
           row.key !== THEME_EDITS_KEY &&
+          !hidden.has(row.key) &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
