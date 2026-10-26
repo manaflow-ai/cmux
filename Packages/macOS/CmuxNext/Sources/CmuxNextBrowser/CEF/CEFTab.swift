@@ -9,7 +9,7 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserPageWaiting, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -20,8 +20,9 @@ public final class CEFTab: BrowserTab, BrowserPageWaiting, BrowserOcclusionHosti
     public internal(set) var pendingPrompts: [BrowserPrompt] = [] {
         didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
     }
-    /// Keyed waits on this page's phase and prompts, resumed by the setters of `machine` and `pendingPrompts`.
-    @ObservationIgnored public let pageWaiters = PageWaiters()
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
     public internal(set) var extensionActions: [CEFExtensionAction] = []
     public internal(set) var openExtensionPopup: String?
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
@@ -200,6 +201,7 @@ public final class CEFTab: BrowserTab, BrowserPageWaiting, BrowserOcclusionHosti
         self.profileID = profile
         self.host = host
         self.runtime = runtime
+        pageWaiters = PageWaiters(deadlines: runtime.waitDeadlines)
         let layout = CEFDevToolsLayout.remembered
         devToolsController = CEFDevToolsController(layout: layout)
         devTools = BrowserDevToolsState(dock: layout.dock)

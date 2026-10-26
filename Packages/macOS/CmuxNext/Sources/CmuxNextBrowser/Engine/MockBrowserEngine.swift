@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -16,10 +17,16 @@ public final class MockBrowserEngine: BrowserEngine {
 
     /// Every tab this engine created, in order.
     public private(set) var tabs: [MockBrowserTab] = []
+    /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts.
+    let waitDeadlines: AlignedWakeups
 
-    public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true) {
+    /// - Parameter waitDeadlines: The deadline queue for the pages' waits; nil: a queue of the engine's own
+    ///   (a test that moves time passes its own).
+    public init(kind: BrowserEngineKind = .webkit, completesNavigationsImmediately: Bool = true,
+                waitDeadlines: MainWakeUpQueue? = nil) {
         self.kind = kind
         self.completesNavigationsImmediately = completesNavigationsImmediately
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource()))
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -30,7 +37,8 @@ public final class MockBrowserEngine: BrowserEngine {
         let tab = MockBrowserTab(
             configuration: configuration,
             engineKind: kind,
-            completesNavigationsImmediately: completesNavigationsImmediately
+            completesNavigationsImmediately: completesNavigationsImmediately,
+            waitDeadlines: waitDeadlines
         )
         tabs.append(tab)
         if let url = configuration.initialURL {
@@ -43,7 +51,7 @@ public final class MockBrowserEngine: BrowserEngine {
 /// A fake page. Commands are recorded; navigation events can be driven by
 /// hand with `simulate` to reproduce engine callback orders.
 @Observable
-public final class MockBrowserTab: BrowserTab, BrowserPageWaiting {
+public final class MockBrowserTab: BrowserTab {
     /// The back/forward list `navigationList()` reports (tests set it).
     @ObservationIgnored public var navigation: BrowserNavigationList?
     /// Sessions handed to `restoreSession`, in order.
@@ -84,8 +92,9 @@ public final class MockBrowserTab: BrowserTab, BrowserPageWaiting {
     public private(set) var pendingPrompts: [BrowserPrompt] = [] {
         didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
     }
-    /// Keyed waits on this page's phase and prompts, resumed by the setters of `machine` and `pendingPrompts`.
-    @ObservationIgnored public let pageWaiters = PageWaiters()
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
     public private(set) var commands: [Command] = []
     public private(set) var isClosed = false
     /// Engine page captures (`snapshot()`) so far; not a command, so it never
@@ -135,11 +144,13 @@ public final class MockBrowserTab: BrowserTab, BrowserPageWaiting {
     private var nextNavigation: UInt64 = 0
     @ObservationIgnored private lazy var placeholder = MockPageView()
 
-    init(configuration: BrowserTabConfiguration, engineKind: BrowserEngineKind, completesNavigationsImmediately: Bool) {
+    init(configuration: BrowserTabConfiguration, engineKind: BrowserEngineKind, completesNavigationsImmediately: Bool,
+         waitDeadlines: AlignedWakeups) {
         self.id = configuration.id
         self.engineKind = engineKind
         self.profileID = configuration.profile
         self.completesNavigationsImmediately = completesNavigationsImmediately
+        pageWaiters = PageWaiters(deadlines: waitDeadlines)
         machine.apply(.zoomChanged(configuration.zoom))
     }
 

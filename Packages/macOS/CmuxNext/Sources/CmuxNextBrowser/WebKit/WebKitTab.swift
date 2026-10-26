@@ -7,7 +7,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab, BrowserPageWaiting {
+public final class WebKitTab: NSObject, BrowserTab {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
@@ -18,8 +18,9 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserPageWaiting {
     public private(set) var pendingPrompts: [BrowserPrompt] = [] {
         didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
     }
-    /// Keyed waits on this page's phase and prompts, resumed by the setters of `machine` and `pendingPrompts`.
-    @ObservationIgnored public let pageWaiters = PageWaiters()
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
 
     @ObservationIgnored public weak var delegate: (any BrowserTabDelegate)?
     @ObservationIgnored public weak var keyRouter: (any BrowserKeyRouting)?
@@ -91,6 +92,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserPageWaiting {
         self.id = configuration.id
         self.profileID = configuration.profile
         self.engine = engine
+        pageWaiters = PageWaiters(deadlines: engine.waitDeadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
         container = WebKitPageContainer(page: webView)

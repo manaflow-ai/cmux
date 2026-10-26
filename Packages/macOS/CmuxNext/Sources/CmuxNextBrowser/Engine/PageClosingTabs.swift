@@ -6,6 +6,11 @@
 /// the question is the person's, and a Cmd-W on the tab then shows it, as before.
 @MainActor
 public final class PageClosingTabs {
+    /// How long a tab stays in the set when its page neither asks nor closes: Chromium itself closes a
+    /// page whose beforeunload runs past `kUnloadTimeout` (500 ms, `RenderFrameHostImpl::BeforeUnloadTimeout`,
+    /// content/browser/renderer_host/render_frame_host_impl.cc), so twice that leaves a round trip to spare.
+    static let decideTimeout: Duration = .seconds(1)
+
     private var watches: [String: Task<Void, Never>] = [:]
 
     /// No tab closing.
@@ -14,19 +19,20 @@ public final class PageClosingTabs {
     /// The page of tab `id` began deciding its close.
     ///
     /// - Parameter id: The tab.
-    /// - Parameter page: Its page; the tab leaves the set once the page asks or closes.
-    public func begin(_ id: String, page: any BrowserTab) {
+    /// - Parameter page: Its page; the tab leaves the set once the page asks or closes, or after
+    ///   ``decideTimeout``.
+    public func begin(_ id: String, page: any BrowserPageWaiting) {
         watches[id]?.cancel()
         // task-owner: this set (cancelled on end or a new begin); a keyed page wait (PageWaiters), read
-        // only when the page adds a prompt, ends when the page asks or closes.
+        // only when the page adds a prompt, ends when the page asks or closes or after decideTimeout.
         watches[id] = Task { [weak self, weak page] in
-            _ = await page?.whenPrompt(kind: { $0.isBeforeUnload })
+            _ = await page?.whenPrompt(kind: { $0.isBeforeUnload }, timeout: Self.decideTimeout)
             guard !Task.isCancelled else { return }
             self?.watches[id] = nil
         }
     }
 
-    /// Returns once tab `id`'s watch ended (tests: the page asked or closed).
+    /// Returns once tab `id`'s watch ended (tests: the page asked or closed, or the timeout passed).
     func watchEnded(_ id: String) async {
         await watches[id]?.value
     }

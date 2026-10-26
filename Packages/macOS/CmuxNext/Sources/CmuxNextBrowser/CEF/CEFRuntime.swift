@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import ImageIO
 import Foundation
 import os
@@ -147,13 +148,17 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
+    /// until then (a spy runtime in tests).
+    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
 
     private init() {}
 
-    /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
-    /// engine hands them over before its first start or tab). Idempotent for the same stores.
-    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks) {
+    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
+    /// App's one engine hands them over before its first start or tab). Idempotent for the same stores.
+    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue) {
         self.signInCallbacks = signInCallbacks
+        self.waitDeadlines = AlignedWakeups(queue: waitDeadlines)
         guard stores !== self.stores else { return }
         self.stores = stores
         // An incognito session ended: drop its in-memory contexts, so
