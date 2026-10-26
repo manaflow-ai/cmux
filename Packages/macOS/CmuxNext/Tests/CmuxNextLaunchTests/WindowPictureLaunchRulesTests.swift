@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 struct WindowPictureLaunchRulesTests {
     static let work = BackgroundWork(label: "test.window-picture-rules")
     static let allowedLaunch = WindowPictureStore.LaunchFacts(savedPicture: true, recovered: false, incognitoLeftovers: false)
-    static let window = "0b5c7d3e-6f1a-4b2c-9d8e-1f2a3b4c5d6e"
+    nonisolated static let window = "0b5c7d3e-6f1a-4b2c-9d8e-1f2a3b4c5d6e"
     static let png: @Sendable (CGImage) -> Data? = { blockingImageEncode($0, type: UTType.png.identifier as CFString) }
 
     static func meta(workspaces: [String] = ["ws_a", "ws_b"], tree: WindowPictureMeta.PaneTree = .leaf("1")) -> WindowPictureMeta {
@@ -217,7 +217,8 @@ struct WindowPictureLaunchRulesTests {
         defer { follower.cancel() }
 
         setting.value = true
-        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.2))  // the change's flush runs
+        let flushed = Date(timeIntervalSinceNow: 0.2)
+        _ = Self.runMainLoop { Date() >= flushed }  // the change's flush runs (RunLoop.run is unavailable in async code)
         #expect(FileManager.default.fileExists(atPath: directory.path), "the pictures went while the setting was not loaded or on")
 
         setting.value = false

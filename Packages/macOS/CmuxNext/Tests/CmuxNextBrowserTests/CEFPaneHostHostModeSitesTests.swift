@@ -54,8 +54,8 @@ import Testing
     /// A tab's page is a child window only in process; in host mode it is the pane's page view, in
     /// the view tree (task 028), so App code that reaches page windows leaves host pages alone.
     @Test(arguments: [false, true])
-    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) throws {
-        let (runtime, root) = try Self.runtime(hostMode: hostMode)
+    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: hostMode)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab) = Self.pane(runtime)
         host.ensureCreated(tab)
