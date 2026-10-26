@@ -389,3 +389,8 @@ char* cmux_shim_tab_navigation_entries(int browser_id) {
 int cmux_shim_tab_go_to_entry(int browser_id, int offset) {
   return fork_api().tab_go_to_offset ? fork_api().tab_go_to_offset(browser_id, offset) : 0;
 }
+
+int cmux_shim_browser_attach_view(int browser_id, void* parent_view) {
+  if (!fork_api().browser_attach_view) return 0;
+  return fork_api().browser_attach_view(browser_id, parent_view);
+}
