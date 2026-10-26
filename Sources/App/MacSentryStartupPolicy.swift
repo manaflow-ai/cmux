@@ -43,6 +43,16 @@ struct MacSentryStartupPolicy: Sendable {
         telemetryEnabled && allowsBuildIdentity && (!isRunningUnderXCTest || allowUnderXCTest)
     }
 
+    /// Sentry's uncaught Objective-C exception handler registers
+    /// `NSApplicationCrashOnExceptions`. macOS 27's AppKit SF Symbol renderer
+    /// throws an exception that AppKit can recover from, so enabling that
+    /// handler turns the OS bug into a process crash.
+    static func shouldEnableUncaughtNSExceptionReporting(
+        for operatingSystemVersion: OperatingSystemVersion
+    ) -> Bool {
+        operatingSystemVersion.majorVersion < 27
+    }
+
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
         // xcodebuild strips TEST_RUNNER_ from variables forwarded to the test
         // host, so the CI wrapper makes this available before XCTest connects.
