@@ -13,11 +13,17 @@
 //! - `method_tables.rs` (task 023): the method tables `src/methods.rs`
 //!   includes. `method_tables_fixture.rs` is the same emitter over
 //!   spec/fixtures/ipc-method-tables, which the tests check entry by entry.
+//! - `server_families.rs` (task 026): the `<family>_params!` and
+//!   `server_command_enum!` macros `src/server_families.rs` includes; the
+//!   daemon expands them into its request params and `Command` variants for
+//!   the families `server-families.json` lists.
 
 #[path = "build-support/method_tables.rs"]
 mod method_tables;
 #[path = "src/schema_digest.rs"]
 mod schema_digest;
+#[path = "build-support/server_families.rs"]
+mod server_families;
 
 use std::fmt::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -27,6 +33,7 @@ const RESOURCE_OPERATIONS: &str = "../../spec/resource-operations-v2.json";
 const TABLE_FIXTURE_SDK: &str = "../../spec/fixtures/ipc-method-tables/sdk-schema.json";
 const TABLE_FIXTURE_RESOURCE: &str =
     "../../spec/fixtures/ipc-method-tables/resource-operations-v2.json";
+const SERVER_FAMILIES: &str = "server-families.json";
 
 /// Why generation failed; cargo prints it as the build script's error.
 struct BuildError(String);
@@ -101,11 +108,13 @@ fn main() -> Result<(), BuildError> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/schema_digest.rs");
     println!("cargo:rerun-if-changed=build-support/method_tables.rs");
+    println!("cargo:rerun-if-changed=build-support/server_families.rs");
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env("OUT_DIR")?);
     let schemas = Schemas::read(&manifest, SDK_SCHEMA, RESOURCE_OPERATIONS)?;
     write(&out_dir, "schema_identity.generated.rs", &schema_identity(&schemas)?)?;
     write(&out_dir, "method_tables.rs", &method_tables(&schemas, "TABLES")?)?;
+    write(&out_dir, "server_families.rs", &server_families(&manifest, &schemas)?)?;
     let fixture = Schemas::read(&manifest, TABLE_FIXTURE_SDK, TABLE_FIXTURE_RESOURCE)?;
     write(&out_dir, "method_tables_fixture.rs", &method_tables(&fixture, "FIXTURE_TABLES")?)
 }
@@ -150,4 +159,16 @@ fn method_tables(schemas: &Schemas, name: &str) -> Result<String, BuildError> {
         BuildError(format!("{}: {}: {}", file.path.display(), e.path, e.message))
     })?;
     Ok(method_tables::emit(&tables, name))
+}
+
+/// The `<family>_params!` and `server_command_enum!` macros for the families
+/// `server-families.json` lists. A family or field the emitter cannot
+/// generate fails the build with its file and JSON path.
+fn server_families(manifest: &Path, schemas: &Schemas) -> Result<String, BuildError> {
+    let list = SchemaFile::read(manifest.join(SERVER_FAMILIES))?;
+    let listed = server_families::listed_families(&list.doc)
+        .map_err(|e| BuildError(format!("{}: {e}", list.path.display())))?;
+    let families = server_families::read(&schemas.sdk.doc, &listed)
+        .map_err(|e| BuildError(format!("{}: {e}", schemas.sdk.path.display())))?;
+    Ok(server_families::emit(&families))
 }

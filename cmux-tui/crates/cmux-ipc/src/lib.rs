@@ -17,7 +17,9 @@
 //! schema bytes a build compiled.
 //!
 //! `methods` holds the schema's method tables (design 3.3), one more
-//! build.rs emitter over the same parsed schemas.
+//! build.rs emitter over the same parsed schemas. `server_families` exports
+//! the macros that generate the daemon's request params and `Command`
+//! variants for the families in `server-families.json` (task 026).
 //!
 //! [`fds`] passes file descriptors with `SCM_RIGHTS` and queues the ones that
 //! arrive in order: the holder link uses it, and so do the daemon's frame lanes.
@@ -58,6 +60,7 @@ pub mod methods;
 pub mod reader;
 pub mod schema;
 mod schema_digest;
+mod server_families;
 
 pub use frame::{
     Aux, AuxClass, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, HEADER_LEN,

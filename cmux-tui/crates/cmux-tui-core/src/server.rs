@@ -269,6 +269,7 @@ use split_respawn::{
 };
 mod terminal_create;
 mod terminal_history;
+mod terminal_io_wire;
 mod terminal_ports;
 mod terminal_resources;
 mod terminal_snapshot;
@@ -602,7 +603,7 @@ pub(crate) use protocol_key::{
 };
 
 mod wire_values;
-use wire_values::{default_renderer_capability_ttl_ms, machine_usage_json};
+use wire_values::machine_usage_json;
 
 #[derive(Deserialize)]
 struct Request {
@@ -738,6 +739,11 @@ impl DetachNotice {
     }
 }
 
+// The `terminal-io` family's variants are generated from
+// spec/sdk-schema.json (cmux-ipc build.rs, server-families.json): the
+// macro appends them, each a newtype over its `terminal_io_wire` params.
+cmux_ipc::server_command_enum! {
+terminal_io = terminal_io_wire;
 // Variant names are the wire command names (`terminal-resume-command`).
 #[allow(clippy::enum_variant_names)]
 #[derive(Deserialize)]
@@ -753,42 +759,9 @@ enum Command {
     },
     BrowserHostProvider,
     SubscribeActivity,
-    /// Private, connection-scoped guest-to-frontend OS browser opening.
-    UrlOpenSubscribe {
-        terminal_ids: Vec<String>,
-    },
-    UrlOpen {
-        terminal_id: String,
-        url: String,
-    },
     /// The Chief memory inspector's read-only API, for the owner's trusted
     /// connection, forwarded to the brain host (`chief-inspect-v1`).
     ChiefInspect(chief_inspect::Params),
-    UrlOpenClaim {
-        request_id: String,
-    },
-    UrlOpenResult {
-        request_id: String,
-        opened: bool,
-    },
-    TerminalClipboardSubscribe {
-        terminal_ids: Vec<String>,
-    },
-    TerminalClipboardReply {
-        request_id: String,
-        text: Option<String>,
-    },
-    PasteImage {
-        surface: SurfaceId,
-        terminal_id: String,
-        lease: String,
-        upload_id: String,
-        op: String,
-        mime: Option<String>,
-        size: Option<usize>,
-        offset: Option<usize>,
-        data: Option<String>,
-    },
     /// Report where this daemon spends its time: registry lock contention
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled. `include` names
@@ -886,11 +859,6 @@ enum Command {
     UnregisterBrowserProvider,
     /// Canonical non-tombstoned terminal placement/lifecycle snapshot.
     ListTerminals,
-    /// Durable ordered terminal mutations after `terminal_revision`.
-    TerminalEvents {
-        #[serde(default)]
-        after_revision: u64,
-    },
     SetClientSizing {
         surface: SurfaceId,
         #[serde(default)]
@@ -1001,34 +969,11 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// `send`: write input to a terminal.
-    Send(cmd_terminal_io::SendParams),
-    ReadScreen {
-        surface: SurfaceId,
-    },
-    ClearHistory {
-        surface: SurfaceId,
-        /// Structured key input encoded using the authoritative terminal
-        /// modes when the surface is in the alternate screen.
-        #[serde(default)]
-        fallback_key: Option<ProtocolKeyInput>,
-    },
-    ReadScrollback {
-        surface: SurfaceId,
-        start: u32,
-        count: u32,
-    },
     SidebarPlugin {
         cols: u16,
         rows: u16,
         #[serde(default)]
         relaunch: bool,
-    },
-    WaitFor {
-        surface: SurfaceId,
-        pattern: String,
-        #[serde(alias = "timeout_ms")]
-        timeout_ms: u64,
     },
     Run {
         #[serde(default)]
@@ -1059,14 +1004,6 @@ enum Command {
     /// Repeating the same receipt with identical fields returns the exact
     /// created view, so a lost response can never duplicate or retarget it.
     CreateSurfaceWithReceipt(Box<CreateSurfaceWithReceiptRequest>),
-    SendKey {
-        surface: SurfaceId,
-        keys: Vec<String>,
-    },
-    Copy {
-        surface: SurfaceId,
-        mode: String,
-    },
     Ids {
         #[serde(default)]
         kind: Option<String>,
@@ -1094,24 +1031,6 @@ enum Command {
         source: String,
         #[serde(default)]
         session: Option<String>,
-    },
-    /// One-shot VT replay of the surface's current state (base64).
-    VtState {
-        surface: SurfaceId,
-    },
-    /// Mint a one-use direct renderer credential without exposing the
-    /// daemon's durable owner capability.
-    MintTerminalRenderer {
-        surface: SurfaceId,
-        #[serde(default = "default_renderer_capability_ttl_ms")]
-        ttl_ms: u64,
-    },
-    /// Mint a renderer credential from the stable public terminal identity.
-    /// Remote clients must not depend on this daemon generation's local numeric surface handle.
-    MintTerminalRendererByTerminal {
-        terminal: String,
-        #[serde(default = "default_renderer_capability_ttl_ms")]
-        ttl_ms: u64,
     },
     /// Resolve a process-stable hosted terminal UUID to this daemon
     /// generation's local surface handle without creating anything.
@@ -1207,13 +1126,6 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    SetCellPixels {
-        #[serde(alias = "width_px")]
-        width_px: u16,
-        #[serde(alias = "height_px")]
-        height_px: u16,
-    },
-    GetCellPixels,
     BrowserFramePresented {
         surface: SurfaceId,
         frame_seq: u64,
@@ -2241,59 +2153,28 @@ enum Command {
     ClientFocus {
         client_id: String,
     },
-    /// Stream mux events on this connection.
-    Subscribe {
-        #[serde(default)]
-        tree_events: Option<String>,
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-    },
-    /// Stream a surface: vt-state event followed by live output events.
-    AttachSurface {
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        #[serde(default)]
-        expected_generation: Option<String>,
-        #[serde(default)]
-        expected_terminal_id: Option<String>,
-        #[serde(default)]
-        mode: Option<String>,
-        /// Optional initial viewer size. Supplying this pair makes the attach
-        /// stream a sizing participant immediately, before its first frame is rendered.
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-        #[serde(flatten)]
-        snapshot: terminal_snapshot::SnapshotAttachParams,
-    },
-    /// One READY snapshot on the caller's snapshot attach (`terminal-snapshot-v1`).
-    SnapshotRequest(terminal_snapshot::SnapshotRequestParams),
-    /// GHOSTSNP history pages above a row marker (`terminal.history`).
-    TerminalHistory(terminal_history::TerminalHistoryParams),
-    /// Text or VT of a row-marker range (`terminal.read_range`).
-    TerminalReadRange(terminal_history::TerminalReadRangeParams),
-    /// Scroll a surface's viewport by a row delta (negative is up).
-    ScrollSurface {
-        surface: SurfaceId,
-        delta: isize,
-    },
+}
 }
 
 impl Command {
     fn ordering_surface(&self) -> Option<SurfaceId> {
+        use terminal_io_wire::{
+            AttachSurfaceParams, ClearHistoryParams, CopyParams, MintTerminalRendererParams,
+            PasteImageParams, ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams,
+            SendKeyParams, SubscribeParams, VtStateParams, WaitForParams,
+        };
         match self {
-            Self::PasteImage { surface, .. } => Some(*surface),
-            Self::SetClientSizing { surface, .. }
-            | Self::ReadScreen { surface }
-            | Self::ClearHistory { surface, .. }
-            | Self::ReadScrollback { surface, .. }
-            | Self::WaitFor { surface, .. }
-            | Self::SendKey { surface, .. }
-            | Self::Copy { surface, .. }
+            Self::PasteImage(PasteImageParams { surface, .. })
+            | Self::SetClientSizing { surface, .. }
+            | Self::ReadScreen(ReadScreenParams { surface })
+            | Self::ClearHistory(ClearHistoryParams { surface, .. })
+            | Self::ReadScrollback(ReadScrollbackParams { surface, .. })
+            | Self::WaitFor(WaitForParams { surface, .. })
+            | Self::SendKey(SendKeyParams { surface, .. })
+            | Self::Copy(CopyParams { surface, .. })
             | Self::ReportAgent { surface, .. }
-            | Self::VtState { surface }
-            | Self::MintTerminalRenderer { surface, .. }
+            | Self::VtState(VtStateParams { surface })
+            | Self::MintTerminalRenderer(MintTerminalRendererParams { surface, .. })
             | Self::BrowserFramePresented { surface, .. }
             | Self::BrowserMouse { surface, .. }
             | Self::BrowserMouseGuarded { surface, .. }
@@ -2322,12 +2203,12 @@ impl Command {
             | Self::GetSizeState { surface }
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
-            | Self::ScrollSurface { surface, .. } => Some(*surface),
+            | Self::ScrollSurface(ScrollSurfaceParams { surface, .. }) => Some(*surface),
             Self::Send(send) => send.surface,
-            Self::AttachSurface { surface, .. }
+            Self::AttachSurface(AttachSurfaceParams { surface, .. })
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
-            | Self::Subscribe { surface, .. }
+            | Self::Subscribe(SubscribeParams { surface, .. })
             | Self::SetSizePolicy { surface, .. }
             | Self::GetHostSizePolicy { surface } => *surface,
             _ => None,
@@ -2335,15 +2216,15 @@ impl Command {
     }
 
     fn is_clear_history(&self) -> bool {
-        matches!(self, Self::ClearHistory { .. })
+        matches!(self, Self::ClearHistory(_))
     }
 
     fn can_overtake_clear_barrier(&self) -> bool {
         matches!(
             self,
-            Self::ClearHistory { .. }
+            Self::ClearHistory(_)
                 | Self::Send(_)
-                | Self::SendKey { .. }
+                | Self::SendKey(_)
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
                 | Self::BrowserMouseGuarded { .. }
@@ -2357,7 +2238,7 @@ impl Command {
                 | Self::BrowserForward { .. }
                 | Self::BrowserReload { .. }
                 | Self::BrowserActivate { .. }
-                | Self::ScrollSurface { .. }
+                | Self::ScrollSurface(_)
         )
     }
 }
