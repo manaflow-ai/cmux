@@ -49,7 +49,8 @@ enum WireFuzzLineCutCase {
             case 1: count = 1 + rng.below(left)
             default: count = min(left, 1 + rng.below(3))
             }
-            stream[at..<(at + count)].withUnsafeBytes { reader.push($0) }
+            // SAFETY: push copies the slice's bytes out of the storage the closure lends for the call.
+            unsafe stream[at..<(at + count)].withUnsafeBytes { unsafe reader.push($0) }
             try drain(&reader, into: &lines)
             at += count
         }
@@ -223,7 +224,8 @@ enum WireFuzzEnvelopeCase {
     static func isUTF8(_ line: Data) -> Bool {
         guard !line.contains(0x0A) else { return false }
         var reader = FrameReader(limits: FrameReader.Limits(maxLine: line.count))
-        (line + [UInt8(0x0A)]).withUnsafeBytes { reader.push($0) }
+        // SAFETY: push copies the bytes out of the storage the closure lends for the call.
+        unsafe (line + [UInt8(0x0A)]).withUnsafeBytes { unsafe reader.push($0) }
         guard case .json? = try? reader.next() else { return false }
         return true
     }

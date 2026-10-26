@@ -4,8 +4,8 @@
 /// one wake-up the sequence asks for (base/task/sequence_manager/wake_up_queue.cc).
 ///
 /// A request answered before its deadline leaves at once (``remove(id:)``, O(log n) through the position
-/// index), so the heap holds only requests that still wait and a fire never wakes for an answered one.
-/// Equal deadlines come out in id order, which is send order: a pipelined group expires in its order.
+/// index), so the heap holds only requests that still wait and a fire never fails an answered one. Equal
+/// deadlines come out in id order, which is send order: a pipelined group expires in its order.
 nonisolated struct DeadlineHeap {
     /// When a request stops waiting for its reply: ``at`` on the connection's clock (time since it opened),
     /// and the request's timeout, for its error.
@@ -20,7 +20,7 @@ nonisolated struct DeadlineHeap {
     }
 
     private var entries: [Entry] = []
-    /// Each entry's index in `entries`.
+    /// Each entry's slot in `entries`.
     private var positions: [UInt64: Int] = [:]
 
     var isEmpty: Bool { entries.isEmpty }
@@ -30,21 +30,21 @@ nonisolated struct DeadlineHeap {
 
     /// Adds `id`'s deadline; an id already in the heap gets the new one.
     mutating func insert(id: UInt64, _ deadline: Deadline) {
-        if let index = positions[id] {
-            entries[index].deadline = deadline
-            restore(from: index)
+        if let slot = positions[id] {
+            entries.modify(checked: slot) { $0.deadline = deadline }
+            restore(slot)
             return
         }
         entries.append(Entry(id: id, deadline: deadline))
         positions[id] = entries.count - 1
-        siftUp(from: entries.count - 1)
+        siftUp(entries.count - 1)
     }
 
     /// Takes `id`'s deadline out; nil when it has none.
     @discardableResult
     mutating func remove(id: UInt64) -> Entry? {
-        guard let index = positions[id] else { return nil }
-        return remove(at: index)
+        guard let slot = positions[id] else { return nil }
+        return remove(at: slot)
     }
 
     /// Takes out the earliest deadline when it is at or before `now`.
@@ -58,56 +58,61 @@ nonisolated struct DeadlineHeap {
         positions.removeAll()
     }
 
-    private mutating func remove(at index: Int) -> Entry {
-        let removed = entries[index]
+    private mutating func remove(at slot: Int) -> Entry? {
+        guard let removed = entries[checked: slot] else { return nil }
+        let last = entries.count - 1
+        if slot != last { swap(slot, last) }
+        entries.removeLast()
         positions[removed.id] = nil
-        let last = entries.removeLast()
-        if index < entries.count {
-            entries[index] = last
-            positions[last.id] = index
-            restore(from: index)
-        }
+        if slot < entries.count { restore(slot) }
         return removed
     }
 
-    private static func precedes(_ lhs: Entry, _ rhs: Entry) -> Bool {
-        (lhs.deadline.at, lhs.id) < (rhs.deadline.at, rhs.id)
+    /// True when the entry in `lhs` comes out before the one in `rhs`; false when either slot is empty.
+    private func precedes(_ lhs: Int, _ rhs: Int) -> Bool {
+        guard let left = entries[checked: lhs], let right = entries[checked: rhs] else { return false }
+        return (left.deadline.at, left.id) < (right.deadline.at, right.id)
     }
 
-    private mutating func restore(from index: Int) {
-        if index > 0, Self.precedes(entries[index], entries[(index - 1) / 2]) {
-            siftUp(from: index)
+    private mutating func restore(_ slot: Int) {
+        if slot > 0, precedes(slot, (slot - 1) / 2) {
+            siftUp(slot)
         } else {
-            siftDown(from: index)
+            siftDown(slot)
         }
     }
 
-    private mutating func siftUp(from start: Int) {
-        var index = start
-        while index > 0 {
-            let parent = (index - 1) / 2
-            guard Self.precedes(entries[index], entries[parent]) else { return }
-            swapAt(index, parent)
-            index = parent
+    private mutating func siftUp(_ start: Int) {
+        var slot = start
+        while slot > 0, precedes(slot, (slot - 1) / 2) {
+            let parent = (slot - 1) / 2
+            swap(slot, parent)
+            slot = parent
         }
     }
 
-    private mutating func siftDown(from start: Int) {
-        var index = start
-        while true {
-            let left = 2 * index + 1
-            guard left < entries.count else { return }
-            let right = left + 1
-            let child = right < entries.count && Self.precedes(entries[right], entries[left]) ? right : left
-            guard Self.precedes(entries[child], entries[index]) else { return }
-            swapAt(index, child)
-            index = child
+    private mutating func siftDown(_ start: Int) {
+        var slot = start
+        while let child = earlierChild(of: slot), precedes(child, slot) {
+            swap(slot, child)
+            slot = child
         }
     }
 
-    private mutating func swapAt(_ i: Int, _ j: Int) {
-        entries.swapAt(i, j)
-        positions[entries[i].id] = i
-        positions[entries[j].id] = j
+    /// The child of `slot` that comes out first; nil for a leaf.
+    private func earlierChild(of slot: Int) -> Int? {
+        let left = 2 * slot + 1
+        guard left < entries.count else { return nil }
+        let right = left + 1
+        return right < entries.count && precedes(right, left) ? right : left
+    }
+
+    /// Swaps two slots that hold entries and keeps their positions.
+    private mutating func swap(_ i: Int, _ j: Int) {
+        guard let first = entries[checked: i], let second = entries[checked: j] else { return }
+        entries.modify(checked: i) { $0 = second }
+        entries.modify(checked: j) { $0 = first }
+        positions[second.id] = i
+        positions[first.id] = j
     }
 }

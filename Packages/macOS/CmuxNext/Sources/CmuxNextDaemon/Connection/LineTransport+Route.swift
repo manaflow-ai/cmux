@@ -1,6 +1,12 @@
+import CmuxNextIPC
 import Foundation
 
 extension LineTransport {
+    /// The reader's next whole message (nil: it needs more bytes), or the bad message that ends the connection.
+    static func nextMessage(_ reader: inout FrameReader) -> Result<FrameReader.Message?, BadMessage> {
+        Result { () throws(BadMessage) -> FrameReader.Message? in try reader.next() }
+    }
+
     /// Routes one line by its fields, on the reader thread. ``LineRouteScan`` reads them from the bytes, so
     /// a reply or an event is parsed once, by its reader. Only a line the scan cannot read is decoded as an
     /// ``Envelope`` here, and a reply that is not `ok:true`, once, for its error fields.

@@ -53,10 +53,12 @@ extension LineTransport {
     /// Asks for ``socketBufferBytes`` each way; the kernel may round it up. A refusal keeps the default:
     /// the connection still works, with more reads.
     static func sizeBuffers(_ fd: Int32) {
-        var bytes = Int32(socketBufferBytes)
+        var bytes = Int32(clamping: socketBufferBytes)
         let size = socklen_t(MemoryLayout<Int32>.size)
-        _ = setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bytes, size)
-        _ = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes, size)
+        // SAFETY: setsockopt reads `size` bytes, MemoryLayout<Int32>.size, from `bytes`, an Int32 live for the call.
+        _ = unsafe setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &bytes, size)
+        // SAFETY: as above.
+        _ = unsafe setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &bytes, size)
     }
 
     /// `fd`'s SO_SNDBUF and SO_RCVBUF as the kernel reports them (0 for one it does not report).
@@ -64,7 +66,10 @@ extension LineTransport {
         func size(_ option: Int32) -> Int {
             var value: Int32 = 0
             var length = socklen_t(MemoryLayout<Int32>.size)
-            return getsockopt(fd, SOL_SOCKET, option, &value, &length) == 0 ? Int(value) : 0
+            // SAFETY: getsockopt writes at most `length` bytes, MemoryLayout<Int32>.size, into `value`, an Int32
+            // live for the call, and writes the size it wrote back into `length`.
+            let read = unsafe getsockopt(fd, SOL_SOCKET, option, &value, &length)
+            return read == 0 ? Int(truncatingIfNeeded: value) : 0
         }
         return (send: size(SO_SNDBUF), receive: size(SO_RCVBUF))
     }

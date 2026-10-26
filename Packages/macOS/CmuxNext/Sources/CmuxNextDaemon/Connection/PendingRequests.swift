@@ -50,12 +50,12 @@ nonisolated struct PendingRequests {
     /// The oldest id that still waits.
     mutating func oldestID() -> UInt64? {
         dropAnsweredHead()
-        return head < ring.count ? ring[head] : nil
+        return ring[checked: head]
     }
 
     /// Takes every waiting request out, in send order.
     mutating func removeAllInSendOrder() -> [PendingRequest] {
-        let requests = ring[head...].compactMap { byID[$0] }
+        let requests = ring.dropFirst(head).compactMap { byID[$0] }
         byID.removeAll()
         ring.removeAll()
         head = 0
@@ -63,14 +63,14 @@ nonisolated struct PendingRequests {
     }
 
     private mutating func dropAnsweredHead() {
-        while head < ring.count, byID[ring[head]] == nil { head += 1 }
+        while let id = ring[checked: head], byID[id] == nil { head += 1 }
     }
 
     /// Rebuilds the ring from the waiting ids once it holds more than twice as many: each rebuild is
     /// paid for by the answers since the last one.
     private mutating func compactIfSparse() {
         guard ring.count > 2 * byID.count + 32 else { return }
-        ring = ring[head...].filter { byID[$0] != nil }
+        ring = ring.dropFirst(head).filter { byID[$0] != nil }
         head = 0
     }
 }

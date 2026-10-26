@@ -24,9 +24,9 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// the one JSON parse of a reply or an event is its reader's. Waiters are a dictionary plus an id ring
 /// (``PendingRequests``), O(1) per request. Reply deadlines are one heap (``DeadlineHeap``) under one
 /// ``DemandTimer`` per connection, as a Chrome sequence keeps its delayed tasks under one wake-up
-/// (base/task/sequence_manager/wake_up_queue.cc). Writes go through ``SocketWriter``. The socket buffers
-/// are ``socketBufferBytes`` each way, the daemon's value. The server drops slow readers (4,096-event
-/// mailbox, 2 s write deadline), so the reader never blocks on the main actor.
+/// (base/task/sequence_manager/wake_up_queue.cc). Writes go through ``SocketWriter`` (CmuxNextIPC's `FrameWriter`).
+/// The socket buffers are ``socketBufferBytes`` each way, the daemon's value. The server drops slow readers
+/// (4,096-event mailbox, 2 s write deadline), so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
     /// `index` counts events on this transport from 1, in wire order.
     typealias EventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64) -> Void
@@ -345,7 +345,7 @@ final class LineTransport: Sendable {
         var chunk = [UInt8](repeating: 0, count: Self.socketBufferBytes)
         var closeDetail = "EOF"
         // wakeup-allow: bounded: blocking read on a dedicated thread; EOF, errors and bad messages end it, EINTR retries
-        reading: while true {
+        while true {
             // SAFETY: read writes at most $0.count bytes into the array's own storage, which the closure lends
             // for the call and nothing else touches meanwhile.
             let count = unsafe chunk.withUnsafeMutableBytes { unsafe Darwin.read(fd, $0.baseAddress, $0.count) }
@@ -357,20 +357,21 @@ final class LineTransport: Sendable {
             }
             recorder?.bytesRead(count)
             outputStream?.outputCopied(count)  // into the reader's buffer
-            chunk.withUnsafeBytes { reader.push(UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
-            while true {
-                let message: FrameReader.Message?
-                do throws(BadMessage) {
-                    message = try reader.next()
-                } catch {
-                    closeDetail = "bad message: \(error.reason)"
-                    break reading
-                }
-                guard let message else { break }
+            // SAFETY: push copies the first `count` bytes of the array's own storage, the ones read(2) just
+            // wrote (count <= its size); the closure lends the storage for the call only.
+            unsafe chunk.withUnsafeBytes { unsafe reader.push(UnsafeRawBufferPointer(rebasing: $0.prefix(count))) }
+            var next = Self.nextMessage(&reader)
+            while case .success(let message?) = next {
                 // An empty line carries nothing; a frame cannot come before frames are negotiated.
-                guard case .json(let bytes) = message, !bytes.isEmpty else { continue }
-                outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
-                handle(Data(bytes), decoder: decoder, onEvent: onEvent)
+                if case .json(let bytes) = message, !bytes.isEmpty {
+                    outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
+                    handle(Data(bytes), decoder: decoder, onEvent: onEvent)
+                }
+                next = Self.nextMessage(&reader)
+            }
+            if case .failure(let bad) = next {
+                closeDetail = "bad message: \(bad.reason)"
+                break
             }
         }
         let reason: TransportCloseReason = state.withLock { state in

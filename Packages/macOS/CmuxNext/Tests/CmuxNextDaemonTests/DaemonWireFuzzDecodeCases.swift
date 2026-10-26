@@ -236,7 +236,8 @@ enum WireFuzzRawLineCase {
         try WireFuzzReplyCase.checkDamaged(line, as: ListAgentsRequest.Response.self)
         // The transport's reader on the raw bytes: messages or one typed refusal, never a trap.
         var reader = FrameReader(limits: FrameReader.Limits(maxLine: LineTransport.maxLineBytes))
-        line.withUnsafeBytes { reader.push($0) }
+        // SAFETY: push copies the bytes out of the storage the closure lends for the call.
+        unsafe line.withUnsafeBytes { unsafe reader.push($0) }
         reader.markEndOfStream()
         while (try? reader.next()) != nil {}
     }

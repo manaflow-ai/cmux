@@ -1,15 +1,15 @@
 import Foundation
 
-/// The routing fields of one line (``LineTransport/Envelope``'s `id`, `ok`, `event`, `type`, `stream_id` and `cause`),
-/// read from its bytes, so a reply or an event is parsed once: by the code that reads its body. Mojo routes
-/// a message by its header and leaves the payload to the receiving stub (mojo/public/cpp/bindings/lib/message.cc,
-/// `Message::name()` and `Message::request_id()`); a JSON line has no header, so the scan walks the
-/// top-level object and checks the JSON grammar of every value it skips.
+/// The routing fields of one line (``LineTransport/Envelope``'s `id`, `ok`, `event`, `type`, `stream_id` and
+/// `cause`), read from its bytes, so a reply or an event is parsed once: by the code that reads its body. Mojo
+/// routes a message by its header and leaves the payload to the receiving stub
+/// (mojo/public/cpp/bindings/lib/message.cc, `Message::name()` and `Message::request_id()`); a JSON line has no
+/// header, so the scan walks the top-level object and checks the JSON grammar of every value it skips.
 ///
-/// The scan gives up (nil, and the reader decodes an ``LineTransport/Envelope``) wherever it could read the line
-/// differently from the decoder: a line that is not one JSON object, a key or a routing string with an
-/// escape, a routing key that comes twice, an `id` number that is not a plain non-negative integer, or
-/// nesting deeper than ``maxDepth``. The line is valid UTF-8: the reader checked it.
+/// The scan gives up (nil, and the reader decodes an ``LineTransport/Envelope``) wherever it could read the
+/// line differently from the decoder: a line that is not one JSON object, a key or a routing string with an
+/// escape, a routing key that comes twice, an `id` number that is not a plain non-negative integer, an escaped
+/// UTF-16 surrogate, or nesting deeper than ``maxDepth``. The line is valid UTF-8: the reader checked it.
 struct LineRouteScan: Equatable {
     var id: UInt64?
     var ok: Bool?
@@ -23,12 +23,9 @@ struct LineRouteScan: Equatable {
 
     private init() {}
 
-    init?(_ line: Data) {
-        let scanned = line.withUnsafeBytes { bytes -> LineRouteScan? in
-            var scanner = Scanner(bytes: bytes)
-            return scanner.topLevelObject()
-        }
-        guard let scanned else { return nil }
+    init?<Line: RandomAccessCollection<UInt8>>(_ line: Line) where Line.Index == Int {
+        var scanner = Scanner(bytes: line)
+        guard let scanned = scanner.topLevelObject() else { return nil }
         self = scanned
     }
 
@@ -40,60 +37,96 @@ struct LineRouteScan: Equatable {
 
     private enum Field: UInt8 {
         case id = 1, ok = 2, event = 4, type = 8, streamID = 16, cause = 32
+
+        init?(key: some Sequence<UInt8>) {
+            if key.elementsEqual(Byte.idKey) {
+                self = .id
+            } else if key.elementsEqual(Byte.okKey) {
+                self = .ok
+            } else if key.elementsEqual(Byte.eventKey) {
+                self = .event
+            } else if key.elementsEqual(Byte.typeKey) {
+                self = .type
+            } else if key.elementsEqual(Byte.streamIDKey) {
+                self = .streamID
+            } else if key.elementsEqual(Byte.causeKey) {
+                self = .cause
+            } else {
+                return nil
+            }
+        }
     }
 
-    private struct Scanner {
-        let bytes: UnsafeRawBufferPointer
-        var index = 0
+    /// One pass over a line; `index` only moves forward, and every read is checked.
+    private struct Scanner<Line: RandomAccessCollection<UInt8>> where Line.Index == Int {
+        let bytes: Line
+        var index: Int
 
-        init(bytes: UnsafeRawBufferPointer) {
+        init(bytes: Line) {
             self.bytes = bytes
+            index = bytes.startIndex
         }
+
+        private var current: UInt8? { bytes[checked: index] }
 
         mutating func topLevelObject() -> LineRouteScan? {
             var fields = LineRouteScan()
             var seen: UInt8 = 0
             skipSpace()
-            guard take(Byte.openBrace) else { return nil }
-            skipSpace()
-            if !take(Byte.closeBrace) {
-                repeat {
-                    skipSpace()
-                    guard let key = plainString() else { return nil }
-                    skipSpace()
-                    guard take(Byte.colon) else { return nil }
-                    skipSpace()
-                    if let field = Self.field(bytes[key]) {
-                        guard seen & field.rawValue == 0 else { return nil }
-                        seen |= field.rawValue
-                        guard read(field, into: &fields) else { return nil }
-                    } else {
-                        guard skipValue(depth: 1) else { return nil }
-                    }
-                    skipSpace()
-                } while take(Byte.comma)
-                guard take(Byte.closeBrace) else { return nil }
+            let complete = object { scanner -> Bool in
+                guard let key = scanner.plainString() else { return false }
+                scanner.skipSpace()
+                guard scanner.take(Byte.colon) else { return false }
+                scanner.skipSpace()
+                guard let field = Field(key: scanner.slice(key)) else { return scanner.skipValue(depth: 1) }
+                guard seen & field.rawValue == 0 else { return false }
+                seen |= field.rawValue
+                return scanner.read(field, into: &fields)
             }
             skipSpace()
-            guard index == bytes.count else { return nil }
+            guard complete, index == bytes.endIndex else { return nil }
             if fields.event == nil { fields.cause = nil }
             return fields
         }
 
-        private static func field(_ key: Slice<UnsafeRawBufferPointer>) -> Field? {
-            if key.elementsEqual("id".utf8) { return .id }
-            if key.elementsEqual("ok".utf8) { return .ok }
-            if key.elementsEqual("event".utf8) { return .event }
-            if key.elementsEqual("type".utf8) { return .type }
-            if key.elementsEqual("stream_id".utf8) { return .streamID }
-            if key.elementsEqual("cause".utf8) { return .cause }
-            return nil
+        /// The bytes of `range`, a range this scan read.
+        private func slice(_ range: Range<Int>) -> Line.SubSequence {
+            bytes.suffix(from: range.lowerBound).prefix(range.count)
+        }
+
+        /// An object at `index`: `{`, then members `member` reads (from its key's quote) separated by commas, then `}`.
+        private mutating func object(_ member: (inout Self) -> Bool) -> Bool {
+            guard take(Byte.openBrace) else { return false }
+            skipSpace()
+            if take(Byte.closeBrace) { return true }
+            guard member(&self) else { return false }
+            skipSpace()
+            while take(Byte.comma) {
+                skipSpace()
+                guard member(&self) else { return false }
+                skipSpace()
+            }
+            return take(Byte.closeBrace)
+        }
+
+        /// An array at `index`: `[`, values separated by commas, `]`.
+        private mutating func array(depth: Int) -> Bool {
+            guard take(Byte.openBracket) else { return false }
+            skipSpace()
+            if take(Byte.closeBracket) { return true }
+            guard skipValue(depth: depth) else { return false }
+            skipSpace()
+            while take(Byte.comma) {
+                skipSpace()
+                guard skipValue(depth: depth) else { return false }
+                skipSpace()
+            }
+            return take(Byte.closeBracket)
         }
 
         /// Reads one routing value as ``LineTransport/Envelope`` decodes it; false gives the line up.
         private mutating func read(_ field: Field, into fields: inout LineRouteScan) -> Bool {
-            guard index < bytes.count else { return false }
-            let first = bytes[index]
+            guard let first = current else { return false }
             switch field {
             case .id:
                 if first == Byte.quote {
@@ -104,13 +137,20 @@ struct LineRouteScan: Equatable {
                 guard first == Byte.minus || Byte.isDigit(first) else { return skipValue(depth: 1) }
                 let start = index
                 guard skipNumber() else { return false }
+                let digits = slice(start..<index)
                 // A sign, a fraction or an exponent: the decoder's integer rules decide, not the scan's.
-                guard bytes[start..<index].allSatisfy(Byte.isDigit) else { return false }
-                fields.id = UInt64(String(decoding: bytes[start..<index], as: UTF8.self), radix: 10)
+                guard digits.allSatisfy(Byte.isDigit) else { return false }
+                fields.id = UInt64(String(decoding: digits, as: UTF8.self), radix: 10)
                 return true
             case .ok:
-                if literal("true") { fields.ok = true; return true }
-                if literal("false") { fields.ok = false; return true }
+                if literal(Byte.trueWord) {
+                    fields.ok = true
+                    return true
+                }
+                if literal(Byte.falseWord) {
+                    fields.ok = false
+                    return true
+                }
                 return skipValue(depth: 1)
             case .event, .type, .streamID, .cause:
                 guard first == Byte.quote else { return skipValue(depth: 1) }
@@ -119,7 +159,8 @@ struct LineRouteScan: Equatable {
                 case .event: fields.event = text
                 case .type: fields.type = text
                 case .streamID: fields.streamID = text
-                default: fields.cause = text
+                case .cause: fields.cause = text
+                case .id, .ok: break  // read above
                 }
                 return true
             }
@@ -128,100 +169,63 @@ struct LineRouteScan: Equatable {
         /// A string with no escape and no control byte, as text; nil otherwise.
         private mutating func plainText() -> String? {
             guard let range = plainString() else { return nil }
-            return String(bytes: bytes[range], encoding: .utf8)
+            return String(bytes: slice(range), encoding: .utf8)
         }
 
         /// The content range of a string with no escape and no control byte; nil otherwise.
         private mutating func plainString() -> Range<Int>? {
             guard take(Byte.quote) else { return nil }
             let start = index
-            while index < bytes.count {
-                let byte = bytes[index]
-                if byte == Byte.quote {
-                    index += 1
-                    return start..<(index - 1)
-                }
-                if byte == Byte.backslash || byte < 0x20 { return nil }
-                index += 1
-            }
-            return nil
+            guard let end = bytes.suffix(from: index).firstIndex(where: Byte.endsPlainString),
+                  bytes[checked: end] == Byte.quote else { return nil }
+            index = end + 1
+            return start..<end
         }
 
         private mutating func skipValue(depth: Int) -> Bool {
-            guard index < bytes.count, depth <= LineRouteScan.maxDepth else { return false }
-            switch bytes[index] {
+            guard let first = current, depth <= LineRouteScan.maxDepth else { return false }
+            switch first {
             case Byte.quote: return skipString()
-            case Byte.openBrace: return skipObject(depth: depth + 1)
-            case Byte.openBracket: return skipArray(depth: depth + 1)
-            case UInt8(ascii: "t"): return literal("true")
-            case UInt8(ascii: "f"): return literal("false")
-            case UInt8(ascii: "n"): return literal("null")
+            case Byte.openBrace:
+                return object { scanner in
+                    guard scanner.current == Byte.quote, scanner.skipString() else { return false }
+                    scanner.skipSpace()
+                    guard scanner.take(Byte.colon) else { return false }
+                    scanner.skipSpace()
+                    return scanner.skipValue(depth: depth + 1)
+                }
+            case Byte.openBracket: return array(depth: depth + 1)
+            case UInt8(ascii: "t"): return literal(Byte.trueWord)
+            case UInt8(ascii: "f"): return literal(Byte.falseWord)
+            case UInt8(ascii: "n"): return literal(Byte.nullWord)
             default: return skipNumber()
             }
         }
 
-        private mutating func skipObject(depth: Int) -> Bool {
-            index += 1
-            skipSpace()
-            if take(Byte.closeBrace) { return true }
-            repeat {
-                skipSpace()
-                guard index < bytes.count, bytes[index] == Byte.quote, skipString() else { return false }
-                skipSpace()
-                guard take(Byte.colon) else { return false }
-                skipSpace()
-                guard skipValue(depth: depth) else { return false }
-                skipSpace()
-            } while take(Byte.comma)
-            return take(Byte.closeBrace)
-        }
-
-        private mutating func skipArray(depth: Int) -> Bool {
-            index += 1
-            skipSpace()
-            if take(Byte.closeBracket) { return true }
-            repeat {
-                skipSpace()
-                guard skipValue(depth: depth) else { return false }
-                skipSpace()
-            } while take(Byte.comma)
-            return take(Byte.closeBracket)
-        }
-
-        /// Skips a string at `index`. An escape of a UTF-16 surrogate gives the line up: the
-        /// decoder's pairing rules decide those.
+        /// Skips a string at `index`. An escape of a UTF-16 surrogate gives the line up: the decoder's
+        /// pairing rules decide those.
         private mutating func skipString() -> Bool {
-            index += 1
-            while index < bytes.count {
-                let byte = bytes[index]
-                if byte == Byte.quote {
-                    index += 1
-                    return true
-                }
-                if byte < 0x20 { return false }
-                guard byte == Byte.backslash else {
-                    index += 1
-                    continue
-                }
-                guard index + 1 < bytes.count else { return false }
-                switch bytes[index + 1] {
-                case Byte.quote, Byte.backslash, UInt8(ascii: "/"), UInt8(ascii: "b"), UInt8(ascii: "f"),
-                     UInt8(ascii: "n"), UInt8(ascii: "r"), UInt8(ascii: "t"):
-                    index += 2
-                case UInt8(ascii: "u"):
-                    guard index + 6 <= bytes.count else { return false }
-                    var scalar: UInt32 = 0
-                    for hex in bytes[(index + 2)..<(index + 6)] {
-                        guard let digit = Byte.hexValue(hex) else { return false }
-                        scalar = scalar << 4 | digit
-                    }
-                    guard !(0xD800...0xDFFF).contains(scalar) else { return false }
-                    index += 6
-                default:
-                    return false
-                }
+            guard take(Byte.quote) else { return false }
+            while let stop = bytes.suffix(from: index).firstIndex(where: Byte.endsPlainString), let byte = bytes[checked: stop] {
+                index = stop + 1
+                if byte == Byte.quote { return true }
+                guard byte == Byte.backslash, skipEscape() else { return false }
             }
             return false
+        }
+
+        /// The rest of an escape whose backslash is behind `index`.
+        private mutating func skipEscape() -> Bool {
+            guard let kind = current else { return false }
+            index += 1
+            guard kind == UInt8(ascii: "u") else { return Byte.simpleEscapes.contains(kind) }
+            var scalar: UInt32 = 0
+            for _ in 0..<4 {
+                guard let hex = current, let digit = Byte.hexValue(hex) else { return false }
+                scalar = scalar << 4 | digit
+                index += 1
+            }
+            return !(0xD800...0xDFFF).contains(scalar)
         }
 
         /// Skips a number in the JSON grammar: `-? (0 | [1-9][0-9]*) (. [0-9]+)? ([eE] [+-]? [0-9]+)?`.
@@ -243,25 +247,22 @@ struct LineRouteScan: Equatable {
         /// Skips one or more digits; false when there is none.
         private mutating func skipDigits() -> Bool {
             let start = index
-            while index < bytes.count, Byte.isDigit(bytes[index]) { index += 1 }
+            while let byte = current, Byte.isDigit(byte) { index += 1 }
             return index > start
         }
 
-        private mutating func literal(_ word: StaticString) -> Bool {
-            let count = word.utf8CodeUnitCount
-            guard index + count <= bytes.count else { return false }
-            let matches = word.withUTF8Buffer { bytes[index..<(index + count)].elementsEqual($0) }
-            guard matches else { return false }
-            index += count
+        private mutating func literal(_ word: [UInt8]) -> Bool {
+            guard bytes.suffix(from: index).starts(with: word) else { return false }
+            index += word.count
             return true
         }
 
-        private mutating func skipSpace() {
-            while index < bytes.count, Byte.isSpace(bytes[index]) { index += 1 }
+        mutating func skipSpace() {
+            while let byte = current, Byte.isSpace(byte) { index += 1 }
         }
 
-        private mutating func take(_ byte: UInt8) -> Bool {
-            guard index < bytes.count, bytes[index] == byte else { return false }
+        mutating func take(_ byte: UInt8) -> Bool {
+            guard current == byte else { return false }
             index += 1
             return true
         }
@@ -277,6 +278,17 @@ struct LineRouteScan: Equatable {
         static let closeBrace = UInt8(ascii: "}")
         static let openBracket = UInt8(ascii: "[")
         static let closeBracket = UInt8(ascii: "]")
+        static let trueWord = Array("true".utf8)
+        static let falseWord = Array("false".utf8)
+        static let nullWord = Array("null".utf8)
+        static let idKey = Array("id".utf8)
+        static let okKey = Array("ok".utf8)
+        static let eventKey = Array("event".utf8)
+        static let typeKey = Array("type".utf8)
+        static let streamIDKey = Array("stream_id".utf8)
+        static let causeKey = Array("cause".utf8)
+        /// The one-letter escapes after a backslash: `"`, `\`, `/`, `b`, `f`, `n`, `r`, `t`.
+        static let simpleEscapes: Set<UInt8> = Set("\"\\/bfnrt".utf8)
 
         static func isSpace(_ byte: UInt8) -> Bool {
             byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
@@ -286,11 +298,16 @@ struct LineRouteScan: Equatable {
             byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9")
         }
 
+        /// A byte a plain string's scan stops at: its closing quote, an escape, or a control byte.
+        static func endsPlainString(_ byte: UInt8) -> Bool {
+            byte == quote || byte == backslash || byte < 0x20
+        }
+
         static func hexValue(_ byte: UInt8) -> UInt32? {
             switch byte {
-            case UInt8(ascii: "0")...UInt8(ascii: "9"): UInt32(byte - UInt8(ascii: "0"))
-            case UInt8(ascii: "a")...UInt8(ascii: "f"): UInt32(byte - UInt8(ascii: "a") + 10)
-            case UInt8(ascii: "A")...UInt8(ascii: "F"): UInt32(byte - UInt8(ascii: "A") + 10)
+            case UInt8(ascii: "0")...UInt8(ascii: "9"): UInt32(truncatingIfNeeded: byte &- UInt8(ascii: "0"))
+            case UInt8(ascii: "a")...UInt8(ascii: "f"): UInt32(truncatingIfNeeded: byte &- UInt8(ascii: "a") &+ 10)
+            case UInt8(ascii: "A")...UInt8(ascii: "F"): UInt32(truncatingIfNeeded: byte &- UInt8(ascii: "A") &+ 10)
             default: nil
             }
         }
