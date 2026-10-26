@@ -8,6 +8,8 @@ enum TabPreviewFitting {
     /// The size a page thumbnail is kept at in `TabContentCache.pageThumbnails` (covers the hover
     /// card and the tab drag ghost at 2x).
     static let cachedPixelSize = CGSize(width: 640, height: 640)
+    /// The most a kept page thumbnail costs in `pageThumbnails`: `cachedPixelSize` at 4 bytes a pixel.
+    static let cachedThumbnailBytes = Int(cachedPixelSize.width) * Int(cachedPixelSize.height) * 4
 
     /// `image` scaled to fit `maxPixelSize` (never up), on a background task.
     static func fit(_ image: CGImage, _ maxPixelSize: CGSize) async -> CGImage {

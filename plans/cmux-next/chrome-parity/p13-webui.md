@@ -384,7 +384,8 @@ virtual display), light and STRESS, with p50, p95, p99 and max. A row marked "tr
 - D5 Crash. `bench-webui.py crash`: kill -9 a group renderer with 5 pages, 1 shown. cmux survives; the shown page
   shows its notice and reloads once; hidden pages reload 0 times until shown; a second kill within 600 s follows
   the group cap (3).
-- D6 Memory pressure. `debug.webui pressure critical`: the preload slot is empty within 1 turn; one ranked pass
+- D6 Memory pressure. `debug.hibernation.pressure critical` (the memory coordinator's override, the one path
+  every web object follows since 047): the preload slot is empty within 1 turn; one ranked pass
   over browser tabs, chats and pages discards in importance order until the reclaim target, recently visible
   last; page renderer count == groups with a shown page once all candidates are discarded.
 - D7 Static counts (git grep at the program head, from the repo root):
@@ -392,7 +393,8 @@ virtual display), light and STRESS, with p50, p95, p99 and max. A row marked "tr
   == 0 (today 22). MQ10 command == 0 (today 13 plus PageProcessPool.shared).
   `git grep -n 'final class PageHostPool\|final class NewTabSparePool\|static func startWarmup\|final class AgentPageRetirer' -- Packages/macOS/CmuxNext/Sources`
   == 0. `git grep -n 'memoryPressure.observe' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation`
-  == 1 (WebUIHost; today 3). `git grep -n 'setInterval(' -- webviews/src/pages webviews/src/agent-session ':!*.test.*' ':!*.gallery.*' ':!**/gallery/**'`
+  == 0 (today 3; 047: the one kernel subscription is `MemoryCoordinator`'s in CmuxNextMemory, and WebUIHost,
+  ChromiumWarmup and BrowserHibernation register with the coordinator). `git grep -n 'setInterval(' -- webviews/src/pages webviews/src/agent-session ':!*.test.*' ':!*.gallery.*' ':!**/gallery/**'`
   == 1 (inside usePageInterval). MQ3 hits only in the fork < 29 fallback. MQ13 == 0.
 - D8 Bundles. `node scripts/cmux-next/page-bundle-report.mjs`: every page and the agent pane load <= 250 KB
   first-load JS (minified, uncompressed) not counting shared chunks; shared first-load <= 400 KB; total first
@@ -435,7 +437,8 @@ Each command runs from the repo root. Each hit is one unit of work in the named 
   AgentActivityHostView.swift:41 -> 075; AgentPaneView+Warmup.swift:41 -> 046; AgentPaneView.swift:192 -> 073;
   WebProcessGroups.swift:16 (doc comment) -> 015; PageWebView.swift:273 -> 041.
 - MQ8 spares and warmers (016, 019, 043-047). `git grep -n -E 'final class (CEFSpareWindow|NewTabSparePool|PageHostPool)|static func startWarmup|memoryPressure.observe' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation`.
-  End state: one PagePreloadSlot, renderer-less spare windows, one pressure subscription.
+  End state: one PagePreloadSlot, renderer-less spare windows, no `memoryPressure.observe` in this scope (every
+  web object is a consumer of the memory coordinator, which holds the one kernel subscription in CmuxNextMemory).
 - MQ9 lazy page tabs (040). `git grep -n -E '(class|struct) \w+.*: .*\bInternalPageProvider\b' -- Packages/macOS/CmuxNext/Sources`.
   Today 28. Applies only if 040's red-at-base test is red.
 - MQ10 stateful statics (005, 010, 015, 066, 071, 073). `git grep -n -E 'static (let|var) (channels|views|processPool|processGroups|sharedDataStore|warmupView|chromiumHosting|openPanel|serials|nextSerial)\b|static let shared = (WKProcessPool|WebDevOverrideWatcher|WebBundleServedViews|AgentPaneNowPlaying)' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab`.
@@ -853,6 +856,12 @@ CmuxNextApp/Hibernation/BrowserHibernation.swift. Change: WebUIHost holds the on
 slot; critical also drops untaken spare windows and runs one ranker pass (092); BrowserHibernation's own observer
 goes. Acceptance: one `memoryPressure.observe` in the D7 scope; drop order tested with ManualMemoryPressureSource.
 Tell PL-memory. Test: WebUIHostPressureTests; pressure bench.
+As built: PL-memory's coordinator had landed, so the one observer is `MemoryCoordinator`'s and the D7 count is 0;
+WebUIHost registers the slot as a `SpareMemoryConsumer`, ChromiumWarmup's spare windows close only at critical
+(`SpareMemoryConsumer.Closing.atCritical`), BrowserHibernation runs the ranked pass on the critical release slice.
+Order tests: WebUIHostPressureTests (stand-ins), WebUIPressureOrderTests (the app's real registrations). The
+pressure bench drives `debug.hibernation.pressure`. PL-memory told in p07-memory.md section 3.E. PL-cef-tab:
+`CEFSpareWindow.setHeld` no longer closes the untaken spares; `CEFEngine.closeUntakenSpareWindows` does, at critical.
 
 **048 Stand-in.** Files: PageWebView+Paint.swift, PageWebView.swift, InternalPageView.swift. Change: a themed
 CALayer (WebTheme surface color, title through TypeScale) in the open's turn, removed at the first PagePaintProbe

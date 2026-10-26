@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-browser",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-tab-set-profile-ok.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,31 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "tab.create_browser",
+        "method": "browser.profile.open",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "browser-tab-set-profile-ok.fx-browser"
+        "idempotencyKey": "browser-tab-set-profile-ok.fx-app-browser"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "other-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle-other"
+        },
+        "idempotencyKey": "browser-tab-set-profile-ok.other-profile"
       },
       "expect": {
         "outcome": "ok",
@@ -76,12 +115,12 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-browser#/value/tab_id"
+        "tab": "$step:fx-app-browser#/value/tab_id"
       },
       "args": {
         "method": "browser.tab.set_profile",
         "params": {
-          "profile": "oracle"
+          "profile": "$step:other-profile#/value/browser_profile/id"
         },
         "idempotencyKey": "browser-tab-set-profile-ok.call"
       },
@@ -93,7 +132,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the tab keeps its id and place; its record names the other profile (changed true)"
     }
   ],
   "invariants": [

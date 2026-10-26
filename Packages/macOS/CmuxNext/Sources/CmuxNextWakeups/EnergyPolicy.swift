@@ -47,6 +47,15 @@ public struct EnergyPolicy: Sendable, Equatable {
     public let screensAsleep: Bool
     /// The Mac runs on battery (raw input, for consumers such as KeepAwake).
     public let onBattery: Bool
+    /// macOS Low Power Mode is on while the `energySaver` feature is off. The page consumers that
+    /// followed Low Power Mode before Energy Saver existed keep following it until the feature ships
+    /// (``pageSaver``); nothing else reads it, so the schedulers, motion and the sidebar stay as they were.
+    public let lowPowerFallback: Bool
+
+    /// Pages spend less: WebKit renders near 60 fps, no neighbor tab stays awake and hidden cmux pages
+    /// freeze sooner. Energy Saver, or Low Power Mode while the `energySaver` feature is off
+    /// (``lowPowerFallback``).
+    public var pageSaver: Bool { isSaver || lowPowerFallback }
 
     /// The policy for the resolved saver state and raw inputs; every derived value follows from them.
     ///
@@ -55,7 +64,9 @@ public struct EnergyPolicy: Sendable, Equatable {
     ///   - suspended: The Mac is going to sleep or asleep.
     ///   - screensAsleep: The displays sleep.
     ///   - onBattery: The Mac runs on battery.
-    public init(saverReason: Reason? = nil, suspended: Bool = false, screensAsleep: Bool = false, onBattery: Bool = false) {
+    ///   - lowPowerFallback: macOS Low Power Mode is on and the `energySaver` feature is off.
+    public init(saverReason: Reason? = nil, suspended: Bool = false, screensAsleep: Bool = false, onBattery: Bool = false,
+                lowPowerFallback: Bool = false) {
         let isSaver = saverReason != nil
         self.isSaver = isSaver
         reason = saverReason
@@ -66,6 +77,7 @@ public struct EnergyPolicy: Sendable, Equatable {
         self.suspended = suspended
         self.screensAsleep = screensAsleep
         self.onBattery = onBattery
+        self.lowPowerFallback = lowPowerFallback
     }
 
     /// The saver off, awake, on AC power.

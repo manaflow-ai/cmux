@@ -46,6 +46,8 @@ import Foundation
         return rows
     }
 
+    // memory: fixed: one entry per browser profile, each the omnibox keywords of its installed
+    // extensions (a few short strings per extension), emptied whenever extensions change (`invalidate`).
     private var cache: [BrowserProfileID: [OmnibarKeyword]] = [:]
 
     func keywords(profile: BrowserProfileID, browser: Int32, shim: CEFShimLibrary) -> [OmnibarKeyword] {

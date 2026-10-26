@@ -66,6 +66,7 @@ nonisolated struct ServerFixLedger: Sendable {
         guard await load() != .unknown else { return }
         var file = try readKnown()
         if file.fixes[fix.rawValue] == nil {
+            // wall-clock: the ledger file keeps when each fix was applied, Unix ms.
             file.fixes[fix.rawValue] = Int64(Date().timeIntervalSince1970 * 1000)
         }
         try write(file)

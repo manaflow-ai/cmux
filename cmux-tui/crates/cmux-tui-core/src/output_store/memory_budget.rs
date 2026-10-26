@@ -11,6 +11,9 @@
 //!
 //! The pass runs on the output store's writer thread, after output (memory
 //! only grows when a terminal prints), so an idle session runs nothing.
+//!
+//! A cold terminal (mux/cold_scrollback.rs) counts with its compressed size
+//! and its limit is left alone: changing it would restore the terminal.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -19,6 +22,7 @@ use std::time::Instant;
 use super::{OutputStore, TerminalLog};
 use crate::Mux;
 use crate::resource::TerminalPublicId;
+use crate::surface::ScrollbackMemory;
 
 /// `cmux-next.json` key: total scrollback RAM across terminals in bytes.
 pub(crate) const MEMORY_TOTAL_SETTING: &str = "terminal.scrollback.maxTotalMemoryBytes";
@@ -48,6 +52,7 @@ struct Entry {
     terminal_id: TerminalPublicId,
     surface: Arc<crate::Surface>,
     resident: u64,
+    cold: bool,
     last_output: Instant,
 }
 
@@ -60,12 +65,13 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
         .into_iter()
         .filter_map(|log| {
             let surface = mux.terminal_resource_surface(&log.terminal_id)?;
-            let resident = surface
-                .try_with_terminal(|terminal| terminal.primary_resident_bytes())
-                .ok()
-                .flatten()?;
+            let (resident, cold) = match surface.scrollback_memory()? {
+                ScrollbackMemory::Hot(bytes) => (bytes, false),
+                ScrollbackMemory::Cold(bytes) => (bytes, true),
+            };
             let last_output = log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output;
-            Some(Entry { terminal_id: log.terminal_id.clone(), surface, resident, last_output })
+            let terminal_id = log.terminal_id.clone();
+            Some(Entry { terminal_id, surface, resident, cold, last_output })
         })
         .collect::<Vec<_>>();
     let mut total = entries.iter().map(|entry| entry.resident).sum::<u64>();
@@ -75,7 +81,7 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
     if total > budget {
         // Least recently active first.
         entries.sort_by_key(|entry| entry.last_output);
-        for entry in &entries {
+        for entry in entries.iter().filter(|entry| !entry.cold) {
             if total <= budget {
                 break;
             }
@@ -115,7 +121,7 @@ pub(super) fn enforce(mux: &Mux, store: &OutputStore, budget: u64) {
     // while the room lasts (a limit only bounds growth).
     entries.sort_by_key(|entry| std::cmp::Reverse(entry.last_output));
     let mut room = budget * RESTORE_BELOW_PERCENT / 100 - total;
-    for entry in &entries {
+    for entry in entries.iter().filter(|entry| !entry.cold) {
         let Some((configured, applied)) = limited.get(&entry.terminal_id).copied() else {
             continue;
         };

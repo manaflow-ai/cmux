@@ -108,6 +108,7 @@ sys.path.insert(0, str(BINDINGS))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
+from generated_server_families import GeneratedFamiliesError, generated_commands  # noqa: E402
 from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 from sniffer_names import SniffedName, SnifferNameError, sniffer_names  # noqa: E402
 
@@ -311,6 +312,18 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             fail(f"command {name!r} is in the server Command enum and a module")
         commands[name] = fields
     return commands
+
+
+def generated_command_names() -> set[str]:
+    """Commands whose Command variants and params cmux-ipc build.rs makes
+    from the schema (crates/cmux-ipc/server-families.json): served, and their
+    request fields are the schema's by construction."""
+
+    try:
+        return generated_commands(TUI, load_json(SPEC / "sdk-schema.json"))
+    except GeneratedFamiliesError as error:
+        fail(str(error))
+    return set()
 
 
 def _without_reply_id(fields: dict[str, RuntimeField]) -> dict[str, RuntimeField]:
@@ -750,8 +763,12 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    generated = generated_command_names()
+    written = sorted(generated & set(runtime_commands))
+    if written:
+        fail(f"generated family commands also written by hand: {', '.join(written)}")
     for name, fields in handler_command_fields(set(ir.commands)).items():
-        if name in runtime_commands:
+        if name in runtime_commands or name in generated:
             fail(f"{name} is both a Command variant and a handler module command")
         runtime_commands[name] = fields
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
@@ -761,8 +778,10 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
             fail(f"refused legacy request field missing from {command_name}: {sorted(missing)}")
         for name in refused:
             del fields[name]
-    compare_names(set(ir.commands), set(runtime_commands), "runtime SDK command")
+    compare_names(set(ir.commands), set(runtime_commands) | generated, "runtime SDK command")
     for command_name, command in ir.commands.items():
+        if command_name in generated:
+            continue
         request = command["request"]
         assert isinstance(request, Mapping)
         _compare_request_fields(
@@ -774,7 +793,9 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
 def sniffed_commands() -> dict[str, SniffedName]:
     # A sniffer module may compare with a name it passes on to the Command
     # enum (client_hello.rs and identify) without its module table entry.
-    passed_on = set(runtime_command_fields()) - set(module_command_fields())
+    passed_on = (set(runtime_command_fields()) | generated_command_names()) - set(
+        module_command_fields()
+    )
     try:
         return sniffer_names(TUI, passed_on)
     except (SnifferNameError, HandlerCommandError, OSError, UnicodeError) as error:

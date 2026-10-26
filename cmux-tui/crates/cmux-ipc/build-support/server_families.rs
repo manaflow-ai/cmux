@@ -1,0 +1,491 @@
+//! Writes the daemon's request params for the schema families listed in
+//! `server-families.json` (p05-ipc design 3.3, tasks 026 and 029: queue Q15).
+//! Shared by `build.rs`, which writes the macros into `OUT_DIR`, and by the
+//! crate's tests, which feed it schemas that must be refused.
+//!
+//! Mojo generates each interface's request structs from its mojom
+//! (mojo/public/tools/bindings/generators/cpp_templates/struct_declaration.tmpl);
+//! here each listed family's commands become structs, one per command, with the
+//! serde rules the hand-written `Command` variants had: a field the schema
+//! makes optional and nullable is `Option<T>` (absent and `null` are `None`); an
+//! optional field that is not nullable takes its schema default; a required
+//! field has neither. The structs ignore unknown fields, as the hand-written
+//! enum did.
+//!
+//! The output is two kinds of `#[macro_export]` macro, so the structs are local
+//! types of the daemon crate (which owns the field types the schema names by
+//! ref, and the handlers' inherent impls):
+//!
+//! - `<family>_params! { Ref = Type, ... }` defines every struct of that family.
+//!   Each object type the family names by ref is a parameter, in name order.
+//! - `server_command_enum! { <family> = <module>; <enum> }` appends one variant
+//!   per command of every listed family to the enum it is given: a newtype
+//!   over the struct in `<module>`, or a unit variant for a command with no
+//!   fields.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::{self, Write as _};
+
+use serde_json::{Map, Value};
+
+/// Why the schema cannot become params. `path` is a JSON path into the file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmitError {
+    pub path: String,
+    pub message: String,
+}
+
+impl fmt::Display for EmitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.path, self.message)
+    }
+}
+
+fn error(path: impl Into<String>, message: impl Into<String>) -> EmitError {
+    EmitError { path: path.into(), message: message.into() }
+}
+
+/// The families `server-families.json` lists, in its order.
+pub fn listed_families(doc: &Value) -> Result<Vec<String>, EmitError> {
+    let list = doc
+        .get("families")
+        .and_then(Value::as_array)
+        .ok_or_else(|| error("$.families", "must be an array of family names"))?;
+    let mut names = Vec::with_capacity(list.len());
+    for (index, name) in list.iter().enumerate() {
+        let name = name
+            .as_str()
+            .ok_or_else(|| error(format!("$.families[{index}]"), "must be a string"))?;
+        if names.iter().any(|known| known == name) {
+            return Err(error(format!("$.families[{index}]"), format!("{name:?} is listed twice")));
+        }
+        names.push(name.to_owned());
+    }
+    Ok(names)
+}
+
+/// One request field: its Rust name and type, and its serde attribute.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    pub wire: String,
+    pub ident: String,
+    pub rust_type: String,
+    /// `default`, `default = "<fn>"`, `alias = ...`: the inside of `#[serde(...)]`.
+    pub serde: Vec<String>,
+    /// A default other than the type's `Default`: `(fn name, Rust type, expression)`.
+    pub default_fn: Option<(String, String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    pub wire: String,
+    pub method_id: u16,
+    pub variant: String,
+    pub fields: Vec<Field>,
+}
+
+impl Command {
+    /// The params struct's name; a command without fields has none.
+    pub fn params(&self) -> Option<String> {
+        (!self.fields.is_empty()).then(|| format!("{}Params", self.variant))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Family {
+    pub name: String,
+    pub id: u8,
+    /// The family's name in snake case: the macro prefix and module parameter.
+    pub snake: String,
+    pub commands: Vec<Command>,
+    /// Object types the family's fields name by ref: the macro's parameters.
+    pub refs: BTreeSet<String>,
+}
+
+/// The listed families of `sdk`, their commands in method id order.
+pub fn read(sdk: &Value, listed: &[String]) -> Result<Vec<Family>, EmitError> {
+    let declared = sdk
+        .get("families")
+        .and_then(Value::as_object)
+        .ok_or_else(|| error("$.families", "must be an object"))?;
+    let commands = sdk
+        .get("commands")
+        .and_then(Value::as_object)
+        .ok_or_else(|| error("$.commands", "must be an object"))?;
+    let types = sdk.get("types").and_then(Value::as_object).cloned().unwrap_or_default();
+    let mut families = Vec::with_capacity(listed.len());
+    for name in listed {
+        let id = declared
+            .get(name)
+            .and_then(|family| family.get("id"))
+            .and_then(Value::as_u64)
+            .and_then(|id| u8::try_from(id).ok())
+            .ok_or_else(|| {
+                error(format!("$.families.{name}"), "is not a family of sdk-schema.json")
+            })?;
+        families.push(family(name, id, commands, &types)?);
+    }
+    Ok(families)
+}
+
+fn family(
+    name: &str,
+    id: u8,
+    commands: &Map<String, Value>,
+    types: &Map<String, Value>,
+) -> Result<Family, EmitError> {
+    let mut refs = BTreeSet::new();
+    let mut found = BTreeMap::new();
+    for (wire, command) in commands {
+        let Some(method_id) = command.get("method_id").and_then(Value::as_u64) else {
+            continue;
+        };
+        let path = format!("$.commands.{wire}");
+        let method_id = u16::try_from(method_id)
+            .map_err(|_| error(format!("{path}.method_id"), "must be a u16"))?;
+        if method_id >> 8 != u16::from(id) {
+            continue;
+        }
+        let variant = pascal(wire).ok_or_else(|| error(&path, "is not a kebab-case name"))?;
+        let fields = request_fields(&path, wire, command, types, &mut refs)?;
+        found.insert(method_id, Command { wire: wire.clone(), method_id, variant, fields });
+    }
+    if found.is_empty() {
+        return Err(error(format!("$.families.{name}"), "has no command with a method_id"));
+    }
+    Ok(Family {
+        name: name.to_owned(),
+        id,
+        snake: name.replace('-', "_"),
+        commands: found.into_values().collect(),
+        refs,
+    })
+}
+
+fn request_fields(
+    path: &str,
+    wire: &str,
+    command: &Value,
+    types: &Map<String, Value>,
+    refs: &mut BTreeSet<String>,
+) -> Result<Vec<Field>, EmitError> {
+    let request = command
+        .get("request")
+        .and_then(Value::as_object)
+        .ok_or_else(|| error(format!("{path}.request"), "must be an object"))?;
+    if request.get("kind").and_then(Value::as_str) != Some("object") {
+        return Err(error(format!("{path}.request.kind"), "must be \"object\""));
+    }
+    let Some(fields) = request.get("fields") else {
+        return Ok(Vec::new());
+    };
+    let fields = fields
+        .as_object()
+        .ok_or_else(|| error(format!("{path}.request.fields"), "must be an object"))?;
+    let mut out = Vec::with_capacity(fields.len());
+    for (name, field) in fields {
+        let field_path = format!("{path}.request.fields.{name}");
+        out.push(request_field(&field_path, wire, name, field, types, refs)?);
+    }
+    Ok(out)
+}
+
+fn request_field(
+    path: &str,
+    wire: &str,
+    name: &str,
+    field: &Value,
+    types: &Map<String, Value>,
+    refs: &mut BTreeSet<String>,
+) -> Result<Field, EmitError> {
+    let ident = field_ident(name).ok_or_else(|| error(path, "is not a snake_case name"))?;
+    let expression =
+        field.get("type").ok_or_else(|| error(format!("{path}.type"), "is missing"))?;
+    let base = rust_type(&format!("{path}.type"), expression, types, refs)?;
+    let required = match field.get("presence").and_then(Value::as_str) {
+        Some("required") => true,
+        Some("optional") => false,
+        _ => return Err(error(format!("{path}.presence"), "must be required or optional")),
+    };
+    let nullable = field.get("nullable").and_then(Value::as_bool).unwrap_or(false);
+    let mut serde = Vec::new();
+    let mut default_fn = None;
+    let rust_type = match (required, nullable) {
+        (true, false) => base,
+        (false, true) => {
+            serde.push("default".to_owned());
+            format!("::core::option::Option<{base}>")
+        }
+        (false, false) => {
+            let default = field.get("default").ok_or_else(|| {
+                error(path, "an optional field that is not nullable needs a default")
+            })?;
+            match default_expression(&format!("{path}.default"), &base, default)? {
+                None => serde.push("default".to_owned()),
+                Some(expression) => {
+                    let function = format!("{}_{name}_default", wire.replace('-', "_"));
+                    serde.push(format!("default = {function:?}"));
+                    default_fn = Some((function, base.clone(), expression));
+                }
+            }
+            base
+        }
+        (true, true) => {
+            // serde reads an absent `Option` field as `None`, so "required"
+            // would not be enforced; no listed family has such a field yet.
+            return Err(error(path, "a required nullable field cannot be generated yet"));
+        }
+    };
+    if let Some(aliases) = field.get("aliases") {
+        let aliases = aliases
+            .as_array()
+            .ok_or_else(|| error(format!("{path}.aliases"), "must be an array"))?;
+        for alias in aliases {
+            let alias = alias
+                .as_str()
+                .ok_or_else(|| error(format!("{path}.aliases"), "must hold strings"))?;
+            serde.push(format!("alias = {alias:?}"));
+        }
+    }
+    Ok(Field { wire: name.to_owned(), ident, rust_type, serde, default_fn })
+}
+
+/// The Rust type of a schema type expression. An object type named by ref
+/// becomes the macro parameter `$Name`.
+fn rust_type(
+    path: &str,
+    expression: &Value,
+    types: &Map<String, Value>,
+    refs: &mut BTreeSet<String>,
+) -> Result<String, EmitError> {
+    let kind = expression.get("kind").and_then(Value::as_str).unwrap_or_default();
+    match kind {
+        "scalar" => {
+            let name = expression.get("name").and_then(Value::as_str).unwrap_or_default();
+            scalar(name)
+                .map(str::to_owned)
+                .ok_or_else(|| error(path, format!("unknown scalar {name:?}")))
+        }
+        "alias" => {
+            let target =
+                expression.get("target").ok_or_else(|| error(path, "alias has no target"))?;
+            rust_type(&format!("{path}.target"), target, types, refs)
+        }
+        // The hand-written enum took these as strings and checked the value in
+        // the handler, which answers with its own error; so do these structs.
+        "enum" => {
+            let values = expression.get("values").and_then(Value::as_array);
+            if values.is_some_and(|values| values.iter().all(Value::is_string)) {
+                Ok("::std::string::String".to_owned())
+            } else {
+                Err(error(path, "only string enums are generated"))
+            }
+        }
+        "array" => {
+            let items = expression.get("items").ok_or_else(|| error(path, "array has no items"))?;
+            let item = rust_type(&format!("{path}.items"), items, types, refs)?;
+            Ok(format!("::std::vec::Vec<{item}>"))
+        }
+        "ref" => {
+            let name = expression.get("name").and_then(Value::as_str).unwrap_or_default();
+            let target = types
+                .get(name)
+                .ok_or_else(|| error(path, format!("names unknown type {name:?}")))?;
+            if target.get("kind").and_then(Value::as_str) == Some("alias") {
+                return rust_type(&format!("$.types.{name}"), target, types, refs);
+            }
+            if !name.chars().all(|c| c.is_ascii_alphanumeric())
+                || !name.starts_with(|c: char| c.is_ascii_uppercase())
+            {
+                return Err(error(path, format!("type name {name:?} is not PascalCase")));
+            }
+            refs.insert(name.to_owned());
+            Ok(format!("${name}"))
+        }
+        other => Err(error(path, format!("type kind {other:?} is not generated yet"))),
+    }
+}
+
+fn scalar(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "string" => "::std::string::String",
+        "boolean" => "bool",
+        "uint16" => "u16",
+        "uint32" => "u32",
+        "uint64" => "u64",
+        "int32" => "i32",
+        "int64" => "i64",
+        "float32" => "f32",
+        "float64" => "f64",
+        _ => return None,
+    })
+}
+
+/// `None` when the type's `Default` is the schema default (`false`, `0`,
+/// `""`), else the expression of a default function.
+fn default_expression(
+    path: &str,
+    rust: &str,
+    default: &Value,
+) -> Result<Option<String>, EmitError> {
+    let mismatch = || error(path, format!("does not fit the field type {rust}"));
+    match (rust, default) {
+        ("bool", Value::Bool(value)) => Ok(value.then(|| "true".to_owned())),
+        ("::std::string::String", Value::String(value)) => {
+            Ok((!value.is_empty()).then(|| format!("::std::string::String::from({value:?})")))
+        }
+        (_, Value::Number(number)) if rust.starts_with(['u', 'i']) => {
+            let fits = match rust {
+                "u16" => number.as_u64().is_some_and(|v| u16::try_from(v).is_ok()),
+                "u32" => number.as_u64().is_some_and(|v| u32::try_from(v).is_ok()),
+                "u64" => number.as_u64().is_some(),
+                "i32" => number.as_i64().is_some_and(|v| i32::try_from(v).is_ok()),
+                "i64" => number.as_i64().is_some(),
+                _ => false,
+            };
+            if !fits {
+                return Err(mismatch());
+            }
+            let zero = number.as_u64() == Some(0) || number.as_i64() == Some(0);
+            Ok((!zero).then(|| number.to_string()))
+        }
+        _ => Err(mismatch()),
+    }
+}
+
+/// `read-screen` -> `ReadScreen`.
+fn pascal(wire: &str) -> Option<String> {
+    let valid = wire.starts_with(|c: char| c.is_ascii_lowercase())
+        && wire.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !wire.contains("--")
+        && !wire.ends_with('-');
+    valid.then(|| {
+        wire.split('-')
+            .map(|part| {
+                let mut chars = part.chars();
+                chars.next().map_or_else(String::new, |first| {
+                    first.to_ascii_uppercase().to_string() + chars.as_str()
+                })
+            })
+            .collect()
+    })
+}
+
+const KEYWORDS: &[&str] = &[
+    "as", "async", "await", "break", "const", "continue", "dyn", "else", "enum", "extern", "false",
+    "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref",
+    "return", "static", "struct", "trait", "true", "type", "unsafe", "use", "where", "while",
+    "abstract", "become", "box", "do", "final", "gen", "macro", "override", "priv", "try",
+    "typeof", "unsized", "virtual", "yield",
+];
+
+/// A wire field name as a Rust field; a keyword becomes a raw identifier,
+/// which serde reads under its plain name.
+fn field_ident(name: &str) -> Option<String> {
+    let valid = name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
+        && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if !valid || matches!(name, "self" | "super" | "crate" | "Self" | "_") {
+        return None;
+    }
+    Some(if KEYWORDS.contains(&name) { format!("r#{name}") } else { name.to_owned() })
+}
+
+/// Both macros for `families`.
+pub fn emit(families: &[Family]) -> String {
+    let mut code = String::new();
+    // Writing to a String cannot fail.
+    let _ =
+        writeln!(code, "// Generated by cmux-ipc build.rs from spec/sdk-schema.json; not in git.");
+    for family in families {
+        emit_params(&mut code, family);
+    }
+    emit_enum(&mut code, families);
+    code
+}
+
+fn emit_params(code: &mut String, family: &Family) {
+    let name = &family.name;
+    let _ = writeln!(
+        code,
+        "/// The request params of every `{name}` command (family 0x{:02X}), one struct per",
+        family.id
+    );
+    let _ =
+        writeln!(code, "/// command with fields. Arguments: the Rust type of each object type the");
+    let _ = writeln!(code, "/// family names by ref, in name order.");
+    let _ = writeln!(code, "#[macro_export]");
+    let _ = writeln!(code, "macro_rules! {}_params {{", family.snake);
+    let parameters: Vec<String> =
+        family.refs.iter().map(|name| format!("{name} = ${name}:ty")).collect();
+    let _ = writeln!(code, "    ({} $(,)?) => {{", parameters.join(", "));
+    for command in &family.commands {
+        let Some(params) = command.params() else { continue };
+        for field in &command.fields {
+            if let Some((function, rust, expression)) = &field.default_fn {
+                let _ = writeln!(code, "        fn {function}() -> {rust} {{");
+                let _ = writeln!(code, "            {expression}");
+                let _ = writeln!(code, "        }}");
+            }
+        }
+        let doc = format!(
+            "`{}`: {name} method 0x{:04X}, from spec/sdk-schema.json (cmux-ipc build.rs).",
+            command.wire, command.method_id
+        );
+        let _ = writeln!(code, "        #[doc = {doc:?}]");
+        let _ = writeln!(code, "        #[derive(Debug, ::serde::Deserialize)]");
+        let _ = writeln!(code, "        #[cfg_attr(test, derive(::serde::Serialize))]");
+        let _ = writeln!(code, "        pub(crate) struct {params} {{");
+        for field in &command.fields {
+            if !field.serde.is_empty() {
+                let _ = writeln!(code, "            #[serde({})]", field.serde.join(", "));
+            }
+            let _ = writeln!(code, "            pub(crate) {}: {},", field.ident, field.rust_type);
+        }
+        let _ = writeln!(code, "        }}");
+    }
+    let _ = writeln!(code, "    }};");
+    let _ = writeln!(code, "}}");
+}
+
+fn emit_enum(code: &mut String, families: &[Family]) {
+    let _ =
+        writeln!(code, "/// Appends a variant per command of every generated family to the given");
+    let _ =
+        writeln!(code, "/// `cmd`-tagged enum. Arguments: `<family> = <module>;` for each family,");
+    let _ =
+        writeln!(code, "/// the module where its `<family>_params!` structs are; then the enum.");
+    let _ = writeln!(code, "#[macro_export]");
+    let _ = writeln!(code, "macro_rules! server_command_enum {{");
+    let _ = writeln!(code, "    (");
+    for family in families {
+        let _ = writeln!(code, "        {0} = ${0}:ident;", family.snake);
+    }
+    let _ = writeln!(code, "        $(#[$meta:meta])*");
+    let _ = writeln!(code, "        $vis:vis enum $name:ident {{ $($variants:tt)* }}");
+    let _ = writeln!(code, "    ) => {{");
+    let _ = writeln!(code, "        $(#[$meta])*");
+    let _ = writeln!(code, "        $vis enum $name {{");
+    let _ = writeln!(code, "            $($variants)*");
+    for family in families {
+        for command in &family.commands {
+            let doc = format!("`{}` ({} 0x{:04X}).", command.wire, family.name, command.method_id);
+            let _ = writeln!(code, "            #[doc = {doc:?}]");
+            let _ = writeln!(code, "            #[serde(rename = {:?})]", command.wire);
+            match command.params() {
+                Some(params) => {
+                    let _ = writeln!(
+                        code,
+                        "            {}(${}::{params}),",
+                        command.variant, family.snake
+                    );
+                }
+                None => {
+                    let _ = writeln!(code, "            {},", command.variant);
+                }
+            }
+        }
+    }
+    let _ = writeln!(code, "        }}");
+    let _ = writeln!(code, "    }};");
+    let _ = writeln!(code, "}}");
+}

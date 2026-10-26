@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -131,6 +132,7 @@ struct SplitPaneGridFitTests {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-splitgrid-\(UUID().uuidString.prefix(8))")
         defer { try? FileManager.default.removeItem(at: root) }
         let launcher = DaemonLauncher(
+            work: BackgroundWork(label: "test.daemon-launcher"),
             configuration: .init(binary: binary, session: "cn-splitgrid-\(UUID().uuidString.prefix(8).lowercased())",
                                  stateDirectory: root.appendingPathComponent("state")),
             environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })

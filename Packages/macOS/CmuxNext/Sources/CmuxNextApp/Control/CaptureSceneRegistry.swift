@@ -1,7 +1,9 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextEnergy
 import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Describes the named DEBUG scenes available to the deterministic capture route.
 struct CaptureSceneDefinition: Sendable {
@@ -166,6 +168,8 @@ final class CaptureSceneRegistry {
         _ = DebugTunables.handle(["action": .string("set"), "key": .string("sidebar.sections.look"),
                                    "value": .string(name == "sidebar-tiles" ? "tray" : "quiet")], services: services)
         _ = await DebugAgentPane.handle(["action": .string("close_menus")], services)
+        // The energy-saver scene's simulated Low Power Mode ends before any other scene draws.
+        if name != Self.energySaverScene, services.energyMonitor.isSimulated { services.energyMonitor.simulate(nil) }
         switch name {
         case "composer":
             return await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -180,6 +184,8 @@ final class CaptureSceneRegistry {
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("cmd")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Mode")], services)
             return .object(["hint": hint, "menu": menu])
+        case Self.energySaverScene:
+            return await showEnergySaver()
         case "hints-ctrl-held":
             let hint = await DebugShortcutHintControl().handle(["modifier": .string("ctrl")], services: services)
             let menu = await DebugAgentPane.handle(["action": .string("open_menu"), "label": .string("Model")], services)
@@ -187,6 +193,39 @@ final class CaptureSceneRegistry {
         default:
             return .object(["scene": .string(name)])
         }
+    }
+
+    static let energySaverScene = "energy-saver"
+
+    /// `energy-saver` (p14-energy-026): Low Power Mode laid over the Mac's inputs through the app's one
+    /// energy monitor (`debug.energy.simulate`), so the policy driver turns the saver on as it would on
+    /// a real Mac; then the active sidebar's leaf card opens and the scene waits until both show.
+    private func showEnergySaver() async -> JSONValue {
+        guard services.energy.driver.isEnabled else {
+            return .object(["error": .string("feature energySaver is off: launch with CMUX_ENABLE_FEATURES=energySaver")])
+        }
+        guard let sidebar = services.windows.active?.sidebar.container.sidebarView else {
+            return .object(["error": .string("no active window")])
+        }
+        services.energyMonitor.simulate(EnergySimulation(lowPowerMode: true))
+        frames.start()
+        // The leaf shows once the policy reaches the sidebar; the card opens over it, as a hover would.
+        let leaf = await frames.settled(until: { sidebar.debugEnergyCardState()["shown"] == "true" },
+                                        start: .now, window: 0, deadline: 3_000)
+        if leaf != nil { _ = sidebar.debugShowEnergyCard() }
+        let settled = await frames.settled(
+            until: {
+                let state = sidebar.debugEnergyCardState()
+                return state["opaque"] == "true" && state["card"] == "true"
+            },
+            start: .now,
+            window: 100,
+            deadline: 3_000,
+        )
+        var report = sidebar.debugEnergyCardState().mapValues { JSONValue.string($0) }
+        report["energy_frames"] = frames.stop()
+        if settled == nil { report["error"] = .string("the Energy Saver leaf or its card did not show before the deadline") }
+        return .object(report)
     }
 
     static let taskManagerScene = "task-manager"
@@ -250,6 +289,9 @@ final class CaptureSceneRegistry {
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
+        // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
+        CaptureSceneDefinition(name: "energy-saver",
+                               description: "Energy Saver on through simulated Low Power Mode (feature energySaver): the sidebar footer's leaf and its card with the reason and Turn Off for Now."),
         CaptureSceneDefinition(name: "task-manager",
                                description: "The Task Manager with taskManagerMemorySaved on: the app's processes, then two pages Memory Saver discarded (one saved about 182 MB, one with no measurement) and the Memory Saver freed footer."),
     ]

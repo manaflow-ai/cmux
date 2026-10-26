@@ -5,6 +5,9 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// the renderer, script evaluation without DevTools, `SetPageFrozen`, a native click, and the
     /// `cmux-process-reuse-per-renderer-devtools` switch (CEF cmux.35).
     static let rendererPathsForkAPI: Int32 = 29
+    /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the one after the resize fence
+    /// (``CEFLayerHosting/resizeFenceForkAPI``), which the fork bundle p14-energy-136 sets with its pin.
+    static let energySaverForkAPI: Int32 = 33
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
@@ -17,6 +20,11 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// "Renderer sharing"). Both the fork and the shim must have them: the same app runs on an
     /// older CEF with the DevTools path.
     var rendererPaths: Bool { shimHasRendererPaths && forkAPIVersion >= Self.rendererPathsForkAPI }
+
+    /// Chromium takes Energy Saver from the app (``CEFEnergySaver``): frame sinks at 30 Hz except cmux's own
+    /// pages and sinks with recent input, 32 ms wake alignment, battery saver mode in child processes. Below
+    /// this API the app makes no call (the shim also returns 0 when the fork lacks the symbol).
+    var energySaver: Bool { forkAPIVersion >= Self.energySaverForkAPI }
 }
 
 extension CEFForkFeatures {

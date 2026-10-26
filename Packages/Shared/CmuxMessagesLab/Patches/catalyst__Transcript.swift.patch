@@ -222,31 +222,32 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1566,6 +1627,8 @@
+@@ -1566,6 +1627,9 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
-+            // cmux: under Reduce Motion the dots stand at the first dot's peak, played once (cx-sya4n: nothing loops).
-+            else if MessagesLabHomeView.reducesMotion { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
++            // cmux: under Reduce Motion or the host's still loops (Energy Saver) the dots stand at the first dot's
++            // peak, played once (cx-sya4n: nothing loops; p14-energy-027).
++            else if MessagesLabHomeView.stillsLoops { a.speed = 0; a.timeOffset = Self.typingDotPeak; a.repeatCount = 1 }
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1576,6 +1639,8 @@
+@@ -1576,6 +1640,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
-+        // cmux: no breathing under Reduce Motion, and a running breath stops (cx-sya4n).
-+        if MessagesLabHomeView.reducesMotion { stopTypingBreath(); return }
++        // cmux: no breathing under Reduce Motion or the host's still loops, and a running breath stops (cx-sya4n).
++        if MessagesLabHomeView.stillsLoops { stopTypingBreath(); return }
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1674,7 +1739,8 @@
+@@ -1674,7 +1740,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)
 -        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
-+        // cmux: no breathing under Reduce Motion (cx-sya4n).
-+        Springs.typingStillPhase == nil && !MessagesLabHomeView.reducesMotion && typingContainer.animation(forKey: "breath.transform.scale") == nil
++        // cmux: no breathing under Reduce Motion or the host's still loops (cx-sya4n).
++        Springs.typingStillPhase == nil && !MessagesLabHomeView.stillsLoops && typingContainer.animation(forKey: "breath.transform.scale") == nil
  #else
          false
  #endif

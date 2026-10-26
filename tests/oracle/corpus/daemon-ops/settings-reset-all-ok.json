@@ -37,7 +37,9 @@
       },
       "args": {
         "method": "settings.reset_all",
-        "params": {},
+        "params": {
+          "origin": "user"
+        },
         "idempotencyKey": "settings-reset-all-ok.call"
       },
       "expect": {
@@ -48,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a local connection that declares origin user resets every schema key (resource_router/config.rs meta: only an app or a peer is held to mcp)"
     }
   ],
   "invariants": [

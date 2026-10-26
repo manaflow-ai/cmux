@@ -76,6 +76,9 @@ public final class CreateTabTimings {
     /// The tabs waiting for their first frame.
     public var waitingTabs: Set<String> { Set(waiting.keys) }
 
+    /// The open interval of tab `key`, while it waits for its first frame.
+    public func interval(ofTab key: String) -> CreateTabInterval? { waiting[key]?.interval }
+
     /// The daemon surfaces waiting to be listed as a tab.
     public var waitingSurfaces: Set<UInt64> { Set(bySurface.keys) }
 
@@ -106,10 +109,13 @@ public final class CreateTabTimings {
         bySurface.updateValue(interval, forKey: surface)?.end(.closed)
     }
 
-    /// The pane lists `surface`'s tab as `key`: a wait for that surface is the tab's now.
-    public func listed(surface: UInt64, tab key: String) {
-        guard let interval = bySurface.removeValue(forKey: surface) else { return }
+    /// The pane lists `surface`'s tab as `key`: a wait for that surface is the tab's now. Returns that wait's
+    /// interval (nil: none waited for the surface), whose new terminal marks its `tab_added` stage here.
+    @discardableResult
+    public func listed(surface: UInt64, tab key: String) -> CreateTabInterval? {
+        guard let interval = bySurface.removeValue(forKey: surface) else { return nil }
         expect(interval, tab: key, standIn: false)
+        return interval
     }
 
     /// The pane will not show `surface`'s tab (its selection went to another new tab first): no sample.
@@ -119,6 +125,14 @@ public final class CreateTabTimings {
 
     /// Whether any tab waits (a show checks this before it builds the content's frame signal).
     public var isWaiting: Bool { !waiting.isEmpty }
+
+    /// The open `kind` interval that tab `key`, or the daemon's `surface` not listed yet, waits on; nil when neither
+    /// waits (a restored, reattached or remade tab, or a create no one sees). A new terminal's stages are keyed by
+    /// it (`NewTerminalTrace`).
+    public func waitingInterval(_ kind: CreateTabInterval.Kind, tab key: String, surface: UInt64) -> CreateTabInterval? {
+        guard let interval = waiting[key]?.interval ?? bySurface[surface], interval.isOpen, interval.kind == kind else { return nil }
+        return interval
+    }
 
     /// Pane content of tab `key` is shown now; `firstFrame` is how it reports its first frame.
     public func presented(_ key: String, firstFrame: FirstFrame) {

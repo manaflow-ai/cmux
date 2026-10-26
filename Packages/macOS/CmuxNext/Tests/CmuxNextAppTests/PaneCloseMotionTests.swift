@@ -337,7 +337,7 @@ struct PaneCloseMotionTests {
                 "the fading window keeps its opaque backing or its shadow, or its layer fades by sublayer")
         #expect(layer.opacity == 0, "the frame view's model opacity is not the fade's target")
         let springs = (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) as? CASpringAnimation }
-            .filter { $0.keyPath == WindowCloseMotion.keyPath }
+            .filter { $0.keyPath == WindowCloseMotion.key.path }
         #expect(springs.count == 1, "the fade is not one render-server spring: \(springs.count)")
         let exit = Motion.panes.renderSpring(.exit).parameters
         #expect(exit.dampingFraction >= 1, "the exit spring overshoots, so the window comes back up")

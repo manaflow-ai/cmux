@@ -9,7 +9,7 @@ import CmuxNextSignposts
 /// keeps only the first time of each name as a launch mark. Marks come from
 /// any thread. The first connect starts in `main`, before the App installs its
 /// receiver, so marks are kept with their time until then.
-public final class DaemonLaunchTimings: @unchecked Sendable {
+public final class DaemonLaunchTimings: Sendable {
     public static let shared = DaemonLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?

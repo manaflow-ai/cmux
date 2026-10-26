@@ -120,6 +120,24 @@ import Testing
         #expect(!blank.isRendererlessPlaceholder)
     }
 
+    /// p08-startup-044: the spare's window coming up marks `cef.spare_window_ready`, once per process: not
+    /// while it is being built, and not again when it comes back to the spare or a later spare comes up.
+    @Test func theSparesWindowMarksSpareWindowReadyOnce() throws {
+        let (runtime, root) = try Self.spyRuntime(forkAPI: 29)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = CEFLaunchMarkLog()
+        runtime.launchMarks.receiver = log.receive
+        #expect(runtime.spareWindow.prepare(.browser, runtime: runtime))
+        #expect(log.names.isEmpty, "marked before the window came up")
+        try Self.comeUp(runtime, browser: 10)
+        #expect(log.names == ["cef.spare_window_ready"])
+
+        runtime.spareWindow.drop(.browser, runtime: runtime)
+        #expect(runtime.spareWindow.prepare(.browser, runtime: runtime))
+        try Self.comeUp(runtime, browser: 11)
+        #expect(log.names == ["cef.spare_window_ready"])
+    }
+
     /// Chromium finished the one window being built: its OnAfterCreated, as `browser`.
     private static func comeUp(_ runtime: CEFRuntime, browser: Int32) throws {
         #expect(runtime.pendingWindows.count == 1)

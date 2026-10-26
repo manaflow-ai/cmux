@@ -29,6 +29,29 @@
   ],
   "steps": [
     {
+      "id": "make-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.group.create",
+        "params": {
+          "id": "itm_oracle_group",
+          "name": "oracle",
+          "items": [
+            "itm_app_store"
+          ]
+        },
+        "idempotencyKey": "sidebar-group-update-ok.make-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,8 +61,12 @@
       "args": {
         "method": "sidebar.group.update",
         "params": {
-          "id": "oracle",
-          "patch": {}
+          "id": "itm_oracle_group",
+          "patch": {
+            "name": "renamed",
+            "color": "#336699",
+            "collapsed": true
+          }
         },
         "idempotencyKey": "sidebar-group-update-ok.call"
       },
@@ -51,7 +78,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "name, color and collapsed of a group change in one commit"
     }
   ],
   "invariants": [
@@ -60,8 +87,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

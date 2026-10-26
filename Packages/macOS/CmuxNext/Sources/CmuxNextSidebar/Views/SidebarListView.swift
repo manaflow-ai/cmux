@@ -82,6 +82,8 @@ final class SidebarListView: NSView {
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
+    /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
+    var onHoverRow: ((SidebarRowKey?) -> Void)?
     /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
     /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in
@@ -344,6 +346,7 @@ final class SidebarListView: NSView {
         if let hoveredKey, let view = rowViews[hoveredKey] { setHover(false, on: view) }
         hoveredKey = key
         if let key, let view = rowViews[key] { setHover(true, on: view) }
+        onHoverRow?(key)
     }
     private func setHover(_ hovered: Bool, on view: SidebarRowView) {
         view.isHovered = hovered

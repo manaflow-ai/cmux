@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 @testable import CmuxNextSettings
@@ -145,6 +146,28 @@ struct SettingsLaunchReadTests {
         pending.whenRead(hop: later, startup: StartupTestScheduler().startup, take: { steps.names.append("take.\($0.snapshot.density ?? "")") },
                          then: { _ in steps.names.append("then") })
         #expect(steps.names == ["take.cozy", "then"], "an ended read did not run the steps at once")
+    }
+
+    /// The app reads the incognito ledger, then the settings, in one sequence: the launch window the settings
+    /// read's landing builds knows the ledger's answer, although the files lane runs other user-blocking reads at once.
+    @Test func aSequencedReadStartsOnlyOnceTheReadBeforeItHasItsResult() async throws {
+        let url = try Self.file("{}")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        // The app's widths: four user-blocking files slots.
+        let work = BackgroundWork(label: "test.settings-launch-sequence")
+        let reads = work.sequence("test.ledger-then-settings")
+        let ledger = CmuxNextDesign.LaunchRead<Int>(in: reads) {
+            // A cold disk: outside the sequence, the settings read would start meanwhile on another slot.
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(100))
+            return 1
+        }
+        let seen = OSAllocatedUnfairLock<Int?>(initialState: nil)
+        let pending = SettingsController.startLaunchRead(on: work, in: reads, prepareFileURL: {
+            seen.withLock { $0 = ledger.value ?? 0 }
+            return url
+        }, managedReader: FixedManagedPreferenceReader(ManagedPreferences()))
+        _ = try await Self.ended(pending)
+        #expect(seen.withLock { $0 } == 1, "the settings read started before the ledger read had its result")
     }
 
     @Test func aFailedFirstLaunchReadsTheDefaultPathAndSaysWhy() async throws {

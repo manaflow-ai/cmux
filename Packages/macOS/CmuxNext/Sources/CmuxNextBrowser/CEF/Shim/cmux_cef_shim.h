@@ -534,6 +534,13 @@ CMUX_SHIM_EXPORT void cmux_shim_do_work(void);
 // cmux_set_on_schedule_delayed (p14-energy-046), 0 otherwise: delayed work
 // then stays on schedule. NULL goes back to schedule.
 CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed);
+// Energy Saver on (enabled 1) or off in Chromium (fork cmux_cef_set_energy_saver,
+// p14-energy-029): frame sinks at 30 Hz, except pages of exempt_scheme
+// (NULL = none) and sinks with input in the last second; wake-ups aligned to
+// 32 ms; battery saver mode in every child process. Main thread, after
+// cmux_shim_initialize. Returns 1 when the fork took it, 0 when the fork
+// lacks the call (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme);
 
 // Creates a Chrome-style browser whose Chromium window tracks parent_view
 // (NSView*). profile_cache_path selects a request context (NULL = global).
@@ -936,6 +943,12 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// The pid of the renderer process that hosts browser_id's main frame
+// (p14-energy-124, the fork's cmux_cef_browser_renderer_pid); same-site
+// tabs can share it. 0 while there is none (no renderer yet, gone, a
+// renderer-less placeholder), for an unknown browser, on a fork without
+// the call, and in host mode (the renderers are the host's children).
+CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id);
 // Remote localhost (plans/cmux-next/remote-localhost.md). Call before the
 // first window with profile_cache_path each launch: that request context
 // sends every request (loopback included) to the app's proxy at

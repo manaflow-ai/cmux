@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -26,6 +27,8 @@ public final class ControlService {
     public let server: ControlSocketServer
     public let router: ControlRouter
     public let bridge: RegistryControlBridge
+    /// The router's idempotency cache in the app's memory coordinator (`control-idempotency`).
+    private var memoryRegistration: AsyncMemoryConsumerRegistration?
 
     init(server: ControlSocketServer, router: ControlRouter, bridge: RegistryControlBridge) {
         self.server = server
@@ -132,6 +135,19 @@ public final class ControlService {
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
         return ControlService(server: server, router: router, bridge: bridge)
+    }
+
+    /// Registers the router's idempotency cache with the app's memory coordinator
+    /// (`control-idempotency`); the service keeps the registration, so the coordinator calls the cache
+    /// while the service lives. A second call replaces the first.
+    ///
+    /// - Parameters:
+    ///   - registry: The memory coordinator (AppServices+Memory.swift).
+    ///   - hop: How the coordinator's calls leave the main actor (tests pass their own).
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry, hop: AsyncMemoryConsumerHop = .task) {
+        memoryRegistration = AsyncMemoryConsumerRegistration(
+            name: "control-idempotency", traits: ControlIdempotencyCache.memoryTraits, consumer: router.idempotency,
+            registry: registry, hop: hop)
     }
 
     /// Starts accepting, once every method group is registered: on `listener` when the app bound it

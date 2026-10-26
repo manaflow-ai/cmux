@@ -28,6 +28,7 @@ extension PageWebView {
     /// The picture is a cover shown while the page draws again, so JPEG is plenty. The reply (a
     /// multi-megabyte base64 string) is parsed and decoded on the `.cpu` lane (``capturedPageImage(_:on:)``).
     public func snapshot() async -> NSImage? {
+        guard !awaitsFirstShow else { return nil } // nothing drawn, and no engine call before the first show
         guard let session = chromiumSession else { return try? await webView.takeSnapshot(configuration: nil) }
         guard let json = try? await session.page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let image = await Self.capturedPageImage(json, on: session.work) else { return nil }
@@ -68,7 +69,7 @@ extension PageWebView {
         let wait = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
         // task-owner: one frame wait; ends with the page's answer (or at once when the page is gone)
         Task { @MainActor [weak self] in
-            guard let self else { return body() }
+            guard let self, !self.awaitsFirstShow else { return body() }
             _ = await self.callPageFunction(wait)
             guard self.chromiumSession == nil else { return body() }
             Self.afterPresentationUpdate(of: self.webView, body)
