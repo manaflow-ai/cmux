@@ -1,0 +1,21 @@
+{
+  "id": "app-perf",
+  "tier": "T2",
+  "description": "App gestures at 10 and 50 terminal workspaces (app-perf.py, 5 rounds): Cmd-D, Cmd-Shift-D, the side pane and the sidebar toggles, New Workspace at Top and workspace switch, each from the press until the window rests: display frame intervals, main-thread busy ms per frame, 120 Hz drops per gesture and the app's press-to-commit ms (new-top, switch).",
+  "command": ["scripts/cmux-next/app-perf.py", "--story", "app-perf"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "app_perf\\.[0-9]+ws\\.(split-right|split-down|right-sidebar-open|right-sidebar-close|sidebar-show|sidebar-hide|new-top|switch)\\.(frame_interval|main_busy|commit)", "unit": "ms", "better": "lower"},
+    {"name": "app_perf\\.[0-9]+ws\\.(split-right|split-down|right-sidebar-open|right-sidebar-close|sidebar-show|sidebar-hide|new-top|switch)\\.drop120", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.frames", "debug:debug.hangs", "debug:debug.key", "debug:debug.layers",
+            "debug:debug.layout_counters", "debug:debug.new_workspace", "debug:debug.sidebar_perf",
+            "debug:debug.sidebar_rows", "debug:debug.tab_switch", "debug:debug.window_transition"],
+  "hot_paths": ["motion-frame"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Motion"
+}
