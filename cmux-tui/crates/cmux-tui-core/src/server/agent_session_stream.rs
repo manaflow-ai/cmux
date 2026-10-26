@@ -81,13 +81,6 @@ pub(super) fn connect_and_attach(
     }
     let watched = link.call("_acpmux/watch", watch, CALL_TIMEOUT);
     let page = if author.is_some() { without_drafts(page) } else { page };
-    // A teammate's page is the shared chat's: a rebind while acpmux answered ends it unseen.
-    if author.is_some() && tab_session(&mux, surface).as_deref() != Some(record_session.as_str()) {
-        release(sessions);
-        link.close();
-        refuse(&writer, id, Refusal::NotShared);
-        return;
-    }
     let attachment = Arc::new(Attachment {
         author,
         client,
@@ -117,6 +110,16 @@ pub(super) fn connect_and_attach(
             attachment.note_permission(permission);
         }
     }
+    // A teammate's page is the shared chat's: from this check to the reply no rebind lands
+    // (AgentSessions::shared), and a rebind while acpmux answered ends it unseen.
+    let shared = attachment.author.is_some().then(|| sessions.shared());
+    if shared.is_some() && !attachment.tab_current() {
+        drop(shared);
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotShared);
+        return;
+    }
     {
         let mut state = sessions.lock();
         state.reserved.remove(&(client, surface));
@@ -129,6 +132,7 @@ pub(super) fn connect_and_attach(
         state.attachments.insert((client, surface), attachment.clone());
     }
     let replied = ok(&writer, id, page);
+    drop(shared);
     {
         // The held notifications go out after the reply, in order, before
         // any later one (the reader waits on this lock meanwhile).
@@ -257,6 +261,13 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         Inbound::Notification(method, params) => (method, params),
     };
     let same_session = params.get("sessionId").and_then(Value::as_str) == Some(&attachment.session);
+    // A teammate's stream holds the rebind lock from its tab check to its write, and stops once
+    // the tab shows another chat, whatever the event (AgentSessions::shared).
+    let mux = attachment.author.is_some().then(|| attachment.mux.upgrade()).flatten();
+    let _shared = mux.as_ref().map(|mux| mux.control_clients.agent_sessions.shared());
+    if attachment.author.is_some() && (mux.is_none() || !attachment.tab_current()) {
+        return attachment.end(Some("detached"));
+    }
     // A closed tab, or one that now shows another session, stops streaming.
     if same_session && !attachment.tab_current() {
         return attachment.end(Some("detached"));

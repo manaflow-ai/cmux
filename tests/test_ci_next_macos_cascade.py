@@ -539,8 +539,15 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
-                self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
+                if name == "release-compile":
+                    # A same-repository PR uses a free owned Mac first; Blacksmith is spillover.
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", small=f" {name} y ")), SMALL)
+                else:
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
                 # Whole keys only: another job's slot is not this job's.
                 self.assertEqual(evaluate(runs_on, self.context(large=f" {name}-x ", small=f" x{name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
@@ -550,6 +557,14 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
+
+    def test_release_compile_pr_is_owned_first_and_spills_to_blacksmith(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        owned = self.context(runner="glaeda-side-std-xcode-26.6", large=" release-compile ")
+        spill = self.context(runner="", large=" release-compile ")
+        self.assertEqual(evaluate(runs_on, owned), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, spill), LARGE)
 
     def test_attempt_1_takes_the_hosted_spill_the_placement_chose(self):
         for name in CASCADED:

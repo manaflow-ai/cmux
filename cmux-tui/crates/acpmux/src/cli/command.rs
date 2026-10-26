@@ -315,6 +315,10 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Print the URL with its bearer token (`--json` always has it in `url`;
+        /// the browser this command opens always gets it).
+        #[arg(long)]
+        show_token: bool,
         /// Replace the dashboard token now: the old link, `ws://` peers that
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
@@ -426,6 +430,9 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        #[arg(long)]
+        force_admit: bool,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -485,7 +492,10 @@ pub enum Command {
         end_agents: bool,
     },
     #[command(hide = true)]
-    Config,
+    Config {
+        #[arg(long)]
+        show_token: bool,
+    },
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -713,6 +723,9 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor, or at max_lanes).
+        #[arg(long)]
+        force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
@@ -873,8 +886,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         end_agents: bool,
     },
-    /// Print the config path and contents.
-    Config,
+    /// Print the config path and contents (without its tokens).
+    Config {
+        /// Print the bearer tokens too (`--json` always has them).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
@@ -979,6 +996,10 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Create the session even when its host refuses new ones (disk under its
+    /// floor, or at the fleet registry's max_lanes). The daemon logs it.
+    #[arg(long)]
+    pub force_admit: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -991,7 +1012,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session } => Command::ResumeQueue { session },
-            SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
+            SessionCmd::Fork { session, name, cwd, force_admit } => {
+                Command::Fork { session, name, cwd, force_admit }
+            }
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
@@ -1042,7 +1065,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
-            DaemonCmd::Config => Command::Config,
+            DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Schema => Command::Schema,

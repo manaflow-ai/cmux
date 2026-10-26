@@ -49,6 +49,9 @@ pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
+/// The most bytes of a question's `answers` (as JSON) one permission answer
+/// carries; acpmux bounds each item itself.
+const MAX_ANSWERS_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
 /// Record kinds or categories one page may ask for: the agent pane asks for all
@@ -80,6 +83,11 @@ pub(crate) struct AgentSessions {
     state: Mutex<AttachState>,
     /// WhoIs attestations from the same-user host proxy, fixed for each link.
     proxy_authors: Mutex<HashMap<u64, Value>>,
+    /// Unix connections past their first line: a proxy binds only on its first.
+    spoken: Mutex<HashSet<u64>>,
+    /// A tab's session changes under the write side; every write to or for a teammate's
+    /// attachment checks the tab under the read side, so none lands after a rebind.
+    rebinding: RwLock<()>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
     /// `agent-session-children-v1`: the descendants acpmux answered, which
@@ -121,10 +129,30 @@ impl AgentSessions {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Held while a tab's session changes (`bind-conversation-tab-session`, a start's bind).
+    pub(super) fn rebinding(&self) -> std::sync::RwLockWriteGuard<'_, ()> {
+        self.rebinding.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Held by a write to or for a teammate's attachment, from its tab check to the write.
+    pub(super) fn shared(&self) -> std::sync::RwLockReadGuard<'_, ()> {
+        self.rebinding.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The connection's first line was handled: it can no longer bind a proxy identity.
+    pub(crate) fn first_line_done(&self, client: u64) {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    pub(super) fn past_first_line(&self, client: u64) -> bool {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
         self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -223,6 +251,20 @@ impl Attachment {
     /// An answered request: it cannot be answered again.
     fn forget_permission(&self, id: &str) {
         self.permissions.lock().unwrap_or_else(|e| e.into_inner()).retain(|known| known != id);
+    }
+
+    /// Runs `write` for this attachment: at once for the owner's; for a teammate's, only while
+    /// its tab still shows the shared chat, with no rebind in between (`AgentSessions::shared`).
+    fn while_shared<T>(&self, write: impl FnOnce() -> T) -> Result<T, Refusal> {
+        if self.author.is_none() {
+            return Ok(write());
+        }
+        let Some(mux) = self.mux.upgrade() else { return Err(Refusal::NotShared) };
+        let _shared = mux.control_clients.agent_sessions.shared();
+        if self.ended.load(Ordering::Acquire) || !self.tab_current() {
+            return Err(Refusal::NotShared);
+        }
+        Ok(write())
     }
 
     /// True while the tab's store record still shows the attached session.
@@ -352,6 +394,15 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// A question's answers (a JSON object, acpmux `hub/questions.rs`):
+    /// passed to acpmux unchanged; the decision proof covers them.
+    #[serde(default)]
+    answers: Option<Value>,
+    /// A question's annotations beside its answers (Claude Code's chosen
+    /// preview and notes, acpmux `questions::check_annotations`): passed to
+    /// acpmux unchanged; the decision proof covers them too.
+    #[serde(default)]
+    annotations: Option<Value>,
     /// The person's decision proof for this answer (acpmux `hub/person.rs`,
     /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
     #[serde(default)]
@@ -515,8 +566,9 @@ pub(super) fn try_handle(
     }
     // A peer cannot self-attribute: only the preface's fixed identity is accepted, for the chat
     // the share pinned.
-    let author = match proxy::check(mux, client, &mut object) {
-        Ok(author) => author,
+    let (author, pinned) = match proxy::check(mux, client, &mut object) {
+        Ok(Some(teammate)) => (Some(teammate.author), teammate.pinned),
+        Ok(None) => (None, None),
         Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
     };
     // A teammate's link reaches the shared chat's own verbs only: never start, trust, media,
@@ -541,7 +593,7 @@ pub(super) fn try_handle(
     }
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
         let clean = Value::Object(object).to_string();
-        return agent_session_observe::try_handle(mux, client, &clean, writer, author);
+        return agent_session_observe::try_handle(mux, client, &clean, writer, author, pinned);
     }
     let cmd = match object.remove("cmd") {
         Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
@@ -566,7 +618,7 @@ pub(super) fn try_handle(
     };
     Some(match command {
         AgentSessionCommand::Attach(params) => {
-            attach(mux, client, id, socket, params, false, author, writer)
+            attach(mux, client, id, socket, params, false, author, pinned, writer)
         }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
@@ -578,6 +630,13 @@ pub(super) fn try_handle(
         command => {
             let surface = command_surface(&command);
             match sessions.attachment(client, surface) {
+                // A teammate's attachment is for the chat this request's share pins, only.
+                Some(attachment)
+                    if author.is_some()
+                        && pinned.as_deref() != Some(attachment.record_session.as_str()) =>
+                {
+                    refuse(writer, id, Refusal::NotShared)
+                }
                 Some(attachment) => run_on_worker(mux, attachment, id, command, writer),
                 None => refuse(writer, id, Refusal::NotAttached),
             }
@@ -724,10 +783,14 @@ fn attach(
     params: PageParams,
     read_only: bool,
     author: Option<Value>,
+    pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
+        if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {
+            return refuse(writer, id, Refusal::NotShared);
+        }
         if attachment.read_only.load(Ordering::Acquire) != read_only {
             return refuse(writer, id, Refusal::ModeConflict);
         }
@@ -737,6 +800,11 @@ fn attach(
     let Some(session) = tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    // A teammate attaches to the chat its share pinned, as `proxy::check` saw it: a rebind since
+    // then is refused, never followed.
+    if author.is_some() && pinned.as_deref() != Some(session.as_str()) {
+        return refuse(writer, id, Refusal::NotShared);
+    }
     let record_session = session.clone();
     let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,
@@ -883,11 +951,19 @@ fn run_on_worker(
     // A cancel is a notification on the link and never waits.
     if let AgentSessionCommand::Cancel(_) = command {
         let sent = attachment
-            .link
-            .notify("session/cancel", attachment.stamp(json!({"sessionId": attachment.session})));
+            .while_shared(|| {
+                attachment
+                    .link
+                    .notify(
+                        "session/cancel",
+                        attachment.stamp(json!({"sessionId": attachment.session})),
+                    )
+                    .map_err(Refusal::of)
+            })
+            .and_then(|sent| sent);
         return match sent {
             Ok(()) => ok(writer, id, json!({})),
-            Err(error) => refuse(writer, id, Refusal::of(error)),
+            Err(refusal) => refuse(writer, id, refusal),
         };
     }
     if attachment.calls.fetch_add(1, Ordering::AcqRel) >= MAX_CALLS {
@@ -903,10 +979,14 @@ fn run_on_worker(
         .spawn(move || {
             let result = call(&worker, command);
             worker.calls.fetch_sub(1, Ordering::AcqRel);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            };
+            // A teammate's answer goes out only while its tab still shows the shared chat.
+            let replied = worker.while_shared(|| match result {
+                Ok(data) => ok(&worker_writer, worker_id.clone(), data),
+                Err(refusal) => refuse(&worker_writer, worker_id.clone(), refusal),
+            });
+            if let Err(refusal) = replied {
+                refuse(&worker_writer, worker_id, refusal);
+            }
         });
     if spawned.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
@@ -946,12 +1026,24 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
+            answers,
+            annotations,
             decision_nonce,
             person_decision,
             answered_by,
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            let answers = answers.filter(|a| !a.is_null());
+            let annotations = annotations.filter(|a| !a.is_null());
+            let bad = |v: &Option<Value>| {
+                v.as_ref()
+                    .is_some_and(|a| !a.is_object() || a.to_string().len() > MAX_ANSWERS_BYTES)
+            };
+            // Annotations go only beside answers.
+            if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
                 return Err(Refusal::BadRequest);
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
@@ -967,6 +1059,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            if let Some(answers) = answers {
+                params["answers"] = answers;
+            }
+            if let Some(annotations) = annotations {
+                params["annotations"] = annotations;
+            }
             let mut meta = serde_json::Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
@@ -1114,11 +1212,17 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
     // The request's own reply comes at the end of the turn and is not
     // waited for, so a queued prompt holds no call slot (permission answers
     // stay possible while turns queue).
-    if let Err(error) =
-        attachment.link.send_ignoring_reply("session/prompt", attachment.stamp(params))
-    {
+    let sent = attachment
+        .while_shared(|| {
+            attachment
+                .link
+                .send_ignoring_reply("session/prompt", attachment.stamp(params))
+                .map_err(Refusal::of)
+        })
+        .and_then(|sent| sent);
+    if let Err(refusal) = sent {
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
-        return Err(Refusal::of(error));
+        return Err(refusal);
     }
     let accepted = receiver.recv_timeout(CALL_TIMEOUT);
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);

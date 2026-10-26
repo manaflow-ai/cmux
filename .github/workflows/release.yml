@@ -148,8 +148,9 @@ jobs:
     # Notarization wait times vary on Apple's side; the app and the final DMG
     # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
     # builds and notarizations. Keep at least 25 percent above the measured
-    # duration.
-    timeout-minutes: 90
+    # duration. Ten more minutes are the release publisher's rate-limit budget
+    # (publish-release-assets.py, RATE_LIMIT_BUDGET_SECONDS), which waits at the end.
+    timeout-minutes: 100
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash

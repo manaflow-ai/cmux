@@ -23,6 +23,15 @@ pub(super) fn bind(
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
         return refuse(writer, id, Refusal::NotTrusted);
     }
+    // The bind carries no host markers: those are only ever the proxy's stamps on later frames.
+    if object.keys().any(|key| key.starts_with("_host_")) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    // Only as the connection's first line: a link that already subscribed or asked for anything
+    // else keeps no daemon state into the teammate's session.
+    if mux.control_clients.agent_sessions.past_first_line(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
     let Some(author) = object.remove("author") else {
         return refuse(writer, id, Refusal::BadRequest);
     };
@@ -51,8 +60,16 @@ pub(super) fn bind(
     )
 }
 
+/// A bound teammate's request, as [`check`] accepted it: the author and the chat its share
+/// pinned (`None` only for a detach). The caller uses exactly this chat, never a later lookup a
+/// rebind could change.
+pub(super) struct Teammate {
+    pub(super) author: Value,
+    pub(super) pinned: Option<String>,
+}
+
 /// The request's author, checked against the connection's binding: `Ok(None)` for the owner's
-/// own client, `Ok(Some(author))` for a bound teammate, a refusal otherwise. The caller uses this
+/// own client, `Ok(Some(teammate))` for a bound teammate, a refusal otherwise. The caller uses this
 /// answer, never a later lookup a disconnect could empty. A bound teammate's frame also names the
 /// chat its share pinned (`_host_session`), and is refused unless the surface shows that chat now:
 /// a surface rebound to another chat is not shared. A detach needs no chat.
@@ -60,7 +77,7 @@ pub(super) fn check(
     mux: &Mux,
     client: u64,
     object: &mut serde_json::Map<String, Value>,
-) -> Result<Option<Value>, Refusal> {
+) -> Result<Option<Teammate>, Refusal> {
     let supplied = object.remove("_host_author");
     let pinned = object.remove("_host_session");
     // Only the proxy's two markers exist; any other `_host_` field is a forgery.
@@ -77,15 +94,15 @@ pub(super) fn check(
     if supplied.as_ref() != Some(&bound) {
         return Err(Refusal::NotTrusted);
     }
-    if object.get("cmd").and_then(Value::as_str) != Some("agent-session-detach") {
-        let pinned = pinned.as_ref().and_then(Value::as_str).filter(|s| !s.is_empty());
-        let current =
-            object.get("surface").and_then(Value::as_u64).and_then(|s| tab_session(mux, s));
-        if pinned.is_none() || pinned != current.as_deref() {
-            return Err(Refusal::NotShared);
-        }
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-detach") {
+        return Ok(Some(Teammate { author: bound, pinned: None }));
     }
-    Ok(Some(bound))
+    let pinned = pinned.as_ref().and_then(Value::as_str).filter(|s| !s.is_empty());
+    let current = object.get("surface").and_then(Value::as_u64).and_then(|s| tab_session(mux, s));
+    if pinned.is_none() || pinned != current.as_deref() {
+        return Err(Refusal::NotShared);
+    }
+    Ok(Some(Teammate { author: bound, pinned: pinned.map(str::to_owned) }))
 }
 
 /// `agent-session-of {surface}`: the surface's agent session, for `cmux host share` to pin. The
@@ -298,14 +315,26 @@ mod tests {
         let mut client = Client::connect(&mux, "proxy-private");
         let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
             "login":"person@example.com", "node":"laptop"});
-        // Even a proxy connection that asked for presence gets none.
-        let info = client.request(json!({"cmd":"set-client-info","name":"proxy",
-            "capabilities":[AGENT_SESSION_PRESENCE_CAPABILITY]}));
-        assert_eq!(info["ok"], json!(true), "{info}");
         assert_eq!(
             client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
             true
         );
+        // A bound link cannot ask for presence; even one that had the capability gets none.
+        let info = client.request(json!({"cmd":"set-client-info","name":"proxy",
+            "capabilities":[AGENT_SESSION_PRESENCE_CAPABILITY]}));
+        assert_code(&info, "agent_session.not_trusted");
+        let bound = *mux
+            .control_clients
+            .agent_sessions
+            .proxy_authors
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap();
+        mux.control_clients
+            .set_info(bound, None, None, Some(vec![AGENT_SESSION_PRESENCE_CAPABILITY.to_owned()]))
+            .unwrap();
         let attach = json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author, "_host_session":SESSION});
         let page = client.request(attach);
         assert_eq!(kinds(&page), ["user_message"], "the replayed draft is dropped");
@@ -450,6 +479,10 @@ mod tests {
             json!({"cmd":"list-workspaces"}),
             json!({"cmd":"identify"}),
             json!({"cmd":"subscribe"}),
+            json!({"protocol":"cmux.protocol/2", "type":"request",
+                "operation":"agent_session.trust.get", "params":{"cwd":"/tmp"}}),
+            json!({"protocol":"cmux.protocol/2", "type":"request",
+                "operation":"workspace.create", "params":{}}),
         ] {
             assert_code(&client.request(frame), "agent_session.not_trusted");
         }
@@ -525,6 +558,148 @@ mod tests {
         }
         assert!(author_of(&mux).is_none(), "no identity is bound");
         fake.no_connection();
+    }
+
+    /// A bind is a link's first line only, and carries no host markers: a connection that
+    /// subscribed or asked anything first keeps no daemon state into a teammate's session.
+    #[test]
+    fn a_bind_is_the_first_line_and_names_no_host_marker() {
+        let fake = FakeAcpmux::start("proxy-first");
+        let mux = mux_with(&fake, "proxy-first");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let bind = json!({"cmd":"agent-session-proxy-bind", "author":author});
+        let mut late = Client::connect(&mux, "proxy-first-late");
+        assert_eq!(late.request(json!({"cmd":"list-workspaces"}))["ok"], true);
+        assert_code(&late.request(bind.clone()), "agent_session.not_trusted");
+        for marker in ["_host_fake", "_host_author", "_host_session"] {
+            let mut marked = bind.clone();
+            marked[marker] = json!("x");
+            let mut client = Client::connect(&mux, "proxy-first-marked");
+            assert_code(&client.request(marked), "agent_session.not_trusted");
+        }
+        assert!(author_of(&mux).is_none(), "nothing bound");
+        let mut first = Client::connect(&mux, "proxy-first-ok");
+        assert_eq!(first.request(bind)["ok"], true);
+    }
+
+    /// The chat a teammate's request names is the one `check` validated: an attach, a page or a
+    /// command for an attachment of another chat is refused, never followed to a rebound chat.
+    #[test]
+    fn a_teammate_request_uses_the_validated_pin() {
+        let fake = FakeAcpmux::start("proxy-pin");
+        let mux = mux_with(&fake, "proxy-pin");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let socket = mux.control_clients.agent_sessions.socket().unwrap();
+        let outbound = Arc::new(BoundedOutbound::default());
+        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let params: PageParams = serde_json::from_value(json!({"surface": surface})).unwrap();
+        // The tab shows SESSION, but the request was validated for another chat (a rebind landed
+        // between the check and the attach's own read).
+        attach(
+            &mux,
+            client,
+            Some(json!(1)),
+            socket,
+            params,
+            false,
+            Some(author),
+            Some("acp_other".into()),
+            &writer,
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let reply = loop {
+            if let Some(line) = outbound.try_pop() {
+                let reply: Value = serde_json::from_str(&line).unwrap();
+                if reply["id"] == 1 {
+                    break reply;
+                }
+            }
+            assert!(std::time::Instant::now() < deadline, "the attach is answered");
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert_code(&reply, "agent_session.not_shared");
+        fake.no_connection();
+    }
+
+    /// A rebind while acpmux answers a history page or a repeated attach of a teammate's existing
+    /// attachment refuses the page.
+    #[test]
+    fn a_rebind_during_a_teammate_page_refuses_it() {
+        let (open, gate) = std::sync::mpsc::channel();
+        let fixture =
+            Fixture { attach_gate: Some(Arc::new(Mutex::new(gate))), ..Fixture::default() };
+        let fake = FakeAcpmux::start_with("proxy-page", fixture);
+        let mux = mux_with(&fake, "proxy-page");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut client = Client::connect(&mux, "proxy-page");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        assert_eq!(
+            client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
+            true
+        );
+        let frame = json!({"cmd":"agent-session-attach", "surface":surface,
+            "_host_author":author, "_host_session":SESSION});
+        open.send(()).unwrap();
+        assert_eq!(client.request(frame.clone())["ok"], true);
+        // Attached: a second attach only pages, through the same gated acpmux answer.
+        while fake.next_frame(Duration::from_millis(300)).is_some() {}
+        let again = client.send(frame);
+        assert_eq!(fake.raw_frame()["method"], "_acpmux/attach");
+        crate::server::agent_session_attach_tests::run(
+            &mux,
+            json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                "session":"acp_session_2","expected_session":SESSION}),
+        );
+        open.send(()).unwrap();
+        assert_code(&client.answer(again), "agent_session.not_shared");
+    }
+
+    /// A rebind waits for a write to or for a teammate's attachment that already checked its tab
+    /// (held here as that write would hold it), so none lands after the tab shows another chat.
+    #[test]
+    fn a_rebind_waits_for_a_teammate_write_in_flight() {
+        let fake = FakeAcpmux::start("proxy-atomic");
+        let mux = mux_with(&fake, "proxy-atomic");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let in_flight = mux.control_clients.agent_sessions.shared();
+        let (done, rebound) = std::sync::mpsc::channel();
+        let rebinder = mux.clone();
+        let thread = std::thread::spawn(move || {
+            crate::server::agent_session_attach_tests::run(
+                &rebinder,
+                json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                    "session":"acp_session_2","expected_session":SESSION}),
+            );
+            done.send(()).unwrap();
+        });
+        assert!(
+            rebound.recv_timeout(Duration::from_millis(300)).is_err(),
+            "the rebind waits for the write in flight"
+        );
+        assert_eq!(tab_session(&mux, surface).as_deref(), Some(SESSION), "the tab still shows it");
+        drop(in_flight);
+        rebound.recv_timeout(Duration::from_secs(5)).expect("the rebind lands after the write");
+        thread.join().unwrap();
+        assert_eq!(tab_session(&mux, surface).as_deref(), Some("acp_session_2"));
+    }
+
+    /// A blank line is a line: a bind after one is refused.
+    #[test]
+    fn a_bind_after_a_blank_line_is_refused() {
+        let fake = FakeAcpmux::start("proxy-blank");
+        let mux = mux_with(&fake, "proxy-blank");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let mut client = Client::connect(&mux, "proxy-blank");
+        client.raw("\n");
+        let bind = json!({"cmd":"agent-session-proxy-bind", "author":author});
+        assert_code(&client.request(bind), "agent_session.not_trusted");
+        assert!(author_of(&mux).is_none(), "nothing bound");
     }
 
     fn author_of(mux: &Mux) -> Option<Value> {
