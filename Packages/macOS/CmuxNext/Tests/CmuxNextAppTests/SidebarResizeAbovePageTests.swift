@@ -131,20 +131,50 @@ import Testing
     /// Out of a window (or in one that does not show) the pointer is never over the catcher.
     @Test func aCatcherOutOfAShownPanelIsNeverUnderThePointer() {
         _ = NSApplication.shared
-        #expect(!DividerMouseCatcherView(frame: CGRect(x: 0, y: 0, width: 10, height: 200)).isPointerOver())
+        #expect(!DividerMouseCatcherView(frame: CGRect(x: 0, y: 0, width: 10, height: 200)).isPointerOver(CGPoint(x: 5, y: 100)))
+    }
+
+    /// The next turn's check reads the enter's own point, not the live cursor (p04-input-095): an
+    /// enter on a shown panel sets the cursor again wherever the real mouse is, and a panel moved
+    /// off that point before the turn leaves the cursor alone.
+    @Test func theNextTurnChecksTheEntersPointNotTheLiveCursor() async throws {
+        let panel = shownPanel()
+        defer { panel.orderOut(nil) }
+        panel.catcher.mouseEntered(with: try enterExit(.mouseEntered, in: panel))
+        NSCursor.arrow.set()
+        await panel.catcher.pendingCursorSet?.value
+        #expect(isColumnResize(NSCursor.current), "cursor hot spot \(NSCursor.current.hotSpot), size \(NSCursor.current.image.size)")
+
+        panel.catcher.mouseExited(with: try enterExit(.mouseExited, in: panel))
+        panel.catcher.mouseEntered(with: try enterExit(.mouseEntered, in: panel))
+        panel.setFrameOrigin(CGPoint(x: panel.frame.minX + 400, y: panel.frame.minY))
+        NSCursor.arrow.set()
+        await panel.catcher.pendingCursorSet?.value
+        #expect(!isColumnResize(NSCursor.current), "cursor hot spot \(NSCursor.current.hotSpot), size \(NSCursor.current.image.size)")
+    }
+
+    /// A catcher panel shown far from where a test machine's cursor rests.
+    func shownPanel() -> DividerMousePanel {
+        _ = NSApplication.shared
+        let panel = DividerMousePanel()
+        let screen = NSScreen.screens.first?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        panel.setFrame(CGRect(x: screen.maxX - 520, y: screen.minY + 40, width: 10, height: 200), display: false)
+        panel.orderFrontRegardless()
+        return panel
     }
 
     func enteredCatcher(pointerOver: Bool) throws -> DividerMouseCatcherView {
         _ = NSApplication.shared
         let catcher = DividerMouseCatcherView(frame: CGRect(x: 0, y: 0, width: 10, height: 200))
-        catcher.isPointerOver = { pointerOver }
+        catcher.isPointerOver = { _ in pointerOver }
         catcher.mouseEntered(with: try enterExit(.mouseEntered))
         return catcher
     }
 
-    func enterExit(_ type: NSEvent.EventType) throws -> NSEvent {
-        try #require(NSEvent.enterExitEvent(with: type, location: CGPoint(x: 5, y: 100), modifierFlags: [], timestamp: 0, windowNumber: 0,
-                                            context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+    func enterExit(_ type: NSEvent.EventType, in panel: NSWindow? = nil) throws -> NSEvent {
+        try #require(NSEvent.enterExitEvent(with: type, location: CGPoint(x: 5, y: 100), modifierFlags: [], timestamp: 0,
+                                            windowNumber: panel?.windowNumber ?? 0, context: nil, eventNumber: 0, trackingNumber: 0,
+                                            userData: nil))
     }
 
     func isColumnResize(_ cursor: NSCursor) -> Bool {

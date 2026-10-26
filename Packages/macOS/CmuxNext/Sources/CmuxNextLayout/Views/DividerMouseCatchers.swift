@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -123,12 +124,12 @@ final class DividerMouseCatcherView: NSView {
         trackingArea = area
     }
 
-    /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
-    /// the pointer. A seam for tests, which have no screen pointer.
-    lazy var isPointerOver: () -> Bool = { [weak self] in
+    /// Whether a pointer at `point` (screen points) is over this catcher now: its panel shows,
+    /// takes the mouse, and holds the point. A seam for tests.
+    lazy var isPointerOver: (NSPoint) -> Bool = { [weak self] point in
         guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
               !self.isHiddenOrHasHiddenAncestor else { return false }
-        return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
+        return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: point))
     }
     /// The cursor set queued after an enter, while it is pending (tests await it).
     private(set) var pendingCursorSet: Task<Void, Never>?
@@ -143,13 +144,15 @@ final class DividerMouseCatcherView: NSView {
         // part outside it (the sidebar's resize band reaches over the sidebar), AppKit puts the
         // arrow back for the key window later in this event's turn, and this panel, never key,
         // gets no cursor update or move after that. Set the cursor once more on the next turn,
-        // only if no exit came and the panel still shows under the pointer (a panel parked,
-        // hidden or moved meanwhile gets no exit). One-shot: nothing repeats or stays scheduled.
+        // only if no exit came and the panel still shows under the enter's point (a panel parked,
+        // hidden or moved meanwhile gets no exit; a pointer that moved off it does). One-shot:
+        // nothing repeats or stays scheduled.
+        let entered = (event.window ?? window)?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow
         pendingCursorSet?.cancel()
         pendingCursorSet = Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingCursorSet = nil
-            guard !Task.isCancelled, self.isEntered, self.isPointerOver() else { return }
+            guard !Task.isCancelled, self.isEntered, self.isPointerOver(entered) else { return }
             self.cursor.set()
         }
         onHover?(true)
@@ -167,25 +170,17 @@ final class DividerMouseCatcherView: NSView {
     override func otherMouseDown(with event: NSEvent) { forward(event) }
     override func otherMouseUp(with event: NSEvent) { forward(event) }
 
+    // The event's own screen point (`screenLocation`): the panel moves while a divider drags.
     override func scrollWheel(with event: NSEvent) {
         guard let parent = window?.parent, let content = parent.contentView else { return }
-        let point = content.convert(parent.convertPoint(fromScreen: screenPoint(of: event)), from: nil)
+        let point = content.convert(parent.convertPoint(fromScreen: event.screenLocation), from: nil)
         content.hitTest(point)?.scrollWheel(with: event)
-    }
-
-    /// The event's screen point. The panel moves while a divider drags, so
-    /// the event's own global location is used, not the panel's frame.
-    private func screenPoint(of event: NSEvent) -> NSPoint {
-        guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
-            return window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
-        }
-        return NSPoint(x: location.x, y: height - location.y)
     }
 
     private func forward(_ event: NSEvent) {
         guard let parent = window?.parent,
               let forwarded = NSEvent.mouseEvent(
-                  with: event.type, location: parent.convertPoint(fromScreen: screenPoint(of: event)),
+                  with: event.type, location: parent.convertPoint(fromScreen: event.screenLocation),
                   modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: parent.windowNumber,
                   context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
               )
