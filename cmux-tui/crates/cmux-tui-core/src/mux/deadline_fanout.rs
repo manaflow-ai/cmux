@@ -3,8 +3,9 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Most jobs admitted at once (queued plus running), and most worker threads.

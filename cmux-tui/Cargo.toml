@@ -199,6 +199,9 @@ redundant_clone = "warn"
 # clippy.toml lists the std thread spawns and sleep; a crate denies them on its roots
 # once its sites use cmux_threads (plans/cmux-next/chrome-parity/p02-threads.md, 202).
 disallowed_methods = "allow"
+# clippy.toml lists std's Mutex, RwLock and Condvar; a module denies them once its
+# sites use cmux_threads::sync (p02-threads.md, 227).
+disallowed_types = "allow"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
