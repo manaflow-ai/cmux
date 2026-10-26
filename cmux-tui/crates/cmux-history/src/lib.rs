@@ -33,6 +33,8 @@
 //! (`Packages/macOS/CmuxNext/Sources/CmuxNextHistory`). The JSON fixtures in
 //! `tests/fixtures/` are shared, so the Swift tests can adopt them.
 
+#![forbid(unsafe_code)]
+
 mod entry;
 mod error;
 mod fold;

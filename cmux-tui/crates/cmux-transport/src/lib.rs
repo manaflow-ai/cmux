@@ -19,6 +19,8 @@
 //! The I/O engine (sockets, boringtun sessions, the relay WebSocket) lives in
 //! the endpoint and drives these types.
 
+#![forbid(unsafe_code)]
+
 pub mod classify;
 pub mod path;
 pub mod probe;

@@ -6,6 +6,8 @@
 //! [`transcript`] reads one chat's turns on demand, never into the index.
 //! acpmux owns root discovery, the merged index, the watcher and the RPC.
 
+#![forbid(unsafe_code)]
+
 mod adapters;
 mod entry;
 mod index;

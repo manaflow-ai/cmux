@@ -4,6 +4,8 @@
 //! channel. Every envelope and message body is strict so a newer field cannot
 //! silently weaken authentication, generation migration, or flow control.
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 
 use base64::Engine as _;

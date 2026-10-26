@@ -9,6 +9,7 @@
 //! process opens a loopback DevTools port (a page on a Cloud machine could
 //! read one; cx-2u5k). The smoke test launches its own Chrome.
 
+#![forbid(unsafe_code)]
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
 #![cfg_attr(

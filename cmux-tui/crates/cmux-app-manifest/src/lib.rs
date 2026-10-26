@@ -9,6 +9,7 @@
 //! catalog fragment, CLI names and MCP tool names) live in [`rules`],
 //! [`catalog`], [`cli`] and [`package`].
 
+#![forbid(unsafe_code)]
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
 #![cfg_attr(

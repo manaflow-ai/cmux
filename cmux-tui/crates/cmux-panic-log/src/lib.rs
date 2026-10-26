@@ -15,6 +15,8 @@
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
 
+#![forbid(unsafe_code)]
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 

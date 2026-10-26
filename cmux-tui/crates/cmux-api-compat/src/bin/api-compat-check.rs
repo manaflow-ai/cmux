@@ -10,6 +10,8 @@
 //!
 //! `--write` refuses while a breaking change lacks a rule.
 
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 

@@ -1,5 +1,6 @@
 //! Standalone `cmux-tasks` until the `cmux` binary mounts `cmux task`.
 
+#![forbid(unsafe_code)]
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
 #![cfg_attr(

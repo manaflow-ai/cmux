@@ -6,6 +6,8 @@
 //! descriptors reject unknown fields because silently ignoring those fields can
 //! change the meaning of an operation.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::fmt;
 

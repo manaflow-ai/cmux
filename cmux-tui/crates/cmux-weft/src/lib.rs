@@ -13,6 +13,7 @@
 //!   process, so it needs no root, no kernel extension and no system VPN, and
 //!   enforces the inbound filter on every accepted connection.
 
+#![forbid(unsafe_code)]
 // Same crash ratchet as the other network services (crash-elimination.md 6).
 #![cfg_attr(
     not(test),

@@ -12,6 +12,8 @@
 //! Pure: no I/O, no allocation on the accept path beyond normalization.
 //! [`frontend_proof`] holds the Mac app's install-key proof (P8 slice 3b-2).
 
+#![forbid(unsafe_code)]
+
 pub mod frontend_proof;
 
 use subtle::ConstantTimeEq;

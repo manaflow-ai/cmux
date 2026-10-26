@@ -9,6 +9,7 @@
 //! `/var/folders/...` path of about 50 bytes. [`short_test_dir`] (feature
 //! `test-support`) gives a short directory under the canonical `/tmp`.
 
+#![forbid(unsafe_code)]
 // The crash ratchet keeps this crate at zero production panics
 // (plans/cmux-next/crash-elimination.md section 6).
 #![cfg_attr(
