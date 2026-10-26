@@ -156,4 +156,35 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A second daemon on a home names the one that holds its lock, by pid,
+    /// and the command that shows it on that home; it never suggests
+    /// removing the lock or the socket (ergo-walk, 2026-10-25).
+    #[test]
+    fn a_held_lock_names_its_daemon_and_how_to_see_it() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-held-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("daemon.lock");
+        let held = acquire_lock(&lock).unwrap();
+        let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
+        assert!(why.contains(&format!("pid {}", std::process::id())), "{why}");
+        assert!(
+            why.contains(&format!("ACPMUX_HOME={} acpmux daemon status", dir.display())),
+            "{why}"
+        );
+        for removal in ["rm ", "delete", "remove"] {
+            assert!(!why.contains(removal), "{why}");
+        }
+        // A pid the file still records from a daemon that is gone is not named.
+        std::fs::write(&lock, format!("{}\n", i32::MAX)).unwrap();
+        let why = acquire_lock(&lock).err().expect("the lock is held").to_string();
+        assert!(!why.contains("pid "), "{why}");
+        assert!(why.contains("acpmux daemon status"), "{why}");
+        drop(held);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
