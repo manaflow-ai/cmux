@@ -125,12 +125,12 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         defer { buffer.deallocate() }
         for url in urls {
             // concurrency-allow: the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
-            let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+            let descriptor = blockingOpen(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else { continue }
             defer { close(descriptor) }
             files += 1
             // concurrency-allow: the library-load thread, never the main thread
-            while case let count = Darwin.read(descriptor, buffer, size), count > 0 || (count < 0 && errno == EINTR) {
+            while case let count = blockingRead(descriptor, buffer, size), count > 0 || (count < 0 && errno == EINTR) {
                 bytes += max(count, 0)
             }
         }

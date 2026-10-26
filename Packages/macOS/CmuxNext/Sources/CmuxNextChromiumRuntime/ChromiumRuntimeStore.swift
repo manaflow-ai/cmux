@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The on-disk home of downloaded Chromium runtime packs:
 ///
@@ -82,12 +83,11 @@ public struct ChromiumRuntimeStore: Sendable, Equatable {
     /// - Returns: The new installation.
     public func activate(staging: URL, pin: ChromiumRuntimePin) throws -> ChromiumRuntimeInstallation {
         let directory = root.appending(path: pin.key, directoryHint: .isDirectory)
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: directory.path) {
+        if FileManager.checked.fileExists(atPath: directory.path) {
             // An unfinished install (no record) from an earlier crash.
-            try fileManager.removeItem(at: directory)
+            try FileManager.checked.removeItem(at: directory)
         }
-        try fileManager.moveItem(at: staging, to: directory)
+        try FileManager.checked.moveItem(at: staging, to: directory)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         try encoder.encode(pin).write(to: directory.appending(path: ChromiumRuntimeInstallation.recordName), options: .atomic)
@@ -100,16 +100,15 @@ public struct ChromiumRuntimeStore: Sendable, Equatable {
     ///
     /// - Parameter keep: Pack keys to keep.
     public func prune(keeping keep: Set<String>) {
-        let fileManager = FileManager.default
-        for name in (try? fileManager.contentsOfDirectory(atPath: root.path)) ?? [] {
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: root.path)) ?? [] {
             if name.hasPrefix(".staging-") || (!name.hasPrefix(".") && !keep.contains(name)) {
-                try? fileManager.removeItem(at: root.appending(path: name))
+                try? FileManager.checked.removeItem(at: root.appending(path: name))
             }
         }
         let downloads = root.appending(path: ".downloads", directoryHint: .isDirectory)
-        for name in (try? fileManager.contentsOfDirectory(atPath: downloads.path)) ?? [] {
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: downloads.path)) ?? [] {
             let key = name.replacingOccurrences(of: ".tar.xz.partial", with: "")
-            if !keep.contains(key) { try? fileManager.removeItem(at: downloads.appending(path: name)) }
+            if !keep.contains(key) { try? FileManager.checked.removeItem(at: downloads.appending(path: name)) }
         }
     }
 

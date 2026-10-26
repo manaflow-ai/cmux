@@ -1,6 +1,7 @@
 import CoreServices
 import Foundation
 import CmuxNextFilesUI
+import CmuxNextCompat
 
 /// FSEvents under a few folders, delivered as an `AsyncStream` (no polling):
 /// the Files tree's folder and its repository's `.git` folder. FSEvents
@@ -40,7 +41,7 @@ nonisolated struct FileTreeWatcher: FileTreeWatching {
 nonisolated enum FolderWatcherPath {
     static func real(_ folder: URL) -> String {
         let standard = folder.standardizedFileURL.path
-        guard let resolved = realpath(standard, nil) else { return standard }
+        guard let resolved = blockingRealpath(standard, nil) else { return standard }
         defer { free(resolved) }
         return String(cString: resolved)
     }

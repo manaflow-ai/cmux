@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Finder's rule for what a drop does: on the same volume it moves, onto
 /// another it copies; holding Option copies, holding Command moves.
@@ -9,7 +10,7 @@ public struct DropPolicy: Sendable {
     /// - Parameter volumeOf: The device id of a path (a seam for tests). Defaults to `stat`'s `st_dev`.
     public init(volumeOf: @escaping @Sendable (URL) -> Int? = { url in
         var info = stat()
-        return stat(url.path, &info) == 0 ? Int(info.st_dev) : nil
+        return blockingStat(url.path, &info) == 0 ? Int(info.st_dev) : nil
     }) {
         self.volumeOf = volumeOf
     }

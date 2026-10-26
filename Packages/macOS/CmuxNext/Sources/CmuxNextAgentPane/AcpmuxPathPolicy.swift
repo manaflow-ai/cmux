@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// Limits every path a page frame names (`params.cwd`, `params.path`) to the pane's workspace
 /// roots, the folders the Swift host knows for this pane (origin lead rule): the path is made
@@ -218,7 +219,7 @@ nonisolated enum AcpmuxPathPolicy {
     /// normalization-insensitive and realpath keeps the typed spelling), then NFC. Off the main
     /// actor (``check(_:roots:)``): it touches the disk.
     public static func canonical(_ path: String) -> String? {
-        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = realpath(path, nil) else { return nil }
+        guard path.hasPrefix("/"), !path.utf8.contains(0), let resolved = blockingRealpath(path, nil) else { return nil }
         let real = String(cString: resolved)
         free(resolved)
         var spelled = ""
@@ -254,7 +255,7 @@ nonisolated enum AcpmuxPathPolicy {
 
     static func isDirectory(_ path: String) -> Bool {
         var info = stat()
-        return stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+        return blockingStat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
     }
 
     /// Whether canonical `path` is canonical `root` or under it, by components.

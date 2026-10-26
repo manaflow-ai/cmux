@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os
+import CmuxNextCompat
 
 /// The socket file: created with its mode, reclaimed when stale, and removed
 /// only while it is still this server's.
@@ -14,7 +15,7 @@ extension ControlSocketServer {
         guard !parent.isEmpty else { return }
         var info = stat()
         var created = false
-        if lstat(parent, &info) != 0 {
+        if blockingLstat(parent, &info) != 0 {
             guard errno == ENOENT else {
                 if protectExisting { throw StartError.system(call: "lstat", errno: errno) }
                 return
@@ -24,7 +25,7 @@ extension ControlSocketServer {
                 attributes: [.posixPermissions: 0o700]
             )
             created = true
-            guard lstat(parent, &info) == 0 else {
+            guard blockingLstat(parent, &info) == 0 else {
                 if protectExisting { throw StartError.system(call: "mkdir", errno: errno) }
                 return
             }
@@ -36,7 +37,7 @@ extension ControlSocketServer {
         guard chmod(parent, 0o700) == 0 else {
             throw StartError.system(call: "chmod", errno: errno)
         }
-        guard lstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+        guard blockingLstat(parent, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
               info.st_uid == getuid(), info.st_mode & 0o777 == 0o700 else {
             throw StartError.system(call: "chmod", errno: EPERM)
         }
@@ -49,7 +50,7 @@ extension ControlSocketServer {
     @discardableResult
     static func makeLink(_ link: String, to target: String) -> Bool {
         var info = stat()
-        if lstat(link, &info) == 0 {
+        if blockingLstat(link, &info) == 0 {
             let isStaleSocket = info.st_mode & S_IFMT == S_IFSOCK && info.st_uid == getuid() && probe(link) == .refused
             guard isStaleSocket else {
                 if (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) != target {
@@ -57,7 +58,7 @@ extension ControlSocketServer {
                 }
                 return true
             }
-            unlink(link)
+            _ = blockingUnlink(link)
         } else if errno != ENOENT {
             return true
         }
@@ -67,13 +68,13 @@ extension ControlSocketServer {
     /// Removes `link` only while it is this server's symlink to `target`.
     static func unlinkLink(_ link: String, to target: String) {
         guard (try? FileManager.default.destinationOfSymbolicLink(atPath: link)) == target else { return }
-        unlink(link)
+        _ = blockingUnlink(link)
     }
 
     static func unlinkIfOwn(_ path: String, _ identity: (dev: dev_t, ino: ino_t)?) {
         var info = stat()
-        if let identity, lstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
-            unlink(path)
+        if let identity, blockingLstat(path, &info) == 0, info.st_dev == identity.dev, info.st_ino == identity.ino {
+            _ = blockingUnlink(path)
         }
     }
 
@@ -92,18 +93,18 @@ extension ControlSocketServer {
             buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
         }
         if let staging {
-            defer { rmdir(staging) }
+            defer { _ = blockingRmdir(staging) }
             let staged = staging + "/s"
             if staged.utf8.count < capacity {
                 try bindAddress(descriptor, staged)
                 guard chmod(staged, mode) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    _ = blockingUnlink(staged)
                     throw StartError.system(call: "chmod", errno: code)
                 }
                 guard renamex_np(staged, path, UInt32(clamping: RENAME_EXCL)) == 0 else {
                     let code = errno
-                    unlink(staged)
+                    _ = blockingUnlink(staged)
                     throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
                 }
                 return try verifyMode(path, mode)
@@ -136,9 +137,9 @@ extension ControlSocketServer {
     /// The socket at `path` must have exactly `mode`; otherwise it is removed.
     func verifyMode(_ path: String, _ mode: mode_t) throws {
         var info = stat()
-        guard lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
+        guard blockingLstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
         guard info.st_mode & 0o777 == mode else {
-            unlink(path)
+            _ = blockingUnlink(path)
             throw StartError.system(call: "chmod", errno: EPERM)
         }
     }
@@ -149,10 +150,10 @@ extension ControlSocketServer {
     /// error), when it is not a socket, or when another user owns it.
     static func reclaimStalePath(_ path: String) throws {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return }
+        guard blockingLstat(path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFSOCK, info.st_uid == getuid() else { throw StartError.pathOccupied(path) }
         guard probe(path) == .refused else { throw StartError.addressInUse(path) }
-        unlink(path)
+        _ = blockingUnlink(path)
     }
 
     enum ProbeResult: Equatable {

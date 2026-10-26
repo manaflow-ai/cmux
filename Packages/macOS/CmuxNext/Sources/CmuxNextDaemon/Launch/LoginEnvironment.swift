@@ -1,5 +1,6 @@
 public import Foundation
 import os
+import CmuxNextCompat
 
 /// The user's login-shell environment.
 ///
@@ -95,7 +96,7 @@ public struct LoginEnvironment: Sendable {
     }
 
     private func userShell() -> String? {
-        guard let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell else { return nil }
+        guard let entry = blockingGetpwuid(getuid()), let shell = entry.pointee.pw_shell else { return nil }
         let path = String(cString: shell)
         return path.isEmpty ? nil : path
     }

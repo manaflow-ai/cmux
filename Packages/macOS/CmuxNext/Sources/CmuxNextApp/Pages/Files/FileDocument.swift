@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 nonisolated enum FileOpenFailure: Error, Sendable, Equatable {
     case notFound
@@ -46,7 +47,7 @@ nonisolated enum FileDocument {
     static func read(_ url: URL, inWorkspace: Bool, maximumBytes: Int = maximumBytes) throws(FileOpenFailure) -> FileSnapshot {
         let real = url.standardizedFileURL.resolvingSymlinksInPath()
         var info = stat()
-        guard stat(real.path, &info) == 0 else { throw .notFound }
+        guard blockingStat(real.path, &info) == 0 else { throw .notFound }
         guard info.st_mode & S_IFMT == S_IFREG else { throw .notFile }
         guard Int(info.st_size) <= maximumBytes else { throw .tooLarge }
         // concurrency-allow: FileDocument is nonisolated; the pages call it from @concurrent functions only
@@ -58,7 +59,7 @@ nonisolated enum FileDocument {
             .encoding
         } else if !inWorkspace {
             .outside
-        } else if access(real.path, W_OK) != 0 {
+        } else if blockingAccess(real.path, W_OK) != 0 {
             .permission
         } else {
             nil
@@ -112,13 +113,13 @@ nonisolated enum FileDocument {
         let folder = target.deletingLastPathComponent()
         let temporary = folder.appending(path: ".\(target.lastPathComponent).cmux-save-\(UUID().uuidString.prefix(8))")
         var info = stat()
-        let exists = stat(target.path, &info) == 0
+        let exists = blockingStat(target.path, &info) == 0
         let mode = exists ? mode_t(info.st_mode & 0o7777) : 0o644
-        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
+        let descriptor = blockingOpen(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode)
         guard descriptor >= 0 else { throw WriteError(step: "open", code: errno) }
         var renamed = false
         defer {
-            if !renamed { unlink(temporary.path) }
+            if !renamed { _ = blockingUnlink(temporary.path) }
         }
         do {
             defer { close(descriptor) }
@@ -139,9 +140,9 @@ nonisolated enum FileDocument {
                 guard fchmod(descriptor, mode) == 0 else { throw WriteError(step: "fchmod", code: errno) }
                 copyExtendedAttributes(from: target.path, to: descriptor)
             }
-            guard fsync(descriptor) == 0 else { throw WriteError(step: "fsync", code: errno) }
+            guard blockingFsync(descriptor) == 0 else { throw WriteError(step: "fsync", code: errno) }
         }
-        guard rename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
+        guard blockingRename(temporary.path, target.path) == 0 else { throw WriteError(step: "rename", code: errno) }
         renamed = true
     }
 

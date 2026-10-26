@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// Add Files to Project's disk writes (cx-ncc.67), off the main actor: a picked file can be large or
 /// on a slow volume. An agent in the chat folder can write there while this runs, so nothing is
@@ -27,14 +28,14 @@ nonisolated enum AgentPaneProjectCopy {
     /// Appends `lines` to the regular file at canonical `path`, after a newline when its text does not
     /// end in one. A link there now is refused.
     static func append(_ lines: [String], to path: String) -> Bool {
-        let fd = open(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
+        let fd = blockingOpen(path, O_RDWR | O_APPEND | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return false }
         defer { close(fd) }
         var info = stat()
         guard fstat(fd, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return false }
         var text = lines.joined(separator: "\n") + "\n"
         var last: UInt8 = 0
-        if info.st_size > 0, pread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
+        if info.st_size > 0, blockingPread(fd, &last, 1, info.st_size - 1) == 1, last != UInt8(ascii: "\n") { text = "\n" + text }
         let bytes = Array(text.utf8)
         return bytes.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) } == bytes.count
     }
@@ -42,7 +43,7 @@ nonisolated enum AgentPaneProjectCopy {
     /// `folder/.cmux/context`, opened a component at a time without following links and made when
     /// missing.
     private static func openContext(_ folder: String) -> Int32? {
-        var fd = open(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        var fd = blockingOpen(folder, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         for component in [".cmux", "context"] {
             if mkdirat(fd, component, 0o755) != 0, errno != EEXIST {
@@ -60,7 +61,7 @@ nonisolated enum AgentPaneProjectCopy {
     /// Copies one regular file into the open context folder; nil when it is not one or the copy failed.
     private static func copy(_ source: URL, into context: Int32) -> String? {
         // Non-blocking: a FIFO swapped in for the file must not hang the copy; it fails the check below.
-        let input = open(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        let input = blockingOpen(source.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard input >= 0 else { return nil }
         defer { close(input) }
         var info = stat()

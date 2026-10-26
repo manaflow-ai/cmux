@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import os
+import CmuxNextCompat
 
 /// Watches the app's Chromium helper processes (renderer, GPU, utility,
 /// extension renderers) and reports each one that ends abnormally.
@@ -133,9 +134,9 @@ nonisolated struct CEFHelperIdentity: Equatable, Sendable {
     static func arguments(pid: Int32) -> [String] {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard blockingSysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard blockingSysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         return parseProcArgs(Array(buffer.prefix(size)))
     }
 

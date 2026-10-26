@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Chooses where a download is written.
 public nonisolated enum DownloadDestination {
@@ -65,7 +66,7 @@ public nonisolated enum DownloadDestination {
     /// any error but "no such file" counts as taken).
     public static func entryExists(_ url: URL) -> Bool {
         var info = stat()
-        return lstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
+        return blockingLstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
     }
 
     /// The last path component, without control or format characters

@@ -160,7 +160,7 @@ public final class HangEpisodeRecorder: Sendable {
     public func isHangFile(_ url: URL) -> Bool {
         var info = stat()
         return url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
-            && lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
+            && blockingLstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
     }
 
     // MARK: Watchdog thread
@@ -323,7 +323,7 @@ public final class HangEpisodeRecorder: Sendable {
 
     /// Reads a regular file of at most `limit` bytes without following a symlink (`O_NOFOLLOW`).
     static func readRegularFile(_ url: URL, limit: Int) -> String? {
-        let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        let fd = blockingOpen(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
         var info = stat()

@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// Debug-only auto sign-in for tagged builds (parity with the old app's
 /// `DebugDogfoodCredentialResolver`). A tagged build has its own Keychain
@@ -100,7 +101,7 @@ struct DogfoodCredentials: Equatable {
     /// The explicit file must be a regular file owned by this user, 0600 or stricter.
     private static func secure(_ path: String) -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid() else { return false }
+        guard blockingLstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_uid == getuid() else { return false }
         return info.st_mode & 0o077 == 0
     }
 }

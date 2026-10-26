@@ -1,4 +1,5 @@
 import Darwin
+import CmuxNextCompat
 
 /// Whether `pid` names a process that runs: not gone and not a zombie.
 ///
@@ -13,6 +14,6 @@ nonisolated func agentPaneProcessIsRunning(_ pid: pid_t) -> Bool {
     var size = MemoryLayout<kinfo_proc>.stride
     var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
     // The process exists (kill said so); a table read that fails says nothing more.
-    guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return true }
+    guard blockingSysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return true }
     return info.kp_proc.p_stat != SZOMB
 }

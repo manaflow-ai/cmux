@@ -47,7 +47,7 @@ enum DebugTimings {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
+        guard blockingSysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
         let start = info.kp_proc.p_un.__p_starttime
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()

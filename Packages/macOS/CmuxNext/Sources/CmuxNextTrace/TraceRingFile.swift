@@ -92,14 +92,14 @@ public final class TraceRingFile: Sendable {
         let byteCount = TraceRingLayout(sizes).totalBytes
         let path = directory + "/" + spareName(role: role)
         var info = stat()
-        if stat(path, &info) == 0, Int(info.st_size) == byteCount { return true }
+        if blockingStat(path, &info) == 0, Int(info.st_size) == byteCount { return true }
         let building = path + ".\(getpid()).tmp"
-        let descriptor = open(building, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let descriptor = blockingOpen(building, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return false }
         let allocated = allocate(descriptor, byteCount: byteCount)
         close(descriptor)
-        guard allocated, rename(building, path) == 0 else {
-            unlink(building)
+        guard allocated, blockingRename(building, path) == 0 else {
+            _ = blockingUnlink(building)
             return false
         }
         return true
@@ -109,7 +109,7 @@ public final class TraceRingFile: Sendable {
     /// file is mapped read-only and decoded in place with the seqlock reads, so a ring whose process still
     /// writes decodes as safely as one whose process ended. Blocking file work.
     public static func records(atPath path: String) -> [TraceRecord]? {
-        let descriptor = open(path, O_RDONLY | O_CLOEXEC)
+        let descriptor = blockingOpen(path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         var info = stat()
@@ -135,15 +135,15 @@ public final class TraceRingFile: Sendable {
     /// created file is sized and allocated first. `path` is never one this process has mapped: adoption
     /// is one-shot. Returns the mapping, or nil after removing the file.
     private static func map(path: String, spare: String, directory: String, byteCount: Int) -> UnsafeMutableRawPointer? {
-        if mkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
-        if rename(spare, path) == 0, let mapping = mapSpare(path: path, byteCount: byteCount) {
+        if blockingMkdir(directory, 0o700) != 0, errno != EEXIST { return nil }
+        if blockingRename(spare, path) == 0, let mapping = mapSpare(path: path, byteCount: byteCount) {
             return mapping
         }
-        let descriptor = open(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let descriptor = blockingOpen(path, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         guard allocate(descriptor, byteCount: byteCount), let mapping = mapShared(descriptor, byteCount: byteCount) else {
-            unlink(path)
+            _ = blockingUnlink(path)
             return nil
         }
         return mapping
@@ -151,7 +151,7 @@ public final class TraceRingFile: Sendable {
 
     /// Maps a renamed spare of exactly `byteCount` bytes and zeroes it; nil for any other size.
     private static func mapSpare(path: String, byteCount: Int) -> UnsafeMutableRawPointer? {
-        let descriptor = open(path, O_RDWR | O_CLOEXEC)
+        let descriptor = blockingOpen(path, O_RDWR | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         var info = stat()
@@ -177,7 +177,7 @@ public final class TraceRingFile: Sendable {
         guard ftruncate(descriptor, off_t(byteCount)) == 0 else { return false }
         if preallocated { return true }
         var zero: UInt8 = 0
-        for offset in stride(from: 0, to: byteCount, by: 4096) where pwrite(descriptor, &zero, 1, off_t(offset)) != 1 {
+        for offset in stride(from: 0, to: byteCount, by: 4096) where blockingPwrite(descriptor, &zero, 1, off_t(offset)) != 1 {
             return false
         }
         return true

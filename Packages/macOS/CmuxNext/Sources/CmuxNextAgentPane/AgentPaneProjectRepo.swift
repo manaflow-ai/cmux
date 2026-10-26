@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextSettings
+import CmuxNextCompat
 
 /// The Git repository a project folder belongs to, for the pickers (`project.list` `repos`): the
 /// page folds a repository's worktrees under one row named for the repository, with each
@@ -43,9 +44,9 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
     init(home: String = NSHomeDirectory()) {
         icon = AgentPaneProjectIcon(home: home)
         read = { path in
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
             defer { try? handle.close() }
-            return try? handle.read(upToCount: AgentPaneProjectRepoReader.maximumBytes)
+            return try? handle.blockingRead(upToCount: AgentPaneProjectRepoReader.maximumBytes)
         }
     }
 
@@ -204,7 +205,7 @@ nonisolated struct AgentPaneProjectRepoReader: Sendable {
     }
 
     private static func realPath(_ path: String) -> String? {
-        guard let resolved = realpath(path, nil) else { return nil }
+        guard let resolved = blockingRealpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }

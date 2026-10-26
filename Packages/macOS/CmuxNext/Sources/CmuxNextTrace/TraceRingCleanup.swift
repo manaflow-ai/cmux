@@ -110,10 +110,10 @@ public struct TraceRingCleanup: Sendable {
     private func deadSince(_ name: String, now: UInt64) -> UInt64 {
         let marker = directory + "/" + name + Self.deadMarkSuffix
         var info = stat()
-        if lstat(marker, &info) == 0, info.st_mode & S_IFMT == S_IFREG {
+        if blockingLstat(marker, &info) == 0, info.st_mode & S_IFMT == S_IFREG {
             return UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
         }
-        let descriptor = open(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
+        let descriptor = blockingOpen(marker, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0o600)
         guard descriptor >= 0 else { return now }
         defer { close(descriptor) }
         let stamp = timespec(tv_sec: Int(now / 1_000_000_000), tv_nsec: Int(now % 1_000_000_000))
@@ -170,14 +170,14 @@ public struct TraceRingCleanup: Sendable {
     /// and its start from the file system.
     private func read(_ name: String) -> Ring? {
         let path = directory + "/" + name
-        let descriptor = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+        let descriptor = blockingOpen(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { return nil }
         let modified = UInt64(max(0, info.st_mtimespec.tv_sec)) * 1_000_000_000 + UInt64(max(0, info.st_mtimespec.tv_nsec))
         var header = [UInt8](repeating: 0, count: TraceRing.headerBytes)
-        let read = header.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, $0.count, 0) }
+        let read = header.withUnsafeMutableBytes { blockingPread(descriptor, $0.baseAddress, $0.count, 0) }
         func word(_ offset: Int) -> UInt64 {
             (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(header[offset + $1]) << (8 * UInt64($1)) }
         }
@@ -190,7 +190,7 @@ public struct TraceRingCleanup: Sendable {
     }
 
     private func remove(_ name: String) -> Bool {
-        unlink(directory + "/" + name) == 0
+        _ = blockingUnlink(directory + "/" + name) == 0
     }
 
     /// The pid of `<role>-<pid>.blackbox.cmxtrace`.
@@ -224,7 +224,7 @@ public struct TraceRingCleanup: Sendable {
     public static func processStartUnixMicros(pid: Int32) -> UInt64 {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return 0 }
+        guard blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return 0 }
         return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
     }
 

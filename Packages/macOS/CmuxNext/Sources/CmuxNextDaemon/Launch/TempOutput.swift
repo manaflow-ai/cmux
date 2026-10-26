@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CmuxNextCompat
 
 /// An anonymous (already unlinked) temp file.
 final class TempOutput {
@@ -13,7 +14,7 @@ final class TempOutput {
             return mkstemp(base)
         }
         guard fd >= 0 else { throw DaemonError.launchFailed("mkstemp: \(String(cString: strerror(errno)))") }
-        template.withUnsafeBufferPointer { buffer in if let base = buffer.baseAddress { _ = unlink(base) } }
+        template.withUnsafeBufferPointer { buffer in if let base = buffer.baseAddress { _ = blockingUnlink(base) } }
         handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
@@ -24,7 +25,7 @@ final class TempOutput {
         // off_t is 64-bit, as Int is on every platform cmux runs on: exact.
         let byteCount = Int(clamping: size)
         var data = Data(count: byteCount)
-        let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, byteCount, 0) }
+        let count = data.withUnsafeMutableBytes { blockingPread(fd, $0.baseAddress, byteCount, 0) }
         return count > 0 ? data.prefix(count) : Data()
     }
 }

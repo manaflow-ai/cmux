@@ -296,7 +296,7 @@ public final class RetryWake: Sendable {
         var blocked: Identity?
         for directory in folders(above: file) {
             if let identity = directoryIdentity(of: directory) {
-                let descriptor = open(directory, O_EVTONLY | O_CLOEXEC)
+                let descriptor = blockingOpen(directory, O_EVTONLY | O_CLOEXEC)
                 if descriptor >= 0 {
                     return (WatchedFolder(path: directory, identity: identity, blocked: blocked), descriptor)
                 }
@@ -339,13 +339,13 @@ public final class RetryWake: Sendable {
 
     private static func identity(of path: String) -> Identity? {
         var info = stat()
-        guard stat(path, &info) == 0 else { return nil }
+        guard blockingStat(path, &info) == 0 else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 
     private static func directoryIdentity(of path: String) -> Identity? {
         var info = stat()
-        guard stat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
+        guard blockingStat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return nil }
         return Identity(device: info.st_dev, inode: info.st_ino)
     }
 }

@@ -1,5 +1,6 @@
 import CmuxNextServerHelper
 import Foundation
+import CmuxNextCompat
 
 /// The app's own record of the fixes the helper applied for it, so Stop
 /// Serving knows whether it needs the helper at all (plans/cmux-next/server.md
@@ -99,16 +100,16 @@ nonisolated struct ServerFixLedger: Sendable {
                                                 attributes: [.posixPermissions: 0o700])
         let data = try JSONEncoder().encode(file)
         let temp = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        let descriptor = open(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        let descriptor = blockingOpen(temp.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         do {
-            try handle.write(contentsOf: data)
-            try handle.synchronize()
+            try handle.blockingWrite(contentsOf: data)
+            try handle.blockingSynchronize()
             try handle.close()
-            guard rename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard blockingRename(temp.path, url.path) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         } catch {
-            unlink(temp.path)
+            _ = blockingUnlink(temp.path)
             throw error
         }
     }

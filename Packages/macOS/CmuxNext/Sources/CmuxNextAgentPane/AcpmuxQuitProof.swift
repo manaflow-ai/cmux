@@ -142,13 +142,13 @@ public nonisolated struct AcpmuxQuitProof {
     /// app's next findOrStart retries (acpmux's own host probe has the same
     /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
-        let fd = open(url.path, O_RDWR | O_CLOEXEC)
+        let fd = blockingOpen(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
         defer { close(fd) }
         // One retry covers an interrupted call (EINTR); anything else decides.
         for _ in 0..<2 {
-            if flock(fd, LOCK_EX | LOCK_NB) == 0 {
-                flock(fd, LOCK_UN)
+            if blockingFlock(fd, LOCK_EX | LOCK_NB) == 0 {
+                _ = blockingFlock(fd, LOCK_UN)
                 return .free
             }
             if errno == EWOULDBLOCK { return .held }

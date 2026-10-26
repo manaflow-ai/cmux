@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// Which app the Chief works in (agreed with the workspace-routing lane,
 /// feat-cmux-next-chief-ws-routing): two symlinks in the Chief home point at
@@ -32,15 +33,15 @@ public nonisolated enum ChiefAppLinks {
     public static func unpublish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
         for (link, target) in [(controlLink(home), controlSocket), (daemonLink(home), daemonSocket)] {
             guard let target, (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == target else { continue }
-            unlink(link.path)
+            _ = blockingUnlink(link.path)
         }
     }
 
     /// A temporary link renamed over the old one, so readers never see none.
     private static func point(_ link: URL, at target: String) {
         let temporary = link.path + ".\(getpid()).tmp"
-        unlink(temporary)
-        guard symlink(target, temporary) == 0 else { return }
-        if rename(temporary, link.path) != 0 { unlink(temporary) }
+        _ = blockingUnlink(temporary)
+        guard (try? FileManager.checked.createSymbolicLink(atPath: temporary, withDestinationPath: target)) != nil else { return }
+        if blockingRename(temporary, link.path) != 0 { _ = blockingUnlink(temporary) }
     }
 }

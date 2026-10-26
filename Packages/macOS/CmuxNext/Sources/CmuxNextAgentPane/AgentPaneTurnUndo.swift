@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// `turn.undo {files: [{path, before, after}], apply}` from the edited-files card: puts each file
 /// back to the turn's first content (`before`; null when the turn created the file) only while it
@@ -82,7 +83,7 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         let name = url.lastPathComponent
         guard !name.isEmpty, name != ".", name != "..", !name.contains("/"),
               let canonicalFolder = AcpmuxPathPolicy.canonical(url.deletingLastPathComponent().path) else { return .cannotUndo }
-        let folder = open(canonicalFolder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        let folder = blockingOpen(canonicalFolder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
         guard folder >= 0 else { return .cannotUndo }
         defer { close(folder) }
         // Where the descriptor really is now, not where the string pointed a moment ago.
@@ -180,7 +181,7 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         }
         // open's mode is masked by the umask; the file keeps the original's bits.
         let kept = fchmod(descriptor, mode) == 0 && Self.copyMetadata(from: name, in: folder, to: descriptor)
-        let synced = fsync(descriptor) == 0
+        let synced = blockingFsync(descriptor) == 0
         close(descriptor)
         guard written, kept, synced else {
             unlinkat(folder, temporary, 0)

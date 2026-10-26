@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// New system crash and hang reports (`.ips`) of cmux processes in
 /// `~/Library/Logs/DiagnosticReports`. Each becomes one `crash` event naming the process,
@@ -23,15 +24,14 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
     }
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
-        let files = FileManager()
         let since = cursor.flatMap(Double.init).map { Date(timeIntervalSince1970: $0 / 1000) }
             ?? Date().addingTimeInterval(-firstLookBack)
-        let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
         var newest = since
         var events: [ErrorEvent] = []
         for name in names where name.hasSuffix(".ips") && prefixes.contains(where: { name.lowercased().hasPrefix($0) }) {
             let url = directory.appendingPathComponent(name)
-            guard let modified = (try? files.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+            guard let modified = (try? FileManager.checked.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
                   modified > since else { continue }
             newest = max(newest, modified)
             events.append(Self.event(report: url, modified: modified))
@@ -41,9 +41,9 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
     }
 
     static func event(report url: URL, modified: Date) -> ErrorEvent {
-        let head = (try? FileHandle(forReadingFrom: url)).flatMap { handle -> Data? in
+        let head = (try? FileHandle.blockingForReading(from: url)).flatMap { handle -> Data? in
             defer { try? handle.close() }
-            return try? handle.read(upToCount: 64 << 10)
+            return try? handle.blockingRead(upToCount: 64 << 10)
         } ?? Data()
         let text = String(decoding: head, as: UTF8.self)
         let header = text.split(separator: "\n", maxSplits: 1).first.flatMap {

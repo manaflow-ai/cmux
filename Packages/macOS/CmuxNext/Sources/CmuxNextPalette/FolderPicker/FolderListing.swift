@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// One entry of a listed folder.
 public nonisolated struct FolderEntry: Equatable, Sendable {
@@ -93,7 +94,7 @@ public nonisolated struct FolderListing: Equatable, Sendable {
                 // A guarded folder (Documents, Library, ...) is not looked
                 // into until the user opens it: a probe could raise a prompt.
                 let child = base + "/" + name
-                let git = isDirectory && PickerPrivacy.mayProbe(child) && access(child + "/.git", F_OK) == 0
+                let git = isDirectory && PickerPrivacy.mayProbe(child) && blockingAccess(child + "/.git", F_OK) == 0
                 entries.append(FolderEntry(name: name, isDirectory: isDirectory, isGitRepository: git))
             }
         }
@@ -130,7 +131,7 @@ public nonisolated struct FolderListing: Equatable, Sendable {
         case DT_DIR: return true
         case DT_LNK, DT_UNKNOWN:
             var info = stat()
-            return stat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
+            return blockingStat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR
         default: return false
         }
     }

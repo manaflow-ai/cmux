@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import CmuxNextCompat
 
 extension AgentPaneSchemeHandler {
     /// Bytes one media response carries at most; the player asks for the next range.
@@ -43,10 +44,10 @@ extension AgentPaneSchemeHandler {
         }
         upper = min(upper, lower + mediaChunk - 1)
         let partial = range != nil || upper < size - 1
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: file) else { return nil }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: UInt64(lower))) != nil,
-              let data = size == 0 ? Data() : try? handle.read(upToCount: upper - lower + 1) else { return nil }
+              let data = size == 0 ? Data() : try? handle.blockingRead(upToCount: upper - lower + 1) else { return nil }
         headers["Content-Length"] = String(data.count)
         if partial { headers["Content-Range"] = "bytes \(lower)-\(lower + data.count - 1)/\(size)" }
         return MediaSlice(status: partial ? 206 : 200, headers: headers, data: data)

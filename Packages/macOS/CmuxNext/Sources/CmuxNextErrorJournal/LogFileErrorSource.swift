@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Problems in a growing text log (acpmux `daemon.log`, the Chief host log): lines with a
 /// `WARN`, `ERROR` or `FATAL` level word, and Rust panics (the `panicked at` line and the
@@ -32,8 +33,7 @@ public struct LogFileErrorSource: ErrorHarvestSource {
     }
 
     public func collect(after cursor: String?) async throws -> ErrorHarvest {
-        let files = FileManager()
-        guard let attributes = try? files.attributesOfItem(atPath: url.path),
+        guard let attributes = try? FileManager.checked.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue else { return ErrorHarvest(events: [], cursor: cursor) }
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         var start: Int
@@ -44,12 +44,12 @@ public struct LogFileErrorSource: ErrorHarvestSource {
         } else {
             start = 0
         }
-        guard start < size, let handle = try? FileHandle(forReadingFrom: url) else {
+        guard start < size, let handle = try? FileHandle.blockingForReading(from: url) else {
             return ErrorHarvest(events: [], cursor: "\(inode):\(size)")
         }
         defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(start))
-        let data = try handle.read(upToCount: min(size - start, maxReadBytes)) ?? Data()
+        let data = try handle.blockingRead(upToCount: min(size - start, maxReadBytes)) ?? Data()
         // Only complete lines; a partial last line waits for its newline.
         guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else {
             return ErrorHarvest(events: [], cursor: "\(inode):\(start)")

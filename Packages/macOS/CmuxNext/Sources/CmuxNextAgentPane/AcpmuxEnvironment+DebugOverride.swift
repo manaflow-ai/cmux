@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import os
+import CmuxNextCompat
 
 /// DEBUG builds only (Release compiles none of this): `CMUX_NEXT_ACPMUX_BIN=<absolute path>`
 /// runs that acpmux instead of the bundled one, so a running DEV build reaches a freshly built
@@ -37,10 +38,9 @@ nonisolated extension AcpmuxEnvironment {
     }
 
     static func isRegularExecutableFile(_ path: String) -> Bool {
-        let manager = FileManager.default
-        guard let type = (try? manager.attributesOfItem(atPath: path))?[.type] as? FileAttributeType,
+        guard let type = (try? FileManager.checked.attributesOfItem(atPath: path))?[.type] as? FileAttributeType,
               type == .typeRegular else { return false }
-        return manager.isExecutableFile(atPath: path)
+        return FileManager.checked.isExecutableFile(atPath: path)
     }
 
     /// This process's override, decided and logged once (the first resolve, at startup).

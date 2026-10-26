@@ -1,5 +1,6 @@
 public import Foundation
 import Darwin
+import CmuxNextCompat
 
 /// Socket path conventions shared with the old app and the `cmux` CLI, so
 /// `CMUX_TAG=<tag> cmux …`, `--socket`, and implicit discovery find
@@ -127,8 +128,7 @@ public struct ControlSocketPath: Sendable {
     /// own prefixes, so a stale or unrelated Unix socket is never treated as a peer without
     /// a successful `system.identify` response.
     public func peerSocketPaths(
-        home: URL = FileManager.default.homeDirectoryForCurrentUser,
-        fileManager: FileManager = .default
+        home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> [String] {
         let state = stateDirectory(home: home)
         var paths = Set([
@@ -140,7 +140,7 @@ public struct ControlSocketPath: Sendable {
             state + "/cmux.sock",
         ])
         for directory in ["/tmp", state] {
-            for entry in (try? fileManager.contentsOfDirectory(atPath: directory)) ?? []
+            for entry in (try? FileManager.checked.contentsOfDirectory(atPath: directory)) ?? []
             where ["cmux-debug", "cmux-nightly", "cmux-rc", "cmux-staging", "cmux-release"].contains(where: entry.hasPrefix)
                 && entry.hasSuffix(".sock") {
                 paths.insert(directory + "/" + entry)
@@ -149,7 +149,7 @@ public struct ControlSocketPath: Sendable {
         // A compatibility symlink names a socket the state folder already lists.
         return paths.filter { path in
             var info = stat()
-            return lstat(path, &info) != 0 || info.st_mode & S_IFMT != S_IFLNK
+            return blockingLstat(path, &info) != 0 || info.st_mode & S_IFMT != S_IFLNK
         }.sorted()
     }
 }

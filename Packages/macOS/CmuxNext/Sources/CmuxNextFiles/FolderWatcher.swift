@@ -1,5 +1,6 @@
 import CoreServices
 public import Foundation
+import CmuxNextCompat
 
 /// What changed in a watched folder.
 public enum FolderChange: Sendable, Equatable {
@@ -47,7 +48,7 @@ public struct FolderWatcher: FolderWatching {
     /// event would then fail the parent check. A folder that does not resolve keeps its path.
     static func realFolder(_ folder: URL) -> URL {
         let standard = folder.standardizedFileURL
-        guard let resolved = realpath(standard.path, nil) else { return standard }
+        guard let resolved = blockingRealpath(standard.path, nil) else { return standard }
         defer { free(resolved) }
         return URL(fileURLWithPath: String(cString: resolved), isDirectory: true)
     }

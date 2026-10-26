@@ -13,15 +13,8 @@ protocol DeviceOwnerAuthenticating: AnyObject {
 @MainActor
 final class LocalDeviceOwnerAuthenticator: DeviceOwnerAuthenticating {
     func authenticate(reason: String) async -> Bool {
-        let context = LAContext()
-        var error: NSError?
-        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else { return false }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            // The reply runs on a LocalAuthentication queue, never the main actor.
-            context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { @Sendable success, _ in
-                continuation.resume(returning: success)
-            }
-        }
+        // No synchronous canEvaluatePolicy on main: evaluatePolicy fails at once when the Mac cannot evaluate it.
+        (try? await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
     }
 }
 

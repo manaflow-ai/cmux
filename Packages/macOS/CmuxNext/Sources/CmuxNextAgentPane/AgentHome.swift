@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// The agent-home folders (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a workspace without a folder (the
 /// default Home workspace) gives its new agent chats `<base>/<workspace-id>`, where `base` is
@@ -87,8 +88,8 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     static func mark(_ folder: String) {
         let path = folder + "/" + marker
         var info = stat()
-        if lstat(path, &info) == 0 { return }
-        let file = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if blockingLstat(path, &info) == 0 { return }
+        let file = blockingOpen(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         if file >= 0 { close(file) }
     }
 
@@ -145,7 +146,7 @@ public nonisolated struct AgentHome: Sendable, Equatable {
     /// Whether `path` is a folder itself (lstat: a symlink is not), owned by this user.
     static func isRealFolder(_ path: String) -> Bool {
         var info = stat()
-        return lstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
+        return blockingLstat(path, &info) == 0 && (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == getuid()
     }
 
     /// Walks `path` from `/`: an existing component must be a real folder (never a symlink); the
@@ -160,16 +161,18 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         for (index, part) in parts.enumerated() {
             current += "/" + part
             var info = stat()
-            if lstat(current, &info) != 0 {
+            if blockingLstat(current, &info) != 0 {
                 // Only the base's own folders and the workspace folder may be made here.
-                guard errno == ENOENT, index + 1 >= baseDepth - 1, mkdir(current, 0o700) == 0 || errno == EEXIST,
-                      lstat(current, &info) == 0 else { return false }
+                guard errno == ENOENT, index + 1 >= baseDepth - 1, blockingMkdir(current, 0o700) == 0 || errno == EEXIST,
+                      blockingLstat(current, &info) == 0 else { return false }
             }
             guard (info.st_mode & S_IFMT) == S_IFDIR else { return false }
         }
         var info = stat()
-        guard lstat(path, &info) == 0, info.st_uid == getuid() else { return false }
-        if info.st_mode & 0o077 != 0, chmod(path, 0o700) != 0 { return false }
+        guard blockingLstat(path, &info) == 0, info.st_uid == getuid() else { return false }
+        if info.st_mode & 0o077 != 0, (try? FileManager.checked.setAttributes([.posixPermissions: 0o700], ofItemAtPath: path)) == nil {
+            return false
+        }
         return true
     }
 }

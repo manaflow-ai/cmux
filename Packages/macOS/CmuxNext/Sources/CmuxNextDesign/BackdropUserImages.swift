@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The person's own background images (cx-t2x.8): files in the backgrounds folder that are not
 /// downloaded art. Choosing or dropping an image copies it there, so the background keeps working
@@ -31,8 +32,8 @@ public nonisolated struct BackdropUserImages: Sendable {
     }
 
     /// The folder's images, newest first, without downloaded art (`<art id>.avif`).
-    public func list(fileManager: FileManager = .default) -> [BackdropSelection] {
-        let files = (try? fileManager.contentsOfDirectory(
+    public func list() -> [BackdropSelection] {
+        let files = (try? FileManager.checked.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles]
         )) ?? []
@@ -66,28 +67,28 @@ public nonisolated struct BackdropUserImages: Sendable {
     /// Copies `source` (the file a link points at) into the folder under a free name and returns
     /// it as a selection. An image already in the folder, or one whose copy is already there, is
     /// returned as is, so choosing the same image again adds nothing.
-    public func adopt(_ source: URL, fileManager: FileManager = .default) throws -> BackdropSelection {
+    public func adopt(_ source: URL) throws -> BackdropSelection {
         let source = source.standardizedFileURL.resolvingSymlinksInPath()
         guard Self.isImage(source), Self.isPlainFile(source) else { throw CocoaError(.fileReadUnsupportedScheme) }
         if source.deletingLastPathComponent().path == folder.path, !isDownloadedArt(source) {
             return .file(path: source.path)
         }
-        if let copy = list(fileManager: fileManager).first(where: { selection in
+        if let copy = list().first(where: { selection in
             guard case .file(let path) = selection else { return false }
-            return fileManager.contentsEqual(atPath: path, andPath: source.path)
+            return FileManager.checked.contentsEqual(atPath: path, andPath: source.path)
         }) {
             return copy
         }
-        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
         let name = source.deletingPathExtension().lastPathComponent
         let ext = source.pathExtension.lowercased()
         var target = folder.appendingPathComponent("\(name).\(ext)")
         var copy = 2
-        while fileManager.fileExists(atPath: target.path) || isDownloadedArt(target) {
+        while FileManager.checked.fileExists(atPath: target.path) || isDownloadedArt(target) {
             target = folder.appendingPathComponent("\(name) \(copy).\(ext)")
             copy += 1
         }
-        try fileManager.copyItem(at: source, to: target)
+        try FileManager.checked.copyItem(at: source, to: target)
         return .file(path: target.path)
     }
 

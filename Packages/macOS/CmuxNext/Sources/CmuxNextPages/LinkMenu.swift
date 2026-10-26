@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextSettings
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// One row of a link's or a path's context menu (cx-ir3z4): plain data, so the debug socket
 /// reads the same rows a right-click draws (``LinkMenu/items(_:)``).
@@ -171,12 +172,12 @@ public struct LinkMenu {
         let paths = FileManager.default
         if trimmed.hasPrefix("/") || trimmed.hasPrefix("~/") {
             let path = (trimmed as NSString).expandingTildeInPath
-            return paths.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+            return FileManager.checked.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
         }
         let bundleName = trimmed.hasSuffix(".app") ? trimmed : trimmed + ".app"
         let folders = paths.urls(for: .applicationDirectory, in: [.localDomainMask, .userDomainMask, .systemDomainMask])
             + [URL(fileURLWithPath: "/System/Applications"), URL(fileURLWithPath: "/Applications/Utilities")]
-        return folders.map { $0.appending(path: bundleName) }.first { paths.fileExists(atPath: $0.path) }
+        return folders.map { $0.appending(path: bundleName) }.first { FileManager.checked.fileExists(atPath: $0.path) }
     }
 
     nonisolated static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {

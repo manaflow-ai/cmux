@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import CmuxNextCompat
 
 /// The image viewer's Show in Finder and Open in Browser Pane (cx-ncc.39). The viewer holds each
 /// image as a `data:` URL, so the host keeps a copy as a file named for the image with its type's
@@ -188,7 +189,7 @@ extension AgentPaneImageCopies {
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
-              let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
+              let data = try? handle.blockingRead(upToCount: limit + 1), data.count <= limit else { return nil }
         return data
     }
 

@@ -4,6 +4,7 @@ import Darwin
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// One downscaled RGBA frame of a window as the window server composited it, top row first,
 /// `milliseconds` after its recording started: the pixel half of the app's
@@ -156,10 +157,10 @@ public nonisolated struct WindowFrame: Sendable {
     }
 
     static func writePNG(_ image: CGImage, to path: String) {
-        guard let destination = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, UTType.png.identifier as CFString, 1, nil)
+        guard let destination = blockingImageDestination(url: URL(fileURLWithPath: path) as CFURL, type: UTType.png.identifier as CFString, count: 1)
         else { return }
         CGImageDestinationAddImage(destination, image, nil)
-        CGImageDestinationFinalize(destination)
+        _ = blockingImageDestinationFinalize(destination)
     }
 }
 #endif

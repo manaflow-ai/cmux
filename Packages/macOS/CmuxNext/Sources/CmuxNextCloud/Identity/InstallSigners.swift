@@ -2,6 +2,7 @@ public import CmuxInstallAuthCore
 import CryptoKit
 public import Foundation
 import Security
+import CmuxNextCompat
 
 /// A software P-256 install key in a 0600 file (development builds only).
 struct FileInstallSigner: InstallSigner {
@@ -12,7 +13,7 @@ struct FileInstallSigner: InstallSigner {
     func sign(_ message: Data) async throws -> Data { try key().signature(for: message).rawRepresentation }
 
     func rotate() async throws {
-        guard unlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard blockingUnlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
 
     private func key() throws -> P256.Signing.PrivateKey {

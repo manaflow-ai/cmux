@@ -42,7 +42,7 @@ nonisolated extension BackdropUserImages {
             guard (try? await asset.load(.isPlayable)) == true else { return false }
             return !((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty
         }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil), CGImageSourceGetCount(source) > 0 else { return false }
+        guard let source = blockingImageSource(url: url as CFURL), CGImageSourceGetCount(source) > 0 else { return false }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceThumbnailMaxPixelSize: 64,
                                                                kCGImageSourceCreateThumbnailFromImageAlways: true] as CFDictionary) != nil
     }
@@ -94,7 +94,7 @@ nonisolated extension BackdropUserImages {
     /// else the link's own extension when it names a movie. Anything else is not media.
     private nonisolated static func named(_ file: URL, link: URL, mimeType: String?) throws -> URL {
         var ext: String?
-        if let source = CGImageSourceCreateWithURL(file as CFURL, nil), let type = CGImageSourceGetType(source) as String? {
+        if let source = blockingImageSource(url: file as CFURL), let type = CGImageSourceGetType(source) as String? {
             ext = UTType(type)?.preferredFilenameExtension
         } else if let mime = mimeType, let type = UTType(mimeType: mime), type.conforms(to: .movie) {
             ext = type.preferredFilenameExtension
@@ -112,16 +112,16 @@ nonisolated extension BackdropUserImages {
     }
 
     /// Removes one of the folder's own images (never downloaded art or a file elsewhere).
-    public func remove(_ selection: BackdropSelection, fileManager: FileManager = .default) throws {
+    public func remove(_ selection: BackdropSelection) throws {
         guard contains(selection), case .file(let path) = selection else { throw CocoaError(.fileNoSuchFile) }
-        try fileManager.removeItem(atPath: path)
+        try FileManager.checked.removeItem(atPath: path)
     }
 
     /// The bytes the folder's own images take, downloaded art left out.
-    public func usage(fileManager: FileManager = .default) -> Int64 {
-        list(fileManager: fileManager).reduce(into: Int64(0)) { total, selection in
+    public func usage() -> Int64 {
+        list().reduce(into: Int64(0)) { total, selection in
             guard case .file(let path) = selection else { return }
-            total += ((try? fileManager.attributesOfItem(atPath: path)[.size]) as? NSNumber)?.int64Value ?? 0
+            total += ((try? FileManager.checked.attributesOfItem(atPath: path)[.size]) as? NSNumber)?.int64Value ?? 0
         }
     }
 }
@@ -217,7 +217,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
             return completionHandler(.cancel)
         }
         let opened: FileHandle? = FileManager.default.createFile(atPath: file.path, contents: nil)
-            ? try? FileHandle(forWritingTo: file) : nil
+            ? try? FileHandle.blockingForWriting(to: file) : nil
         state.withLock { state in
             state.cap = cap
             state.mimeType = response.mimeType
@@ -236,7 +236,7 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
             }
             state.written += Int64(data.count)
             guard state.written <= state.cap else { return true }
-            do { try state.handle?.write(contentsOf: data) } catch {
+            do { try state.handle?.blockingWrite(contentsOf: data) } catch {
                 if state.refusal == nil { state.refusal = .downloadFailed }
                 return true
             }

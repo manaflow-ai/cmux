@@ -188,7 +188,7 @@ final class HistoryFileWatch: Sendable {
     static func stamp(_ file: URL) -> [Int64] {
         [file.path, file.path + "-wal", file.path + "-journal"].flatMap { path -> [Int64] in
             var info = stat()
-            guard stat(path, &info) == 0 else { return [-1, -1] }
+            guard blockingStat(path, &info) == 0 else { return [-1, -1] }
             return [Int64(info.st_size), Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)]
         }
     }

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Finds the projects behind the user's agent sessions, without asking:
 /// each session file records its working directory.
@@ -174,16 +175,15 @@ public nonisolated struct AgentProjectScan: Sendable {
 
     /// Files with extension `ext` exactly `depth` folders below `root`.
     static func files(in root: URL, depth: Int, ext: String) -> [URL] {
-        let manager = FileManager.default
         var level = [root]
         for _ in 0..<depth {
             level = level.flatMap { dir in
-                ((try? manager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+                ((try? FileManager.checked.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
                     .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
             }
         }
         return level.flatMap { dir in
-            ((try? manager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+            ((try? FileManager.checked.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
                 .filter { $0.pathExtension == ext }
         }
     }
@@ -194,9 +194,9 @@ public nonisolated struct AgentProjectScan: Sendable {
 
     /// The cwd from the start of a session file (its first 64 KB).
     static func recordedCwd(_ app: AgentApp, _ file: URL) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: file) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 64 * 1024) else { return nil }
+        guard let data = try? handle.blockingRead(upToCount: 64 * 1024) else { return nil }
         if app == .opencode {
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             return nonEmpty(object?["directory"])

@@ -126,13 +126,13 @@ public struct BackdropShuffle: Equatable, Sendable {
     }
 
     /// The picture that shows at `date`; nil for a folder with no pictures.
-    public func pick(on date: Date, calendar: Calendar, fileManager: FileManager = .default) -> BackdropSelection? {
+    public func pick(on date: Date, calendar: Calendar) -> BackdropSelection? {
         switch source {
         case .paintings:
             return .art(BackdropArt.shuffled(on: date, every: rotation, calendar: calendar))
         case .folder(let path):
             // By name, so a picture keeps its turn when others are added.
-            let pictures = BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list(fileManager: fileManager)
+            let pictures = BackdropUserImages(folder: URL(fileURLWithPath: path, isDirectory: true)).list()
                 .sorted { $0.id < $1.id }
             return rotation.index(count: pictures.count, on: date, calendar: calendar).map { pictures[$0] }
         }

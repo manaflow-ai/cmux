@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Imports a password CSV the user chose into one cmux browser profile's
 /// Chromium password store, through the same destination as the browser
@@ -49,7 +50,7 @@ public struct PasswordCSVImporter: Sendable {
 
     /// The whole file when it is at most `limit` bytes (an export archive's limit is larger).
     static func read(_ file: URL, limit: Int) throws(Failure) -> SecretBytes {
-        let descriptor = open(file.path, O_RDONLY | O_CLOEXEC)
+        let descriptor = blockingOpen(file.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw .unreadable }
         defer { close(descriptor) }
         var info = stat()
@@ -62,7 +63,7 @@ public struct PasswordCSVImporter: Sendable {
             var done = 0
             // Each read returns at least one byte until the end, so this ends within size + 1 steps.
             for _ in 0...size where done < size && !failed {
-                let count = Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
+                let count = blockingRead(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done

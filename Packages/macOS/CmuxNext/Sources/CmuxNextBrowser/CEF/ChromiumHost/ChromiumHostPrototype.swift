@@ -35,13 +35,12 @@ public final class ChromiumHostPrototype {
 
     /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
     /// `<Application Support>/<bundle id>/ChromiumHost`.
-    public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
-                                            fileManager: FileManager = .default) -> ChromiumHostConfiguration? {
-        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment, fileManager: fileManager),
-              let support = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+    public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment) -> ChromiumHostConfiguration? {
+        guard let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment),
+              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
         let identifier = bundle.bundleIdentifier ?? "cmux"
         return ChromiumHostConfiguration.bundled(in: layout, rootCache: support.appending(path: identifier).appending(path: "ChromiumHost"),
-                                                 bundleIdentifier: identifier, environment: environment, fileManager: fileManager)
+                                                 bundleIdentifier: identifier, environment: environment)
     }
 
     /// `debug.chromium_host` {op: open {url, pane?, focus?} | close | kill | report}:

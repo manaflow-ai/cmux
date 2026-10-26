@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Chromium storage paths, keyed by the daemon's profile id
 /// (plans/cmux-next/browser.md, "Per-profile data dirs").
@@ -90,7 +91,7 @@ public nonisolated struct CEFProfileStorage: Hashable, Sendable {
     /// Chromium starts. One rename: false when there was no log to keep.
     @discardableResult
     public func keepPreviousLog() -> Bool {
-        rename(logFile.path, previousLogFile.path) == 0
+        _ = blockingRename(logFile.path, previousLogFile.path) == 0
     }
 
     /// Right before Chromium starts: the root exists and the last run's log is kept.

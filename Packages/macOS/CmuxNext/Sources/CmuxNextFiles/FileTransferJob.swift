@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// One copy or move run by ``FileOperator/transfer(_:to:mode:resolve:)``.
 struct FileTransferJob: Sendable {
@@ -9,7 +10,6 @@ struct FileTransferJob: Sendable {
     let resolve: @Sendable (FileConflict) async -> ConflictAnswer
 
     func run(_ emit: (TransferEvent) -> Void) async throws {
-        let fm = FileManager.default
         var progress = TransferProgress(itemsDone: 0, itemsTotal: sources.count, bytesDone: 0,
                                         bytesTotal: sources.reduce(0) { $0 + Self.bytes(at: $1) }, current: nil)
         emit(.progress(progress))
@@ -35,9 +35,9 @@ struct FileTransferJob: Sendable {
                 emit(.progress(progress))
                 continue
             }
-            if fm.fileExists(atPath: target.path) {
+            if FileManager.checked.fileExists(atPath: target.path) {
                 var isDir: ObjCBool = false
-                fm.fileExists(atPath: target.path, isDirectory: &isDir)
+                FileManager.checked.fileExists(atPath: target.path, isDirectory: &isDir)
                 let sourceIsDir = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 let choice: ConflictChoice
                 if let standing {
@@ -63,7 +63,7 @@ struct FileTransferJob: Sendable {
                 case .replace:
                     var trashed: NSURL?
                     do {
-                        try fm.trashItem(at: target, resultingItemURL: &trashed)
+                        try FileManager.checked.trashItem(at: target, resultingItemURL: &trashed)
                     } catch {
                         throw FileBrowserError.failed(error.localizedDescription)
                     }
@@ -74,12 +74,12 @@ struct FileTransferJob: Sendable {
             switch mode {
             case .move:
                 if Self.sameVolume(source, folder) {
-                    guard Darwin.rename(source.path, target.path) == 0 else {
+                    guard blockingRename(source.path, target.path) == 0 else {
                         throw FileBrowserError.failed(String(cString: strerror(errno)))
                     }
                 } else {
                     try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
-                    try? fm.removeItem(at: source)
+                    try? FileManager.checked.removeItem(at: source)
                 }
             case .copy:
                 try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
@@ -110,7 +110,7 @@ struct FileTransferJob: Sendable {
     /// Bytes under `url` (files only; folders summed through their contents).
     static func bytes(at url: URL) -> Int64 {
         var info = stat()
-        guard lstat(url.path, &info) == 0 else { return 0 }
+        guard blockingLstat(url.path, &info) == 0 else { return 0 }
         if info.st_mode & S_IFMT != S_IFDIR { return Int64(info.st_size) }
         var total: Int64 = 0
         let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
@@ -125,7 +125,7 @@ struct FileTransferJob: Sendable {
 
     static func sameVolume(_ a: URL, _ b: URL) -> Bool {
         var sa = stat(), sb = stat()
-        guard lstat(a.path, &sa) == 0, stat(b.path, &sb) == 0 else { return false }
+        guard blockingLstat(a.path, &sa) == 0, blockingStat(b.path, &sb) == 0 else { return false }
         return sa.st_dev == sb.st_dev
     }
 }

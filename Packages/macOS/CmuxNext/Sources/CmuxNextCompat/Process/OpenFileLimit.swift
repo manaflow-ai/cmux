@@ -38,7 +38,7 @@ package struct OpenFileLimit {
     package var perProcessCap: () -> rlim_t = {
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        return sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
+        return blockingSysctlByName("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
     }
 
     package init() {}

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Runs one encoded sidecar request (a `DiffRequest` JSON object) and returns
 /// its encoded `DiffResponse`. Tests use a fake that speaks the same JSON.
@@ -20,8 +21,7 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
     static func bundled(root: URL, resources: URL? = Bundle.main.resourceURL) -> DiffSidecarLauncher? {
         guard let bin = resources?.appending(path: "bin", directoryHint: .isDirectory) else { return nil }
         let sidecar = bin.appending(path: "cmux-diff-sidecar"), cmux = bin.appending(path: "cmux")
-        let manager = FileManager.default
-        guard manager.isExecutableFile(atPath: sidecar.path), manager.isExecutableFile(atPath: cmux.path) else { return nil }
+        guard FileManager.checked.isExecutableFile(atPath: sidecar.path), FileManager.checked.isExecutableFile(atPath: cmux.path) else { return nil }
         return DiffSidecarLauncher(sidecar: sidecar, cmux: cmux, root: root)
     }
 

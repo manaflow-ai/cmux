@@ -98,8 +98,8 @@ nonisolated final class RunMarkerFile: Sendable {
         for waiter in waiters { waiter.continuation.resume(returning: true) }
         // concurrency-allow: at exit only; waits for at most one in-flight write (no fsync) before two unlinks.
         queue.sync {
-            unlink(url.path)
-            unlink(signalURL.path)
+            _ = blockingUnlink(url.path)
+            _ = blockingUnlink(signalURL.path)
         }
     }
 
@@ -155,21 +155,21 @@ nonisolated final class RunMarkerFile: Sendable {
     /// over `url`. No fsync (see the type's comment).
     static func replaceAtomically(_ data: Data, to url: URL) throws {
         let temporary = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(getpid()).tmp").path
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        let descriptor = blockingOpen(temporary, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         let count = data.withUnsafeBytes { bytes in
             // concurrency-allow: nonisolated; runs on RunMarkerFile's background queue, never on the main actor.
-            bytes.baseAddress.map { Darwin.write(descriptor, $0, bytes.count) } ?? 0
+            bytes.baseAddress.map { blockingWrite(descriptor, $0, bytes.count) } ?? 0
         }
         let writeError = errno
         Darwin.close(descriptor)
         guard count == data.count else {
-            unlink(temporary)
+            _ = blockingUnlink(temporary)
             throw POSIXError(POSIXErrorCode(rawValue: writeError) ?? .EIO)
         }
-        guard rename(temporary, url.path) == 0 else {
+        guard blockingRename(temporary, url.path) == 0 else {
             let renameError = errno
-            unlink(temporary)
+            _ = blockingUnlink(temporary)
             throw POSIXError(POSIXErrorCode(rawValue: renameError) ?? .EIO)
         }
     }

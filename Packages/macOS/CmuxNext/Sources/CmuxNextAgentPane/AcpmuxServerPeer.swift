@@ -185,12 +185,12 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     private static func tcpSockets(of pid: pid_t) -> [TCPSocket] {
-        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        let bytes = blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
         guard bytes > 0 else { return [] }
         let stride = MemoryLayout<proc_fdinfo>.stride
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: Int(bytes) / stride + 8)
         let filled = fds.withUnsafeMutableBytes { buffer in
-            proc_pidinfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
+            blockingProcPidInfo(pid, PROC_PIDLISTFDS, 0, buffer.baseAddress, Int32(buffer.count))
         }
         var out: [TCPSocket] = []
         for fd in fds.prefix(Int(filled) / stride) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {

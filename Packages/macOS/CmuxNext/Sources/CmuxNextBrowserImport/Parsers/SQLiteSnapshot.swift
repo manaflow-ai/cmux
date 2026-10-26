@@ -1,5 +1,6 @@
 public import Foundation
 import SQLite3
+import CmuxNextCompat
 
 /// A read-only SQLite database opened from a private copy of the file (and
 /// its `-wal`), so a browser that is running and holds the database locked
@@ -19,28 +20,28 @@ public final class SQLiteSnapshot {
         directory = manager.temporaryDirectory.appending(path: "cmux-import-\(UUID().uuidString)", directoryHint: .isDirectory)
         let copy = directory.appending(path: "db.sqlite")
         do {
-            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try manager.copyItem(at: source, to: copy)
+            try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+            try FileManager.checked.copyItem(at: source, to: copy)
             for suffix in ["-wal", "-journal"] {
                 let side = URL(fileURLWithPath: source.path + suffix)
-                if manager.fileExists(atPath: side.path) { try? manager.copyItem(at: side, to: URL(fileURLWithPath: copy.path + suffix)) }
+                if FileManager.checked.fileExists(atPath: side.path) { try? FileManager.checked.copyItem(at: side, to: URL(fileURLWithPath: copy.path + suffix)) }
             }
         } catch {
-            try? manager.removeItem(at: directory)
+            try? FileManager.checked.removeItem(at: directory)
             throw Failure.copy(error.localizedDescription)
         }
         // Read-write on the private copy so SQLite can replay the WAL.
-        guard sqlite3_open_v2(copy.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        guard blockingSQLiteOpen(copy.path, &handle, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
             let message = handle.map { String(cString: sqlite3_errmsg($0)) } ?? "open failed"
-            sqlite3_close(handle)
+            blockingSQLiteClose(handle)
             handle = nil
-            try? manager.removeItem(at: directory)
+            try? FileManager.checked.removeItem(at: directory)
             throw Failure.open(message)
         }
     }
 
     deinit {
-        sqlite3_close(handle)
+        blockingSQLiteClose(handle)
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -48,13 +49,13 @@ public final class SQLiteSnapshot {
     /// Checks for task cancellation every 256 rows.
     public func query(_ sql: String, _ row: (SQLiteRow) throws -> Bool) throws {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(handle, sql, -1, &statement, nil) == SQLITE_OK else {
+        guard blockingSQLitePrepare(handle, sql, -1, &statement, nil) == SQLITE_OK else {
             throw Failure.query(String(cString: sqlite3_errmsg(handle)))
         }
         defer { sqlite3_finalize(statement) }
         var count = 0
         while true { // wakeup-allow: bounded by the result set; ends at SQLITE_DONE
-            let step = sqlite3_step(statement)
+            let step = blockingSQLiteStep(statement)
             if step == SQLITE_DONE { return }
             guard step == SQLITE_ROW else { throw Failure.query(String(cString: sqlite3_errmsg(handle))) }
             count += 1

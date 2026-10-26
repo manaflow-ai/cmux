@@ -1,4 +1,5 @@
 import Darwin
+import CmuxNextCompat
 
 /// Whether a socket peer was started inside this cmux: it descends from the
 /// app, or from a process running a trusted executable (the bundled cmux
@@ -12,7 +13,7 @@ struct ControlPeerAncestry: Sendable {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.size
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+        guard blockingSysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(clamping: MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(clamping: buffer.count))
         let path = length > 0 ? String(decoding: buffer.prefix(Int(clamping: length)).map { UInt8(bitPattern: $0) }, as: UTF8.self) : nil

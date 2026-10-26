@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextWakeups
+import CmuxNextCompat
 
 /// Reads the pull request of a folder's branch with the user's GitHub CLI (cx-tcwj):
 /// `gh pr view --json` ``AgentPanePullRequest/fields`` in the folder, or one pull request by its
@@ -227,7 +228,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // the queue's two runs) waiting past the deadline.
         let file = FileManager.default.temporaryDirectory.appending(path: "cmux-gh-pr-\(UUID().uuidString).json")
         guard FileManager.default.createFile(atPath: file.path, contents: nil),
-              let output = try? FileHandle(forWritingTo: file) else { return nil }
+              let output = try? FileHandle.blockingForWriting(to: file) else { return nil }
         defer { try? FileManager.default.removeItem(at: file) }
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice

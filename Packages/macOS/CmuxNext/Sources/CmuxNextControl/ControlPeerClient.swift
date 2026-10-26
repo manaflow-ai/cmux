@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// A bounded client for another local cmux control socket.
 ///
@@ -111,7 +112,7 @@ public struct ControlPeerClient {
         try data.withUnsafeBytes { bytes in
             guard let base = bytes.baseAddress else { return }
             while offset < bytes.count {
-                let count = Darwin.write(descriptor, base.advanced(by: offset), bytes.count - offset)
+                let count = blockingWrite(descriptor, base.advanced(by: offset), bytes.count - offset)
                 if count > 0 { offset += count; continue }
                 if count < 0, errno == EINTR { continue }
                 if count < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT { throw Failure.timeout }

@@ -4,6 +4,7 @@ import CmuxNextPages
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// The Settings page's wallpaper thumbnails (R82 commit 4): `cmux-page://cmux.settings/backdrop/<id>`
 /// answers a small PNG of that choice. Only ids in the bounded catalog, and the person's own
@@ -75,7 +76,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
         let options = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
                        kCGImageSourceThumbnailMaxPixelSize: 240] as CFDictionary
         guard let image = AppleWallpapers.isVideo(url.path) ? BackdropImageStore.poster(url, maxPixelSize: 240)
-            : CGImageSourceCreateWithURL(url as CFURL, nil).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
+            : blockingImageSource(url: url as CFURL).flatMap({ CGImageSourceCreateThumbnailAtIndex($0, 0, options) }) else { return nil }
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)

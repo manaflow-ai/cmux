@@ -527,7 +527,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextOnboarding",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport", "CmuxNextTrace", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -683,7 +683,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // the per-profile page visit log (SQLite), and the cmux://history page.
         .target(
             name: "CmuxNextHistory",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -794,7 +794,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -890,7 +890,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextBrowser's CEFRuntimeSource.
         .target(
             name: "CmuxNextChromiumRuntime",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -982,7 +982,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Screenshots pane (cmux://screenshots): macOS and screenshot-tool folders, live.
         .target(
             name: "CmuxNextScreenshots",
-            dependencies: ["CmuxNextFileGrid", "CmuxNextFiles"],
+            dependencies: ["CmuxNextCompat", "CmuxNextFileGrid", "CmuxNextFiles"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -1200,7 +1200,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextResources",
-            dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign"],
             resources: [
                 .process("Resources"),
             ],
@@ -1290,7 +1290,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

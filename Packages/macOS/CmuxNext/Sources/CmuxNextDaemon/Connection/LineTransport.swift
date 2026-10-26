@@ -353,7 +353,7 @@ final class LineTransport: Sendable {
         var closeDetail = "EOF"
         // wakeup-allow: blocking read on a dedicated thread; EOF, errors and oversize lines end it, EINTR retries
         reading: while true {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = chunk.withUnsafeMutableBytes { blockingRead(fd, $0.baseAddress, $0.count) }
             if count == 0 { break }
             if count < 0 {
                 if errno == EINTR { continue }

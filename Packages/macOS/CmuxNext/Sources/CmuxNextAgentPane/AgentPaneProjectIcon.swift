@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextSettings
+import CmuxNextCompat
 
 /// A project's own favicon for its picker badge (`project.icon {cwd}`): the New Tab page's folder
 /// strip and the composer's folder menu draw it in place of the letter tile. The page reads no
@@ -52,9 +53,9 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             return File(size: size, modified: values.contentModificationDate ?? .distantPast)
         }
         read = { path in
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
             defer { try? handle.close() }
-            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
+            return try? handle.blockingRead(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
         }
         list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
@@ -156,7 +157,7 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
     }
 
     private static func realPath(_ path: String) -> String? {
-        guard let resolved = realpath(path, nil) else { return nil }
+        guard let resolved = blockingRealpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }

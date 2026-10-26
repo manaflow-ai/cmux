@@ -178,7 +178,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
 
     public static var defaultShell: String {
         if let shell = ProcessInfo.processInfo.environment["SHELL"], !shell.isEmpty { return shell }
-        if let entry = getpwuid(getuid()), let shell = entry.pointee.pw_shell {
+        if let entry = blockingGetpwuid(getuid()), let shell = entry.pointee.pw_shell {
             let path = String(cString: shell)
             if !path.isEmpty { return path }
         }

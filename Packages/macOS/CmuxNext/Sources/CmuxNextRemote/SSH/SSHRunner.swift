@@ -41,7 +41,7 @@ public struct SSHProcessRunner {
         var inputPipe: Pipe?
         switch input {
         case .none: process.standardInput = FileHandle.nullDevice
-        case .file(let url): process.standardInput = try FileHandle(forReadingFrom: url)
+        case .file(let url): process.standardInput = try FileHandle.blockingForReading(from: url)
         case .data, .writer:
             let pipe = Pipe()
             inputPipe = pipe
@@ -74,7 +74,7 @@ public struct SSHProcessRunner {
         if case .data(let data) = input, let inputPipe {
             let writer = inputPipe.fileHandleForWriting
             // Scripts are a few KiB, well under the pipe buffer.
-            try? writer.write(contentsOf: data)
+            try? writer.blockingWrite(contentsOf: data)
             try? writer.close()
         }
         if case .writer(let write) = input, let inputPipe {

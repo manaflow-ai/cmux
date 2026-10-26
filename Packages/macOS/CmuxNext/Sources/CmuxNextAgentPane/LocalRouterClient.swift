@@ -1,5 +1,6 @@
 public import Foundation
 import Network
+import CmuxNextCompat
 
 /// The local model relay's admin socket (cmux-tui crate cmux-coderouter,
 /// ``socketPath(acpmuxHome:uid:)``, 0600): one JSON object per line,
@@ -48,7 +49,7 @@ public nonisolated struct LocalRouterClient: Sendable {
         let folder = shortFolder(uid: uid)
         if (path as NSString).deletingLastPathComponent == folder {
             var info = stat()
-            guard lstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
+            guard blockingLstat(folder, &info) == 0, info.st_mode & S_IFMT == S_IFDIR, info.st_uid == uid, info.st_mode & 0o077 == 0 else {
                 throw Failure.untrustedSocketFolder(folder)
             }
         }

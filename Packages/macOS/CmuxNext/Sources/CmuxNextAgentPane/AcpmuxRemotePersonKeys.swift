@@ -64,7 +64,7 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
         withLine { base, count in
             var offset = 0
             while offset < count {
-                let written = Darwin.write(descriptor, base + offset, count - offset)
+                let written = blockingWrite(descriptor, base + offset, count - offset)
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { return false }
                 offset += written

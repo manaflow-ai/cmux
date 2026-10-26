@@ -149,7 +149,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Terminal: `com.cmuxterm.next.terminal.output`, `com.cmuxterm.next.localpty.read`, `com.cmuxterm.next.localpty.write`
 - Settings and files: `com.cmuxterm.next.settings.watcher`, `cmux.files.fsevents`, `cmux.files.tree-fsevents`,
   `com.cmuxterm.home.cache` (the `HomeCache` actor's executor, user-initiated: its file writes block this queue,
-  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS)
+  never a pool thread, so the forced quit's last draft write runs with the pool full; CmuxHomeCore, shared with iOS),
+  `com.cmuxterm.next.files.table-widths` (the `MarkdownTableWidthRepository` actor's executor, user-initiated),
+  `com.cmuxterm.next.onboarding.classic-migration` (the `ClassicMigrationRepository` actor's executor,
+  user-initiated), `com.cmuxterm.next.agent-pane.saved-environments` (the `SavedEnvironments` actor's executor,
+  user-initiated), `com.cmuxterm.next.hang-reports.store` (the `HangReportStore` actor's executor, utility); each
+  actor's file calls block its own queue, never a pool thread (p02-threads-141..144)
 - Remote and mobile: `com.cmuxterm.next.remote-localhost`, `com.cmuxterm.next.cloud-browser-proxy`,
   `com.cmuxterm.next.remote-fetch`, `cmux.remote-view.render`, `cmux.remote-view.rd-transport`,
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`

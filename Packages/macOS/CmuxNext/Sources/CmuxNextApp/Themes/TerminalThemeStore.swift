@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import os
+import CmuxNextCompat
 
 /// Per-terminal themes, keyed `<machine>:<tab id>`, in a small app-local
 /// file (`<Application Support>/<bundle id>/terminal-themes.json`).
@@ -85,15 +86,14 @@ final class TerminalThemeStore {
     /// `<name>.corrupt` (`<name>.corrupt-<uuid>` when that exists, never over it) and
     /// reads as empty.
     nonisolated static func read(_ url: URL, logger: Logger) -> (themes: [String: String], complete: Bool) {
-        let manager = FileManager.default
-        guard manager.fileExists(atPath: url.path) else { return ([:], true) }
+        guard FileManager.checked.fileExists(atPath: url.path) else { return ([:], true) }
         // concurrency-allow: called from a detached task in load(), off the main actor
         guard let data = try? Data(contentsOf: url) else { return ([:], false) }
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             let first = url.appendingPathExtension("corrupt")
-            let aside = manager.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
+            let aside = FileManager.checked.fileExists(atPath: first.path) ? url.appendingPathExtension("corrupt-\(UUID().uuidString)") : first
             do {
-                try manager.moveItem(at: url, to: aside)
+                try FileManager.checked.moveItem(at: url, to: aside)
                 logger.error("\(url.lastPathComponent, privacy: .public) is not JSON; moved it to \(aside.lastPathComponent, privacy: .public)")
                 return ([:], true)
             } catch {

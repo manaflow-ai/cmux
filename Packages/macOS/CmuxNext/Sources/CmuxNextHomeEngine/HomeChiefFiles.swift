@@ -3,6 +3,7 @@ public import Foundation
 import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// What the Chief settings show, read from this Chief's files and its brain.
 public nonisolated struct HomeChiefSnapshot: Sendable {
@@ -131,7 +132,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// Throws when it is not a picture ImageIO reads, or a GIF over ``maximumGIFBytes``.
     public func pictureData(from source: URL) throws -> ChiefAvatarPicture {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
-        guard let image = CGImageSourceCreateWithURL(source as CFURL, nil), CGImageSourceGetCount(image) > 0,
+        guard let image = blockingImageSource(url: source as CFURL), CGImageSourceGetCount(image) > 0,
               let type = (CGImageSourceGetType(image) as String?).flatMap(UTType.init) else { throw CocoaError(.fileReadCorruptFile) }
         if type.conforms(to: .gif) {
             let size = (try source.resourceValues(forKeys: [.fileSizeKey])).fileSize ?? 0
@@ -220,7 +221,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
     /// it is square or unreadable.
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
-        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+        guard let source = blockingImageSource(url: file as CFURL),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil), image.width != image.height else { return nil }
         let side = min(image.width, image.height)
         guard let square = image.cropping(to: CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2,
@@ -235,9 +236,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
         let copy = directory.appendingPathComponent("\(pathKey(file.path))-\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
         if FileManager.default.fileExists(atPath: copy.path) { return copy }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        guard let destination = blockingImageDestination(url: copy as CFURL, type: UTType.png.identifier as CFString, count: 1) else { return nil }
         CGImageDestinationAddImage(destination, square, nil)
-        return CGImageDestinationFinalize(destination) ? copy : nil
+        return blockingImageDestinationFinalize(destination) ? copy : nil
     }
 
     func writeAvatar(_ text: String) {

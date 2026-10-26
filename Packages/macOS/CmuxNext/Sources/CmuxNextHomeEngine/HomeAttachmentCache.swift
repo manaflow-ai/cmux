@@ -3,6 +3,7 @@ import CmuxNextDaemon
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// Fetched attachment variants on disk, one file per hash and variant, for
 /// the Home sources whose owner reads bytes by hash through the daemon (the
@@ -87,7 +88,7 @@ nonisolated struct HomeAttachmentCache: Sendable {
 
     /// A JPEG whose longer side is at most `maxPixel`, EXIF orientation applied.
     static func thumbnailJPEG(of url: URL, maxPixel: Int) throws -> Data {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        guard let source = blockingImageSource(url: url as CFURL),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceCreateThumbnailWithTransform: true,

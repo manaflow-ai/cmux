@@ -120,7 +120,7 @@ extension SessionTransferService {
     /// Whether two paths name one file (a socket reached as `/tmp/…` and `/private/tmp/…`).
     private nonisolated static func sameFile(_ a: String, _ b: String) -> Bool {
         var first = stat(), second = stat()
-        guard stat(a, &first) == 0, stat(b, &second) == 0 else { return a == b }
+        guard blockingStat(a, &first) == 0, blockingStat(b, &second) == 0 else { return a == b }
         return first.st_dev == second.st_dev && first.st_ino == second.st_ino
     }
 
@@ -157,10 +157,10 @@ extension SessionTransferService {
         let stdoutURL = directory.appendingPathComponent("stdout"), stderrURL = directory.appendingPathComponent("stderr")
         let process = Process()
         do {
-            try files.createDirectory(at: directory, withIntermediateDirectories: true)
-            files.createFile(atPath: stdoutURL.path, contents: nil)
-            files.createFile(atPath: stderrURL.path, contents: nil)
-            let stdout = try FileHandle(forWritingTo: stdoutURL), stderr = try FileHandle(forWritingTo: stderrURL)
+            try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
+            FileManager.checked.createFile(atPath: stdoutURL.path, contents: nil)
+            FileManager.checked.createFile(atPath: stderrURL.path, contents: nil)
+            let stdout = try FileHandle.blockingForWriting(to: stdoutURL), stderr = try FileHandle.blockingForWriting(to: stderrURL)
             defer { try? stdout.close(); try? stderr.close() }
             process.executableURL = executable
             process.arguments = arguments
@@ -188,7 +188,7 @@ extension SessionTransferService {
                 outcome.resolve(nil)
             }
         } catch {
-            try? files.removeItem(at: directory)
+            try? FileManager.checked.removeItem(at: directory)
             throw error is CancellationError ? error : Failure.chatNotMoved(String(describing: error))
         }
     }

@@ -19,7 +19,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
     func send(_ bytes: [UInt8]) -> Bool {
         let sent = wire.withLock { wire -> Bool in
             guard wire.writeFD >= 0 else { return false }
-            let written = bytes.withUnsafeBytes { Darwin.write(wire.writeFD, $0.baseAddress, $0.count) }
+            let written = bytes.withUnsafeBytes { blockingWrite(wire.writeFD, $0.baseAddress, $0.count) }
             return written == bytes.count
         }
         if sent { return true }
@@ -61,7 +61,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
         var open = true
         while open {
-            let count = chunk.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
+            let count = chunk.withUnsafeMutableBytes { blockingRead(fd, $0.baseAddress, $0.count) }
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }  // EOF: the host ended, or close() shut the socket down
             buffer.append(contentsOf: chunk[0..<count])

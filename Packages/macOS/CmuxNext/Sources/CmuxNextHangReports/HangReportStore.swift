@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
 /// the watchdog aggregate saved for the next launch, the outbox of reports not yet accepted, the
@@ -6,6 +7,13 @@ public import Foundation
 ///
 /// Tests pass a temporary folder.
 public actor HangReportStore {
+    /// The actor's own serial queue: its file calls block this queue, never a cooperative pool thread
+    /// (Chrome runs file work on a MayBlock sequence, base/task/task_traits.h).
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.hang-reports.store", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// When reports were sent, for the daily cap and the 24-hour watchdog report.
     public struct SendLog: Codable, Sendable, Equatable {
         /// When the last report was queued.
@@ -26,7 +34,6 @@ public actor HangReportStore {
 
     /// The folder that holds every hang report file.
     public nonisolated let directory: URL
-    private let manager = FileManager.default
 
     /// Makes the value from its parts.
     public init(directory: URL) {
@@ -56,25 +63,25 @@ public actor HangReportStore {
         return try? JSONDecoder().decode(StallAggregate.self, from: data)
     }
 
-    private func removePending() { try? manager.removeItem(at: pendingURL) }
+    private func removePending() { try? FileManager.checked.removeItem(at: pendingURL) }
 
     // MARK: Outbox
 
     /// Queues a report body; the oldest go when more than ``outboxLimit`` wait.
     public func enqueue(_ body: Data, reportId: String) {
-        try? manager.createDirectory(at: outboxURL, withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: outboxURL, withIntermediateDirectories: true)
         write(body, to: outboxURL.appending(path: "\(reportId).json"))
         let entries = outbox(now: Date())
-        for entry in entries.dropLast(Self.outboxLimit) { try? manager.removeItem(at: entry.url) }
+        for entry in entries.dropLast(Self.outboxLimit) { try? FileManager.checked.removeItem(at: entry.url) }
     }
 
     /// The waiting reports, oldest first; older than ``outboxMaxAge`` are deleted.
     public func outbox(now: Date) -> [(url: URL, body: Data)] {
-        let files = (try? manager.contentsOfDirectory(at: outboxURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let files = (try? FileManager.checked.contentsOfDirectory(at: outboxURL, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         let dated = files.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, Date)? in
             let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             if now.timeIntervalSince(date) > Self.outboxMaxAge {
-                try? manager.removeItem(at: url)
+                try? FileManager.checked.removeItem(at: url)
                 return nil
             }
             return (url, date)
@@ -85,21 +92,21 @@ public actor HangReportStore {
     }
 
     /// Deletes one outbox entry.
-    public func remove(_ url: URL) { try? manager.removeItem(at: url) }
+    public func remove(_ url: URL) { try? FileManager.checked.removeItem(at: url) }
 
     // MARK: Last report and send log
 
     /// Keeps the readable copy of a report that was sent.
     public func saveLastReport(_ readable: Data) {
         write(readable, to: lastReportURL)
-        try? manager.removeItem(at: previewURL)
+        try? FileManager.checked.removeItem(at: previewURL)
     }
 
     /// Keeps the readable preview View Hang Report opens.
     public func savePreview(_ readable: Data) { write(readable, to: previewURL) }
 
     /// Whether a report was ever sent from this Mac.
-    public func hasLastReport() -> Bool { manager.fileExists(atPath: lastReportURL.path) }
+    public func hasLastReport() -> Bool { FileManager.checked.fileExists(atPath: lastReportURL.path) }
 
     /// The send log (empty when missing).
     public func sendLog() -> SendLog {
@@ -115,13 +122,13 @@ public actor HangReportStore {
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
         removePending()
-        try? manager.removeItem(at: outboxURL)
-        try? manager.removeItem(at: previewURL)
+        try? FileManager.checked.removeItem(at: outboxURL)
+        try? FileManager.checked.removeItem(at: previewURL)
     }
 
     private func write(_ data: Data?, to url: URL) {
         guard let data else { return }
-        try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
     }
 }

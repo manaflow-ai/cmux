@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Where the CEF runtime lives inside an app bundle (or a directory named by
 /// `CMUX_NEXT_CEF_RUNTIME`, for demos that are not bundled apps).
@@ -57,8 +58,7 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
     /// (the build skipped CEF or the artifact was unavailable).
     public static func locate(
         bundle: Bundle = .main,
-        environment: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> CEFRuntimeLayout? {
         let frameworks: URL
         if let override = environment["CMUX_NEXT_CEF_RUNTIME"], !override.isEmpty {
@@ -68,7 +68,7 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
         } else {
             return nil
         }
-        return at(frameworks, fallbackMainBundle: bundle.bundleURL, fileManager: fileManager)
+        return at(frameworks, fallbackMainBundle: bundle.bundleURL)
     }
 
     /// The layout of a runtime in `frameworks` (an app's `Contents/Frameworks`,
@@ -78,11 +78,9 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
     /// - Parameters:
     ///   - frameworks: The folder that holds the framework, shim and helpers.
     ///   - fallbackMainBundle: The main bundle when `frameworks` is not inside an `.app`.
-    ///   - fileManager: Lists the folder.
     /// - Returns: The layout; its main bundle is the `.app` that holds `frameworks`, else `fallbackMainBundle` (a downloaded pack: the app itself).
-    public static func at(_ frameworks: URL, fallbackMainBundle: URL, trust: Trust = .bundled,
-                          fileManager: FileManager = .default) -> CEFRuntimeLayout? {
-        guard let entries = try? fileManager.contentsOfDirectory(atPath: frameworks.path),
+    public static func at(_ frameworks: URL, fallbackMainBundle: URL, trust: Trust = .bundled) -> CEFRuntimeLayout? {
+        guard let entries = try? FileManager.checked.contentsOfDirectory(atPath: frameworks.path),
               entries.contains(frameworkName), entries.contains(shimName),
               let helper = baseHelperName(in: entries) else {
             return nil

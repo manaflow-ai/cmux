@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxNextCompat
 
 /// `https://files.cmux.com/cmux-tui/<commit>/manifest.json`: the digest of
 /// every binary the `cmux-tui artifacts` workflow published for one commit.
@@ -28,10 +29,10 @@ public struct CmuxTUITreeSource: Decodable, Sendable {
 public struct SHA256File {
     public init() {}
     public static func hex(of file: URL) throws -> String {
-        let handle = try FileHandle(forReadingFrom: file)
+        let handle = try FileHandle.blockingForReading(from: file)
         defer { try? handle.close() }
         var hasher = SHA256()
-        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+        while let chunk = try handle.blockingRead(upToCount: 1 << 20), !chunk.isEmpty {
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()

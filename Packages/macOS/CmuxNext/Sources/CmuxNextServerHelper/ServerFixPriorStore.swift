@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Where the helper keeps the value each applied fix replaced, so `revert`
 /// restores the user's own setting.
@@ -49,7 +50,7 @@ public final nonisolated class FileFixPriorStore: ServerFixPriorStore, @unchecke
     private func directoryIsTrusted() -> Bool {
         let directory = url.deletingLastPathComponent().path
         var info = stat()
-        guard lstat(directory, &info) == 0 else { return true } // created by save()
+        guard blockingLstat(directory, &info) == 0 else { return true } // created by save()
         return (info.st_mode & S_IFMT) == S_IFDIR && info.st_uid == geteuid() && (info.st_mode & 0o077) == 0
     }
 

@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 import os
+import CmuxNextCompat
 
 /// cmux NEXT's one-time adoption of the homes it used before per-build
 /// isolation (cx-is1kf.9): its old acpmux home `tags/cmux-next` and the
@@ -67,7 +68,7 @@ nonisolated enum BuildHomeAdoption {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-adopt-build-homes-\(getpid()).log")
         guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
-              let output = try? FileHandle(forWritingTo: outputURL) else {
+              let output = try? FileHandle.blockingForWriting(to: outputURL) else {
             logger.error("adoption skipped: no output file")
             return
         }

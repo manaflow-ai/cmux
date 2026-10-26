@@ -169,13 +169,13 @@ public final class ControlSocketServer: Sendable {
         try bindSocket(descriptor, at: path, mode: configuration.accessMode.filePermissions, capacity: capacity)
         guard listen(descriptor, 64) == 0 else {
             let code = errno
-            unlink(path)
+            _ = blockingUnlink(path)
             throw StartError.system(call: "listen", errno: code)
         }
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
 
         var info = stat()
-        let identity = lstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
+        let identity = blockingLstat(path, &info) == 0 ? (dev: info.st_dev, ino: info.st_ino) : nil
         let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: acceptQueue)
         source.setEventHandler { [weak self] in self?.acceptPending(listener: descriptor) }
         source.setCancelHandler { close(descriptor) }

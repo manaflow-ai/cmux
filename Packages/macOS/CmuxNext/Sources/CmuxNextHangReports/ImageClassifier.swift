@@ -1,5 +1,6 @@
 public import Foundation
 import MachO
+import CmuxNextCompat
 
 /// Decides what a report may say about the image of a frame (hang-reports-DESIGN.md section 3).
 ///
@@ -159,11 +160,10 @@ public nonisolated struct ImageClassifier: Sendable {
     /// longer loaded (after an update).
     public static func systemImageOnDisk(_ name: String) -> Bool {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return false }
-        let manager = FileManager.default
         if ["/System/Library/Frameworks/\(name).framework", "/System/Library/PrivateFrameworks/\(name).framework"]
-            .contains(where: { manager.fileExists(atPath: $0) }) { return true }
+            .contains(where: { FileManager.checked.fileExists(atPath: $0) }) { return true }
         return ["/usr/lib/\(name)", "/usr/lib/system/\(name)"].contains {
-            _dyld_shared_cache_contains_path($0) || manager.fileExists(atPath: $0)
+            _dyld_shared_cache_contains_path($0) || FileManager.checked.fileExists(atPath: $0)
         }
     }
 

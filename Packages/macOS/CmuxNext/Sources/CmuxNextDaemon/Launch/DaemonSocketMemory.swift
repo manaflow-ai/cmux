@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// The socket of a session's daemon, remembered from the last connection,
 /// so the next launch connects to a running daemon at once instead of first
@@ -31,7 +32,7 @@ public struct DaemonSocketMemory: Sendable {
     /// connection now. A stale file left by a killed daemon refuses at once.
     public static func acceptsConnections(_ path: String, wireStats: DaemonWireStats?) -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
+        guard blockingLstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
         guard let transport = try? LineTransport(path: path, role: .socketProbe, stats: wireStats) else { return false }
         transport.close()
         return true

@@ -1,5 +1,6 @@
 import Darwin
 public import Foundation
+import CmuxNextCompat
 
 /// The "last opened app" pointer: the absolute path of the `cmux` CLI of the
 /// app the user opened last, in `~/Library/Application Support/cmux/last-app-cli`.
@@ -36,13 +37,13 @@ public struct LastAppCLIPointer: Sendable, Equatable {
             return false
         }
         let temporary = directory.appendingPathComponent(".last-app-cli.\(getpid()).\(UUID().uuidString)")
-        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        let descriptor = blockingOpen(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return false }
         let bytes = Array((cliPath + "\n").utf8)
         let written = bytes.withUnsafeBytes { write(descriptor, $0.baseAddress, $0.count) }
         close(descriptor)
-        guard written == bytes.count, rename(temporary.path, file.path) == 0 else {
-            unlink(temporary.path)
+        guard written == bytes.count, blockingRename(temporary.path, file.path) == 0 else {
+            _ = blockingUnlink(temporary.path)
             return false
         }
         return true

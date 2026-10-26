@@ -73,10 +73,10 @@ public final class OwnerPanicForwarder: Sendable {
             return []
         }
         if state.inode != inode || state.offset > size { state = State(offset: 0, inode: inode) }
-        guard size > state.offset, let handle = try? FileHandle(forReadingFrom: log) else { return [] }
+        guard size > state.offset, let handle = try? FileHandle.blockingForReading(from: log) else { return [] }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: state.offset)) != nil,
-              let data = try? handle.read(upToCount: Int(size - state.offset)),
+              let data = try? handle.blockingRead(upToCount: Int(size - state.offset)),
               let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return [] }
         // Only whole lines; a line still being written stays for the next read.
         let complete = data[data.startIndex...lastNewline]
@@ -128,7 +128,7 @@ public final class OwnerPanicForwarder: Sendable {
     private func watch() {
         let directory = log.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let descriptor = open(directory.path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = blockingOpen(directory.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.write, .rename],
                                                                queue: queue)

@@ -1,4 +1,5 @@
 package import Foundation
+import CmuxNextCompat
 
 /// The conversation text of a Claude Code or Codex session that runs in a
 /// terminal on this Mac, read from the agent's transcript file. A TUI agent
@@ -64,7 +65,7 @@ package nonisolated struct AgentTranscriptText {
             for year in children(of: root) {
                 for month in children(of: year) {
                     for day in children(of: month) {
-                        if let name = (try? fm.contentsOfDirectory(atPath: day.path))?.first(where: { $0.lowercased().hasSuffix(suffix) }) {
+                        if let name = (try? FileManager.checked.contentsOfDirectory(atPath: day.path))?.first(where: { $0.lowercased().hasSuffix(suffix) }) {
                             return day.appendingPathComponent(name)
                         }
                         days += 1
@@ -80,11 +81,11 @@ package nonisolated struct AgentTranscriptText {
         if let cwd = session.cwd {
             let slug = String(cwd.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII ? Character($0) : "-" })
             let candidate = projects.appendingPathComponent(slug).appendingPathComponent(file)
-            if fm.fileExists(atPath: candidate.path) { return candidate }
+            if FileManager.checked.fileExists(atPath: candidate.path) { return candidate }
         }
         for project in children(of: projects) {
             let candidate = project.appendingPathComponent(file)
-            if fm.fileExists(atPath: candidate.path) { return candidate }
+            if FileManager.checked.fileExists(atPath: candidate.path) { return candidate }
         }
         return nil
     }
@@ -97,9 +98,9 @@ package nonisolated struct AgentTranscriptText {
 
     /// The last `readBytes` of the file, from its first whole line.
     private static func tail(of url: URL) -> Data? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: url) else { return nil }
         defer { try? handle.close() }
-        guard let size = try? handle.seekToEnd() else { return nil }
+        guard let size = try? handle.blockingSeekToEnd() else { return nil }
         let start = size > UInt64(readBytes) ? size - UInt64(readBytes) : 0
         try? handle.seek(toOffset: start)
         // concurrency-allow: called only from the @concurrent lines(of:), never on the main thread.
