@@ -152,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
+        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.
@@ -253,7 +254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install()
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
         // (p13-webui-006 to 009 move them, 010 deletes the statics).
@@ -342,6 +343,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let acpmux = QuitAgents.environment(services)
         ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        services.followEnergySaver(settings)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
