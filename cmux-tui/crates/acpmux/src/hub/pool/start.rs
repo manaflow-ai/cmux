@@ -2,6 +2,22 @@
 
 use super::*;
 
+impl Pooled {
+    /// Whether this agent, started for `spec`, runs in full access: its argv, or the mode and
+    /// config options its harness session came up in (`runs_full_access`).
+    pub(super) fn runs_full_access(&self, spec: &PoolSpec) -> bool {
+        use crate::hub::full_access_bound::{FullAccessView, runs_full_access};
+        let new = self.new_result.as_ref();
+        let view = FullAccessView {
+            argv: spec.spawn.argv.clone(),
+            mode: new.and_then(|r| r["modes"]["currentModeId"].as_str()).map(str::to_owned),
+            undeclared_mode: None,
+            options: new.and_then(|r| r["configOptions"].as_array()).cloned().unwrap_or_default(),
+        };
+        runs_full_access(&view).is_some()
+    }
+}
+
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
     /// host in the pool directory, `initialize`, then the harness session.

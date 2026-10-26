@@ -148,12 +148,41 @@ impl Hub {
         Ok(())
     }
 
+    /// For an agent started outside any session (a model probe) from `argv`: refused while MDM
+    /// forces full access off and `argv` pins it, else what `full_access_forced_off` waits on
+    /// (none when `argv` does not pin it). Review 25 of #23322: the probe holds it from before its
+    /// start, so an off that lands while it starts or runs ends it.
+    pub(super) fn probe_bound(&self, argv: &[String]) -> anyhow::Result<Option<OffWatch>> {
+        if runs_full_access(&FullAccessView::of_argv(argv)).is_none() {
+            return Ok(None);
+        }
+        let off = self.full_access_off_watch();
+        if *off.borrow() {
+            anyhow::bail!("its profile pins full access, which MDM forces off");
+        }
+        Ok(Some(off))
+    }
+
     /// MDM has just forced full access off (`apply_full_access_push`).
     pub(super) async fn full_access_turned_off(&self) {
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
         self.drain_pool();
     }
+}
+
+/// Turns true when MDM forces full access off (`Hub::full_access_off_watch`).
+pub(super) type OffWatch = tokio::sync::watch::Receiver<bool>;
+
+/// Resolves once MDM forces full access off, for a probe that holds `bound` (`probe_bound`); never
+/// for one that does not pin full access. An off that came before this call counts too.
+pub(super) async fn full_access_forced_off(bound: Option<&mut OffWatch>) {
+    if let Some(off) = bound
+        && off.wait_for(|off| *off).await.is_ok()
+    {
+        return;
+    }
+    std::future::pending().await
 }
 
 #[cfg(test)]

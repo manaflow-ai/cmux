@@ -1261,12 +1261,16 @@ impl Hub {
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
+        // MDM forces full access off (#23322): a profile pinning it is never started to probe,
+        // and a probe that runs when the off lands ends then (`probe_bound`).
+        let mut bound =
+            self.probe_bound(&profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
+        let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
             child
                 .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
                 .await
@@ -1277,10 +1281,20 @@ impl Hub {
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             let cfg = self.config.read().await;
             if cfg.harnesses.get(name) == Some(profile) {
-                self.remember_models_from(name, res.get("configOptions").filter(|v| !v.is_null()), res.get("models").filter(|v| !v.is_null()));
+                self.remember_models_from(
+                    name,
+                    res.get("configOptions").filter(|v| !v.is_null()),
+                    res.get("models").filter(|v| !v.is_null()),
+                );
             }
             Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
-        }).await;
+        });
+        let result = tokio::select! {
+            listed = listed => listed,
+            () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
+                Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
+            }
+        };
         child.kill().await;
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).

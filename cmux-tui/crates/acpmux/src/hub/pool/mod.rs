@@ -420,7 +420,17 @@ impl Hub {
                         Some(p)
                     } else {
                         let now = lock(&hub.clock).now();
-                        lock(&hub.pool.pool).complete(&spec.key, generation, p, now)
+                        let mut pool = lock(&hub.pool.pool);
+                        // MDM forces full access off (#23322): an agent that came up in it is
+                        // not kept, where nothing caps it until a chat takes it. Read under the
+                        // pool lock, which the push's drain takes after recording the off (and
+                        // nothing takes the two the other way round), so no entry slips between.
+                        if hub.full_access_managed_off() && p.runs_full_access(&spec) {
+                            pool.failed(&spec.key, generation);
+                            Some(p)
+                        } else {
+                            pool.complete(&spec.key, generation, p, now)
+                        }
                     };
                     // In the pool now (or ended below): `stop_pool` finds it there.
                     lock(&hub.pool.starting).remove(&id);

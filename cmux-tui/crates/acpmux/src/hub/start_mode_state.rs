@@ -55,6 +55,11 @@ pub(crate) struct StartModeState {
 }
 
 impl StartModeState {
+    /// Whether MDM or the team policy forces `sessions.allowFullAccess` off.
+    fn full_access_off(&self) -> bool {
+        self.full_access_managed == Some(false)
+    }
+
     /// The saved state, or a new one when there is none or it cannot be read.
     fn load(path: Option<&Path>) -> Self {
         path.and_then(Self::read).unwrap_or_default()
@@ -110,15 +115,17 @@ impl StartModeState {
 
 /// The state, loaded from `start-mode.json` when the hub is built (`StartModeCell::load`), so a
 /// forced `sessions.allowFullAccess` off holds from the first request after a daemon restart;
-/// a daemon with no config file loads it at first use.
-#[derive(Default)]
-pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>);
+/// a daemon with no config file loads it at first use. Beside it, whether that off holds, set
+/// with the state under its lock: what runs outside any session watches it (`probe_bound`).
+pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>, tokio::sync::watch::Sender<bool>);
 
 impl StartModeCell {
     /// The state saved beside config.json (`state_file`), read now. Nothing is written until the
     /// first update.
     pub(super) fn load(path: Option<&Path>) -> Self {
-        Self(StdMutex::new(path.map(|p| StartModeState::load(Some(p)))))
+        let state = path.map(|p| StartModeState::load(Some(p)));
+        let off = state.as_ref().is_some_and(StartModeState::full_access_off);
+        Self(StdMutex::new(state), tokio::sync::watch::channel(off).0)
     }
 }
 
@@ -142,6 +149,7 @@ impl Hub {
         let before = state.clone();
         change(state);
         state.observe();
+        self.start_mode_state.1.send_replace(state.full_access_off());
         if (loaded || *state != before)
             && let Some(path) = path
             && let Err(e) = state.save(path)
@@ -149,6 +157,11 @@ impl Hub {
             tracing::warn!("{FILE} not saved: {e:#}");
         }
         (before, state.clone())
+    }
+
+    /// Turns true when MDM or the team policy forces `sessions.allowFullAccess` off.
+    pub(super) fn full_access_off_watch(&self) -> tokio::sync::watch::Receiver<bool> {
+        self.start_mode_state.1.subscribe()
     }
 
     /// The `sessions.allowFullAccess` MDM or the team policy forces, as last pushed.
