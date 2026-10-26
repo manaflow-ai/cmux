@@ -1361,9 +1361,9 @@ mod help_contract_tests {
                 return None;
             }
         }
-        let mut command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
+        let command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
         let mut path = Vec::new();
-        while let Some(word) = command.next() {
+        for word in command {
             let Some(candidate) = word.split('|').find(|candidate| {
                 let candidate =
                     if path.is_empty() && *candidate == "peer" { "host" } else { candidate };
@@ -1406,7 +1406,7 @@ mod help_contract_tests {
                 for end in 1..=path.len() {
                     flags.extend(
                         shapes
-                            .get(&path[..end].to_vec())
+                            .get(&path[..end])
                             .into_iter()
                             .flat_map(|flags| flags.iter().cloned()),
                     );
