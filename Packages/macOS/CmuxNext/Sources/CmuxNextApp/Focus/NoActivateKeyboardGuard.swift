@@ -61,6 +61,12 @@ final class NoActivateKeyboardGuard {
     var isEnabled = true
     /// The app became active with user intent (a click, Cmd-Tab, recent input): the user chose it.
     var onUserChose: (() -> Void)?
+    /// Until then, held Command or a pressed mouse button counts as no intent: they belong to the app
+    /// the user is in when LaunchServices activates an update relaunch at launch (a held Cmd-C, a
+    /// drag). Set by the update relaunch's startup; nil trusts them at once.
+    var ignoresHeldInputUntil: ContinuousClock.Instant?
+    /// How long after the guard starts held input is not intent (``ignoresHeldInputUntil``).
+    static let launchActivationGrace: Duration = .seconds(2)
 
     init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
          onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
@@ -108,7 +114,8 @@ final class NoActivateKeyboardGuard {
     /// The user chose this app: a click on its window (the mouse is still
     /// down at activation), Cmd-Tab (Command held), or input this recent.
     private var userIntends: Bool {
-        if host.mouseButtonDown || host.commandHeld { return true }
+        let heldCounts = ignoresHeldInputUntil.map { host.now >= $0 } ?? true
+        if heldCounts, host.mouseButtonDown || host.commandHeld { return true }
         guard let lastUserInput else { return false }
         return host.now - lastUserInput <= Self.userInputWindow
     }

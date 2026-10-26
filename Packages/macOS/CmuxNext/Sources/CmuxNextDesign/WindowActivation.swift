@@ -76,7 +76,7 @@ public struct WindowActivation {
     /// Orders `window` in for `intent` by the rule.
     public static func show(_ window: NSWindow, _ intent: Intent) {
         let plan = plan(intent, noActivate: WindowPlacement.noActivate, testScreen: WindowPlacement.testScreen != nil,
-                        startsBehind: (NSApp as? ActivationRefusing)?.refusesActivation == true)
+                        startsBehind: (NSApp as? any ActivationRefusing)?.refusesActivation == true)
         if window.isMiniaturized, intent != .present { window.deminiaturize(nil) }
         switch plan.order {
         case .makeKeyAndOrderFront: window.makeKeyAndOrderFront(nil)

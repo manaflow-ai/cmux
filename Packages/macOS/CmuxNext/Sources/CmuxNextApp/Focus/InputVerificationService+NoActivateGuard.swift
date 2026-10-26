@@ -69,6 +69,7 @@ extension InputVerificationService {
         if relaunchOnly {
             logger.notice("update relaunch: staying behind \(relaunch?.frontmostBundleID ?? "the frontmost app", privacy: .public)")
             guardian.onUserChose = { [weak self] in self?.endRelaunchBehind("user activated") }
+            guardian.ignoresHeldInputUntil = .now + NoActivateKeyboardGuard.launchActivationGrace
             let end = DemandTimer(owner: "InputVerificationService.relaunchBehind")
             relaunchBehindEnd = end
             end.schedule(after: Self.relaunchBehindWindow) { @MainActor [weak self] in self?.endRelaunchBehind("window ended") }
