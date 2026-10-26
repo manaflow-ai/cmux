@@ -116,7 +116,7 @@ extension SurfaceResumeRunPromptBatch {
         return (kind, checkpointID)
     }
 
-    private static func agentHookKind(_ binding: SurfaceResumeBindingSnapshot) -> String? {
+    private nonisolated static func agentHookKind(_ binding: SurfaceResumeBindingSnapshot) -> String? {
         if let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kind.isEmpty {
             return kind
         }
