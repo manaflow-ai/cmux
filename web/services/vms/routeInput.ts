@@ -152,6 +152,7 @@ export function gcpCredentialFromRequest(request: Request, provider: ProviderId 
     provider: "gcp",
     accessToken: new SecretBytes(new TextEncoder().encode(token)),
     expiresAtUnix: Number.isFinite(expiresAt) ? expiresAt : Math.floor(Date.now() / 1000) + 300,
+    lifetime: new AbortController(),
     ...(sshPublicKey ? { sshPublicKey } : {}),
     ...(sshPrivateKey ? { sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode(sshPrivateKey)) } : {}),
   };

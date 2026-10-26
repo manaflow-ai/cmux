@@ -478,10 +478,13 @@ export type ProviderCredential = {
   /** Private key is returned only to the caller's attach session. */
   readonly sshPrivateKeyPem?: SecretBytes;
   readonly sshUsername?: string;
+  /** Aborted by {@link wipeProviderCredential}, cancelling in-flight provider requests. */
+  readonly lifetime?: AbortController;
 };
 
 /** Zero-fills the credential's secrets. Safe to call more than once. */
 export function wipeProviderCredential(credential: ProviderCredential | undefined): void {
+  credential?.lifetime?.abort();
   credential?.accessToken.wipe();
   credential?.sshPrivateKeyPem?.wipe();
 }

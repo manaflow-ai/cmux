@@ -147,15 +147,42 @@ export class GcpProvider implements VMProvider {
       },
       scheduling: { automaticRestart: true, onHostMaintenance: "MIGRATE" },
     };
-    const operation = await this.api<GcpOperation>(
-      "POST",
-      `/projects/${context.project}/zones/${context.zone}/instances`,
-      credential,
-      body,
-    );
-    await this.waitForOperation(context, operation, credential);
-    const instance = await this.instance(context, name, credential);
-    return handle(context, name, image, instance, this.now());
+    try {
+      const operation = await this.api<GcpOperation>(
+        "POST",
+        `/projects/${context.project}/zones/${context.zone}/instances`,
+        credential,
+        body,
+      );
+      await this.waitForOperation(context, operation, credential);
+      const instance = await this.instance(context, name, credential);
+      return handle(context, name, image, instance, this.now());
+    } catch (error) {
+      // The insert may have been accepted even when its answer, its
+      // operation or the final read failed: delete the named instance so no
+      // handle-less machine outlives the failed create.
+      if (await this.deleteQuietly(context, name, credential)) throw error;
+      throw new ProviderError(
+        "gcp",
+        `create failed and instance ${context.project}/${context.zone}/${name} (label cmux_labs=gcp) could not be confirmed deleted`,
+        error,
+      );
+    }
+  }
+
+  /** Deletes an instance and waits for it; true when it is gone (or never existed). */
+  private async deleteQuietly(context: GcpContext, name: string, credential: ProviderCredential): Promise<boolean> {
+    try {
+      const operation = await this.api<GcpOperation>(
+        "DELETE",
+        `/projects/${context.project}/zones/${context.zone}/instances/${name}`,
+        credential,
+      );
+      await this.waitForOperation(context, operation, credential);
+      return true;
+    } catch (error) {
+      return error instanceof GcpApiError && error.status === 404;
+    }
   }
 
   async destroy(vmId: string, credential?: ProviderCredential): Promise<void> {
@@ -268,6 +295,10 @@ export class GcpProvider implements VMProvider {
     const disabled = gcpLabsDisabledReason(this.env);
     if (disabled) throw new ProviderError("gcp", disabled);
     const token = this.requireCredential(credential);
+    // Wiping the credential (the workflow ended or was interrupted) aborts
+    // every request still carrying its bearer token.
+    const lifetime = token.lifetime?.signal;
+    const requestSignal = signal && lifetime ? AbortSignal.any([signal, lifetime]) : signal ?? lifetime;
     let response: Response;
     try {
       response = await this.request(`${COMPUTE_API}${path}`, {
@@ -277,7 +308,7 @@ export class GcpProvider implements VMProvider {
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal,
+        signal: requestSignal,
       });
     } catch (error) {
       throw new ProviderError("gcp", `${method} ${path} did not answer`, error);

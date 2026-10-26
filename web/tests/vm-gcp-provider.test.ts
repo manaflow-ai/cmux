@@ -93,6 +93,55 @@ describe("GCP Labs provider", () => {
     expect(failing?.accessToken.wiped).toBe(true);
   });
 
+  test("a create that fails after the insert deletes the named instance", async () => {
+    const createInput = () => ({
+      image: "projects/manaflow-437420/global/images/cmux-linux",
+      network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
+      providerCredential: credential({
+        sshPublicKey: "ssh-ed25519 AAAA test",
+        sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+      }),
+    });
+    const methods: string[] = [];
+    const cleaned = new GcpProvider({
+      fetch: async (_input, init) => {
+        methods.push(String(init?.method));
+        if (methods.length === 1) return json({ name: "insert-op", status: "RUNNING", zone: "us-west1-b" });
+        if (methods.length === 2) return json({}, 500);
+        return json({ name: "delete-op", status: "DONE" });
+      },
+      now: () => now,
+      env: labsOn,
+    });
+    await expect(cleaned.create(createInput())).rejects.toThrow(/returned 500/);
+    expect(methods).toEqual(["POST", "GET", "DELETE"]);
+
+    const stuck = new GcpProvider({
+      fetch: async () => json({}, 503),
+      now: () => now,
+      env: labsOn,
+    });
+    await expect(stuck.create(createInput())).rejects.toThrow(/could not be confirmed deleted/);
+  });
+
+  test("wiping the credential aborts a request still carrying it", async () => {
+    let started!: () => void;
+    const inFlight = new Promise<void>((resolve) => { started = resolve; });
+    const provider = new GcpProvider({
+      fetch: (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        started();
+      }),
+      now: () => now,
+      env: labsOn,
+    });
+    const local = credential({ lifetime: new AbortController() });
+    const pausing = provider.pause("manaflow-437420/us-west1-b/cmux-abc", local);
+    await inFlight;
+    wipeProviderCredential(local);
+    await expect(pausing).rejects.toThrow(/did not answer/);
+  });
+
   test("refuses a wiped token before touching Compute Engine", async () => {
     let requests = 0;
     const provider = new GcpProvider({ fetch: async () => { requests += 1; return json({}); }, now: () => now, env: labsOn });
