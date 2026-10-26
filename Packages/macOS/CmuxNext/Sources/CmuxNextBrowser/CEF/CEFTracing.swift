@@ -15,7 +15,7 @@ import Foundation
 /// (``ChromiumHostTracing``, task 104). A shim or host without them reports ``CEFTracingError/unsupported(_:)``.
 ///
 /// ```swift
-/// let tracing = CEFTracing(directory: blackBox.directory, work: work)
+/// let tracing = CEFTracing(directory: blackBox.directory, work: work, engine: { slot.built }, hostWire: { host.tracing })
 /// let started = try await tracing.start()
 /// let stopped = try await tracing.stop() // stopped.path, stopped.clock?.offsetNanos
 /// ```
@@ -34,13 +34,19 @@ public final class CEFTracing {
     private let backend: () -> Backend
     private var phase: Phase = .idle
 
-    /// Chromium tracing for this process's Chromium (``CEFRuntime``), in process or through its host.
+    /// Chromium tracing for the Chromium `engine` runs, in process or through its host.
     ///
     /// - Parameters:
     ///   - directory: The recording directory (the black box's): the JSON trace and its meta.json go there.
-    ///   - work: The blocking-work lanes the directory and meta.json writes run on.
-    public convenience init(directory: String, work: any MayBlockRunner) {
-        self.init(directory: directory, work: work) { CEFRuntime.shared.tracingBackend(hostWire: nil) }
+    ///   - work: The blocking-work lanes the directory, the trace check and the meta.json write run on.
+    ///   - engine: The App's Chromium engine, nil while none is built (Chromium has not started then). Read at
+    ///     each start, as `hostWire` is.
+    ///   - hostWire: The Chromium Host's TRACE_START and TRACE_STOP (task 104), nil while the host has none.
+    public convenience init(directory: String, work: any MayBlockRunner, engine: @escaping () -> CEFEngine?,
+                            hostWire: @escaping () -> (any ChromiumHostTracing)? = { nil }) {
+        self.init(directory: directory, work: work) {
+            engine()?.tracingBackend(hostWire: hostWire()) ?? .unsupported(.chromiumNotRunning)
+        }
     }
 
     /// - Parameters:
@@ -79,28 +85,36 @@ public final class CEFTracing {
         return Started(mode: route.mode, categories: Self.categories, clock: sample)
     }
 
-    /// Ends Chromium tracing into ``tracePath`` and writes the offset to ``metaPath``.
+    /// Ends Chromium tracing into ``tracePath`` and, once that file is a whole JSON trace, writes the offset to
+    /// ``metaPath``. The recording ends in Chromium even when the directory cannot be made.
     public func stop() async throws(CEFTracingError) -> Stopped {
         guard case .recording(let session) = phase else { throw phase.isChanging ? CEFTracingError.busy : CEFTracingError.notTracing }
         phase = .changing
         defer { phase = .idle }
         let stopSample = await session.route.sample(clock)
-        let directory = directory
-        // CefEndTracing writes into the folder but does not make it.
-        _ = try? await work.runFiles(.userVisible) {
-            try FileManager.checked.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let files = Files(directory: directory, trace: tracePath, meta: metaPath)
+        // CefEndTracing writes into the folder but does not make it, and an earlier recording's files there must
+        // not pass for this one's.
+        let prepared = (try? await work.runFiles(.userVisible) { try files.prepare() }) != nil
+        let reported = await session.route.end(files.trace)
+        guard prepared else { throw .directoryUnavailable }
+        guard let written = reported else { throw .notWritten }
+        // Chromium reports the path when it could not create or finish the file too (CEFShim/src/shim_tracing.mm).
+        let check = (try? await work.runFiles(.userVisible) { Files.check(written) }) ?? .missing
+        switch check {
+        case .complete: break
+        case .missing: throw .notWritten
+        case .truncated: throw .truncated
         }
-        guard let written = await session.route.end(tracePath) else { throw .notWritten }
         let best = ClockSample.tighter(session.startSample, stopSample)
         let meta = Meta(mode: session.route.mode, pid: pid, trace: URL(fileURLWithPath: written).lastPathComponent,
                         categories: Self.categories, requestedBufferKB: Self.requestedBufferKB, clock: best,
                         samples: [session.startSample, stopSample].compactMap { $0 })
-        let metaPath = metaPath
         var wrote = false
         if let data = try? meta.encoded() {
-            wrote = (try? await work.runFiles(.userVisible) { try data.blockingWrite(to: URL(fileURLWithPath: metaPath), options: .atomic) }) != nil
+            wrote = (try? await work.runFiles(.userVisible) { try data.blockingWrite(to: URL(fileURLWithPath: files.meta), options: .atomic) }) != nil
         }
-        return Stopped(mode: session.route.mode, path: written, metaPath: wrote ? metaPath : nil, clock: best)
+        return Stopped(mode: session.route.mode, path: written, metaPath: wrote ? files.meta : nil, clock: best)
     }
 }
 
@@ -176,6 +190,13 @@ extension CEFTracing {
     }
 }
 
+extension CEFEngine {
+    /// Where Chromium tracing runs now in the process's one Chromium, which this engine fronts (``CEFRuntime``).
+    func tracingBackend(hostWire: (any ChromiumHostTracing)?) -> CEFTracing.Backend {
+        CEFRuntime.shared.tracingBackend(hostWire: hostWire)
+    }
+}
+
 extension CEFRuntime {
     /// Where Chromium tracing runs now: the in-process shim's exports, the host's wire in host mode, or why
     /// neither can. `hostWire` is the host's TRACE_START and TRACE_STOP (task 104); nil until the host has them.
@@ -187,11 +208,13 @@ extension CEFRuntime {
 }
 
 /// Chromium tracing in the Chromium Host (task 104): its TRACE_START and TRACE_STOP wire frames call the
-/// shim's tracing exports (task 050) in the host, which ran `CefInitialize`.
-protocol ChromiumHostTracing {
+/// shim's tracing exports (task 050) in the host, which ran `CefInitialize`. The composition root passes the
+/// host's conformer to ``CEFTracing/init(directory:work:engine:hostWire:)``.
+public protocol ChromiumHostTracing {
     /// TRACE_START: begins tracing `categories`; true when every Chromium process records.
     func beginTracing(categories: String) async -> Bool
-    /// TRACE_STOP: ends tracing into `path` (absolute, `.json`); the finished file, nil when none was written.
+    /// TRACE_STOP: ends tracing into `path` (absolute, `.json`); the path Chromium reports, nil when it ran no
+    /// recording. ``CEFTracing`` checks the file there itself.
     func endTracing(path: String) async -> String?
     /// The host's `cmux_cef_now_trace_us`, nil when the host did not answer.
     func nowTraceMicros() async -> Int64?
@@ -209,8 +232,12 @@ public nonisolated enum CEFTracingError: Error, Equatable, Sendable {
     case notTracing
     /// Chromium refused the start (or was not running to take it).
     case refused
-    /// Chromium wrote no trace file.
+    /// The recording directory could not be made, or an earlier recording's files there removed.
+    case directoryUnavailable
+    /// Chromium wrote no trace file, or an empty one.
     case notWritten
+    /// The trace file is not a whole JSON trace (a full disk or a failed write cut it).
+    case truncated
 
     /// Why this Chromium cannot trace.
     public enum Unsupported: String, Sendable {
@@ -230,7 +257,9 @@ public nonisolated enum CEFTracingError: Error, Equatable, Sendable {
         case .busy: "busy"
         case .notTracing: "not_tracing"
         case .refused: "refused"
+        case .directoryUnavailable: "directory_unavailable"
         case .notWritten: "not_written"
+        case .truncated: "truncated"
         }
     }
 }

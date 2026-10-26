@@ -137,6 +137,17 @@ final class AppControl {
             GhosttyDiagnosticsControl().method,
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        // trace.start, trace.stop and trace.status (p09-observability 020) with Chromium tracing (051), behind the default-off traceControl feature.
+        if services.features.isEnabled(.traceControl) {
+            router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work, chromium: Self.chromiumTrace(services)))
+        }
+    }
+
+    /// `trace.start chromium:true` (051): the engine's Chromium traces into the black box's directory; nil with no black box.
+    private static func chromiumTrace(_ services: AppServices) -> (any TraceChromiumLink)? {
+        guard let blackBox = services.traceBlackBox?.blackBox else { return nil }
+        let slot = services.cache.chromium, tracing = CEFTracing(directory: blackBox.directory, work: services.work, engine: { slot.built })
+        return TraceChromiumReports(start: { await tracing.startReport() }, stop: { await tracing.stopReport() })
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {

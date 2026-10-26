@@ -101,10 +101,95 @@ import Testing
         let runtime = try Self.runtime(TracingSpy.library())
         let tracing = Self.tracing(directory) { runtime.tracingBackend(hostWire: nil) }
         _ = try await tracing.start()
-        TracingSpy.writes = false
+        TracingSpy.write = .nothing
         await #expect(throws: CEFTracingError.notWritten) { try await tracing.stop() }
         await #expect(throws: CEFTracingError.notTracing) { try await tracing.stop() }
         _ = try await tracing.start()
+    }
+
+    /// Chromium reports its path when it could not create the file (shim_tracing.mm): no file is no trace,
+    /// and no meta.json points at one.
+    @Test func aReportedPathWithNoFileIsNotWritten() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let runtime = try Self.runtime(TracingSpy.library())
+        let tracing = Self.tracing(directory) { runtime.tracingBackend(hostWire: nil) }
+        _ = try await tracing.start()
+        TracingSpy.write = .pathOnly
+        await #expect(throws: CEFTracingError.notWritten) { try await tracing.stop() }
+        #expect(TracingSpy.endPaths == [directory + "/chromium-4242.trace.json"])
+        #expect(!FileManager.default.fileExists(atPath: directory + "/chromium-4242.meta.json"))
+    }
+
+    @Test func aTruncatedTraceIsRefused() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let runtime = try Self.runtime(TracingSpy.library())
+        let tracing = Self.tracing(directory) { runtime.tracingBackend(hostWire: nil) }
+        _ = try await tracing.start()
+        TracingSpy.write = .truncated
+        await #expect(throws: CEFTracingError.truncated) { try await tracing.stop() }
+        #expect(!FileManager.default.fileExists(atPath: directory + "/chromium-4242.meta.json"))
+        await #expect(throws: CEFTracingError.notTracing, "the recording ended") { try await tracing.stop() }
+    }
+
+    /// The file names are fixed per pid: an earlier recording's trace and meta.json are removed before the end, so
+    /// a recording Chromium did not write cannot pass for this one.
+    @Test func anEarlierRecordingsFilesDoNotPassForThisOne() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let oldTrace = directory + "/chromium-4242.trace.json", oldMeta = directory + "/chromium-4242.meta.json"
+        #expect(FileManager.default.createFile(atPath: oldTrace, contents: TracingSpy.wholeTrace))
+        #expect(FileManager.default.createFile(atPath: oldMeta, contents: Data("{}".utf8)))
+        let runtime = try Self.runtime(TracingSpy.library())
+        let tracing = Self.tracing(directory) { runtime.tracingBackend(hostWire: nil) }
+        _ = try await tracing.start()
+        TracingSpy.write = .pathOnly
+        await #expect(throws: CEFTracingError.notWritten) { try await tracing.stop() }
+        #expect(!FileManager.default.fileExists(atPath: oldTrace))
+        #expect(!FileManager.default.fileExists(atPath: oldMeta))
+    }
+
+    /// A directory that cannot be made (a file holds its name) is reported, and Chromium is still told to stop.
+    @Test func aDirectoryThatCannotBeMadeIsReportedAndTheRecordingEnds() async throws {
+        let parent = Self.directory()
+        defer { try? FileManager.default.removeItem(atPath: parent) }
+        #expect(FileManager.default.createFile(atPath: parent, contents: Data("not a folder".utf8)))
+        let runtime = try Self.runtime(TracingSpy.library())
+        let tracing = Self.tracing(parent + "/trace") { runtime.tracingBackend(hostWire: nil) }
+        _ = try await tracing.start()
+        await #expect(throws: CEFTracingError.directoryUnavailable) { try await tracing.stop() }
+        #expect(TracingSpy.endPaths == [parent + "/trace/chromium-4242.trace.json"], "Chromium's recording ended")
+        await #expect(throws: CEFTracingError.notTracing) { try await tracing.stop() }
+    }
+
+    /// `trace.start` and `trace.stop` report through ``CEFTracing/startReport()`` and ``CEFTracing/stopReport()``.
+    @Test func theReportsCarryTheFileTheOffsetAndTheErrorCode() async throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let runtime = try Self.runtime(TracingSpy.library())
+        let tracing = Self.tracing(directory) { runtime.tracingBackend(hostWire: nil) }
+
+        let started = await tracing.startReport()
+        #expect(started == ChromiumTraceReport(state: .recording, mode: "in_process", categories: CEFTracing.categories,
+                                               offsetNanos: 7000, errorBoundNanos: 2000))
+        let stopped = await tracing.stopReport()
+        #expect(stopped == ChromiumTraceReport(state: .stopped, mode: "in_process", path: directory + "/chromium-4242.trace.json",
+                                               metaPath: directory + "/chromium-4242.meta.json", offsetNanos: 7000, errorBoundNanos: 2000))
+        #expect(await tracing.stopReport() == ChromiumTraceReport(state: .error, error: "not_tracing"))
+
+        let unsupported = try Self.runtime(TracingSpy.library(tracingExports: false))
+        let missing = Self.tracing(directory) { unsupported.tracingBackend(hostWire: nil) }
+        #expect(await missing.startReport() == ChromiumTraceReport(state: .untraced, error: "unsupported", detail: "missing_shim_symbol"))
+    }
+
+    @Test func theTraceCheckReadsBothEnds() {
+        let check = CEFTracing.Files.isWholeTrace
+        #expect(check(Data(#"{"traceEvents":["#.utf8), Data("]}\n".utf8)))
+        #expect(!check(Data(#"{"traceEvents":["#.utf8), Data(#"{"ph":"X""#.utf8)), "cut before the closing brace")
+        #expect(!check(Data(#"{"other":1}"#.utf8), Data("}".utf8)), "not a trace")
+        #expect(!check(Data("garbage".utf8), Data("}".utf8)))
     }
 
     @Test func theTighterSampleWins() {
@@ -154,14 +239,16 @@ import Testing
 private nonisolated enum TracingSpy {
     /// Chromium's clock: 4_999_994 µs, 7 µs behind the start sample's local midpoint.
     static let nowMicros: Int64 = 4_999_994
+    /// A whole trace as Chromium's file endpoint writes one.
+    static let wholeTrace = Data((#"{"traceEvents":[{"ph":"X","ts":1}],"metadata":{}}"# + "\n").utf8)
     nonisolated(unsafe) static var categories: [String] = []
     nonisolated(unsafe) static var endPaths: [String] = []
     /// What `started` answers.
     nonisolated(unsafe) static var beginAnswer: Int32 = 1
     /// What begin returns: 1 posted.
     nonisolated(unsafe) static var posts: Int32 = 1
-    /// Whether end writes its file (else `written` gets NULL).
-    nonisolated(unsafe) static var writes = true
+    /// What end leaves at its path and reports.
+    nonisolated(unsafe) static var write = Write.complete
     /// The injected local clock's read count.
     nonisolated(unsafe) static var reads = 0
 
@@ -170,7 +257,19 @@ private nonisolated enum TracingSpy {
         endPaths = []
         beginAnswer = 1
         posts = 1
-        writes = true
+        write = .complete
+    }
+
+    /// End's outcomes: Chromium reports its path whether or not the file it wrote there is whole.
+    enum Write {
+        /// A whole JSON trace, and its path.
+        case complete
+        /// The path, with no file written (Chromium could not create it).
+        case pathOnly
+        /// The path, with a trace cut short (a full disk).
+        case truncated
+        /// NULL: no recording ran.
+        case nothing
     }
 
     static func library(tracingExports: Bool = true) throws -> CEFShimLibrary {
@@ -183,9 +282,13 @@ private nonisolated enum TracingSpy {
         let end: CEFShimTracing.EndFn = { path, written, context in
             let file = path.map { String(cString: $0) } ?? ""
             TracingSpy.endPaths.append(file)
-            guard TracingSpy.writes, FileManager.default.createFile(atPath: file, contents: Data(#"{"traceEvents":[]}"#.utf8)) else {
+            switch TracingSpy.write {
+            case .nothing:
                 written?(context, nil)
                 return 1
+            case .pathOnly: break
+            case .complete: _ = FileManager.default.createFile(atPath: file, contents: TracingSpy.wholeTrace)
+            case .truncated: _ = FileManager.default.createFile(atPath: file, contents: Data(#"{"traceEvents":[{"ph":"X","ts":1"#.utf8))
             }
             file.withCString { written?(context, $0) }
             return 1
@@ -226,4 +329,6 @@ private final class NoHost: ChromiumHostSupervising {
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
