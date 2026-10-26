@@ -15,7 +15,8 @@ use crate::stdio::Stdio;
 /// A process to start, as `std::process::Command`.
 ///
 /// On macOS [`Command::spawn`] gives the child descriptors 0-2 and the ones
-/// named with [`Command::inherit_fd`], and no other (the crate docs say why).
+/// named with [`Command::inherit_fd`], and no other (the crate docs say why),
+/// unless [`Command::inherit_like_std`] asks for std's inheritance.
 #[derive(Debug)]
 pub struct Command {
     pub(crate) program: OsString,
@@ -36,6 +37,9 @@ pub struct Command {
     /// (descriptor, the number the child gets it at).
     #[cfg(unix)]
     pub(crate) inherit: Vec<(OwnedFd, RawFd)>,
+    /// macOS: [`Command::inherit_like_std`].
+    #[cfg(target_vendor = "apple")]
+    pub(crate) inherit_like_std: bool,
     /// Windows process creation flags ([`Command::creation_flags`]).
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
@@ -60,6 +64,8 @@ impl Command {
             new_session: false,
             #[cfg(unix)]
             inherit: Vec::new(),
+            #[cfg(target_vendor = "apple")]
+            inherit_like_std: false,
             #[cfg(windows)]
             creation_flags: 0,
         }
@@ -194,20 +200,21 @@ impl Command {
         Ok(self)
     }
 
-    /// The program, as `std::process::Command::get_program`.
-    pub fn get_program(&self) -> &OsStr {
-        &self.program
-    }
-
-    /// The arguments after the program, as `std::process::Command::get_args`.
-    pub fn get_args(&self) -> impl ExactSizeIterator<Item = &OsStr> {
-        self.args.iter().map(OsString::as_os_str)
-    }
-
-    /// The variables set (`Some`) or removed (`None`), sorted by name, as
-    /// `std::process::Command::get_envs`.
-    pub fn get_envs(&self) -> impl ExactSizeIterator<Item = (&OsStr, Option<&OsStr>)> {
-        self.env.iter().map(|(key, value)| (key.as_os_str(), value.as_deref()))
+    /// Start the child as `std::process::Command` does: it keeps every
+    /// descriptor of this process that is not close-on-exec, and the signals
+    /// this process ignores stay ignored (only `SIGPIPE` resets to its
+    /// default, and the signal mask empties). For the CLI's transparent
+    /// wrappers only (`cmux status run -- CMD` and the like), which cannot know
+    /// which descriptors (`/dev/fd/N`, a make jobserver) or ignored signals
+    /// (`nohup`) the person handed them. Never in the daemon: there a
+    /// descriptor received but not yet close-on-exec would reach the child
+    /// (crate docs). Linux and Windows always start children this way.
+    pub fn inherit_like_std(&mut self) -> &mut Self {
+        #[cfg(target_vendor = "apple")]
+        {
+            self.inherit_like_std = true;
+        }
+        self
     }
 
     /// Windows: the process creation flags (`DETACHED_PROCESS`,
@@ -221,9 +228,11 @@ impl Command {
 
     /// Replace this process with the program, as
     /// `std::os::unix::process::CommandExt::exec`: returns only when that
-    /// failed. On macOS the program gets descriptors 0-2 and the
-    /// [`Command::inherit_fd`] ones, and no other (`posix_spawn` with
-    /// `POSIX_SPAWN_SETEXEC` and `POSIX_SPAWN_CLOEXEC_DEFAULT`).
+    /// failed. The new image keeps what `execve` keeps, as with
+    /// [`Command::inherit_like_std`]: every descriptor that is not
+    /// close-on-exec, and the ignored signals (on macOS `posix_spawn` with
+    /// `POSIX_SPAWN_SETEXEC`). For the CLI's re-exec and passthroughs; the
+    /// daemon never replaces itself.
     #[cfg(unix)]
     pub fn exec(&mut self) -> io::Error {
         #[cfg(target_vendor = "apple")]

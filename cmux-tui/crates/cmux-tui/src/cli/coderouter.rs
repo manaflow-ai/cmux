@@ -341,19 +341,28 @@ pub(super) fn bundled_coderouter(exe: &Path) -> Option<PathBuf> {
     crate::app_identity::containing_app_bundle(&exe).map(|bundle| bundle.join(BUNDLED_CODEROUTER))
 }
 
-/// The command a passthrough runs: `program args…` with every `CMUX_*`
-/// variable of `environment` removed.
-pub(super) fn passthrough_command(
+/// The variables a passthrough removes: every `CMUX_*` one of `environment`.
+pub(super) fn passthrough_removed(
+    environment: impl IntoIterator<Item = (OsString, OsString)>,
+) -> Vec<OsString> {
+    environment
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| name.to_string_lossy().starts_with("CMUX_"))
+        .collect()
+}
+
+/// The command a passthrough runs: `program args…` without the
+/// [`passthrough_removed`] variables of `environment`.
+fn passthrough_command(
     program: &Path,
     args: &[String],
     environment: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Command {
     let mut command = Command::new(program);
     command.args(args);
-    for (name, _) in environment {
-        if name.to_string_lossy().starts_with("CMUX_") {
-            command.env_remove(name);
-        }
+    for name in passthrough_removed(environment) {
+        command.env_remove(name);
     }
     command
 }

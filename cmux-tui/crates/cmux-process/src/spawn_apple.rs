@@ -1,7 +1,8 @@
 //! macOS: `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`. The child gets
 //! exactly descriptors 0-2 and the `inherit_fd` ones; every other descriptor
 //! of this process closes at the exec, whatever its close-on-exec flag says
-//! at that moment.
+//! at that moment. `Command::inherit_like_std` and `Command::exec` leave the
+//! flag out and reset only `SIGPIPE`, as std.
 
 use std::collections::BTreeSet;
 use std::ffi::{CString, OsStr, OsString};
@@ -124,10 +125,15 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
         }
     }
 
+    // std's inheritance (`inherit_like_std`, and every exec, as `execve`):
+    // descriptors without close-on-exec pass, ignored signals stay ignored.
+    let like_std = command.inherit_like_std || how == Start::ReplaceThisProcess;
     let mut setup = Setup::new()?;
     let mut flags = libc::POSIX_SPAWN_SETSIGDEF as libc::c_short
-        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short
-        | libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+        | libc::POSIX_SPAWN_SETSIGMASK as libc::c_short;
+    if !like_std {
+        flags |= libc::POSIX_SPAWN_CLOEXEC_DEFAULT as libc::c_short;
+    }
     if command.new_session {
         flags |= POSIX_SPAWN_SETSID;
     }
@@ -137,11 +143,18 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
     let dev_null = c"/dev/null";
     // SAFETY: every call gets the initialized attr/actions and live strings.
     unsafe {
-        let mut all: libc::sigset_t = std::mem::zeroed();
+        // Reset to default: every signal, or as std only SIGPIPE (which the
+        // Rust runtime ignores).
+        let mut defaults: libc::sigset_t = std::mem::zeroed();
         let mut none: libc::sigset_t = std::mem::zeroed();
-        libc::sigfillset(&mut all);
+        if like_std {
+            libc::sigemptyset(&mut defaults);
+            libc::sigaddset(&mut defaults, libc::SIGPIPE);
+        } else {
+            libc::sigfillset(&mut defaults);
+        }
         libc::sigemptyset(&mut none);
-        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &all))?;
+        check(libc::posix_spawnattr_setsigdefault(&mut setup.attr, &defaults))?;
         check(libc::posix_spawnattr_setsigmask(&mut setup.attr, &none))?;
         if let Some(pgid) = command.process_group {
             flags |= libc::POSIX_SPAWN_SETPGROUP as libc::c_short;
@@ -157,6 +170,8 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
                     if *target == 0 { libc::O_RDONLY } else { libc::O_WRONLY },
                     0,
                 ),
+                // Without CLOEXEC_DEFAULT the descriptor passes as it is (std).
+                Source::Same if like_std => 0,
                 Source::Same => posix_spawn_file_actions_addinherit_np(&mut setup.actions, *target),
                 Source::Open(path) => libc::posix_spawn_file_actions_addopen(
                     &mut setup.actions,
