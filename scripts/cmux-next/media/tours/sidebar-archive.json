@@ -4,7 +4,7 @@
     {"title": "Launch", "wait": 2},
     {"title": "Two ungrouped workspaces", "cmux": ["workspace", "new", "--name", "Notes"], "shot": false},
     {"title": "Second ungrouped workspace", "cmux": ["workspace", "new", "--name", "Inbox"], "shot": false},
-    {"title": "A group Project with its first workspace", "cmux": ["action", "run", "workspace.newInNewGroup", "--name", "Design"], "wait": 2},
+    {"title": "A group Design with its first workspace", "cmux": ["action", "run", "workspace.newInNewGroup", "--name", "Design"], "wait": 2},
     {"title": "Second member", "cmux": ["action", "run", "workspaceGroup.newWorkspace"], "shot": false, "wait": 1},
     {"title": "Third member", "cmux": ["action", "run", "workspaceGroup.newWorkspace"], "wait": 2},
     {"title": "Before: the group and the ungrouped rows, nothing dimmed", "wait": 2},
