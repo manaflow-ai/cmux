@@ -213,6 +213,8 @@ struct BrowserHibernationFrozenGrowthTests {
             services = AppServices(environment: AppEnvironment.current([:]))
             hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(),
                                              lowPower: LowPowerMode(enabled: false))
+            folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cn-frozen-growth-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             services.cache.hibernation = hibernation
             hibernation.discardsGrowingFrozenPages = true
             hibernation.measureMemory = { [weak self] in
@@ -221,8 +223,6 @@ struct BrowserHibernationFrozenGrowthTests {
             hibernation.isDownloading = { [weak self] in self?.downloading.contains($0) ?? false }
             hibernation.apply(BrowserHibernationSetting(mode: .minutes(600), freezeSeconds: 0.05))
             hibernation.start()
-            folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cn-frozen-growth-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             hibernation.freezer = { [weak self] tab in self?.recorders[tab.id.rawValue] }
         }
