@@ -292,10 +292,20 @@ impl Hub {
             return;
         };
         let reported = s.meta().turn_count;
-        self.lane_links(|links| {
+        // The parent's close sets its status before `lane_retire` takes this lock: read under
+        // it, a parent that closed while the child started is never linked, and one that closes
+        // after has its link retired.
+        let linked = self.lane_links(|links| {
+            if !self.lane_parent_open(parent) {
+                return false;
+            }
             let link = Link { parent: parent.to_owned(), reported, ..Link::default() };
             links.insert(child.to_owned(), link);
+            true
         });
+        if !linked {
+            return;
+        }
         let set = serde_json::Map::from_iter([(TAG.to_owned(), json!(parent))]);
         self.set_tags(&s, Some(&set), &[], None);
     }
@@ -497,6 +507,12 @@ impl Hub {
         Ok(last_reply(&events))
     }
 
+    /// Whether session `id` is here and not closed.
+    fn lane_parent_open(&self, id: &str) -> bool {
+        let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        s.is_some_and(|s| s.status() != SessionStatus::Closed)
+    }
+
     /// `id` was closed or purged: a link it is either end of is retired, so a lane no longer
     /// reports to a closed parent and nothing of a closed lane stays here.
     pub(super) fn lane_retire(&self, id: &str) {
@@ -662,6 +678,34 @@ mod tests {
         assert_eq!(got.first().map(|r| r.seq), Some(10));
         assert_eq!(got.len(), 1001);
         assert!(got.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
+    }
+
+    #[tokio::test]
+    async fn a_parent_that_closed_while_its_lane_started_is_never_linked() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let child = hub.new_session(start()).await.unwrap();
+        // The parent closes after `session/new` read it and before the link goes in.
+        hub.kill(&parent, false).await.unwrap();
+        hub.lane_link(&parent.id, &child.id);
+        assert!(!hub.lane_links(|l| l.contains_key(&child.id)));
+        // An open parent is linked.
+        let open = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&open.id, &child.id);
+        assert!(hub.lane_links(|l| l.get(&child.id).is_some_and(|l| l.parent == open.id)));
+        for s in [&child, &open] {
+            hub.kill(s, true).await.unwrap();
+        }
+        hub.kill(&parent, true).await.unwrap();
     }
 
     #[test]
