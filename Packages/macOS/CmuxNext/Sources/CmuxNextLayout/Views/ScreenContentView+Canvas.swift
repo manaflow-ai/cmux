@@ -103,18 +103,25 @@ extension ScreenContentView {
         }
         let spring = Motion.panes.renderSpring(.scroll)
         let added = canvasState.camera.handToRenderServer(at: now, axes: axes, parameters: spring.parameters)
+        // The zoom pivots on the viewport center at this size; a resize takes the move back first
+        // (`reconcileAndScroll`), so no running spring keeps an older center.
         let rest = layer.bounds, anchor = layer.anchorPoint
-        let zoom = CanvasZoomTransform(scale: CGFloat(added.zoomRatio),
-                                       pivot: CGPoint(x: (0.5 - anchor.x) * rest.width, y: (0.5 - anchor.y) * rest.height),
-                                       reach: hypot(rest.width, rest.height) / 2)
+        let pivot = CGPoint(x: (0.5 - anchor.x) * rest.width, y: (0.5 - anchor.y) * rest.height)
+        let reach = hypot(rest.width, rest.height) / 2
         // Every call names all three key paths, so the newest call's landing waits for every camera spring.
-        let moves = [
+        var moves = [
             RenderSpring.Move(layer, "bounds.origin.x", from: rest.origin.x + added.centerOffset.x, to: rest.origin.x,
                               velocity: added.centerVelocity.x),
             RenderSpring.Move(layer, "bounds.origin.y", from: rest.origin.y + added.centerOffset.y, to: rest.origin.y,
                               velocity: added.centerVelocity.y),
-            RenderSpring.Move(layer, "sublayerTransform", from: zoom, to: CanvasZoomTransform.springZero),
         ]
+        // Each zoom spring carries its share of the zoom's speed as a progress velocity (`CanvasCameraRenderSpring.Zoom`);
+        // with none, a still one names the key path.
+        let zooms: [(ratio: Double, progress: Double)] = added.zooms.map { ($0.ratio, -$0.velocity) }
+        for zoom in zooms.isEmpty ? [(ratio: 1.0, progress: 0.0)] : zooms {
+            let from = CanvasZoomTransform(scale: CGFloat(zoom.ratio), pivot: pivot, reach: reach)
+            moves.append(RenderSpring.Move(layer, "sublayerTransform", from: from, to: .springZero, progressVelocity: CGFloat(zoom.progress)))
+        }
         renderSpringsInFlight += 1
         userMotionActive = true
         context.userMotionStepped()

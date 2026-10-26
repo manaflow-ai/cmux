@@ -82,6 +82,45 @@ import Testing
         #expect(!motion.takeBackFromRenderServer(at: 10.06), "a second take-back found springs")
     }
 
+    /// A click took the move back (the main thread steps it, zoom still moving); the next change hands it over
+    /// again: the render server starts at the main thread's zoom speed and follows its path, with no stop.
+    @Test func aMovingMainThreadCameraHandsOverAtItsSpeed() {
+        var motion = Self.handedOff()
+        #expect(motion.takeBackFromRenderServer(at: 10.05))
+        let dt = 1.0 / 120
+        for _ in 0..<3 { _ = motion.advance(dt, parameters: Self.spring) }
+        var cpu = motion
+        let handOff = 10.05 + 3 * dt, before = motion.state
+        #expect(abs(before.zoomRate) > 0.1, "the main thread's zoom is not moving: \(before.zoomRate)")
+        _ = motion.handToRenderServer(at: handOff, axes: Self.axes, parameters: Self.spring)
+        let after = motion.shown(at: handOff)
+        #expect(abs(after.zoom - before.zoom) < 1e-9, "the zoom jumped from \(before.zoom) to \(after.zoom)")
+        #expect(abs(after.zoomRate - before.zoomRate) < 1e-6, "the zoom's speed went from \(before.zoomRate) to \(after.zoomRate)")
+        #expect(abs(after.centerRate.x - before.centerRate.x) < 1e-6 && abs(after.centerRate.y - before.centerRate.y) < 1e-6)
+        let h = 0.00001, later = motion.shown(at: handOff + h)
+        #expect(abs((later.zoom - after.zoom) / h - before.zoomRate) < 0.01 * max(1, abs(before.zoomRate)), "the layer's zoom starts at rest")
+        for frame in 1...30 {
+            _ = cpu.advance(dt, parameters: Self.spring)
+            let shown = motion.shown(at: handOff + Double(frame) * dt), stepped = cpu.shown
+            #expect(abs(shown.zoom - stepped.zoom) < 1e-4, "frame \(frame): zoom \(shown.zoom), main thread \(stepped.zoom)")
+            #expect(abs(shown.center.x - stepped.center.x) < 0.01 && abs(shown.center.y - stepped.center.y) < 0.01)
+        }
+        let landed = motion.shown(at: 30)
+        #expect(abs(landed.zoom - Self.to.zoom) < 1e-9 && landed.zoomRate == 0)
+    }
+
+    /// A zoom passing through its target (ratio 1) still carries its speed: a carrier spring and a still one.
+    @Test func aZoomAtItsTargetKeepsItsSpeed() {
+        let zooms = CanvasCameraRenderSpring.zooms(ratio: 1, rate: 0.6, at: 0, parameters: Self.spring)
+        #expect(zooms.count == 2, "\(zooms)")
+        func product(_ time: Double) -> Double { zooms.reduce(1) { $0 * $1.scale(at: time).scale } }
+        #expect(abs(product(0) - 1) < 1e-12, "the springs do not start at the zoom that shows")
+        let h = 0.00001
+        #expect(abs((product(h) - product(0)) / h - 0.6) < 0.01, "the springs start at \((product(h) - product(0)) / h), not 0.6")
+        #expect(abs(product(20) - 1) < 1e-9)
+        #expect(CanvasCameraRenderSpring.zooms(ratio: 1, rate: 0, at: 0, parameters: Self.spring).isEmpty)
+    }
+
     @Test func theZoomTransformIsAScaleAboutItsPivot() throws {
         let zoom = CanvasZoomTransform(scale: 0.8, pivot: CGPoint(x: 600, y: 400), reach: 721)
         let matrix = try #require(zoom.layerValue as? NSValue).caTransform3DValue
@@ -178,6 +217,97 @@ struct CanvasCameraRenderMotionTests {
             #expect(abs(presented.bounds.minX - layer.bounds.minX) < 0.5, "a zoom about the center moved the center at \(time) s")
         }
         #expect(abs(springs.shown(at: 0).zoom - start.zoom) < 1e-9, "the zoom does not start from what showed")
+    }
+
+    /// The camera the screen layer presents at `time`: the center from the presented bounds origin, the zoom from
+    /// the presented `sublayerTransform`, which must be a scale about the viewport center.
+    static func presentedCamera(_ screen: ScreenContentView, rest: CanvasCamera, at time: Double, clock: CALayer) throws -> CanvasCamera {
+        SplitRenderMotionTests.seek(clock, to: time)
+        let layer = try #require(screen.layer), presented = try #require(layer.presentation())
+        let axes = RenderLayerAxes(screen), m = presented.sublayerTransform
+        let pivot = CGPoint(x: (0.5 - layer.anchorPoint.x) * layer.bounds.width, y: (0.5 - layer.anchorPoint.y) * layer.bounds.height)
+        #expect(abs(m.m11 - m.m22) < 1e-6 && abs(m.m12) < 1e-9 && abs(m.m21) < 1e-9, "at \(time) s the layer shows no uniform scale: \(m)")
+        #expect(abs(m.m41 - (1 - m.m11) * pivot.x) < 0.01 && abs(m.m42 - (1 - m.m11) * pivot.y) < 0.01,
+                "at \(time) s the zoom does not pivot on the viewport center \(pivot): \(m)")
+        return CanvasCamera(center: CGPoint(x: rest.center.x + (presented.bounds.minX - layer.bounds.minX) / axes.x,
+                                            y: rest.center.y + (presented.bounds.minY - layer.bounds.minY) / axes.y),
+                            zoom: rest.zoom * Double(m.m11))
+    }
+
+    static func gap(_ camera: CanvasCamera, _ state: CanvasCameraState) -> (center: CGFloat, zoom: Double) {
+        (max(abs(camera.center.x - state.center.x), abs(camera.center.y - state.center.y)), abs(camera.zoom - state.zoom))
+    }
+
+    /// A move of the center and the zoom (a reveal with a zoom, as reset and overview make): the real layer
+    /// presents the record's camera at each time, and the first move the main thread's path; a retarget at 0.08 s
+    /// keeps what shows; a window resize keeps what shows and pivots on the new center; a pan takes the move back
+    /// at what shows and leaves no spring on the layer.
+    @Test func theLayerPresentsTheRecordsCamera() async throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let canvas = Canvas(renderServer: true)
+        defer { canvas.close() }
+        try #require(canvas.window.screen != nil, "the window is on no screen: nothing animates")
+        let clock = try #require(canvas.root.layer)
+        SplitRenderMotionTests.freeze(clock)
+        let screen = canvas.screen
+        let start = canvas.camera
+        let first = CanvasCamera(center: CGPoint(x: start.center.x + 300, y: start.center.y - 120), zoom: start.zoom * 1.25)
+        canvas.model.setCanvasCamera(first, for: "s")
+        canvas.root.syncWithModel()
+        #expect(!canvas.root.driver.isRunning, "the move asked the window's MotionClock for frames")
+        var springs = try #require(screen.canvasState.camera.onRenderServer, "the render server took no camera springs")
+        let parameters = Motion.panes.renderSpring(.scroll).parameters
+        for time in [0.0, 0.03, 0.06] {
+            let shown = try Self.presentedCamera(screen, rest: first, at: time, clock: clock)
+            let gap = Self.gap(shown, springs.shown(at: time))
+            #expect(gap.center < 0.5 && gap.zoom < 0.002, "at \(time) s the layer shows \(shown), the record \(springs.shown(at: time))")
+            // The main thread's path from `start` (the signs and the axes, not the record's own arithmetic).
+            let share = SpringValue.solve(displacement: 1, velocity: 0, time: time, parameters: parameters).displacement
+            let expected = CanvasCameraState(center: CGPoint(x: first.center.x + (start.center.x - first.center.x) * share,
+                                                             y: first.center.y + (start.center.y - first.center.y) * share),
+                                             zoom: first.zoom + (start.zoom - first.zoom) * share, centerRate: .zero, zoomRate: 0)
+            let off = Self.gap(shown, expected)
+            #expect(off.center < 0.5 && off.zoom < 0.002, "at \(time) s the layer shows \(shown), the main thread's path \(expected)")
+        }
+        // A retarget at 0.08 s, from what shows.
+        let before = try Self.presentedCamera(screen, rest: first, at: 0.08, clock: clock)
+        let second = CanvasCamera(center: CGPoint(x: start.center.x - 200, y: start.center.y + 80), zoom: start.zoom * 0.8)
+        canvas.model.setCanvasCamera(second, for: "s")
+        canvas.root.syncWithModel()
+        springs = try #require(screen.canvasState.camera.onRenderServer, "the retarget left the render server")
+        let after = try Self.presentedCamera(screen, rest: second, at: 0.08, clock: clock)
+        #expect(Self.gap(after, springs.shown(at: 0.08)).center < 0.5 && abs(after.zoom - before.zoom) < 0.002)
+        #expect(abs(after.center.x - before.center.x) < 0.5 && abs(after.center.y - before.center.y) < 0.5,
+                "the retarget moved what shows from \(before) to \(after)")
+        for time in [0.12, 0.2] {
+            let shown = try Self.presentedCamera(screen, rest: second, at: time, clock: clock)
+            let gap = Self.gap(shown, springs.shown(at: time))
+            #expect(gap.center < 0.5 && gap.zoom < 0.002, "at \(time) s the layer shows \(shown), the record \(springs.shown(at: time))")
+        }
+        // A window resize at 0.2 s: the move comes back and goes again about the new viewport center.
+        let sized = try Self.presentedCamera(screen, rest: second, at: 0.2, clock: clock)
+        canvas.window.setContentSize(NSSize(width: 1000, height: 800))
+        canvas.root.needsLayout = true
+        canvas.root.layoutSubtreeIfNeeded()
+        try #require(screen.frame.width == 1000, "the screen did not resize: \(screen.frame)")
+        springs = try #require(screen.canvasState.camera.onRenderServer, "the resize left the move on the main thread")
+        let resized = try Self.presentedCamera(screen, rest: second, at: 0.2, clock: clock)
+        let jump = Self.gap(resized, CanvasCameraState(center: sized.center, zoom: sized.zoom, centerRate: .zero, zoomRate: 0))
+        #expect(jump.center < 0.5 && jump.zoom < 0.002, "the resize moved what shows from \(sized) to \(resized)")
+        let later = try Self.presentedCamera(screen, rest: second, at: 0.25, clock: clock)
+        let drift = Self.gap(later, springs.shown(at: 0.25))
+        #expect(drift.center < 0.5 && drift.zoom < 0.002, "after the resize the layer shows \(later), the record \(springs.shown(at: 0.25))")
+        // A pan takes the move back at what shows, and no camera spring stays on the layer.
+        let panned = try Self.presentedCamera(screen, rest: second, at: 0.3, clock: clock)
+        screen.canvasPan(by: .zero, ended: false)
+        #expect(screen.canvasState.camera.onRenderServer == nil)
+        let cpu = screen.canvasState.camera.shown
+        #expect(abs(cpu.center.x - panned.center.x) < 0.5 && abs(cpu.center.y - panned.center.y) < 0.5 && abs(cpu.zoom - panned.zoom) < 0.002,
+                "the main thread took \(cpu), the layer showed \(panned)")
+        let layer = try #require(screen.layer)
+        let left = (layer.animationKeys() ?? []).filter { $0.hasPrefix("cmux.renderSpring.") }
+        #expect(left.isEmpty, "camera springs stayed on the layer: \(left)")
     }
 
     @Test func aRevealLandsOnceWithNoFrames() async throws {

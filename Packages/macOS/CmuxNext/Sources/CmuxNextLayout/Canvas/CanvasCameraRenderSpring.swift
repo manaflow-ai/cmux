@@ -14,17 +14,33 @@ import QuartzCore
 ///
 /// The shown center is the rest center plus the summed bounds offsets over ``axes``; the shown zoom is the
 /// rest zoom times every scale. With no carried velocity this is exactly the main thread's path
-/// (`CanvasCameraMotion.advance`: center and zoom on one spring each). A retarget adds one spring per
-/// channel from what shows, so value and velocity stay continuous (the zoom's first spring starts at
-/// rest speed: a `sublayerTransform` spring carries no initial velocity). Chrome keeps each compositor
-/// animation's curve and start on the main thread the same way (`cc/animation/keyframe_model.h`) and
-/// retargets from the current value and velocity (`ScrollOffsetAnimationCurve::UpdateTarget`).
+/// (`CanvasCameraMotion.advance`: center and zoom on one spring each). A retarget adds springs per
+/// channel from what shows, with the speed the running springs do not carry, so value and velocity stay
+/// continuous, also when the main thread hands over a moving camera (a zoom spring starts at a progress
+/// velocity: Core Animation's normalized `initialVelocity`, which a transform takes as a scalar does).
+/// Chrome keeps each compositor animation's curve and start on the main thread the same way
+/// (`cc/animation/keyframe_model.h`) and retargets from the current value and velocity
+/// (`ScrollOffsetAnimationCurve::UpdateTarget`).
 nonisolated struct CanvasCameraRenderSpring: Hashable, Sendable {
-    /// A scale by `ratio` about the viewport center that springs to 1 from `begin`.
+    /// A scale by `ratio` about the viewport center that springs to 1 from `begin`. Its displacement from 1,
+    /// as a share of `ratio - 1`, starts at 1 and moves at `velocity` per second; the layer's spring starts at
+    /// the progress velocity `-velocity`.
     nonisolated struct Zoom: Hashable, Sendable {
         var ratio: Double
+        var velocity: Double
         var begin: Double
         var parameters: SpringParameters
+
+        /// The scale and its rate at `time`.
+        func scale(at time: Double) -> (scale: Double, rate: Double) {
+            let state = SpringValue.solve(displacement: 1, velocity: velocity, time: max(0, time - begin), parameters: parameters)
+            return (1 + (ratio - 1) * state.displacement, (ratio - 1) * state.velocity)
+        }
+
+        /// It adds nothing at `time` any more.
+        func rests(at time: Double) -> Bool {
+            time - begin >= parameters.settlingTime(within: 0.0001 / (1 + abs(velocity) / parameters.omega))
+        }
     }
 
     /// A bounds-origin offset (layer units) that springs to 0 from `begin`, starting at `velocity`.
@@ -35,9 +51,10 @@ nonisolated struct CanvasCameraRenderSpring: Hashable, Sendable {
         var parameters: SpringParameters
     }
 
-    /// What one retarget adds: the zoom spring's start ratio (1: none) and the center spring's start.
+    /// What one retarget adds: the zoom springs (none, one, or a carrier and a still one) and the center
+    /// spring's start.
     nonisolated struct Added: Hashable, Sendable {
-        var zoomRatio: Double
+        var zooms: [Zoom]
         var centerOffset: CGPoint
         var centerVelocity: CGPoint
     }
@@ -64,35 +81,54 @@ nonisolated struct CanvasCameraRenderSpring: Hashable, Sendable {
                                  zoomRate: rest.zoom * zoom.rate)
     }
 
-    /// Lands on `rest` (with `axes`) from `shown` at `time`: the springs still running carry on, and one
-    /// spring per channel makes up the rest of the difference. Returns what to add.
+    /// Lands on `rest` (with `axes`) from `shown` at `time`: the springs still running carry on, and the
+    /// added springs make up the rest of the difference and of the speed. Returns what to add.
     mutating func retarget(to rest: CanvasCamera, axes: RenderLayerAxes, shown: CanvasCameraState, at time: Double,
                            parameters: SpringParameters) -> Added {
         // Springs at rest by now add nothing: a record holds only the ones that still move.
-        zooms.removeAll { time - $0.begin >= $0.parameters.settlingTime(within: 0.0001) }
+        zooms.removeAll { $0.rests(at: time) }
         centers.removeAll { time - $0.begin >= $0.parameters.settlingTime(within: 0.0001) }
         let running = zoomFactor(at: time), carried = centerOffset(at: time)
-        let ratio = running.factor > 0 && rest.zoom > 0 ? shown.zoom / (rest.zoom * running.factor) : 1
-        let added = Added(zoomRatio: ratio,
+        let scales = running.factor > 0 && rest.zoom > 0
+        let ratio = scales ? shown.zoom / (rest.zoom * running.factor) : 1
+        // The zoom's speed the running springs do not carry, as the added springs' scale rate: the shown rate
+        // is rest.zoom * (running.rate * ratio + running.factor * excess) at `time`.
+        let excess = scales ? (shown.zoomRate / rest.zoom - running.rate * ratio) / running.factor : 0
+        let added = Added(zooms: Self.zooms(ratio: ratio, rate: excess, at: time, parameters: parameters),
                           centerOffset: CGPoint(x: axes.x * (shown.center.x - rest.center.x) - carried.offset.x,
                                                 y: axes.y * (shown.center.y - rest.center.y) - carried.offset.y),
                           centerVelocity: CGPoint(x: axes.x * shown.centerRate.x - carried.velocity.x,
                                                   y: axes.y * shown.centerRate.y - carried.velocity.y))
         self.rest = rest
         self.axes = axes
-        if ratio != 1 { zooms.append(Zoom(ratio: ratio, begin: time, parameters: parameters)) }
+        zooms += added.zooms
         if added.centerOffset != .zero || added.centerVelocity != .zero {
             centers.append(Center(offset: added.centerOffset, velocity: added.centerVelocity, begin: time, parameters: parameters))
         }
         return added
     }
 
+    /// The zoom springs that scale by `ratio` at `time` and spring to 1, their product starting at the scale
+    /// rate `rate` (per second): one spring; or, when `ratio` is too close to 1 to carry the rate (a zoom
+    /// moving through its target), a carrier with the rate and a still spring that makes up the ratio, as
+    /// `RenderSpring.parts` splits a scalar. Products of scales about one point stack in any order.
+    static func zooms(ratio: Double, rate: Double, at time: Double, parameters: SpringParameters) -> [Zoom] {
+        let rate = abs(rate) < 1e-9 ? 0 : rate
+        let single: [Zoom] = ratio == 1 ? [] : [Zoom(ratio: ratio, velocity: rate == 0 ? 0 : rate / (ratio - 1), begin: time, parameters: parameters)]
+        guard rate != 0, abs(ratio - 1) < abs(rate) / parameters.omega * 1e-3 else { return single }
+        let carrier = ratio + rate / parameters.omega, still = ratio / carrier
+        // A rate that would scale through zero within one response keeps the one spring (or, at ratio 1, none).
+        guard carrier > 0, carrier != 1 else { return single }
+        // The product's rate at `time` is the carrier's: still * (carrier - 1) * velocity = rate.
+        let lead = Zoom(ratio: carrier, velocity: rate / (still * (carrier - 1)), begin: time, parameters: parameters)
+        return still == 1 ? [lead] : [lead, Zoom(ratio: still, velocity: 0, begin: time, parameters: parameters)]
+    }
+
     /// The product of every zoom spring's scale at `time`, and its rate.
     private func zoomFactor(at time: Double) -> (factor: Double, rate: Double) {
         var factor = 1.0, rate = 0.0
         for zoom in zooms {
-            let state = SpringValue.solve(displacement: 1, velocity: 0, time: max(0, time - zoom.begin), parameters: zoom.parameters)
-            let scale = 1 + (zoom.ratio - 1) * state.displacement, scaleRate = (zoom.ratio - 1) * state.velocity
+            let (scale, scaleRate) = zoom.scale(at: time)
             rate = rate * scale + factor * scaleRate
             factor *= scale
         }
