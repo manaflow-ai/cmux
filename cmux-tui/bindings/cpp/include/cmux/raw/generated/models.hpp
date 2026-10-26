@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97";
+inline constexpr std::string_view kProtocolIrSha256 = "6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -518,6 +518,8 @@ struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DebugDaemonLocksRequest;
+struct DebugDaemonLocksResult;
 struct DeleteBookmarkRequest;
 struct DeleteBookmarkResult;
 struct DeleteBrowserProfileRequest;
@@ -3765,6 +3767,15 @@ struct DaemonShutdownEvent {
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
+};
+
+struct DebugDaemonLocksRequest {
+    friend bool operator==(const DebugDaemonLocksRequest&, const DebugDaemonLocksRequest&) = default;
+};
+
+struct DebugDaemonLocksResult {
+    Json value{};
+    friend bool operator==(const DebugDaemonLocksResult&, const DebugDaemonLocksResult&) = default;
 };
 
 struct DeleteBookmarkRequest {
@@ -10697,6 +10708,18 @@ template <>
 struct Codec<CreateWorkspaceGroupRequest> {
     static Result<Json> encode(const CreateWorkspaceGroupRequest& value);
     static Result<CreateWorkspaceGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DebugDaemonLocksRequest> {
+    static Result<Json> encode(const DebugDaemonLocksRequest& value);
+    static Result<DebugDaemonLocksRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DebugDaemonLocksResult> {
+    static Result<Json> encode(const DebugDaemonLocksResult& value);
+    static Result<DebugDaemonLocksResult> decode(const Json& value);
 };
 
 template <>

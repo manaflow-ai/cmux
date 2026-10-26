@@ -38,7 +38,10 @@ use serde_json::Value;
 
 use super::Command;
 use super::command_names::{COMMANDS, MethodClass};
-use crate::diagnostics::{MethodLatencyStats, MethodName, MethodSample, RequestStats};
+use crate::diagnostics::{
+    LockOp, LockOpScope, LockScope, LockScopeGuard, MethodLatencyStats, MethodName, MethodSample,
+    RequestStats,
+};
 use crate::resource::{OperationClass, ResourceOperation};
 
 /// When a request line arrived at its connection's reader and when it parsed.
@@ -130,6 +133,19 @@ impl RequestMethod {
         Self { id: Self::RESOURCE_BASE + operation as u16, class: resource_class(operation) }
     }
 
+    /// The dense op this method's lock acquisitions count under
+    /// (`debug-daemon-locks`): 0 is no request, then every command, every
+    /// resource operation and every routed class.
+    pub(super) fn lock_op(self) -> LockOp {
+        let commands = COMMANDS.len() as u16;
+        let resources = ResourceOperation::ALL.len() as u16;
+        LockOp(match self.id {
+            id if id >= Self::ROUTED_BASE => 1 + commands + resources + (id - Self::ROUTED_BASE),
+            id if id >= Self::RESOURCE_BASE => 1 + commands + (id - Self::RESOURCE_BASE),
+            id => 1 + id,
+        })
+    }
+
     /// A line no `Command` names (its `cmd` is a feature route's, or absent).
     pub(super) fn routed(cmd: Option<&str>) -> Self {
         let class = match cmd {
@@ -141,6 +157,31 @@ impl RequestMethod {
         };
         Self { id: Self::ROUTED_BASE + class as u16, class }
     }
+}
+
+/// The name of a [`RequestMethod::lock_op`]: a command's `cmd` tag, a
+/// resource operation's wire name, `routed.<class>`, or `none` outside any
+/// request.
+pub(super) fn lock_op_name(op: LockOp) -> String {
+    let Some(index) = op.0.checked_sub(1).map(usize::from) else { return "none".to_owned() };
+    if let Some(row) = COMMANDS.get(index) {
+        return row.wire.to_owned();
+    }
+    let index = index - COMMANDS.len();
+    if index < ResourceOperation::ALL.len() {
+        return ResourceOperation::ALL
+            .iter()
+            .find(|operation| **operation as usize == index)
+            .map_or_else(
+                || format!("resource.{index}"),
+                |operation| operation.wire_name().to_owned(),
+            );
+    }
+    let index = index - ResourceOperation::ALL.len();
+    MethodClass::ALL
+        .iter()
+        .find(|class| **class as usize == index)
+        .map_or_else(|| format!("op.{}", op.0), |class| format!("routed.{}", class.as_str()))
 }
 
 /// The class of a v2 resource operation, on the `Command` table's rules:
@@ -194,6 +235,9 @@ pub(super) struct RequestSpan<'a> {
     /// This thread's lock wait total at the handler's start.
     lock_wait_from: u64,
     reply: Reply,
+    /// The op this thread's lock acquisitions count under until the span
+    /// ends (`debug-daemon-locks`).
+    _lock_op: LockOpScope,
     /// Declared last: the slice's end comes after every instant above.
     _scope: cmux_trace::ScopeGuard,
 }
@@ -230,6 +274,7 @@ impl<'a> RequestSpan<'a> {
             micros(queued)
         );
         trace_instant!(daemon, "daemon.request.dispatched", method.class as u8);
+        let lock_op = LockOpScope::enter(method.lock_op());
         Self {
             stats,
             method,
@@ -237,6 +282,7 @@ impl<'a> RequestSpan<'a> {
             dispatched,
             lock_wait_from: cmux_threads::thread_lock_wait_nanos(),
             reply: Reply::Pending,
+            _lock_op: lock_op,
             _scope: scope,
         }
     }
@@ -289,6 +335,7 @@ impl<'a> RequestSpan<'a> {
             counting: Some(ThreadLockWait::since(self.lock_wait_from)),
             id,
             recorded: false,
+            lock_scope: LockScope::current(),
         }
     }
 
@@ -342,6 +389,8 @@ pub(super) struct AsyncReply {
     counting: Option<ThreadLockWait>,
     id: u64,
     recorded: bool,
+    /// The caller class and op of the request (`debug-daemon-locks`).
+    lock_scope: LockScope,
 }
 
 /// A thread's lock wait total ([`cmux_threads::thread_lock_wait_nanos`]) when
@@ -408,6 +457,12 @@ impl AsyncReply {
             self.counting = Some(ThreadLockWait::here());
         }
         self.lock_waited
+    }
+
+    /// Counts the worker's lock acquisitions under the request's caller
+    /// class and op until the guard drops, as on the thread that started it.
+    pub(super) fn enter_lock_scope(&self) -> LockScopeGuard {
+        self.lock_scope.enter()
     }
 
     /// Sends the worker's reply with `send`.

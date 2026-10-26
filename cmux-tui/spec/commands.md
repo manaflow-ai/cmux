@@ -858,6 +858,54 @@ stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
 
+### debug-daemon-locks
+
+| Field | Value |
+| --- | --- |
+| name | `debug-daemon-locks` |
+| status | implemented |
+| since | protocol 12 |
+
+Wait and hold time of the workspace registry lock and the mux state lock, per
+caller class and per request op (plans/cmux-next/chrome-parity/p06-scheduler.md,
+"Lock histograms"). Every acquisition counts under the class and op of the
+request its thread handles, a worker thread that answers a request
+(`home-inbox`, the Cloud commands, `chief-inspect`, `url-open`) included:
+`frontend` for the verified app's connection,
+`automation` for every other connection (agents, the CLI, page relays, remote
+clients), `program` for daemon threads outside any request (PTY output,
+reaps, timers), whose op is `none`. A request's op is its `cmd` tag, its v2
+operation name, or `routed.<class>` for a line a feature route answers.
+Counters accumulate since daemon start in fixed-bucket atomic histograms. The
+command reads atomics and takes neither lock, so it is safe to poll. Owner
+only: a client that is not on the trusted local socket gets `daemon lock stats
+require a trusted local connection`.
+
+Params: `{}`.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  locks:array<object{
+    lock:"workspace.registry"|"mux.state",
+    callers:array<object{caller:"frontend"|"automation"|"program", wait_us:histogram, hold_us:histogram}>,
+    ops:array<object{op:string, caller:string, wait_us:histogram, hold_us:histogram}>
+  }>
+}
+histogram = object{count:uint64, mean:uint64, max:uint64, p50:uint64, p95:uint64, p99:uint64}
+```
+
+`schema` is `1`. Histograms are in microseconds; a percentile is a log-linear
+bucket upper bound, at most 25% above the true value and never above `max`.
+`callers` lists all three classes, each its ops merged. `ops` lists every
+(caller, op) pair that took the lock, by total hold time, longest first. An
+acquisition of a free lock records a zero wait.
+
+Errors: `daemon lock stats require a trusted local connection`.
+
 ### oracle-state
 
 | Field | Value |

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 33693b7d09a6d8f16ecda8cfc64327086d45a166e95fe112a14347db83668d97.
+// cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2336,6 +2336,14 @@ pub struct CreateWorkspaceGroupRequest {
 
 #[rustfmt::skip]
 pub type CreateWorkspaceGroupResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DebugDaemonLocksRequest {
+}
+
+#[rustfmt::skip]
+pub type DebugDaemonLocksResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5820,6 +5828,10 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn debug_daemon_locks(&mut self, request: DebugDaemonLocksRequest) -> Result<DebugDaemonLocksResult> {
+        self.execute(&DEBUG_DAEMON_LOCKS_METADATA, &request)
     }
 
     pub fn delete_bookmark(&mut self, request: DeleteBookmarkRequest) -> Result<DeleteBookmarkResult> {

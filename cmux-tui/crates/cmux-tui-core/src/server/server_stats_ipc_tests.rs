@@ -229,7 +229,7 @@ fn server_stats_ipc_methods_counts_the_handlers_lock_wait() {
     let registry = LockStats::new();
     let site = std::panic::Location::caller();
     let arrived = Instant::now() - Duration::from_millis(3);
-    registry.acquired(site, Duration::from_millis(50), None);
+    registry.acquired(site, Duration::from_millis(50), None, Instant::now());
     {
         let mut span = RequestSpan::open(
             &stats,
@@ -237,7 +237,7 @@ fn server_stats_ipc_methods_counts_the_handlers_lock_wait() {
             None,
             RequestArrival { arrived, parsed: arrived },
         );
-        registry.acquired(site, Duration::from_millis(7), None);
+        registry.acquired(site, Duration::from_millis(7), None, Instant::now());
         registry.released(site, Duration::ZERO);
         std::thread::sleep(Duration::from_millis(1));
         assert!(span.reply(|| true));
@@ -266,13 +266,13 @@ fn server_stats_ipc_methods_counts_the_workers_lock_wait() {
     let worker = {
         let mut span = RequestSpan::open(&stats, &Command::Ping, None, RequestArrival::now());
         let reply = span.start_async();
-        registry.acquired(site, Duration::from_millis(3), None);
+        registry.acquired(site, Duration::from_millis(3), None, Instant::now());
         reply.hand_to_worker()
     };
     std::thread::spawn(move || {
-        registry.acquired(site, Duration::from_millis(500), None);
+        registry.acquired(site, Duration::from_millis(500), None, Instant::now());
         let reply = worker.start();
-        registry.acquired(site, Duration::from_millis(20), None);
+        registry.acquired(site, Duration::from_millis(20), None, Instant::now());
         assert!(reply.reply(|| true));
     })
     .join()
@@ -296,9 +296,9 @@ fn server_stats_ipc_methods_counts_an_inline_async_replys_lock_wait() {
     let site = std::panic::Location::caller();
     {
         let mut span = RequestSpan::open(&stats, &Command::Ping, None, RequestArrival::now());
-        registry.acquired(site, Duration::from_millis(2), None);
+        registry.acquired(site, Duration::from_millis(2), None, Instant::now());
         let reply = span.start_async();
-        registry.acquired(site, Duration::from_millis(9), None);
+        registry.acquired(site, Duration::from_millis(9), None, Instant::now());
         assert!(reply.reply(|| true));
     }
     let snapshot = stats.methods().snapshot(RequestMethod::of_slot);

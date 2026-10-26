@@ -4617,6 +4617,12 @@ class CreateWorkspaceGroupRequest:
 
 
 @dataclass(frozen=True)
+class DebugDaemonLocksRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/debug-daemon-locks/request'
+    pass
+
+
+@dataclass(frozen=True)
 class DeleteBookmarkRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-bookmark/request'
     bookmark: str
@@ -8115,6 +8121,7 @@ __all__ = [
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DebugDaemonLocksRequest',
     'DeleteBookmarkRequest',
     'DeleteBookmarkResult',
     'DeleteBrowserProfileRequest',

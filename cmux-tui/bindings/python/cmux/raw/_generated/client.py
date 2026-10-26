@@ -456,6 +456,9 @@ class GeneratedClientMixin:
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
 
+    def debug_daemon_locks(self) -> Any:
+        return self._invoke_command('debug-daemon-locks', DebugDaemonLocksRequest())
+
     def delete_bookmark(self, bookmark: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> DeleteBookmarkResult:
         return self._invoke_command('delete-bookmark', DeleteBookmarkRequest(bookmark=bookmark, mutation_id=mutation_id, origin=origin))
 
@@ -1238,6 +1241,7 @@ GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-gr
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.debug_daemon_locks.__cmux_command__ = COMMANDS['debug-daemon-locks']
 GeneratedClientMixin.delete_bookmark.__cmux_command__ = COMMANDS['delete-bookmark']
 GeneratedClientMixin.delete_browser_profile.__cmux_command__ = COMMANDS['delete-browser-profile']
 GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']

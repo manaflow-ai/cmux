@@ -105,6 +105,29 @@ class Flattening(unittest.TestCase):
         self.assertTrue(any(line.startswith("PERF-DAEMON small ping n=10") for line in lines))
 
 
+class DaemonLocks(unittest.TestCase):
+    def test_lock_rows_print_frontend_and_automation_percentiles(self):
+        histogram = {"count": 4, "mean": 10, "max": 900, "p50": 5, "p95": 600, "p99": 900}
+        data = {"schema": 1, "uptime_ms": 1, "locks": [
+            {"lock": "mux.state", "ops": [], "callers": [
+                {"caller": "frontend", "wait_us": histogram, "hold_us": histogram},
+                {"caller": "program", "wait_us": histogram, "hold_us": histogram},
+            ]},
+        ]}
+        locks = bench.daemon_lock_rows(data)
+        self.assertEqual(set(locks["mux.state"]), {"frontend", "automation"})
+        self.assertEqual(locks["mux.state"]["frontend"]["wait_us"]["p95"], 600)
+        self.assertEqual(locks["mux.state"]["automation"]["hold_us"]["count"], 0)
+        res = {"daemon_locks": {"since": "daemon start", "locks": locks}}
+        self.assertEqual(list(bench.rows(res)), [])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bench.report("scale", res)
+        self.assertIn("PERF-DAEMON-LOCKS scale mux.state frontend wait_us.count=4 wait_us.p95=600 "
+                      "wait_us.p99=900 wait_us.max=900 hold_us.count=4 hold_us.p95=600 "
+                      "hold_us.p99=900 hold_us.max=900", out.getvalue().splitlines())
+
+
 class OpSelection(unittest.TestCase):
     def test_create_is_only_creations(self):
         create = bench.select_ops("create")
