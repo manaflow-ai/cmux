@@ -59,6 +59,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
+    /// Agent session avatars (the app's ``ChiefAvatarUploads``, keyed per session): the avatar as a
+    /// small data URL, Set Avatar… (an open panel, then the upload; the new data URL, nil when
+    /// cancelled or refused, which the app says itself) and Remove Avatar.
+    @ObservationIgnored public var onAgentAvatar: ((String) async -> String?)?
+    @ObservationIgnored public var onSetAgentAvatar: ((String) async -> String?)?
+    @ObservationIgnored public var onRemoveAgentAvatar: ((String) -> Void)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
     @ObservationIgnored public var onListProjects: ((String?) async -> [String])?
     /// The folders a chat on another machine can pick: that machine's (its workspace's folders
@@ -110,6 +116,10 @@ public final class AgentPaneModel {
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
+    /// The binary on the socket when the last handshake was refused with a daemon this app may
+    /// replace: only then does `acpmux.restart` stop it, and only while that same binary holds
+    /// the socket (``AgentPaneHandshakeReply/restartAcpmux(in:)``).
+    @ObservationIgnored var acpmuxRestartOffered: AcpmuxSocketOwner?
     /// Runs a git read on the session host and returns its JSON result.
     /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
     /// reaches the page as `native.failed`.
@@ -256,7 +266,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .projectIcon, .environment(.list): break
+             .tabRowTools, .projectIcon, .agentAvatar, .environment(.list): break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -266,6 +276,7 @@ public final class AgentPaneModel {
         case .uiPointerReport: return AgentPaneReply.success()
         case .ready, .reconnect:
             return await AgentPaneHandshakeReply.reply(to: request, in: self)
+        case .restartAcpmux: return await AgentPaneHandshakeReply.restartAcpmux(in: self)
         case .persistSession(let id): adoptSession(id); return AgentPaneReply.success()
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
@@ -335,6 +346,16 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": await transport.pick(cwd)])
+        case .agentAvatar(let session):
+            guard let src = await onAgentAvatar?(session) else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["src": src])
+        case .setAgentAvatar(let session):
+            guard let onSetAgentAvatar else { return Self.unsupported("agent.avatar.set") }
+            let src = await onSetAgentAvatar(session)
+            return AgentPaneReply.success(src.map { ["src": $0] } ?? [:])
+        case .removeAgentAvatar(let session):
+            onRemoveAgentAvatar?(session)
+            return AgentPaneReply.success()
         case .projectIcon where remoteChat:
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()

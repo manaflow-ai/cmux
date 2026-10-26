@@ -14,7 +14,7 @@ extension CloudHandlers {
                     let certificate = domain.certificateState ?? "unknown"
                     return "\(name) (verification: \(verification), certificate: \(certificate))"
                 }
-                return CloudAnswer(title: "Cloud Domains", text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(domains.count)])
+                return CloudAnswer(title: CloudStrings.domainsTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(domains.count)])
             }
         }
         bind("cloudPublicationList", registry, reason: reason) { invocation in
@@ -26,7 +26,7 @@ extension CloudHandlers {
                     let access = publication.accessMode.map { ", access: \($0)" } ?? ""
                     return "\(name) (\(state)\(access))"
                 }
-                return CloudAnswer(title: "Cloud Publications", text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(publications.count)])
+                return CloudAnswer(title: CloudStrings.publicationsTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"), fields: ["count": .int(publications.count)])
             }
         }
     }

@@ -5,6 +5,7 @@
   border: 0;
   background: none;
   font: inherit;
+  font-weight: 400;
   color: var(--cv-text);
   cursor: pointer;
   text-align: inherit;
@@ -14,14 +15,25 @@
   margin: 0 3px 0 0;
   color: var(--cv-link);
 }
+/* Inline marks scale with prose; preview cards and image attachments keep their own sizing. */
+.cv-chip > :is(.cv-chip__icon, .cv-link__icon) {
+  width: 0.9em;
+  height: 0.9em;
+  vertical-align: -0.12em;
+  color: var(--agent-link);
+}
 .cv-chip__label {
-  font-weight: 600;
+  font-weight: inherit;
   text-decoration: underline dotted;
   text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
   text-underline-offset: 3px;
 }
-.cv-chip.is-web .cv-chip__label {
-  font-weight: inherit;
+/* A symbol linked as [`parseConfig`](path) keeps the surrounding text's size and weight. */
+.cv-chip__label :is(.cv-code, strong) {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 .cv-chip:hover .cv-chip__label {
   text-decoration-style: solid;
@@ -42,25 +54,14 @@
 .cv-chip.is-web:hover .cv-chip__label {
   text-decoration-color: currentColor;
 }
-/* A pull request, an issue or a file is a reference chip: a pill with its icon, as Claude
-   desktop draws them. It wraps with the line (box-decoration-break). Its title is in the hover
-   card, never in the line: a title arriving later would widen the chip and reflow the reply. */
-.cv-chip.is-ref,
-.cv-chip.is-path {
-  padding: 1px 6px 1px 5px;
-  border-radius: 6px;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  -webkit-box-decoration-break: clone;
-  box-decoration-break: clone;
-}
+/* References share prose metrics: no fill, inset or negative margin. Metadata stays in the
+   hover card so it cannot widen the chip and reflow the paragraph after inspection. */
 /* A reference stays whole on one line: its mark and owner/repo#N, cut off only when the chip is
-   as wide as the line (it moves to a line of its own first). The negative margin keeps the
-   padding out of the line's height, as an inline chip's is. */
+   as wide as the line (it moves to a line of its own first). */
 .cv-chip.is-ref {
   display: inline-flex;
   align-items: baseline;
   max-width: 100%;
-  margin-block: -1px;
   box-sizing: border-box;
   white-space: nowrap;
 }
@@ -73,17 +74,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.cv-chip.is-ref:hover,
-.cv-chip.is-path:hover {
-  background: color-mix(in srgb, currentColor 16%, transparent);
-}
-.cv-chip.is-ref .cv-chip__label,
-.cv-chip.is-path .cv-chip__label {
-  font-weight: 500;
-  text-decoration: none;
-}
 .cv-chip.is-path {
   color: var(--cv-text);
+  overflow-wrap: anywhere;
 }
 .cv-chip__icon--gh {
   vertical-align: -1.5px;
@@ -103,9 +96,6 @@
 .cv-chip.is-elsewhere {
   cursor: default;
   color: var(--cv-text-dim);
-}
-.cv-chip.is-elsewhere:hover {
-  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 .cv-chip__favicon {
   border-radius: 3px;

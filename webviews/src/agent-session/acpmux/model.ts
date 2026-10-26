@@ -1,4 +1,5 @@
 import type { ChatUnavailable } from "./chatUnavailable";
+import type { ChatPresence, Participant } from "./multiplayer/participants";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -138,9 +139,12 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
-  /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
-  /// message's received line (ComposerQueue.tsx), not as the person's prompt.
+  /// Another agent's message waiting here (direct.ts `queuedMessage`): it draws in the transcript
+  /// as the message's received card (conversation/queuedMessages.ts), never as a queue row.
   message?: IncomingMessage;
+  /// A teammate's prompt in a shared chat (its `person_message` provenance): its row names them,
+  /// and only they may change it (acpmux refuses another author's edit with `queue.not_author`).
+  author?: Participant;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -191,6 +195,10 @@ export type AcpmuxRow = {
   /// The prompt as the agent got it, when the row shows something else (an incoming message's
   /// body): what Retry sends again.
   resend?: string;
+  /// Another agent's message still waiting in the queue (conversation/queuedMessages.ts): the
+  /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
+  /// now already (acpmux marks it `next`; it runs right after the turn).
+  queuedMessage?: { promptId: string; next?: boolean };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;
@@ -208,6 +216,11 @@ export type AcpmuxRow = {
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
+  /// The person who sent a prompt in a shared chat (multiplayer/participants.ts `promptAuthor`);
+  /// unset for the chat owner's own, which draws as it always has.
+  author?: Participant;
+  /// The person who answered a `permissionRecord` row's ask (`answeredBy`).
+  answeredBy?: Participant;
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
@@ -255,6 +268,11 @@ export type AcpmuxRow = {
   /// behind, by id and version, while that text still moves.
   doingAt?: number;
   doingShell?: boolean;
+  /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
+  /// `acpmux send`, a sub-session's `send_message`): the line reads "Sending message to
+  /// <doingSendTo>", and the sub-session `doingSendSession` by its name once the list has it.
+  doingSendTo?: string;
+  doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
   quietKey?: string;
@@ -282,6 +300,9 @@ export type AcpmuxRow = {
   continued?: boolean;
   /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
   steerPromptId?: string;
+  /// A prompt's promptId as acpmux recorded it (its `user_message` record's): the thread rail keys
+  /// its tick on it, the same live, after acpmux's echo and when the history is read again.
+  promptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// The last turn's footer when the reader stopped that turn and nothing followed: it offers
@@ -527,6 +548,8 @@ export type AcpmuxSnapshot = {
   /// (subagents/childRows.ts).
   subagentViews?: Record<string, AcpmuxRow[]>;
   sessions: AcpmuxSessionEntry[];
+  /// Who else has a shared chat open and who of them types (multiplayer/participants.ts).
+  presence?: ChatPresence;
   /// Present only when an acpmux workflow event is available; the Labs surface stays hidden otherwise.
   workflow?: AcpmuxWorkflowWire;
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
@@ -545,7 +568,9 @@ export type AcpmuxSnapshot = {
     /// `setup`, the part the agent took before the conversation (its system prompt, tools and
     /// memory), when the harness reports it (`_meta.acpmux.setup`).
     usage?: { used: number; size: number; setup?: number };
-    /// What the context holds by category, as Claude Code's /context reports it.
+    /// What the context holds by category, as Claude Code's /context said after the last turn
+    /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
+    /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
@@ -612,6 +637,10 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// Reconnect.
+  reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
@@ -816,8 +845,15 @@ const userMetaHeight = (row: AcpmuxRow) => {
     (row.steer === "waiting" && !row.text?.trim() ? META_GAP + META_ROW : 0)
   );
 };
+/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
+const AUTHOR_HEIGHT = 22;
 const chromeHeight = (row: AcpmuxRow) =>
-  row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
+  row.kind === "user"
+    ? USER_BUBBLE_PADDING +
+      userMetaHeight(row) +
+      (row.status ? USER_STATUS_HEIGHT : 0) +
+      (row.author ? AUTHOR_HEIGHT : 0)
+    : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 24;
@@ -922,6 +958,9 @@ const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSA
 export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "assistant" &&
   (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
+/// The row kind of another agent's message while it waits in the queue (conversation/queuedMessages.ts):
+/// its received card after the running turn, until acpmux starts it.
+export const QUEUED_MESSAGE = "queuedMessage";
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -936,7 +975,7 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   row.kind === "turnSummary" &&
   (!next ||
-    (next.kind === "user" &&
+    ((next.kind === "user" || next.kind === QUEUED_MESSAGE) &&
       (next.received !== undefined || next.incoming?.kind === "message" || next.incoming?.kind === "notice")));
 /// What the row after a row changes about its height (`beforeFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1227,13 +1266,16 @@ function measuredRowHeight(
     // In Minimal Mode a closed message is its line alone, images too; one the person opened
     // (incomingOpened.ts) is its whole card, uncut.
     const minimal = chatDisplay().minimal;
-    const opened = minimal && messageOpened(sessionId, row.id);
+    const opened = messageOpened(sessionId, row.id);
     if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const card = 4 + 16 + (opened ? lines : Math.min(lines, RECEIVED_LINES * lineHeight)) + 6;
+    const limit = RECEIVED_LINES * lineHeight;
+    // .cv-user__more: a 20px control with 4px above it, only on a closed long card.
+    const more = !opened && lines > limit + 1 ? 24 : 0;
+    const card = 4 + 16 + (opened ? lines : Math.min(lines, limit)) + more + 6;
     return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);

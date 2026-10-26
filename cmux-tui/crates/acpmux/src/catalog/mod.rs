@@ -106,10 +106,21 @@ fn bundled() -> Catalog {
 fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let dir = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
-    std::fs::create_dir_all(dir)?;
+    // Owner-only whatever the umask, like the rest of the acpmux home.
+    let mut made = std::fs::DirBuilder::new();
+    made.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+    made.create(dir)?;
     let tmp = dir.join(format!(".{STORE_FILE}.{}.tmp", std::process::id()));
+    // A file a crashed process left under a reused pid keeps its mode: start anew.
+    let _ = std::fs::remove_file(&tmp);
     let result = (|| {
-        let mut file = std::fs::File::create(&tmp)?;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let mut file = options.open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         std::fs::rename(&tmp, path)?;

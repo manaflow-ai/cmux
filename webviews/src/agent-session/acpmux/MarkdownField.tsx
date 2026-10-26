@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { PASTE_FILE_CHARS } from "./pastedText";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -514,10 +515,32 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // Files copied in Finder also put their names on the clipboard as text: not a prompt.
               // With no text, ProseMirror would also move focus to a stand-in element for 50 ms to
               // capture the paste, and the keys typed then came back stripped of spaces.
+              // A drop of text past what a prompt carries (a text drag, no files) goes to the surface
+              // whole, as such a paste does, before ProseMirror lays every line of it out (Leo,
+              // 2026-10-25: "the composer should never ever freeze"). Smaller drops are ProseMirror's.
+              drop: (editorView, event) => {
+                const data = event.dataTransfer;
+                // A drag from inside the field moves its own text, as ProseMirror does.
+                if (editorView.dragging) return false;
+                if (!data || data.files.length || [...data.types].includes("Files")) return false;
+                const whole = data.getData("text/plain");
+                if (whole.length <= PASTE_FILE_CHARS || !beforeInput(editorView, whole, true)) return false;
+                event.preventDefault();
+                return true;
+              },
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
-                const lifted = liftInlineImages(data.getData("text/plain"));
+                // Text past what a prompt carries goes to the surface whole, before anything reads
+                // or parses it (ProseMirror would lay out every line of it first): the composer
+                // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
+                const whole = data.getData("text/plain");
+                // A surface without a file intake (Home Channels) takes it as before.
+                if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
+                  event.preventDefault();
+                  return true;
+                }
+                const lifted = liftInlineImages(whole);
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
