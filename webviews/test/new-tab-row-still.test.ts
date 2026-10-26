@@ -14,6 +14,11 @@
 // after acpmux restarted, which names no mode until a Codex chat has run. A script from the
 // document's start records the boxes of the row's controls on every DOM change and every painted
 // frame; every record must be the first one.
+//
+// The first New Tab page of a launch has no kept catalog (the page's store ends with the launch, and
+// each engine keeps its own): its row draws from the app's copy of the last pick (`lastPicks`) and the
+// bundled model catalog, and holds still all the same (Lucas 2026-10-24: the harness at the left and
+// the effort at the right popped in a moment after the page showed).
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/new-tab-row-still.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -51,7 +56,13 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
   ];
   const codexModels = [{ id: "gpt-5.5", name: "GPT-5.5" }];
   const catalog = [
-    { id: "claude", name: "Claude Code", family: "claude", models: claudeModels, start: { effort: "high" } },
+    {
+      id: "claude",
+      name: "Claude Code",
+      family: "claude",
+      models: claudeModels,
+      start: { effort: "high" },
+    },
     { id: "codex", name: "Codex", family: "codex", models: codexModels },
   ];
   // The answers come late, one after another: the harness list, then the models, then the start mode.
@@ -69,18 +80,33 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
     codex: { modeId: "agent", name: "Ask for approval", level: "standard" },
   };
 
-  function answer(method: string, params: Record<string, unknown>, saved: boolean): unknown {
+  /// `start`: the effort acpmux starts Claude Code on. `codexStart`: Codex's, none when empty (acpmux
+  /// names one from its curated catalog's default for the model, hub/start_defaults.rs).
+  function answer(
+    method: string,
+    params: Record<string, unknown>,
+    saved: boolean,
+    start: string,
+    codexStart: string,
+  ): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        };
       case "_acpmux/watch":
       case "_acpmux/sessions":
         return { sessions: [] };
       case "_acpmux/harnesses":
         return {
           harnesses: {
-            claude: { kind: "claude-stdio", family: "claude", start: { effort: "high" } },
-            codex: { kind: "acp", family: "codex" },
+            claude: { kind: "claude-stdio", family: "claude", start: { effort: start } },
+            codex: {
+              kind: "acp",
+              family: "codex",
+              ...(codexStart ? { start: { effort: codexStart } } : {}),
+            },
           },
           families: { claude: ["claude"], codex: ["codex"] },
           defaultHarness: "claude",
@@ -107,7 +133,13 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
               level: "fullAccess",
               source: "default",
             }
-          : { harness: params.harness, modeId: null, name: null, level: "fullAccess", source: "default" };
+          : {
+              harness: params.harness,
+              modeId: null,
+              name: null,
+              level: "fullAccess",
+              source: "default",
+            };
       case "_acpmux/route/list":
         return { routes: [{ id: "max", name: "Max", serves: true }], active: null };
       default:
@@ -124,18 +156,32 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       hostname: "127.0.0.1",
       fetch(request, server) {
         const query = new URL(request.url).searchParams;
-        const data = { page: query.get("page") ?? "", saved: query.get("saved") === "1" };
+        const data = {
+          page: query.get("page") ?? "",
+          saved: query.get("saved") === "1",
+          start: query.get("start") ?? "high",
+          codexStart: query.get("codexStart") ?? "",
+        };
         return server.upgrade(request, { data }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         async message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, unknown>;
+          };
           if (message.id === undefined) return;
           const delay = DELAYS[message.method];
           // fixed-wait: acpmux answering late is the state under test, not a wait for one
           if (delay) await Bun.sleep(delay);
-          const data = ws.data as { page: string; saved: boolean };
-          const result = answer(message.method, message.params ?? {}, data.saved);
+          const data = ws.data as {
+            page: string;
+            saved: boolean;
+            start: string;
+            codexStart: string;
+          };
+          const result = answer(message.method, message.params ?? {}, data.saved, data.start, data.codexStart);
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.method === "_acpmux/start_mode") answered.get(data.page)?.();
         },
@@ -158,19 +204,22 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
 
   let pages = 0;
   /// A New Tab page (no folder of its own) on `harness` (the app's last pick) in `look`, recording
-  /// the boxes of the row's controls; resolves with the page once acpmux has answered its start mode
-  /// (`saved`: with the person's saved choice, SAVED).
+  /// the boxes and text of the row's controls; resolves with the page once acpmux has answered its
+  /// start mode (`saved`: with the person's saved choice, SAVED). `kept`: an earlier page of the launch
+  /// kept the harness catalog; without it the page is the launch's first. `start` and `codexStart`:
+  /// the efforts acpmux starts Claude Code and Codex on (`answer`).
   async function load(
     name: string,
     look: string,
     harness: string,
     saved = false,
+    { kept = true, start = "high", codexStart = "" }: { kept?: boolean; start?: string; codexStart?: string } = {},
   ): Promise<{ page: Page; ready: Promise<void> }> {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 1000, height: 760 } });
     await installPaintedFrames(page);
     const id = `p${(pages += 1)}`;
     const ready = new Promise<void>((resolve) => answered.set(id, resolve));
-    const endpoint = `ws://127.0.0.1:${daemon!.port}/?page=${id}${saved ? "&saved=1" : ""}`;
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/?page=${id}${saved ? "&saved=1" : ""}&start=${start}&codexStart=${codexStart}`;
     const model = harness === "claude" ? "claude-opus-5-5" : "gpt-5.5";
     const context = {
       kind: "agent",
@@ -182,12 +231,13 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       lastPicks: { global: { harness, model }, folders: [] },
     };
     await page.addInitScript(
-      ({ endpoint, context, look, catalog }) => {
+      ({ endpoint, context, look, catalog, kept }) => {
         const w = window as unknown as Record<string, unknown>;
         w.__cmuxNewTabContext = context;
         // An earlier page of this launch kept the harness catalog and the look; no start mode.
         localStorage.setItem("cmux.composer.look", look);
-        localStorage.setItem("cmux.acpmux.harnessCatalog.v1", JSON.stringify({ catalog, at: Date.now() - 60_000 }));
+        if (kept)
+          localStorage.setItem("cmux.acpmux.harnessCatalog.v1", JSON.stringify({ catalog, at: Date.now() - 60_000 }));
         const later = (ms: number, value: unknown) =>
           // fixed-wait: the stand-in host answers late on purpose; the row must hold through it
           new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
@@ -220,7 +270,8 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           const composer = document.querySelector(".nt-composer");
           if (!composer?.querySelector(".nt-field")) return;
           // The row's controls: the folder and machine, the access, model and other chips, the mic
-          // and Send. Each is named by its kind, so one that appears, goes or swaps shows.
+          // and Send. Each is named by its kind and its text, so one that appears, goes, swaps or
+          // renames shows.
           const controls = [
             ...composer.querySelectorAll(".acpmux-location-picker, .acpmux-chips > *, .acpmux-composer-actions button"),
           ].map((node) => {
@@ -230,7 +281,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
               : node.classList.contains("acpmux-model")
                 ? "model"
                 : (node.getAttribute("data-kind") ?? node.classList[0]);
-            return `${kind} ${box.left},${box.top} ${box.width}x${box.height}`;
+            return `${kind} ${box.left},${box.top} ${box.width}x${box.height} ${JSON.stringify(node.textContent?.trim() ?? "")}`;
           });
           const record = controls.join(" | ");
           if (records.at(-1) !== record) records.push(record);
@@ -249,7 +300,7 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           stopPaint();
         };
       },
-      { endpoint, context, look, catalog },
+      { endpoint, context, look, catalog, kept },
     );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
@@ -263,7 +314,12 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
       const observer = new MutationObserver(() => {
         changed = true;
       });
-      observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+      observer.observe(document, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+      });
       for (let held = 0, frames = 0; held < 10 && frames < 120; frames += 1) {
         await window.cmuxPaintFrame();
         held = changed ? 0 : held + 1;
@@ -336,10 +392,39 @@ await requireBrowserLane("new-tab-row-still.test.ts", async () => {
           expect(await modeName(page)).toBe(saved.name);
           // The control keeps its place (its label's width is its own); no other control moves.
           const seen = (await records(page)).map((record) =>
-            record.replace(/mode ([\d.]+,[\d.]+) [\d.]+x[\d.]+/, "mode $1"),
+            record.replace(/mode ([\d.]+,[\d.]+) [\d.]+x[\d.]+ "[^"]*"/, "mode $1"),
           );
           console.info(`${name} ${look} ${harness} saved: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);
           expect(new Set(seen).size).toBe(1);
+        } finally {
+          await close(page);
+        }
+      },
+    );
+  }
+
+  // The launch's first New Tab page: no kept catalog; acpmux starts each harness on its model's own
+  // default effort from its curated catalog (hub/start_defaults.rs; Opus 5.5 and GPT-5.5: Medium).
+  for (const [look, harness, highest] of cases) {
+    test.each(engines.map(([name]) => name))(
+      `%s: the launch's first page, the ${look} look on ${harness}: its row holds still from the first frame`,
+      async (name) => {
+        const { page, ready } = await load(name, look, harness, false, {
+          kept: false,
+          start: "medium",
+          codexStart: "medium",
+        });
+        try {
+          await page.locator(".nt-field").waitFor({ timeout: 30_000 });
+          // The last pick's harness on the first frame: its highest level names the mode control.
+          expect(await modeName(page)).toBe(highest);
+          await ready;
+          await settled(page);
+          const seen = await records(page);
+          console.info(`${name} ${look} ${harness} first page: ${seen.length} record(s)\n  ${seen.join("\n  ")}`);
+          // No control in the row moved, resized, renamed, came or went: the harness and the
+          // effort were named on the first frame.
+          expect(seen).toHaveLength(1);
         } finally {
           await close(page);
         }

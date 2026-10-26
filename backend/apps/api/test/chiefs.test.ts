@@ -49,6 +49,34 @@ describe("chief records", { timeout: 60_000 }, () => {
     expect(list.chiefs.map((c: { id: string; is_default: boolean }) => [c.id, c.is_default])).toEqual([[second.id, true], [first.value.id, false]])
   })
 
+  // Delete Chief (the Mac's Home row menu, next to Archive): the record goes at once, only a tombstone stays.
+  it("delete refuses the default, removes an active or archived chief for good, and never restores", async () => {
+    const t = await sessionToken("chief-delete")
+    await op(t, "user.ensure", {})
+    const main = (await op(t, "chief.create", {}, "chief-default")).json.value
+    const helper = (await op(t, "chief.create", { display_name: "Helper" })).json.value
+    const scout = (await op(t, "chief.create", { display_name: "Scout" })).json.value
+
+    expect((await op(t, "chief.delete", { chief: main.id, expected_rev: main.rev })).json.error.code).toBe("chief_is_default")
+    expect((await op(t, "chief.delete", { chief: helper.id, expected_rev: 9 })).json.error.code).toBe("revision.conflict")
+    const deleted = (await op(t, "chief.delete", { chief: helper.id, expected_rev: helper.rev }, "delete-helper")).json
+    expect(deleted.ok, JSON.stringify(deleted)).toBe(true)
+    expect(deleted.value).toMatchObject({ id: helper.id, display_name: "Helper" })
+    // The same key answers the stored result; a new key finds only the tombstone.
+    expect((await op(t, "chief.delete", { chief: helper.id, expected_rev: helper.rev }, "delete-helper")).json).toMatchObject({ ok: true, replayed: true })
+    expect((await op(t, "chief.delete", { chief: helper.id, expected_rev: helper.rev })).json.error.code).toBe("selector.not_found")
+
+    // An archived chief is deleted too.
+    const archived = (await op(t, "chief.archive", { chief: scout.id, expected_rev: scout.rev })).json.value
+    expect((await op(t, "chief.delete", { chief: scout.id, expected_rev: archived.rev })).json.ok).toBe(true)
+
+    const list = (await call("/v1/read", t, { op: "chief.list", params: { include_archived: true } })).json.value
+    expect(list.chiefs.map((c: { id: string }) => c.id)).toEqual([main.id])
+    expect(list.tombstones.map((c: { id: string }) => c.id).sort()).toEqual([helper.id, scout.id].sort())
+    // No restore: the record is gone.
+    expect((await op(t, "chief.update", { chief: helper.id, expected_rev: helper.rev, archived: false })).json.error.code).toBe("selector.not_found")
+  })
+
   // The Mac's Chief card renames a cloud Chief with chief.update; its main conversation (the
   // header's title, the Chief's name on its messages) follows through the UserDO outbox.
   it("renaming a chief renames its main conversation and its name there", async () => {

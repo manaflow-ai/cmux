@@ -37,7 +37,7 @@
 .acpmux-summary-autoopen{color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-summary-autoopen>input{flex:none;margin:0;accent-color:var(--agent-text)}
 .acpmux-summary-agent[data-status=waiting] .acpmux-summary-agent__state{color:var(--acpmux-needs-you-mark)}
-.acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-danger)}
+.acpmux-summary-agent[data-status=failed] .acpmux-summary-agent__state{color:var(--agent-status-failure)}
 /* A sub-session's row (SubagentStatusList.tsx SubsessionStatusRow): its unread dot in the text colour, as the sidebar's, and its queue count muted. */
 .acpmux-summary-subsession__unread{flex:none;width:6px;height:6px;border-radius:50%;background:var(--agent-text)}
 .acpmux-summary-section+.acpmux-summary-section{margin-top:4px;padding-top:4px;border-top:.5px solid var(--agent-border)}
@@ -57,16 +57,16 @@
 .acpmux-summary-link:active,.acpmux-summary-more:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
 .acpmux-summary-link:focus-visible,.acpmux-summary-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-link:disabled{color:var(--agent-muted)}
-.acpmux-summary-link[data-state=open]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-summary-link[data-state=merged]>svg{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-summary-link[data-state=closed]>svg{color:var(--agent-danger)}
+.acpmux-summary-link[data-state=open]>svg{color:var(--agent-status-success)}
+.acpmux-summary-link[data-state=merged]>svg{color:var(--agent-status-merged)}
+.acpmux-summary-link[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-summary-more{display:block;width:100%;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);text-align:left;cursor:default}
 .acpmux-summary-stack{flex:none;display:flex;padding-left:4px}
 .acpmux-summary-dot{width:14px;height:14px;margin-left:-4px;box-sizing:border-box;border-radius:50%;border:2px solid var(--surface-popup);background:var(--agent-ansi-4,#58a6ff)}
 .acpmux-summary-dot[data-tone="1"]{background:var(--agent-ansi-2,#3fb950)}
 .acpmux-summary-dot[data-tone="2"]{background:var(--agent-ansi-6,#39c5cf)}
 .acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
-.acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
+.acpmux-summary-dot[data-state=failed]{background:var(--agent-status-failure)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
@@ -132,9 +132,9 @@
 .acpmux-pr-dock__repo{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__title{flex:0 1000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-dock__state{flex:none;font-size:var(--text-detail);font-weight:500;color:var(--agent-muted)}
-.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-danger)}
+.acpmux-pr-dock__bar[data-state="open"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="open"]>svg{color:var(--agent-status-success)}
+.acpmux-pr-dock__bar[data-state="merged"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="merged"]>svg{color:var(--agent-status-merged)}
+.acpmux-pr-dock__bar[data-state="closed"] .acpmux-pr-dock__state,.acpmux-pr-dock__bar[data-state="closed"]>svg{color:var(--agent-status-failure)}
 .acpmux-pr-dock__dismiss{flex:none}
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
@@ -155,12 +155,46 @@
 .acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
 .acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-/* The summary card's Background tasks (SummaryTasks.tsx): a command's row opens its terminal, Stop sits beside it; the finished ones fold into one row. */
-.acpmux-summary-task{display:flex;align-items:center;gap:2px}
-.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
+/* The summary card's Background tasks (SummaryTasks.tsx): every command is a compact card so its
+   description and state stay visible; long lists use the View all row instead of hiding completed
+   work behind an aggregate count. */
+.acpmux-summary-task{display:flex;align-items:center;gap:2px;margin:2px 0;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:8px;background:color-mix(in srgb,var(--agent-text) 3%,transparent)}
+.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0;height:auto;min-height:32px;padding-block:8px}
 .acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
-.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
+.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-status-failure)}
+.acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
+.acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
+.acpmux-summary-task__description,.acpmux-summary-task__command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-font-mono,ui-monospace,monospace);font-size:var(--text-detail)}
 .acpmux-summary-finished{display:flex;align-items:center;gap:6px}
+/* Experimental workflow summary (WorkflowSummary.tsx): Labs-only and absent until acpmux sends a
+   typed workflow record. The detail keeps phases and the selected agents in two quiet columns. */
+.acpmux-workflow{margin-bottom:6px}
+.acpmux-workflow__row{min-height:32px;gap:8px}
+.acpmux-workflow__icon,.acpmux-workflow__agent-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--agent-accent)}
+.acpmux-workflow__title{font-weight:600}
+.acpmux-workflow__state{flex:none;color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-workflow__detail{padding:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border);background:color-mix(in srgb,var(--agent-text) 2%,transparent)}
+.acpmux-workflow__warning{margin:0 0 8px;padding:4px 8px;border-radius:5px;background:color-mix(in srgb,var(--agent-status-warning) 12%,transparent);color:var(--agent-status-warning);font-size:var(--text-detail)}
+.acpmux-workflow__columns{display:grid;grid-template-columns:minmax(100px,.8fr) minmax(0,1.2fr);gap:8px}
+.acpmux-workflow__columns h4{margin:0 0 4px;color:var(--agent-muted);font-size:var(--text-detail);font-weight:500}
+.acpmux-workflow__phase,.acpmux-workflow__agent{display:flex;align-items:center;gap:4px;min-width:0;min-height:24px;padding:4px;box-sizing:border-box;color:var(--agent-muted);font:inherit;font-size:var(--text-detail)}
+.acpmux-workflow__phase{width:100%;justify-content:space-between;border:0;border-radius:5px;background:none;text-align:start;cursor:pointer}
+.acpmux-workflow__phase:hover,.acpmux-workflow__phase[aria-pressed=true]{background:var(--acpmux-pill-hover);color:var(--agent-text)}
+.acpmux-workflow__phase>span:first-child,.acpmux-workflow__agent>.acpmux-summary-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-workflow__phase>span:last-child{flex:none;text-transform:capitalize}
+.acpmux-workflow__agent{padding-inline:4px}
+.acpmux-workflow__agent-list{margin:0;padding:0;list-style:none}
+.acpmux-workflow__agent[data-selected=true]{border-radius:var(--ui-row-radius);background:var(--acpmux-pill-fill);color:var(--agent-text)}
+.acpmux-workflow__agent>.acpmux-summary-text{display:flex;flex:1;flex-direction:column}
+.acpmux-workflow__doing{overflow:hidden;color:var(--agent-soft);text-overflow:ellipsis;white-space:nowrap}
+.acpmux-workflow__transcript{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:pointer}
+.acpmux-workflow__transcript:hover{background:var(--acpmux-pill-hover);color:var(--agent-text)}
+.acpmux-workflow__selected{display:block;margin-top:5px;color:var(--agent-soft);font-size:var(--text-detail)}
+.acpmux-workflow__actions{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;padding-top:8px;border-top:var(--cmux-hairline,.5px) solid var(--agent-border)}
+.acpmux-workflow__actions button{min-height:24px;padding:0 8px;border:0;border-radius:5px;background:var(--acpmux-pill-fill);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.acpmux-workflow__actions button:hover{background:var(--acpmux-pill-hover)}
+.acpmux-workflow__actions button:focus-visible,.acpmux-workflow__phase:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
 .acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
 .acpmux-summary-attach{margin-top:2px;color:var(--agent-muted)}

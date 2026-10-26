@@ -23,4 +23,7 @@ final class ControlWorkspaceList {
     var tabCount = 0
     /// The generation of the tracking that read the list; nil once it fired.
     var generation: UInt64?
+
+    /// Whether the list holds the workspace `key` names.
+    func contains(_ key: ObjectIdentifier) -> Bool { index[key] != nil }
 }

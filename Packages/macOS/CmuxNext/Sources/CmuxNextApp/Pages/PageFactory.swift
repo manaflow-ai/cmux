@@ -4,6 +4,7 @@ import CmuxNextAgentIntegrations
 import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
@@ -115,6 +116,7 @@ struct PageFactory {
             ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
+        provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }
         let accounts = services.accounts.model
         provider.accountsState = { (try? JSONValue.parse(JSONEncoder().encode(accounts.pageState))) ?? .null }
         provider.accountsRun = { params in
@@ -137,6 +139,20 @@ struct PageFactory {
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
+        let devices = services.deviceHub.settingsModel
+        provider.devicesState = { (try? JSONValue.parse(JSONEncoder().encode(devices.state))) ?? .null }
+        provider.devicesRun = { params in
+            let run: MacScreenDevicesSettings.Run
+            do {
+                run = try JSONDecoder().decode(MacScreenDevicesSettings.Run.self,
+                                               from: JSONSerialization.data(withJSONObject: params.foundationObject))
+            } catch {
+                throw PageError.invalidParams("unknown devices action")
+            }
+            let result = await devices.run(run)
+            return (try? JSONValue.parse(JSONEncoder().encode(result))) ?? .object([:])
+        }
+        provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { LocalServerSource.bundledCLI() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
@@ -196,11 +212,16 @@ struct PageFactory {
                       PageRoute(prefix: ChannelsPageProvider.prefix, provider: ChannelsPageProvider(updater: services.updater)),
                       PageRoute(prefix: WebUpdatesPageProvider.prefix, provider: WebUpdatesPageProvider()),
                       // Chief > Voice input: the home.voiceInput tunable (DEV and NIGHTLY).
-                      PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute())]
+                      PageRoute(prefix: ChiefVoiceInputPageRoute.prefix, provider: ChiefVoiceInputPageRoute()),
+                      // Settings > Server: Restart… (the toast's confirm) and Pair (the Server panel).
+                      PageRoute(prefix: ServerSettingsPageRoute.prefix, provider: ServerSettingsPageRoute(
+                          confirmRestart: { [weak services] in services?.serverUpdates.confirmRestart(kind: $0, host: $1) },
+                          pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          currentChoices: { SettingsWindowService.backdrops.choices },
+        let catalog = services.settingsWindow.backdropCatalog
+        let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,
+                                                          currentChoices: { catalog.catalog.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)

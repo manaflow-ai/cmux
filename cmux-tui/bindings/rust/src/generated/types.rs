@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1e8ed8d1c9488496f61ce39773888417486f7d9a3ecf0469f4e801cd383fe3bd.
+// cmux-tui mux protocol 12, IR 723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,7 +61,7 @@ pub struct AgentRecord {
     /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
-    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`\[A-Za-z0-9._:-\]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
@@ -817,6 +817,13 @@ pub struct GetCellPixelsResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetHostSizePolicyResult {
+    pub mac_participants: Vec<String>,
+    pub policy: HostSizePolicy,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateResult {
     pub self_participant: Nullable<String>,
     pub state: SizeState,
@@ -912,6 +919,34 @@ pub struct HomeInboxRow {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
     pub unread: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostSizeMode {
+    #[serde(rename = "smallest")]
+    Smallest,
+    #[serde(rename = "mac")]
+    Mac,
+    #[serde(rename = "latest")]
+    Latest,
+    #[serde(rename = "priority")]
+    Priority,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicy {
+    pub mode: HostSizeMode,
+    pub order: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HostSizePolicyRequest {
+    pub mode: HostSizeMode,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub order: Optional<Vec<String>>,
 }
 
 #[rustfmt::skip]
@@ -1761,6 +1796,12 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostSizePolicyResult {
+    pub policy: HostSizePolicy,
 }
 
 #[rustfmt::skip]
@@ -2620,7 +2661,7 @@ pub struct TerminalPlacement {
 pub struct TerminalPortsListener {
     /// The loopback address that accepted the daemon's connect: 127.0.0.1 or ::1.
     pub bound: String,
-    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, [::1], ...
+    /// The host as the terminal printed it: localhost, 127.0.0.1, 0.0.0.0, \[::1\], ...
     pub host: String,
     pub port: u16,
     /// The printed URL, or http://HOST:PORT/ when the text had no scheme.

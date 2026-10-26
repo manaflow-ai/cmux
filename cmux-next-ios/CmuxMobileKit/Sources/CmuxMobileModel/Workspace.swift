@@ -114,6 +114,8 @@ extension Workspace {
 public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case terminal, browser, agent
+        /// A Mac phone tab showing an iOS simulator, streamed like a browser tab.
+        case simulator
     }
 
     public let id: String
@@ -231,6 +233,7 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         switch kind {
         case .terminal: "apple.terminal"
         case .browser: "globe"
+        case .simulator: "iphone"
         case .agent: "sparkle"
         }
     }
