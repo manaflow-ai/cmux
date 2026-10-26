@@ -286,7 +286,7 @@ jobs:
       # A generator can report its exact missing input and continue-on-error can otherwise
       # let this job pass with no artifact. Fail here before repair consumes an empty result.
       # The source stamp is intentionally derived and ignored, so an old exporter that still
-      # requires schemas/settings-export/settings-schema.sources.sha256 names a retired input.
+      # requires the retired stamp names an input that must not enter this artifact.
       - name: Require generated exports
         id: require-exports
         if: always()
