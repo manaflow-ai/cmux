@@ -1,5 +1,6 @@
-//! Access to a VM's guest: `ssh`, client `session create|list|revoke`, and
-//! `terminal list|close`.
+//! Access to a VM's guest: `ssh`, client `session …` (also the
+//! `identity <subcommand>` group: a cmux identity is one client session, one
+//! VM and one Linux user), and `terminal list|close`.
 //!
 //! `ssh VM` mints a client session for one Linux user, runs the system `ssh`
 //! against the session's SSH host and login, and revokes the session when
@@ -39,14 +40,76 @@ pub(crate) struct SshArgs {
     command: Vec<String>,
 }
 
+/// Client sessions. `identity <subcommand>` is the same group under the
+/// provider's name: one session is one VM plus one Linux user, so its
+/// "permissions" are the session itself (`get`).
 #[derive(Subcommand, Debug)]
 pub(crate) enum SessionCommand {
     /// Mint a client session (SSH login and token) for one Linux user; the token is printed only with --json
     Create(SessionCreateArgs),
-    /// List a VM's live client sessions (never their tokens)
-    List(VmOnly),
-    /// Revoke a client session; its token stops working (asks to type the session id, or needs --yes)
+    /// List a VM's live client sessions, or with --all every session the key reaches (never tokens)
+    List(SessionListArgs),
+    /// Show one client session: its VM and its one Linux user
+    #[command(visible_alias = "permissions")]
+    Get(SessionArgs),
+    /// Replace the session's Linux user (a session grants exactly one)
+    SetUser(SessionSetUserArgs),
+    /// List a session's access tokens (ids only, never the secrets)
+    Tokens(SessionArgs),
+    /// Mint another access token for a session; the token is printed only with --json
+    TokenCreate(SessionArgs),
+    /// Revoke one access token of a session (asks to type the token id, or needs --yes)
+    TokenRevoke(TokenRevokeArgs),
+    /// Revoke a client session; its tokens stop working (asks to type the session id, or needs --yes)
+    #[command(visible_alias = "delete")]
     Revoke(SessionRevokeArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct SessionListArgs {
+    /// VM id (vm_...); omit with --all
+    #[arg(required_unless_present = "all", conflicts_with = "all")]
+    vm_id: Option<String>,
+    /// Every live client session on the VMs this key reaches, across the team
+    #[arg(long)]
+    all: bool,
+    /// Page size with --all (1-200)
+    #[arg(long, requires = "all", value_parser = clap::value_parser!(u32).range(1..=200))]
+    limit: Option<u32>,
+    /// Continue an --all listing from a previous page's next cursor
+    #[arg(long, requires = "all")]
+    cursor: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct SessionArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Client session id (vcs_...)
+    session_id: String,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct SessionSetUserArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Client session id (vcs_...)
+    session_id: String,
+    /// The guest Linux user the session grants from now on
+    linux_user: String,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct TokenRevokeArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Client session id (vcs_...)
+    session_id: String,
+    /// Access token id (vct_...)
+    token_id: String,
+    /// Revoke without asking; required when stdin is not a terminal
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -56,12 +119,6 @@ pub(crate) struct SessionCreateArgs {
     /// Guest Linux user [default: the VM's work user]
     #[arg(long, value_name = "USER")]
     linux_user: Option<String>,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct VmOnly {
-    /// VM id (vm_...)
-    vm_id: String,
 }
 
 #[derive(Args, Debug)]
@@ -274,9 +331,25 @@ pub(crate) async fn session(
             }
             out.line("The token is shown only with --json. Connect with `cmux-vm ssh VM`.")
         }
-        SessionCommand::List(VmOnly { vm_id }) => {
-            let id = crate::files::vm_id(&vm_id)?;
-            let body = fetch_body(client.agents_list_client_sessions(id.as_str(), None)).await?;
+        SessionCommand::List(args) => {
+            let body = match args.vm_id {
+                Some(vm_id) => {
+                    let id = crate::files::vm_id(&vm_id)?;
+                    fetch_body(client.agents_list_client_sessions(id.as_str(), None)).await?
+                }
+                None => {
+                    let cursor = crate::parse_opt::<
+                        types::ClientSessionsListTenantClientSessionsCursor,
+                    >("--cursor", args.cursor)?;
+                    let limit = args.limit.map(|n| n.to_string());
+                    fetch_body(client.client_sessions_list_tenant_client_sessions(
+                        cursor.as_ref(),
+                        limit.as_deref(),
+                        None,
+                    ))
+                    .await?
+                }
+            };
             if out.is_json() {
                 return out.raw_json(&body);
             }
@@ -287,16 +360,113 @@ pub(crate) async fn session(
             if sessions.is_empty() {
                 return out.line("no client sessions");
             }
-            out.line(&format!("{:<31} {:<16} CREATED", "ID", "LINUX_USER"))?;
+            out.line(&format!(
+                "{:<31} {:<30} {:<16} CREATED",
+                "ID", "VM", "LINUX_USER"
+            ))?;
             for s in sessions {
                 out.line(&format!(
-                    "{:<31} {:<16} {}",
+                    "{:<31} {:<30} {:<16} {}",
                     s["id"].as_str().unwrap_or("?"),
+                    s["vmId"].as_str().unwrap_or("?"),
                     s["linuxUser"].as_str().unwrap_or("?").escape_debug(),
                     s["createdAt"].as_str().unwrap_or("?"),
                 ))?;
             }
+            if let Some(cursor) = list["nextCursor"].as_str() {
+                out.line(&format!("more: cmux-vm session list --all --cursor {cursor}"))?;
+            }
             Ok(())
+        }
+        SessionCommand::Get(args) => {
+            let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
+            let body = fetch_body(client.client_sessions_get_client_session(
+                id.as_str(),
+                session,
+                None,
+            ))
+            .await?;
+            out.session_summary(&body)
+        }
+        SessionCommand::SetUser(args) => {
+            let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
+            let body: types::SetClientSessionLinuxUserRequest =
+                request_body(json!({ "linuxUser": args.linux_user }))?;
+            let body = fetch_body(client.client_sessions_set_client_session_linux_user(
+                id.as_str(),
+                session,
+                None,
+                &body,
+            ))
+            .await?;
+            out.session_summary(&body)
+        }
+        SessionCommand::Tokens(args) => {
+            let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
+            let body = fetch_body(client.client_sessions_list_client_session_tokens(
+                id.as_str(),
+                session,
+                None,
+            ))
+            .await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let list: Value = serde_json::from_slice(&body).map_err(|_| {
+                CliError::unexpected("the cmux VM API sent an unreadable token list")
+            })?;
+            let tokens = list["tokens"].as_array().cloned().unwrap_or_default();
+            if tokens.is_empty() {
+                return out.line("no access tokens");
+            }
+            for token in tokens {
+                out.line(token["id"].as_str().unwrap_or("?"))?;
+            }
+            Ok(())
+        }
+        SessionCommand::TokenCreate(args) => {
+            let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
+            let body = fetch_body(client.client_sessions_create_client_session_token(
+                id.as_str(),
+                session,
+                None,
+            ))
+            .await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let value: Value = serde_json::from_slice(&body).map_err(|_| {
+                CliError::unexpected("the cmux VM API sent an unreadable access token")
+            })?;
+            // Human output never shows the token or the SSH login it pairs with.
+            for (label, pointer) in [
+                ("token id", "/id"),
+                ("session", "/sessionId"),
+                ("linux user", "/linuxUser"),
+                ("created", "/createdAt"),
+            ] {
+                let text = value
+                    .pointer(pointer)
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                out.line(&format!("{label:<11}{}", text.escape_debug()))?;
+            }
+            out.line("The token is shown only with --json.")
+        }
+        SessionCommand::TokenRevoke(args) => {
+            let (id, session) = session_ids(&args.vm_id, &args.session_id)?;
+            let token = checked_id(&args.token_id, "vct_", "access token id")?;
+            if !args.yes {
+                confirm(prompt, Destroy::RevokeToken, token)?;
+            }
+            call(client.client_sessions_revoke_client_session_token(
+                id.as_str(),
+                session,
+                token,
+                None,
+            ))
+            .await?;
+            out.revoked(token)
         }
         SessionCommand::Revoke(args) => {
             let id = crate::files::vm_id(&args.vm_id)?;
@@ -377,9 +547,65 @@ pub(crate) async fn terminal(
     }
 }
 
+/// A checked VM id and client session id.
+fn session_ids<'a>(vm: &str, session: &'a str) -> Result<(types::VmId, &'a str), CliError> {
+    Ok((
+        crate::files::vm_id(vm)?,
+        checked_id(session, "vcs_", "client session id")?,
+    ))
+}
+
+/// `text` when it is `prefix` followed by 1-64 lowercase letters or digits.
+pub(crate) fn checked_id<'a>(text: &'a str, prefix: &str, what: &str) -> Result<&'a str, CliError> {
+    match text.strip_prefix(prefix) {
+        Some(rest)
+            if !rest.is_empty()
+                && rest.len() <= 64
+                && rest
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) =>
+        {
+            Ok(text)
+        }
+        _ => Err(CliError::usage(format!("invalid {what} (expected {prefix}...)"))),
+    }
+}
+
+impl Printer<'_> {
+    fn session_summary(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.is_json() {
+            return self.raw_json(body);
+        }
+        let value: Value = serde_json::from_slice(body)
+            .map_err(|_| CliError::unexpected("the cmux VM API sent an unreadable client session"))?;
+        for (label, pointer) in [
+            ("id", "/id"),
+            ("vm", "/vmId"),
+            ("linux user", "/linuxUser"),
+            ("created", "/createdAt"),
+        ] {
+            let text = value
+                .pointer(pointer)
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            self.line(&format!("{label:<11}{}", text.escape_debug()))?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ids_need_their_prefix_and_a_plain_suffix() {
+        assert!(checked_id("vcs_abc123", "vcs_", "session").is_ok());
+        assert!(checked_id("vcs_", "vcs_", "session").is_err());
+        assert!(checked_id("vct_abc", "vcs_", "session").is_err());
+        assert!(checked_id("vcs_a/b", "vcs_", "session").is_err());
+        assert!(checked_id("vcs_ABC", "vcs_", "session").is_err());
+    }
 
     #[test]
     fn the_token_reaches_ssh_only_through_the_environment() {

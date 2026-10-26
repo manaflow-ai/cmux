@@ -20,6 +20,8 @@ pub struct CliError {
     /// `capacity`), when the server names it.
     budget: Option<String>,
     message: String,
+    /// A plain "no" from a yes/no check: the exit code alone carries it.
+    silent: bool,
 }
 
 impl CliError {
@@ -60,6 +62,19 @@ impl CliError {
             tag: Some(tag.to_owned()),
             budget: None,
             message: message.into(),
+            silent: false,
+        }
+    }
+
+    /// The answer "no" of a yes/no check: exit [`exit::NO`], print nothing.
+    pub fn answered_no() -> Self {
+        Self {
+            code: exit::NO,
+            status: None,
+            tag: None,
+            budget: None,
+            message: String::new(),
+            silent: true,
         }
     }
 
@@ -71,6 +86,7 @@ impl CliError {
             tag: Some("ChildExit".to_owned()),
             budget: None,
             message: message.into(),
+            silent: false,
         }
     }
 
@@ -130,6 +146,12 @@ impl CliError {
         }
     }
 
+    /// An HTTP error status and its (capped) body, for the few requests the
+    /// CLI sends without the generated client.
+    pub(crate) fn from_http(status: u16, body: &[u8]) -> Self {
+        Self::from_status(status, &body[..body.len().min(MAX_ERROR_BODY)])
+    }
+
     fn from_status(status: u16, body: &[u8]) -> Self {
         let parsed: Option<Value> = serde_json::from_slice(body).ok();
         let field = |name: &str| {
@@ -167,10 +189,14 @@ impl CliError {
             tag,
             budget,
             message,
+            silent: false,
         }
     }
 
     pub fn report(&self, json: bool, stderr: &mut dyn Write) {
+        if self.silent {
+            return;
+        }
         let _ = if json {
             let mut error = json!({
                 "status": self.status,

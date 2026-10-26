@@ -3,8 +3,12 @@
 //! `scp SOURCE DESTINATION` over the same file routes.
 //!
 //! Uploads stream the local file with its length, so a large file is never
-//! held in memory; downloads stream to stdout or to a temporary file that is
-//! renamed into place only after the whole body arrived.
+//! held in memory; a file over [`RESUMABLE_THRESHOLD`] (or any file with
+//! `--resumable`) goes through the resumable upload routes in chunks, with its
+//! sha256, resuming from the server's received byte count after a failed
+//! chunk and abandoning the upload on Ctrl-C or failure. Downloads stream to
+//! stdout or to a temporary file that is renamed into place only after the
+//! whole body arrived.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -16,7 +20,16 @@ use serde_json::{Value, json};
 
 use crate::error::CliError;
 use crate::output::Printer;
-use crate::{call, exit, fetch_body};
+use crate::prompt::Prompt;
+use crate::{Destroy, call, confirm, exit, fetch_body, request_body};
+
+/// Files larger than this upload in resumable chunks without `--resumable`.
+pub(crate) const RESUMABLE_THRESHOLD: u64 = 64 * 1024 * 1024;
+/// The largest chunk sent, below the server's own `maxChunkBytes` when that is
+/// larger, so one chunk finishes well inside the request timeout.
+const MAX_CHUNK: u64 = 8 * 1024 * 1024;
+/// Failed chunks retried (each resuming at the server's count) before giving up.
+const CHUNK_RETRIES: u32 = 3;
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum FileCommand {
@@ -28,6 +41,25 @@ pub(crate) enum FileCommand {
     Write(FileWriteArgs),
     /// Show file metadata on a running, paused, stopped or retired VM
     Stat(FilePathArgs),
+    /// Create a directory and any missing parents (like mkdir -p); an existing directory is success
+    Mkdir(FilePathArgs),
+    /// Delete a file, or a directory together with everything in it: the API
+    /// has no non-recursive form (asks to type the path, or needs --yes)
+    #[command(alias = "remove")]
+    Rm(FileRmArgs),
+    /// Exit 0 when a guest path exists, 1 when it does not; --json prints {"exists": ...}
+    Exists(FilePathArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct FileRmArgs {
+    /// VM id (vm_...)
+    vm_id: String,
+    /// Absolute guest path, without parent segments
+    path: String,
+    /// Delete without asking; required when stdin is not a terminal
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args, Debug)]
@@ -60,6 +92,9 @@ pub(crate) struct FileWriteArgs {
     /// Permission bits in octal, such as 0644 or 755
     #[arg(long, value_name = "OCTAL", value_parser = parse_mode)]
     mode: Option<u32>,
+    /// Upload in resumable chunks even below 64 MiB (larger files always do)
+    #[arg(long)]
+    resumable: bool,
 }
 
 #[derive(Args, Debug)]
@@ -71,6 +106,9 @@ pub(crate) struct PushArgs {
     /// Permission bits in octal, such as 0644 or 755
     #[arg(long, value_name = "OCTAL", value_parser = parse_mode)]
     mode: Option<u32>,
+    /// Upload in resumable chunks even below 64 MiB (larger files always do)
+    #[arg(long)]
+    resumable: bool,
 }
 
 #[derive(Args, Debug)]
@@ -90,6 +128,16 @@ pub(crate) struct ScpArgs {
     /// Permission bits in octal for an upload, such as 0644 or 755
     #[arg(long, value_name = "OCTAL", value_parser = parse_mode)]
     mode: Option<u32>,
+    /// Upload in resumable chunks even below 64 MiB (larger files always do)
+    #[arg(long)]
+    resumable: bool,
+}
+
+/// How an upload is sent.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct UploadOptions {
+    pub mode: Option<u32>,
+    pub resumable: bool,
 }
 
 /// One single-file copy, after deciding which side is the VM.
@@ -108,7 +156,7 @@ pub(crate) enum Transfer {
 }
 
 impl Transfer {
-    pub(crate) fn push(args: PushArgs) -> Result<(Transfer, Option<u32>), CliError> {
+    pub(crate) fn push(args: PushArgs) -> Result<(Transfer, UploadOptions), CliError> {
         let Some((vm_id, path)) = parse_remote(&args.remote) else {
             return Err(CliError::usage(
                 "push needs a destination such as vm_…:/root/file",
@@ -120,7 +168,10 @@ impl Transfer {
                 vm_id,
                 path,
             },
-            args.mode,
+            UploadOptions {
+                mode: args.mode,
+                resumable: args.resumable,
+            },
         ))
     }
 
@@ -137,8 +188,14 @@ impl Transfer {
         })
     }
 
-    pub(crate) fn scp(args: ScpArgs) -> Result<(Transfer, Option<u32>), CliError> {
-        Ok((plan_scp(&args.source, &args.destination)?, args.mode))
+    pub(crate) fn scp(args: ScpArgs) -> Result<(Transfer, UploadOptions), CliError> {
+        Ok((
+            plan_scp(&args.source, &args.destination)?,
+            UploadOptions {
+                mode: args.mode,
+                resumable: args.resumable,
+            },
+        ))
     }
 }
 
@@ -234,9 +291,62 @@ pub(crate) fn guest_path(path: &str) -> Result<types::GuestPath, CliError> {
 pub(crate) async fn file(
     client: &Client,
     command: FileCommand,
+    prompt: &mut dyn Prompt,
     mut out: Printer<'_>,
 ) -> Result<(), CliError> {
     match command {
+        FileCommand::Mkdir(args) => {
+            let id = vm_id(&args.vm_id)?;
+            let path = guest_path(&args.path)?;
+            let body: types::MakeDirectoryRequest = request_body(json!({ "path": path.as_str() }))?;
+            call(client.files_make_directory(id.as_str(), None, &body)).await?;
+            if out.is_json() {
+                return out.json_value(
+                    &json!({ "vmId": id.as_str(), "path": path.as_str(), "created": true }),
+                );
+            }
+            out.line(&format!(
+                "created directory {}:{}",
+                id.as_str(),
+                path.as_str().escape_debug()
+            ))
+        }
+        FileCommand::Rm(args) => {
+            let id = vm_id(&args.vm_id)?;
+            let path = guest_path(&args.path)?;
+            if !args.yes {
+                confirm(prompt, Destroy::RemovePath, path.as_str())?;
+            }
+            call(client.files_remove_path(id.as_str(), &path, None)).await?;
+            if out.is_json() {
+                return out.json_value(
+                    &json!({ "vmId": id.as_str(), "path": path.as_str(), "removed": true }),
+                );
+            }
+            out.line(&format!(
+                "removed {}:{}",
+                id.as_str(),
+                path.as_str().escape_debug()
+            ))
+        }
+        FileCommand::Exists(args) => {
+            let id = vm_id(&args.vm_id)?;
+            let path = guest_path(&args.path)?;
+            let body = fetch_body(client.files_path_exists(id.as_str(), &path, None)).await?;
+            let exists = decode(&body)?["exists"]
+                .as_bool()
+                .ok_or_else(|| CliError::unexpected("the cmux VM API did not say whether the path exists"))?;
+            if out.is_json() {
+                out.raw_json(&body)?;
+            } else {
+                out.line(if exists { "exists" } else { "does not exist" })?;
+            }
+            if exists {
+                Ok(())
+            } else {
+                Err(CliError::answered_no())
+            }
+        }
         FileCommand::Stat(args) => {
             let id = vm_id(&args.vm_id)?;
             let path = guest_path(&args.path)?;
@@ -289,7 +399,11 @@ pub(crate) async fn file(
         FileCommand::Write(args) => {
             let id = vm_id(&args.vm_id)?;
             let path = guest_path(&args.path)?;
-            let bytes = upload(client, id.as_str(), &path, &args.local, args.mode).await?;
+            let options = UploadOptions {
+                mode: args.mode,
+                resumable: args.resumable,
+            };
+            let bytes = upload(client, id.as_str(), &path, &args.local, options).await?;
             out.copied(id.as_str(), path.as_str(), &args.local, bytes, "wrote")
         }
     }
@@ -298,7 +412,7 @@ pub(crate) async fn file(
 pub(crate) async fn copy(
     client: &Client,
     copy: Transfer,
-    mode: Option<u32>,
+    options: UploadOptions,
     mut out: Printer<'_>,
 ) -> Result<(), CliError> {
     match copy {
@@ -313,7 +427,7 @@ pub(crate) async fn copy(
                 !path.ends_with('/') && remote_is_directory(client, &id, &path).await?;
             let target = push_target(&path, is_directory, &local);
             let target_path = guest_path(&target)?;
-            let bytes = upload(client, id.as_str(), &target_path, &local, mode).await?;
+            let bytes = upload(client, id.as_str(), &target_path, &local, options).await?;
             out.copied(id.as_str(), target_path.as_str(), &local, bytes, "pushed")
         }
         Transfer::Pull {
@@ -321,8 +435,10 @@ pub(crate) async fn copy(
             path,
             local,
         } => {
-            if mode.is_some() {
-                return Err(CliError::usage("--mode applies to uploads only"));
+            if options.mode.is_some() || options.resumable {
+                return Err(CliError::usage(
+                    "--mode and --resumable apply to uploads only",
+                ));
             }
             let id = vm_id(&vm)?;
             let remote = guest_path(&path)?;
@@ -355,10 +471,15 @@ async fn upload(
     id: &str,
     path: &types::GuestPath,
     local: &Path,
-    mode: Option<u32>,
+    options: UploadOptions,
 ) -> Result<u64, CliError> {
-    let mode = mode.map(|m| m.to_string());
+    let mode = options.mode.map(|m| m.to_string());
     if local.as_os_str() == "-" {
+        if options.resumable {
+            return Err(CliError::usage(
+                "--resumable needs a local file, not stdin",
+            ));
+        }
         let mut bytes = Vec::new();
         std::io::stdin()
             .lock()
@@ -382,6 +503,9 @@ async fn upload(
         )));
     }
     let length = metadata.len();
+    if options.resumable || length > RESUMABLE_THRESHOLD {
+        return resumable_upload(client, id, path, file, length, options.mode).await;
+    }
     let header = content_length(length)?;
     call(client.files_write_file(
         id,
@@ -400,6 +524,182 @@ fn content_length(length: u64) -> Result<types::FilesWriteFileContentLength, Cli
         .to_string()
         .parse()
         .map_err(|_| CliError::usage("invalid upload length"))
+}
+
+/// Uploads `file` through the resumable routes: begin with its size and
+/// sha256, send chunks in order, resume at the server's `receivedBytes` after
+/// a failed chunk, then commit. The upload is abandoned on Ctrl-C or on any
+/// failure, so no stored chunks are left behind.
+async fn resumable_upload(
+    client: &Client,
+    id: &str,
+    path: &types::GuestPath,
+    mut file: std::fs::File,
+    length: u64,
+    mode: Option<u32>,
+) -> Result<u64, CliError> {
+    let digest = sha256_hex(&mut file)?;
+    let size = i64::try_from(length).map_err(|_| CliError::usage("the file is too large"))?;
+    let body: types::BeginFileUploadRequest = request_body(json!({
+        "path": path.as_str(),
+        "size": size,
+        "sha256": digest,
+        "mode": mode,
+    }))?;
+    let begun = fetch_body(client.files_begin_file_upload(id, None, &body)).await?;
+    let begun = UploadState::parse(&begun)?;
+    let upload_id = begun.upload_id.clone();
+    let send = send_chunks(client, id, &upload_id, &mut file, length, begun);
+    let result = tokio::select! {
+        result = send => result,
+        _ = tokio::signal::ctrl_c() => Err(CliError::cancelled(
+            "upload interrupted; the partial upload was abandoned",
+        )),
+    };
+    match result {
+        Ok(()) => Ok(length),
+        Err(error) => {
+            // Best effort: an upload the server already committed or expired is gone anyway.
+            let _ = call(client.files_abort_file_upload(id, &upload_id, None)).await;
+            Err(error)
+        }
+    }
+}
+
+/// A resumable upload's progress as the server reports it.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct UploadState {
+    pub upload_id: String,
+    pub received: u64,
+    pub max_chunk: u64,
+}
+
+impl UploadState {
+    pub(crate) fn parse(body: &[u8]) -> Result<Self, CliError> {
+        let value = decode(body)?;
+        let upload_id = value["uploadId"].as_str().map(str::to_owned);
+        let received = value["receivedBytes"].as_u64();
+        let max_chunk = value["maxChunkBytes"].as_u64();
+        match (upload_id, received, max_chunk) {
+            (Some(upload_id), Some(received), Some(max_chunk))
+                if max_chunk > 0
+                    && !upload_id.is_empty()
+                    && upload_id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') =>
+            {
+                Ok(Self {
+                    upload_id,
+                    received,
+                    max_chunk,
+                })
+            }
+            _ => Err(CliError::unexpected(
+                "the cmux VM API sent an unreadable upload state",
+            )),
+        }
+    }
+}
+
+/// Whether a failed chunk is worth resuming: the connection, a conflict
+/// (a gap after a lost answer), or a temporary server state.
+pub(crate) fn chunk_retryable(error: &CliError) -> bool {
+    matches!(
+        error.exit_code(),
+        exit::NETWORK | exit::CONFLICT | exit::SERVICE_UNAVAILABLE | exit::QUOTA_EXCEEDED
+    )
+}
+
+async fn send_chunks(
+    client: &Client,
+    id: &str,
+    upload_id: &str,
+    file: &mut std::fs::File,
+    length: u64,
+    begun: UploadState,
+) -> Result<(), CliError> {
+    use std::io::Seek;
+    let chunk_limit = begun.max_chunk.min(MAX_CHUNK);
+    let mut offset = begun.received;
+    let mut retries = 0;
+    while offset < length {
+        let size = chunk_limit.min(length - offset);
+        file.seek(std::io::SeekFrom::Start(offset))
+            .map_err(|e| CliError::unexpected(format!("could not read the local file: {e}")))?;
+        let mut chunk = vec![0_u8; usize::try_from(size).unwrap_or(usize::MAX)];
+        file.read_exact(&mut chunk)
+            .map_err(|e| CliError::unexpected(format!("could not read the local file: {e}")))?;
+        let header: types::FilesUploadFileChunkContentLength = size
+            .to_string()
+            .parse()
+            .map_err(|_| CliError::usage("invalid chunk length"))?;
+        let at = offset.to_string();
+        match fetch_body(client.files_upload_file_chunk(
+            id,
+            upload_id,
+            &at,
+            Some(&header),
+            None,
+            chunk,
+        ))
+        .await
+        {
+            Ok(body) => {
+                let state = UploadState::parse(&body)?;
+                if state.received <= offset {
+                    return Err(CliError::unexpected(
+                        "the cmux VM API did not accept the chunk",
+                    ));
+                }
+                offset = state.received;
+                retries = 0;
+            }
+            Err(error) if chunk_retryable(&error) && retries < CHUNK_RETRIES => {
+                retries += 1;
+                let state =
+                    fetch_body(client.files_get_file_upload(id, upload_id, None)).await?;
+                offset = UploadState::parse(&state)?.received;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    match call(client.files_commit_file_upload(id, upload_id, None)).await {
+        Ok(()) => Ok(()),
+        // A commit whose answer was lost may have finished: a later "upload
+        // not found" then means it did.
+        Err(error) if matches!(error.exit_code(), exit::NETWORK | exit::SERVICE_UNAVAILABLE) => {
+            match call(client.files_get_file_upload(id, upload_id, None)).await {
+                Err(gone) if gone.exit_code() == exit::NOT_FOUND => Ok(()),
+                _ => call(client.files_commit_file_upload(id, upload_id, None)).await,
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The lowercase hex SHA-256 of a whole file, read from the start; the file is
+/// left at its end.
+pub(crate) fn sha256_hex(file: &mut impl Read) -> Result<String, CliError> {
+    let mut context = ring::digest::Context::new(&ring::digest::SHA256);
+    let mut buffer = vec![0_u8; 256 * 1024];
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => context.update(&buffer[..n]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return Err(CliError::unexpected(format!(
+                    "could not read the local file: {e}"
+                )));
+            }
+        }
+    }
+    Ok(context
+        .finish()
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 /// The file as a request body read a chunk at a time.
@@ -589,6 +889,43 @@ mod tests {
         assert!(guest_path("/root/a").is_ok());
         assert!(guest_path("root/a").is_err());
         assert!(guest_path("/root/../etc").is_err());
+    }
+
+    #[test]
+    fn sha256_is_lowercase_hex_of_the_whole_input() {
+        assert_eq!(
+            sha256_hex(&mut &b"abc"[..]).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(&mut &b""[..]).unwrap(),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn an_upload_state_needs_its_id_progress_and_chunk_size() {
+        let state = UploadState::parse(
+            br#"{"uploadId":"up_1","path":"/a","size":10,"receivedBytes":4,"maxChunkBytes":8}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            state,
+            UploadState {
+                upload_id: "up_1".into(),
+                received: 4,
+                max_chunk: 8
+            }
+        );
+        assert!(UploadState::parse(br#"{"uploadId":"../x","receivedBytes":0,"maxChunkBytes":8}"#).is_err());
+        assert!(UploadState::parse(br#"{"uploadId":"u","receivedBytes":0,"maxChunkBytes":0}"#).is_err());
+    }
+
+    #[test]
+    fn only_transient_chunk_failures_are_resumed() {
+        assert!(chunk_retryable(&CliError::network("x")));
+        assert!(!chunk_retryable(&CliError::usage("x")));
+        assert!(!chunk_retryable(&CliError::answered_no()));
     }
 
     #[test]

@@ -39,6 +39,22 @@ pub(crate) enum VpcCommand {
     Devices(MeshArg),
     /// List the WireGuard tunnels of a private network's devices
     Tunnels(MeshArg),
+    /// Rename a private network (its id, addresses, members and ACL stay)
+    Update(VpcUpdateArgs),
+    /// List the addresses of a private network's VMs and devices
+    Ips(MeshArg),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct VpcUpdateArgs {
+    /// Mesh id (mesh_...)
+    mesh_id: String,
+    /// New display name
+    #[arg(long, required_unless_present = "clear_name", conflicts_with = "clear_name")]
+    name: Option<String>,
+    /// Remove the display name
+    #[arg(long)]
+    clear_name: bool,
 }
 
 #[derive(Args, Debug)]
@@ -78,8 +94,8 @@ pub(crate) struct MeshVmArgs {
 pub(crate) enum TunnelCommand {
     /// Enroll a device with its own signed WireGuard public key; prints its tunnel config
     Create(SignedMeshArgs),
-    /// List the devices and tunnels of a private network
-    List(MeshArg),
+    /// List the team's tunnels, or the devices and tunnels of one private network
+    List(TunnelListArgs),
     /// Show a tunnel config (tun_...) or a device (dev_...)
     Get(TunnelGetArgs),
     /// Show what a device may reach
@@ -91,6 +107,23 @@ pub(crate) enum TunnelCommand {
     Delete(DeviceDeleteArgs),
     /// Create a one-time enrollment code for a headless machine; shown once
     EnrollmentCode(EnrollmentCodeArgs),
+    /// Rename a device (its tunnel, keys and mesh stay)
+    Update(DeviceUpdateArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct TunnelListArgs {
+    /// Mesh id (mesh_...); omit to list every tunnel of the team
+    mesh_id: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct DeviceUpdateArgs {
+    /// Device id (dev_...)
+    device_id: String,
+    /// New device name (letters, digits, `. _ -` and spaces; at most 63)
+    #[arg(long)]
+    name: String,
 }
 
 #[derive(Args, Debug)]
@@ -151,6 +184,38 @@ pub(crate) enum FirewallCommand {
     Get(MeshArg),
     /// Replace a private network's rules from a JSON file and apply them
     Set(FirewallSetArgs),
+    /// List the compiled per-device firewall rules the current ACL produced
+    Rules(MeshArg),
+    /// Show one compiled firewall rule (fwr_...)
+    Rule(FirewallRuleArgs),
+    /// Check whether the ACL allows a connection; exit 0 allowed, 1 denied (changes nothing)
+    Evaluate(FirewallEvaluateArgs),
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct FirewallRuleArgs {
+    /// Mesh id (mesh_...)
+    mesh_id: String,
+    /// Firewall rule id (fwr_...)
+    rule_id: String,
+}
+
+#[derive(Args, Debug)]
+pub(crate) struct FirewallEvaluateArgs {
+    /// Mesh id (mesh_...)
+    mesh_id: String,
+    /// Source: a device of this mesh (dev_...)
+    #[arg(long, value_name = "ID")]
+    from: String,
+    /// Destination: a device or VM of this mesh (dev_... or vm_...)
+    #[arg(long, value_name = "ID")]
+    to: String,
+    /// Destination port
+    #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+    port: Option<u16>,
+    /// Protocol
+    #[arg(long, default_value = "tcp", value_parser = ["tcp", "udp", "icmp"])]
+    proto: String,
 }
 
 #[derive(Args, Debug)]
@@ -283,6 +348,34 @@ pub(crate) async fn vpc(
             let body = fetch_body(client.mesh_list_devices(id.as_str(), None)).await?;
             out.device_list(&body)
         }
+        VpcCommand::Update(args) => {
+            let id = mesh_id(&args.mesh_id)?;
+            let body: types::UpdateMeshRequest =
+                serde_json::from_value(json!({ "displayName": args.name }))
+                    .map_err(|e| CliError::usage(format!("invalid argument: {e}")))?;
+            out.mesh(&fetch_body(client.mesh_network_update_mesh(id.as_str(), None, &body)).await?)
+        }
+        VpcCommand::Ips(MeshArg { mesh_id: id }) => {
+            let id = mesh_id(&id)?;
+            let body = fetch_body(client.mesh_network_list_mesh_addresses(id.as_str(), None)).await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let items = items(&body, "items")?;
+            if items.is_empty() {
+                return out.line("no members");
+            }
+            out.line(&format!("{:<7} {:<32} IPV4", "KIND", "ID"))?;
+            for item in items {
+                out.line(&format!(
+                    "{:<7} {:<32} {}",
+                    text(&item, "/kind"),
+                    text(&item, "/id"),
+                    text(&item, "/ipv4")
+                ))?;
+            }
+            Ok(())
+        }
     }
 }
 
@@ -314,9 +407,48 @@ pub(crate) async fn tunnel(
             ))?;
             out.tunnel_lines(&enrollment["tunnel"])
         }
-        TunnelCommand::List(MeshArg { mesh_id: id }) => {
+        TunnelCommand::List(TunnelListArgs { mesh_id: Some(id) }) => {
             let id = mesh_id(&id)?;
             out.device_list(&fetch_body(client.mesh_list_devices(id.as_str(), None)).await?)
+        }
+        TunnelCommand::List(TunnelListArgs { mesh_id: None }) => {
+            let body = fetch_body(client.mesh_network_list_tunnels(None)).await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let items = items(&body, "items")?;
+            if items.is_empty() {
+                return out.line("no tunnels");
+            }
+            out.line(&format!(
+                "{:<30} {:<30} {:<31} NAME",
+                "TUNNEL", "DEVICE", "MESH"
+            ))?;
+            for tunnel in items {
+                out.line(&format!(
+                    "{:<30} {:<30} {:<31} {}",
+                    text(&tunnel, "/id"),
+                    text(&tunnel, "/deviceId"),
+                    text(&tunnel, "/meshId"),
+                    text(&tunnel, "/name").escape_debug()
+                ))?;
+            }
+            Ok(())
+        }
+        TunnelCommand::Update(args) => {
+            let id = device_id(&args.device_id)?;
+            let body: types::UpdateDeviceRequest = request_body(json!({ "name": args.name }))?;
+            let body =
+                fetch_body(client.mesh_network_update_device(id.as_str(), None, &body)).await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let device: Value = decode(&body)?;
+            out.line(&format!(
+                "renamed {} to {}",
+                text(&device, "/id"),
+                text(&device, "/name").escape_debug()
+            ))
         }
         TunnelCommand::Get(TunnelGetArgs { id }) => {
             if let Some(suffix) = id.strip_prefix("tun_") {
@@ -474,6 +606,105 @@ pub(crate) async fn firewall(
                 applied["applyMs"]
             ))
         }
+        FirewallCommand::Rules(MeshArg { mesh_id: id }) => {
+            let id = mesh_id(&id)?;
+            let body =
+                fetch_body(client.mesh_network_list_mesh_firewall_rules(id.as_str(), None)).await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let list: Value = decode(&body)?;
+            out.line(&format!(
+                "mesh {} ACL version {}",
+                text(&list, "/meshId"),
+                list["aclVersion"]
+            ))?;
+            let rules = list["items"].as_array().cloned().unwrap_or_default();
+            if rules.is_empty() {
+                return out.line("no rules: nothing is reachable");
+            }
+            out.line(&format!(
+                "{:<37} {:<8} {:<6} {:<6} {:<30} VM",
+                "RULE", "SOURCE", "PROTO", "PORT", "DEVICE"
+            ))?;
+            for rule in rules {
+                out.firewall_rule_row(&rule)?;
+            }
+            Ok(())
+        }
+        FirewallCommand::Rule(args) => {
+            let id = mesh_id(&args.mesh_id)?;
+            let rule = firewall_rule_id(&args.rule_id)?;
+            let body =
+                fetch_body(client.mesh_network_get_mesh_firewall_rule(id.as_str(), rule, None))
+                    .await?;
+            if out.is_json() {
+                return out.raw_json(&body);
+            }
+            let rule: Value = decode(&body)?;
+            for (label, pointer) in [
+                ("id", "/id"),
+                ("mesh", "/meshId"),
+                ("device", "/deviceId"),
+                ("vm", "/vmId"),
+                ("source", "/source"),
+                ("protocol", "/protocol"),
+                ("port", "/port"),
+                ("created", "/createdAt"),
+            ] {
+                out.line(&format!("{label:<10}{}", text(&rule, pointer)))?;
+            }
+            Ok(())
+        }
+        FirewallCommand::Evaluate(args) => {
+            let id = mesh_id(&args.mesh_id)?;
+            let body: types::EvaluateMeshAclRequest = request_body(json!({
+                "src": args.from,
+                "dst": args.to,
+                "protocol": args.proto,
+                "port": args.port,
+            }))?;
+            let body =
+                fetch_body(client.mesh_network_evaluate_mesh_acl(id.as_str(), None, &body)).await?;
+            let verdict: Value = decode(&body)?;
+            let allowed = verdict["allowed"].as_bool().ok_or_else(|| {
+                CliError::unexpected("the cmux VM API did not say whether it is allowed")
+            })?;
+            if out.is_json() {
+                out.raw_json(&body)?;
+            } else {
+                let rule = match &verdict["ruleIndex"] {
+                    Value::Null => String::new(),
+                    index => format!(" by rule {index}"),
+                };
+                out.line(&format!(
+                    "{} ({} path{rule}, ACL version {})",
+                    if allowed { "allowed" } else { "denied" },
+                    text(&verdict, "/path"),
+                    verdict["aclVersion"]
+                ))?;
+            }
+            if allowed {
+                Ok(())
+            } else {
+                Err(CliError::answered_no())
+            }
+        }
+    }
+}
+
+/// `fwr_` followed by 32 lowercase hex digits.
+fn firewall_rule_id(text: &str) -> Result<&str, CliError> {
+    match text.strip_prefix("fwr_") {
+        Some(hex)
+            if hex.len() == 32
+                && hex
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
+        {
+            Ok(text)
+        }
+        _ => Err(CliError::usage("invalid firewall rule id (expected fwr_...)")),
     }
 }
 
@@ -567,7 +798,7 @@ pub(crate) fn proxy_headers(
 }
 
 /// A JSON file of at most 1 MiB. Its content is never echoed in errors.
-fn read_json_file(path: &Path, what: &str) -> Result<Value, CliError> {
+pub(crate) fn read_json_file(path: &Path, what: &str) -> Result<Value, CliError> {
     let file = std::fs::File::open(path)
         .map_err(|_| CliError::usage(format!("could not read the {what}")))?;
     let mut bytes = Vec::new();
@@ -641,6 +872,18 @@ impl Printer<'_> {
         Ok(())
     }
 
+    fn firewall_rule_row(&mut self, rule: &Value) -> Result<(), CliError> {
+        self.line(&format!(
+            "{:<37} {:<8} {:<6} {:<6} {:<30} {}",
+            text(rule, "/id"),
+            text(rule, "/source"),
+            text(rule, "/protocol"),
+            text(rule, "/port"),
+            text(rule, "/deviceId"),
+            text(rule, "/vmId")
+        ))
+    }
+
     fn tunnel_lines(&mut self, tunnel: &Value) -> Result<(), CliError> {
         let endpoint = format!(
             "{}:{}",
@@ -677,6 +920,14 @@ mod tests {
         assert_eq!(acl_from_file(json!([rule])).unwrap().1, None);
         assert!(acl_from_file(json!({"rules": "nope"})).is_err());
         assert!(acl_from_file(json!(7)).is_err());
+    }
+
+    #[test]
+    fn firewall_rule_ids_are_fwr_and_32_hex_digits() {
+        assert!(firewall_rule_id("fwr_0123456789abcdef0123456789abcdef").is_ok());
+        assert!(firewall_rule_id("fwr_0123456789ABCDEF0123456789abcdef").is_err());
+        assert!(firewall_rule_id("fwr_0123").is_err());
+        assert!(firewall_rule_id("rule").is_err());
     }
 
     #[test]

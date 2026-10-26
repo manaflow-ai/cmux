@@ -78,8 +78,8 @@ this matrix. Rows owned by a638 are listed, not worked, here.
 | 35 | Egress routing via **the user's computer** (tunnel exit with fallback) | Tunnel hub exists (row 28) as the way a Mac joins the network; no exit-route attachment | none | none | none | none | missing | a639 | W5: attach "exit via device" to tunnel route; fallback to Freestyle egress |
 | 36 | Egress routing via a **router VM** | none | none | none | none | none | missing | a639 | W5 after VPC CRUD |
 | **Developer surface** | | | | | | | | | |
-| 37 | CLI `freestyle` main (vm, snapshot, vpc, tunnels, firewall, tls, domain, identity, tokens, skill) | = rows above | main `cmux vm` forwards every tenant verb; tenant `cmux-vm`: `vpc`/`mesh`, `tunnel`/`tunnels`, `firewall get/set`, `session`, `https-proxy set` (table below) | catalog | | cloud/cli; `workers/cmux-vm/README.md` "Operator CLI verbs" | partial | a638 | `tls`, `domain`, `identity <subcommand>` and `update` verbs wait for their tenant routes; `tokens` stays denied (cmux `api-key`) |
-| 38 | CLI `vm`: exec, ssh, pty, fs, scp, snapshot | tenant `cmux-vm exec`, `ssh`, `file`/`fs ls/read/write/stat`, `push`/`pull`/`scp`, `terminal list/close`, `snapshot` | `cmux vm` forwards all of them | `cloud.*` | | | partial | a638 | `fs mkdir/rm`, `vm update` and `snapshot update` need tenant routes; `scp -r` (directories) not yet |
+| 37 | CLI `freestyle` main (vm, snapshot, vpc, tunnels, firewall, tls, domain, identity, tokens, skill) | = rows above | main `cmux vm` forwards every tenant verb; tenant `cmux-vm`: `update`, `vpc`/`mesh`, `tunnel`/`tunnels`, `firewall get/set/rules/rule/evaluate`, `session` and `identity <subcommand>`, `https-proxy set`, `domain`, `tls` (table below) | catalog | | cloud/cli; `workers/cmux-vm/README.md` "Operator CLI verbs" | partial | a638 | every provider command has a verb or a denied row (branch `codex/vm-api-parity-cli2`); `tokens` stays denied (cmux `api-key`); live check on staging after deploy |
+| 38 | CLI `vm`: exec, ssh, pty, fs, scp, snapshot | tenant `cmux-vm exec`, `ssh`, `update`, `file`/`fs ls/read/write/stat/mkdir/rm/exists` (resumable uploads over 64 MiB), `push`/`pull`/`scp`, `terminal list/close`, `snapshot` (incl. `update`) | `cmux vm` forwards all of them | `cloud.*` | | | partial | a638 | `scp -r` (directories) not yet; pty attach stays in the app (WebSocket) |
 | 39 | CLI `domains` | `cmux cloud domains …` | | | | cloud/cli | done | a639 | none |
 | 40 | TypeScript SDK (`freestyle` npm: vms, identities, domains, tls, vpc…) | `@cmux/vm` is a thin typed HTTP client with no helpers (`vm.exec`, `fs.readFile`, `identity.tokens`, `pty.open` …) | n/a | n/a | partial | none | partial | a638 | a638 owns SDK; a639 supplies routes the SDK needs (W1–W5) |
 | 41 | Pricing and limits page (per-plan concurrent VMs, saved VMs, sizes) | cmux.com `/pricing`; limits enforced in `entitlements.ts` (5 active VMs, shared vCPU/memory pool, size caps) | `vm status` | `cloud.plan.get` | none | `/pricing` mentions Cloud; no per-plan limits table | partial | a641/a639 | W7: public limits page from `entitlements.ts` constants (generated, so it cannot drift) |
@@ -93,25 +93,32 @@ verb slots into the named group when it lands. Every verb takes `--json` (provid
 | Provider command | cmux verb |
 | --- | --- |
 | `vm create/get/list/delete/start/pause/resize` | `create` (`new`), `get`, `list` (`ls`), `delete` (`rm`), `start`, `pause`, `resize`; also `stop`, `resume`, `retire`, `fork` |
-| `vm update` | route pending (`update`) |
+| `vm update` | `update VM --name/--clear-name --label/--labels-file/--clear-labels --idle --max-run --auto-delete` (labels replace the set) |
 | `vm exec` | `exec VM -- CMD` |
 | `vm ssh` | `ssh VM [--linux-user U] [-- CMD]` (client session, revoked on exit) |
 | `vm scp` | `scp SRC DST`, `push LOCAL VM:PATH`, `pull VM:PATH LOCAL` (single files) |
-| `vm fs ls/read/write/stat` | `file ls/read/write/stat` (alias `fs`) |
-| `vm fs mkdir/rm` | route pending (`file mkdir/rm`) |
+| `vm fs ls/read/write/stat` | `file ls/read/write/stat` (alias `fs`); uploads over 64 MiB (or `--resumable`) use the resumable upload routes |
+| `vm fs mkdir/rm/exists` | `file mkdir` (parents too), `file rm` (recursive, confirms the path), `file exists` (exit 0/1) |
 | `snapshot create/list/get/delete` | `snapshot create/list/get/delete` |
-| `snapshot update` | route pending |
+| `snapshot update` | `snapshot update` (alias `rename`): name, labels, `--ttl`/`--no-ttl`, `--auto-delete`/`--no-auto-delete` |
 | `vpc create/list/get/delete` | `vpc create/list/get/delete` (alias `mesh`) |
-| `vpc update`, `vpc ips` | route pending |
+| `vpc update`, `vpc ips` | `vpc update MESH --name/--clear-name`, `vpc ips MESH` |
 | `vpc tunnels` | `vpc tunnels MESH` (also `vpc devices`) |
 | VM membership | `vpc attach/detach MESH VM` |
 | `firewall create/list/get/delete` | `firewall get` (alias `list`) and `firewall set --file` (whole mesh ACL, versioned) |
-| `firewall evaluate` | route pending |
+| `firewall evaluate` | `firewall evaluate MESH --from ID --to ID [--port N] [--proto tcp\|udp\|icmp]` (exit 0 allowed, 1 denied); compiled rules: `firewall rules MESH`, `firewall rule MESH fwr_…` |
 | `tunnel create/list/get/rotate/delete` | `tunnel create --request`, `list MESH`, `get tun_…\|dev_…`, `rotate` (`rotate-key`), `delete`; plus `peers`, `enrollment-code` |
-| `tunnel update/attach/detach` | route pending (a tenant device belongs to one mesh at enrollment) |
-| `tls` (rules, forward-auth) | `https-proxy set` for outbound proxies; inbound rules route pending |
-| `domain` (verify, list, certs, wildcard) | route pending (App API `cmux cloud domains` today) |
-| `identity create/list/get/delete/permissions/tokens` | per-VM `session create/list/revoke`; end-user identities route pending |
+| `tunnel list` (all) | `tunnel list` without a mesh (team-wide), `tunnel list MESH` for one mesh |
+| `tunnel update` | `tunnel update dev_… --name N` |
+| `tunnel attach/detach` | denied (a tenant device belongs to one mesh at enrollment; see below) |
+| `tls` rules | `tls list [--vm]`, `get`, `create --host --vm --port [--protocol]` or `--file`, `update RULE`, `delete`; outbound proxies stay `https-proxy set` |
+| `tls` forward-auth | `tls forward-auth list/get/create --file/update --file/delete` |
+| `domain verify` (start, check, list, withdraw) | `domain verify-create DOMAIN` (prints the TXT record), `domain verify dvr_…`, `domain verifications [--state]`, `domain verification dvr_…`, `domain verification-delete dvr_…` |
+| `domain list/get/delete` | `domain list` (alias `domains`), `domain get dom_…`, `domain delete dom_…` (release) |
+| `domain certs`, `domain wildcard` | `domain certs`, `domain wildcard dom_…` |
+| `identity create/list/get/delete` | `identity create VM`, `identity list VM\|--all`, `identity get VM vcs_…`, `identity delete VM vcs_…` (= `session …`; one identity is one VM plus one Linux user) |
+| `identity permissions` | `identity permissions VM vcs_…` (the session's one VM and Linux user); `identity set-user VM vcs_… USER` replaces the user |
+| `identity tokens` (list, create, revoke) | `identity tokens`, `identity token-create`, `identity token-revoke VM vcs_… vct_…` |
 | `tokens`, `account`, `auth`, `billing`, `skill` | not exposed (see below); cmux keys are `api-key` |
 
 ## Deliberately not exposed (user check list)

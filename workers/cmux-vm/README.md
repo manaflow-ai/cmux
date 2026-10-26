@@ -609,22 +609,27 @@ terminal and need `--yes` otherwise.
 
 | Verbs | Routes |
 | --- | --- |
-| `create`, `list` (`ls`), `get`, `delete` (`rm`), `start`, `stop`, `pause`, `resume`, `resize`, `retire`, `fork`, `identity`, `exec` | `/v1/vms…` |
-| `file ls\|read\|write\|stat` (also `fs`) | `GET/PUT /v1/vms/{id}/files/{entries,content,stat}`; `read --out` and `write` stream, `--mode` is octal |
+| `create`, `list` (`ls`), `get`, `delete` (`rm`), `start`, `stop`, `pause`, `resume`, `resize`, `retire`, `fork`, `identity VM`, `exec` | `/v1/vms…` |
+| `update VM [--name N\|--clear-name] [--label K=V…\|--labels-file F\|--clear-labels] [--idle S] [--max-run S] [--auto-delete S]` | `PATCH /v1/vms/{id}`; labels replace the whole set, `-1` removes a limit |
+| `file ls\|read\|write\|stat\|mkdir\|rm\|exists` (also `fs`) | `/v1/vms/{id}/files/{entries,content,stat,directories,exists}`, `DELETE /v1/vms/{id}/files`; `read --out` and `write` stream, `--mode` is octal; `mkdir` makes parents; `rm` removes a directory with its contents (there is no non-recursive form) and asks for the path; `exists` exits 0 or 1 |
 | `push LOCAL VM:PATH`, `pull VM:PATH LOCAL`, `scp SRC DST` | the same file routes, one file per copy; a directory destination takes the source name |
+| resumable uploads (`push`, `scp`, `file write` over 64 MiB, or `--resumable`) | `/v1/vms/{id}/files/uploads[/{upload}[/commit]]`: chunks of at most 8 MiB with the file's sha256, resumed at the server's `receivedBytes` after a failed chunk, abandoned on Ctrl-C or failure |
 | `ssh VM [--linux-user U] [-- CMD]` | `POST …/client-session`, then the system `ssh`; the token reaches `ssh` only through `cmux-vm` as its askpass helper, and the session is revoked on exit unless `--keep-session` |
-| `session create\|list\|revoke` | `…/client-session`, `…/client-sessions[/{id}]`; the token is printed only with `--json` |
+| `session create\|list [VM\|--all]\|get\|set-user\|tokens\|token-create\|token-revoke\|revoke` | `…/client-session`, `…/client-sessions[/{id}[/linux-user\|/tokens[/{token}]]]`, `GET /v1/client-sessions`; tokens are printed only with `--json` |
+| `identity <subcommand>` | the same verbs as `session` (a cmux identity is one VM plus one Linux user); `get` is also `permissions`, `revoke` is also `delete`; `identity VM_ID` keeps the allocation fingerprint |
 | `terminal list\|close` | `…/terminals[/{terminal}]` (attach is a WebSocket and stays in the app) |
-| `vpc create\|list\|get\|delete\|attach\|detach\|devices\|tunnels` (also `mesh`) | `/v1/meshes…`, `PUT/DELETE /v1/meshes/{mesh}/vms/{vm}` |
-| `tunnel create\|list\|get\|peers\|rotate\|delete\|enrollment-code` (also `tunnels`) | mesh devices, `/v1/tunnels/{id}`, `/v1/devices/{id}[/peers\|/rotate-key]`, `…/enrollment-codes`; signed requests come from `--request FILE` and only their public fields are sent |
-| `firewall get\|set` | `GET/PUT /v1/meshes/{mesh}/acl`; `set --file` takes edited `firewall get --json` output and applies at its version |
+| `vpc create\|list\|get\|update\|delete\|attach\|detach\|devices\|tunnels\|ips` (also `mesh`) | `/v1/meshes…`, `PUT/DELETE /v1/meshes/{mesh}/vms/{vm}`, `GET …/addresses` |
+| `tunnel create\|list [MESH]\|get\|update\|peers\|rotate\|delete\|enrollment-code` (also `tunnels`) | mesh devices, `GET /v1/tunnels[/{id}]`, `/v1/devices/{id}[/peers\|/rotate-key]` (`PATCH` renames), `…/enrollment-codes`; signed requests come from `--request FILE` and only their public fields are sent |
+| `firewall get\|set\|rules\|rule\|evaluate` | `GET/PUT /v1/meshes/{mesh}/acl`, `…/acl/rules[/{rule}]`, `POST …/acl/evaluate`; `set --file` takes edited `firewall get --json` output and applies at its version; `evaluate --from --to [--port] [--proto]` exits 0 allowed, 1 denied |
 | `https-proxy set VM HOST --destination ORIGIN` | `PUT /v1/vms/{id}/https-proxies/{hostname}`; `--headers-file` keeps header values off the command line |
-| `snapshot`, `image`, `api-key`, `creation`, `device` | as before |
+| `domain list\|get\|delete\|verify-create\|verifications\|verification\|verify\|verification-delete\|certs\|wildcard` (also `domains`) | `/v1/domains[/{id}[/wildcard-certificate]]`, `/v1/domain-verifications[/{id}[/verify]]`, `/v1/certificates`; `verify-create` prints the TXT record to add |
+| `tls list\|get\|create\|update\|delete` | `/v1/tls-rules[/{id}]`; `--host H --vm VM --port N` builds the common public-to-VM rule, `--file` takes the whole rule (edited `tls get --json` works); header values are write-only and `update` without headers clears them |
+| `tls forward-auth list\|get\|create\|update\|delete` | `/v1/tls-forward-auths[/{id}]`; create and update read `--file` |
+| `snapshot create\|get\|list\|delete\|update` (`update` also `rename`) | `/v1/snapshots…`; `update` sets name, labels (whole set), `--ttl`/`--no-ttl`, `--auto-delete`/`--no-auto-delete` |
+| `image`, `api-key`, `creation`, `device` | as before |
 
-New tenant routes slot in as verbs of these groups (for example `file mkdir`,
-`vpc update`, `firewall evaluate`, `tunnel update`); `identity VM_ID` keeps its
-meaning, so end-user identities would arrive as `identity <subcommand>` or under
-`session`.
+`file exists` and `firewall evaluate` answer with the exit code: 0 for yes, 1 for
+no (nothing on stderr); `--json` also prints the response.
 
 ## Layout
 

@@ -91,9 +91,35 @@ fn help_reaches_cmux_vm_and_a_verb_names_its_own_help() {
 #[test]
 fn usage_errors_name_the_new_verbs() {
     let error = planned(&["vm"]).unwrap_err();
-    for verb in ["ssh", "scp", "vpc", "tunnel", "firewall"] {
+    for verb in ["ssh", "scp", "vpc", "tunnel", "firewall", "update", "domain", "tls", "identity"] {
         assert!(error.0.contains(verb), "{}", error.0);
     }
     let error = planned(&["vm", "frobnicate"]).unwrap_err();
     assert!(error.0.contains("frobnicate") && error.0.contains("ssh"), "{}", error.0);
+}
+
+#[test]
+fn nested_rm_and_new_groups_pass_through_unmapped() {
+    // Only the first word is a friendly alias: `file rm` stays `file rm`.
+    assert_eq!(
+        planned(&["vm", "file", "rm", "vm_1", "/tmp/x", "--yes"]).unwrap(),
+        args(&["file", "rm", "vm_1", "/tmp/x", "--yes"])
+    );
+    assert_eq!(
+        planned(&["vm", "update", "vm_1", "--label", "team=a"]).unwrap(),
+        args(&["update", "vm_1", "--label", "team=a"])
+    );
+    assert_eq!(
+        planned(&["vm", "domain", "verify-create", "example.com"]).unwrap(),
+        args(&["domain", "verify-create", "example.com"])
+    );
+    assert_eq!(
+        planned(&["vm", "tls", "create", "--host", "a.example.com", "--vm", "vm_1", "--port", "80"])
+            .unwrap(),
+        args(&["tls", "create", "--host", "a.example.com", "--vm", "vm_1", "--port", "80"])
+    );
+    assert_eq!(
+        planned(&["vm", "identity", "tokens", "vm_1", "vcs_1"]).unwrap(),
+        args(&["identity", "tokens", "vm_1", "vcs_1"])
+    );
 }

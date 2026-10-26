@@ -16,20 +16,20 @@ use super::{OutputMode, UsageError};
 /// Override for the `cmux-vm` binary (tests, unusual installs).
 const BIN_ENV: &str = "CMUX_VM_BIN";
 
-/// Every `cmux-vm` verb, forwarded unchanged. `fs`, `mesh` and `tunnels` are
-/// its own aliases of `file`, `vpc` and `tunnel`.
+/// Every `cmux-vm` verb, forwarded unchanged. `fs`, `mesh`, `tunnels` and
+/// `domains` are its own aliases of `file`, `vpc`, `tunnel` and `domain`.
 const FORWARDED: &[&str] = &[
-    "create", "list", "get", "delete", "start", "stop", "pause", "resume", "resize", "retire",
-    "fork", "identity", "exec", "ssh", "scp", "push", "pull", "file", "fs", "session", "terminal",
-    "snapshot", "image", "vpc", "mesh", "tunnel", "tunnels", "firewall", "https-proxy",
-    "api-key", "creation", "device",
+    "create", "list", "get", "update", "delete", "start", "stop", "pause", "resume", "resize",
+    "retire", "fork", "identity", "exec", "ssh", "scp", "push", "pull", "file", "fs", "session",
+    "terminal", "snapshot", "image", "vpc", "mesh", "tunnel", "tunnels", "firewall",
+    "https-proxy", "domain", "domains", "tls", "api-key", "creation", "device",
 ];
 
 /// The verbs named in usage errors: the friendly aliases first.
 const VERBS: &[&str] = &[
-    "new", "ls", "get", "rm", "start", "stop", "pause", "resume", "resize", "exec", "ssh", "scp",
-    "push", "pull", "file", "session", "terminal", "snapshot", "vpc", "tunnel", "firewall",
-    "https-proxy", "...",
+    "new", "ls", "get", "update", "rm", "start", "stop", "pause", "resume", "resize", "exec",
+    "ssh", "scp", "push", "pull", "file", "session", "identity", "terminal", "snapshot", "vpc",
+    "tunnel", "firewall", "https-proxy", "domain", "tls", "...",
 ];
 
 /// `Some(args after "vm")` when `command_args` start with `vm`.

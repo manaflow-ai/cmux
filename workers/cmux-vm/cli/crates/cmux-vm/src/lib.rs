@@ -12,11 +12,13 @@ pub mod exit;
 mod access;
 mod config;
 mod creation_history;
+mod edge;
 mod error;
 mod files;
 mod network;
 mod output;
 mod prompt;
+mod update;
 
 pub use access::askpass;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
@@ -95,7 +97,10 @@ enum Command {
     Resize(ResizeArgs),
     /// Show a VM
     Get(VmArg),
-    /// Show the canonical allocation fingerprint, optionally checking whether the VM still exists
+    /// Change a VM's name, labels (replacing the whole set) or limits
+    Update(update::UpdateArgs),
+    /// `identity VM_ID`: the canonical allocation fingerprint, optionally checking whether the
+    /// VM still exists. `identity <subcommand>`: the client-session group (see `session`)
     Identity(IdentityArgs),
     /// List the team's VMs
     List(ListArgs),
@@ -153,6 +158,12 @@ enum Command {
     /// Replace a VM's HTTPS proxy
     #[command(subcommand, name = "https-proxy")]
     HttpsProxy(network::HttpsProxyCommand),
+    /// Verify domains, list and release them, and request certificates
+    #[command(subcommand, visible_alias = "domains")]
+    Domain(edge::DomainCommand),
+    /// Create, list, show, replace and delete TLS rules and forward-auth checks
+    #[command(subcommand)]
+    Tls(edge::TlsCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -257,6 +268,9 @@ enum SnapshotCommand {
     List(SnapshotListArgs),
     /// Delete a snapshot permanently (asks to type the snapshot id, or needs --yes without a terminal)
     Delete(SnapshotDeleteArgs),
+    /// Change a snapshot's name, labels (replacing the whole set) or retention
+    #[command(visible_alias = "rename")]
+    Update(update::SnapshotUpdateArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -368,9 +382,16 @@ struct ExecArgs {
     command: Vec<String>,
 }
 
+/// `identity VM_ID [--check-presence]`, or `identity <subcommand>`. A VM id
+/// always starts with `vm_`, so it never reads as a subcommand name.
 #[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true, subcommand_negates_reqs = true)]
 struct IdentityArgs {
-    vm_id: String,
+    #[command(subcommand)]
+    command: Option<access::SessionCommand>,
+    /// VM id (vm_...)
+    #[arg(required = true)]
+    vm_id: Option<String>,
     /// Read provider presence without starting the VM
     #[arg(long)]
     check_presence: bool,
@@ -760,10 +781,16 @@ async fn dispatch(
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
+            command: Some(command),
+            ..
+        }) => access::session(client, command, prompt, out).await,
+        Command::Identity(IdentityArgs {
             vm_id,
             check_presence,
+            command: None,
         }) => {
             let id = vm_id
+                .unwrap_or_default()
                 .parse::<types::VmId>()
                 .map_err(|_| CliError::usage("invalid VM id"))?;
             let presence = parse_opt(
@@ -938,12 +965,15 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::File(command) => files::file(client, command, out).await,
+        Command::File(command) => files::file(client, command, prompt, out).await,
         Command::Push(args) => {
             let copy = files::Transfer::push(args)?;
             files::copy(client, copy.0, copy.1, out).await
         }
-        Command::Pull(args) => files::copy(client, files::Transfer::pull(args)?, None, out).await,
+        Command::Pull(args) => {
+            let copy = files::Transfer::pull(args)?;
+            files::copy(client, copy, files::UploadOptions::default(), out).await
+        }
         Command::Scp(args) => {
             let (copy, mode) = files::Transfer::scp(args)?;
             files::copy(client, copy, mode, out).await
@@ -955,6 +985,9 @@ async fn dispatch(
         Command::Tunnel(command) => network::tunnel(client, command, prompt, out).await,
         Command::Firewall(command) => network::firewall(client, command, out).await,
         Command::HttpsProxy(command) => network::https_proxy(client, command, out).await,
+        Command::Update(args) => update::update_vm(client, args, out).await,
+        Command::Domain(command) => edge::domain(client, command, prompt, out).await,
+        Command::Tls(command) => edge::tls(client, command, prompt, out).await,
     }
 }
 
@@ -1009,6 +1042,7 @@ async fn snapshot(
             call(client.snapshots_delete_snapshot(&snapshot_id, None)).await?;
             out.deleted(&snapshot_id)
         }
+        SnapshotCommand::Update(args) => update::update_snapshot(client, args, out).await,
     }
 }
 
@@ -1056,6 +1090,12 @@ enum Destroy {
     CloseTerminal,
     DeleteMesh,
     DeleteDevice,
+    RemovePath,
+    RevokeToken,
+    DeleteDomain,
+    DeleteVerification,
+    DeleteTlsRule,
+    DeleteForwardAuth,
 }
 
 impl Destroy {
@@ -1071,6 +1111,12 @@ impl Destroy {
             Destroy::CloseTerminal => ("close", "Close", "terminal id"),
             Destroy::DeleteMesh => ("delete", "Delete", "mesh id"),
             Destroy::DeleteDevice => ("delete", "Delete", "device id"),
+            Destroy::RemovePath => ("remove", "Remove", "path"),
+            Destroy::RevokeToken => ("revoke", "Revoke", "access token id"),
+            Destroy::DeleteDomain => ("release", "Release", "domain id"),
+            Destroy::DeleteVerification => ("withdraw", "Withdraw", "verification id"),
+            Destroy::DeleteTlsRule => ("delete", "Delete", "TLS rule id"),
+            Destroy::DeleteForwardAuth => ("delete", "Delete", "forward-auth id"),
         }
     }
 }
@@ -1089,7 +1135,10 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         Destroy::RetireVm => format!(
             "Retire {id} permanently? It cannot run again; files remain readable until deletion. Type the VM id to confirm: "
         ),
-        Destroy::RevokeApiKey | Destroy::RevokeSession => format!(
+        Destroy::RemovePath => format!(
+            "Remove {id} from the VM? A directory goes with everything in it. Type the path to confirm: "
+        ),
+        Destroy::RevokeApiKey | Destroy::RevokeSession | Destroy::RevokeToken => format!(
             "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
         ),
         Destroy::CloseTerminal => format!(
@@ -1107,10 +1156,14 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
     } else {
         let past = match action {
             Destroy::RetireVm => "retired",
-            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer | Destroy::RevokeSession => {
-                "revoked"
-            }
+            Destroy::RevokeApiKey
+            | Destroy::RevokeOverlayServer
+            | Destroy::RevokeSession
+            | Destroy::RevokeToken => "revoked",
             Destroy::CloseTerminal => "closed",
+            Destroy::RemovePath => "removed",
+            Destroy::DeleteDomain => "released",
+            Destroy::DeleteVerification => "withdrawn",
             _ => "deleted",
         };
         Err(CliError::cancelled(format!(

@@ -6,6 +6,9 @@ pub const OK: i32 = 0;
 /// An error with no more specific code: an undocumented HTTP status or a
 /// response the CLI could not read.
 pub const UNEXPECTED: i32 = 1;
+/// A yes/no check (`file exists`, `firewall evaluate`) answered no. The same
+/// value as [`UNEXPECTED`], but nothing is printed on stderr.
+pub const NO: i32 = 1;
 /// Invalid command-line usage or an argument the API would reject.
 pub const USAGE: i32 = 2;
 /// The API could not be reached (DNS, connection, TLS or timeout).

@@ -16,9 +16,12 @@ clap.workspace = true
 cmux-vm-client = { path = "../cmux-vm-client" }
 futures.workspace = true
 reqwest.workspace = true
+# SHA-256 of resumable uploads (already in the lock through the TLS stack).
+ring = "0.17"
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
-tokio.workspace = true
+# `signal`: abandon a resumable upload on Ctrl-C.
+tokio = { workspace = true, features = ["signal"] }
 
 [dev-dependencies]
 wiremock.workspace = true
