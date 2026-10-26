@@ -36,7 +36,7 @@ public nonisolated enum AgentPaneReply {
             }
             return success(["receipt": pageReceipt(receipt)])
         } catch {
-            let typed = isSandboxCode(code(error)) ? code(error) : "unavailable"
+            let typed = pageCode(code(error))
             return failure(code: typed, message: typed)
         }
     }
@@ -62,19 +62,25 @@ public nonisolated enum AgentPaneReply {
     }
 
     /// The failure codes a Sandboxed reply may carry, the ones the page words (sandboxRun.ts
-    /// `sandboxFailureKey`, `sandboxRetryable`): these, and the Run API's request refusals
-    /// (``isRunRequestRefusal(_:)``). Any other code, such as one the server or a header sent that
-    /// may name a provider handle, reaches the page as `unavailable` (a failure that may hide a live
-    /// Run).
+    /// `sandboxFailureKey`, `sandboxRetryable`), the Run API's documented request refusals among
+    /// them. Any other request refusal (``isRunRequestRefusal(_:)``) reaches the page as
+    /// `run_invalid_request`, never its own text; any other code, such as one the server or a header
+    /// sent that may name a provider handle, as `unavailable` (a failure that may hide a live Run).
     static let sandboxCodes: Set<String> = [
         "labs_off", "not_signed_in", "cloud_disabled", "timeout", "unavailable", "unavailable_now", "bad_response",
-        "sandbox_busy", "sandbox_spent", "run_sandbox_unavailable",
+        "sandbox_busy", "sandbox_spent", "run_sandbox_unavailable", "run_task_required", "run_agent_invalid",
+        "run_image_invalid", "run_timeout_invalid", "run_attempts_invalid", "run_environment_invalid", "run_invalid_request",
     ]
 
-    static func isSandboxCode(_ code: String) -> Bool { sandboxCodes.contains(code) || isRunRequestRefusal(code) }
+    /// The code the page gets for a failure's `code` (``sandboxCodes``).
+    static func pageCode(_ code: String) -> String {
+        if sandboxCodes.contains(code) { return code }
+        return isRunRequestRefusal(code) ? "run_invalid_request" : "unavailable"
+    }
 
     /// The Run API's refusals of a request before it stores anything (`run_task_required`,
-    /// `run_image_invalid`, `run_invalid_request`, …): lowercase words only, so no handle or id.
+    /// `run_image_invalid`, `run_invalid_request`, …), by their shape; only the documented ones
+    /// reach the page as they are (``pageCode(_:)``).
     public static func isRunRequestRefusal(_ code: String) -> Bool {
         if code == "run_invalid_request" { return true }
         let words = code.split(separator: "_", omittingEmptySubsequences: false)

@@ -104,6 +104,10 @@ struct AgentPaneSandboxRunTests {
         for code in ["run_vm1_invalid", "run_invalid", "provider_vm_abc_invalid", "run_task_failed"] {
             #expect(!AgentPaneReply.isRunRequestRefusal(code))
         }
+        // An undocumented one, which could hold an all-letter handle, reaches the page as a fixed code.
+        #expect(AgentPaneReply.pageCode("run_vm_deadbeef_invalid") == "run_invalid_request")
+        #expect(AgentPaneReply.pageCode("run_task_required") == "run_task_required")
+        #expect(AgentPaneReply.pageCode("provider_vm_abc123") == "unavailable")
     }
 
     @Test func aServerCodeThePageDoesNotWordReachesItAsUnavailable() async {
