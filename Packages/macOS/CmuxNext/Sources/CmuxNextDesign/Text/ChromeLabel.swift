@@ -396,6 +396,7 @@ open class ChromeLabel: NSView {
         }
         // Not `isHidden`: hiding the first responder moves first responder again, inside this change.
         view.alphaValue = 0
+        // main-hop-allow: AppKit focus order: the view is resigning first responder inside the window's responder change, so it leaves one job after that change
         Task { @MainActor in view.removeFromSuperview() }
     }
 

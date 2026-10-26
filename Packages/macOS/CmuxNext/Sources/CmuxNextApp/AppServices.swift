@@ -703,7 +703,7 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
+        hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges, appEvents: appEvents, workspaceEvents: workspaceEvents)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)

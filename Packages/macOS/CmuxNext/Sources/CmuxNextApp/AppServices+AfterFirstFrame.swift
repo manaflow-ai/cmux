@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextSettings
@@ -51,6 +52,7 @@ extension AppServices {
     /// border and glass follows after the first frame; the rest after startup.
     func startPlatformServices(settings: SettingsController, on startup: StartupScheduler, hotKeys: Bool) {
         seedGlass()
+        StatusIndicatorAppearance.shared.observe(on: mainWork, appEvents: appEvents, workspaceEvents: workspaceEvents)
         notifications.preferences = settings.snapshot.notifications
         notifications.followChiefPet(settings)
         updater.follow(settings)
