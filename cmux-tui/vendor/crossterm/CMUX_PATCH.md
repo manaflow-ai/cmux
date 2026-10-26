@@ -35,3 +35,15 @@ in release. The cmux patch refuses a 0 position as malformed input, as the
 parser already refuses a bad button byte. Found by the `tui_keys` target in
 `cmux-tui/fuzz`; regression test `zero_coordinates_are_refused_not_underflowed`.
 Remove this part when upstream Crossterm checks the subtraction.
+
+## Parsing buffered bytes
+
+`parse_event_from_bytes` and `parse_input_from_bytes` (both `#[doc(hidden)]`,
+Unix) run the reader's parser on bytes the caller holds, with no terminal.
+`parse_event_from_bytes` returns only public events. `parse_input_from_bytes`
+also reports a complete terminal reply (cursor position, keyboard enhancement
+flags, primary device attributes) as `ParsedInput::Reply`, so a caller that
+feeds bytes one at a time ends the sequence there, as the reader does, instead
+of reading the reply as incomplete. cmux uses them for startup input in
+`ui/graphics.rs` and for the `tui_keys` fuzz target. Regression test
+`a_complete_reply_is_told_apart_from_an_incomplete_sequence`.

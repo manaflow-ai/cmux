@@ -6,7 +6,10 @@
 //! a write leaves a file that parses; a stale `if_revision` is refused; an op
 //! repeated with its idempotency key replays without a change.
 //!
-//! Input: a length byte and that many bytes of initial cmux.json, then ops.
+//! Input: a length byte, four times that many bytes of initial cmux.json,
+//! then ops, each a selector byte (`selector % 8`: 0, 1 and 6 set, 2 reset,
+//! 3 reset all, 4 domains, 5 team policy, 7 reload) and its fields. A row is
+//! picked by a little-endian u16 index.
 #![no_main]
 
 use std::collections::BTreeMap;
@@ -37,6 +40,13 @@ impl<'a> Bytes<'a> {
         head
     }
 
+    /// A row of `schema` by a little-endian u16 index, so all of its rows
+    /// (more than 256) are reachable.
+    fn row<'s>(&mut self, schema: &'s Schema) -> Option<&'s cmux_config::schema::Row> {
+        let index = u16::from_le_bytes([self.byte()?, self.byte()?]);
+        Some(&schema.rows[usize::from(index) % schema.rows.len()])
+    }
+
     fn text(&mut self) -> Option<String> {
         let len = usize::from(self.byte()?);
         Some(String::from_utf8_lossy(self.take(len)).into_owned())
@@ -52,7 +62,7 @@ fn value(input: &mut Bytes<'_>, schema: &Schema) -> Option<Value> {
         4 => Value::Null,
         // A value one of the schema's rows lists as accepted or refused.
         5 => {
-            let row = &schema.rows[usize::from(input.byte()?) % schema.rows.len()];
+            let row = input.row(schema)?;
             let samples = [row.accepts.as_slice(), row.refuses.as_slice()].concat();
             let pick = usize::from(input.byte()?);
             samples.get(pick % samples.len().max(1)).cloned().unwrap_or(Value::Null)
@@ -63,7 +73,7 @@ fn value(input: &mut Bytes<'_>, schema: &Schema) -> Option<Value> {
 
 fn target(input: &mut Bytes<'_>, schema: &Schema) -> Option<Target> {
     let selector = input.byte()?;
-    let row = &schema.rows[usize::from(input.byte()?) % schema.rows.len()];
+    let row = input.row(schema)?;
     Some(match selector % 4 {
         0 | 1 => Target::Key(row.key.clone()),
         2 => Target::Path(row.path.clone()),
@@ -87,7 +97,7 @@ fn map(input: &mut Bytes<'_>, schema: &Schema) -> Option<BTreeMap<String, Value>
     let mut values = BTreeMap::new();
     for _ in 0..input.byte()? % 4 {
         let key = match input.byte()? & 1 {
-            0 => schema.rows[usize::from(input.byte()?) % schema.rows.len()].key.clone(),
+            0 => input.row(schema)?.key.clone(),
             _ => input.text()?,
         };
         values.insert(key, value(input, schema)?);
@@ -95,10 +105,12 @@ fn map(input: &mut Bytes<'_>, schema: &Schema) -> Option<BTreeMap<String, Value>
     Some(values)
 }
 
-fn op(input: &mut Bytes<'_>, state: &State) -> Option<Op> {
+/// The op `selector % 8` names: 0, 1 and 6 set, 2 reset, 3 reset all,
+/// 4 domains, 5 team policy (7, a reload, is read by the caller).
+fn op(selector: u8, input: &mut Bytes<'_>, state: &State) -> Option<Op> {
     let schema = state.schema();
-    Some(match input.byte()? % 6 {
-        0 | 1 => Op::Set {
+    Some(match selector % 8 {
+        0 | 1 | 6 => Op::Set {
             target: target(input, schema)?,
             value: value(input, schema)?,
             meta: meta(input, state.revision())?,
@@ -167,7 +179,7 @@ fuzz_target!(|data: &[u8]| {
             state = next;
             continue;
         }
-        let Some(op) = op(&mut input, &state) else {
+        let Some(op) = op(selector, &mut input, &state) else {
             break;
         };
         let stale = match &op {

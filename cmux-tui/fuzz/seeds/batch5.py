@@ -30,6 +30,11 @@ def write(target, seeds):
         (folder / f"seed-{index:02}").write_bytes(data)
 
 
+def row_index(index):
+    """A schema row as the config targets read it: a little-endian u16."""
+    return index.to_bytes(2, "little")
+
+
 def crockford(data, symbols):
     bits = int.from_bytes(data, "big")
     width = len(data) * 8
@@ -142,11 +147,11 @@ def config_keybindings():
         "⌘⇧k\tx\t\n{\"not\":\"an array\"}",
         "f20\tx\t\n[/* c */ 1, \"two\", {\"key\": 3}]",
     ]
-    write("config_keybindings", seeds[:24])
+    write("config_keybindings", seeds)
 
 
-# config_schema: selector byte (even: schema document, odd: value for row
-# selector/2 of the embedded schema), then JSON text.
+# config_schema: selector byte (even: schema document; odd: a little-endian
+# u16 row index of the embedded schema, then a value for that row), then JSON text.
 def config_schema():
     schema = json.loads((REPO / "schemas/settings/settings-schema.json").read_text())
     rows = schema["rows"]
@@ -157,14 +162,17 @@ def config_schema():
     for kind, (index, row) in sorted(by_kind.items()):
         document = {"version": schema["version"], "sections": schema["sections"][:1], "rows": [row]}
         seeds.append(bytes([0]) + json.dumps(document).encode())
-        selector = ((index % 128) << 1) | 1
         for sample in (row.get("accepts") or [])[:1] + (row.get("refuses") or [])[:1]:
-            seeds.append(bytes([selector]) + json.dumps(sample).encode())
+            seeds.append(bytes([1]) + row_index(index) + json.dumps(sample).encode())
+    # An hour past i64 / 60 overflowed `quiet_hours_minutes` (tests/quiet_hours.rs).
+    index, _ = by_kind["time_range"]
+    seeds.append(bytes([1]) + row_index(index) + b'{"start": "-40000000001064563953:22", "end": "00:00"}')
     write("config_schema", seeds)
 
 
 # config_store: a length byte (initial file is 4x that), the file, then ops:
-# selector % 8 (0/1 set, 2 reset, 3 reset all, 4 domains, 5 team policy, 7 reload).
+# selector % 8 (0/1/6 set, 2 reset, 3 reset all, 4 domains, 5 team policy,
+# 7 reload). Rows are little-endian u16 indexes.
 def config_store():
     schema = json.loads((REPO / "schemas/settings/settings-schema.json").read_text())
     rows = schema["rows"]
@@ -178,20 +186,20 @@ def config_store():
         data = text.encode()
         return [len(data), *data]
 
-    row = 3
-    toggle = next(i for i, r in enumerate(rows) if r["kind"] == "toggle") % 256
-    choice = next(i for i, r in enumerate(rows) if r["kind"] == "choice") % 256
+    row = row_index(3)
+    toggle = row_index(next(i for i, r in enumerate(rows) if r["kind"] == "toggle"))
+    choice = row_index(next(i for i, r in enumerate(rows) if r["kind"] == "choice"))
     keyed = 0x10  # idempotency key, origin user
     seeds = [
-        initial("{}") + bytes([0, 0, toggle, 0, 1, 0]),
-        initial('{"appearance": {"density": "compact"}} // c') + bytes([0, 0, choice, 5, choice, 0, keyed, 3]),
-        initial("{}") + bytes([0, 0, toggle, 0, 1, keyed, 1, 0, 0, toggle, 0, 1, keyed, 1]),
-        initial("{}") + bytes([0, 0, toggle, 0, 1, 0x20, 0, 0, toggle, 0, 0, 0x60]),
-        initial('{"a": 1,}') + bytes([2, 1, toggle, 0, 3, 2, 7, 0, *string('{"b": true}'), 0]),
+        initial("{}") + bytes([0, 0, *toggle, 0, 1, 0]),
+        initial('{"appearance": {"density": "compact"}} // c') + bytes([0, 0, *choice, 5, *choice, 0, keyed, 3]),
+        initial("{}") + bytes([0, 0, *toggle, 0, 1, keyed, 1, 0, 0, *toggle, 0, 1, keyed, 1]),
+        initial("{}") + bytes([0, 0, *toggle, 0, 1, 0x20, 0, 0, *toggle, 0, 0, 0x60]),
+        initial('{"a": 1,}') + bytes([2, 1, *toggle, 0, 3, 2, 7, 0, *string('{"b": true}'), 0]),
         initial("{}") + bytes([4, 1, *string("Dark"), 1, *string("Menlo"), 0]),
-        initial("{}") + bytes([5, *string("Team"), 1, 0, toggle, 0, 1, 1, 0, choice, 3, *string("x"), 0, 5]),
-        initial("[1, 2]") + bytes([7, 1, 0, 0, 0, toggle, 0, 1, 2]),
-        initial("{}") + bytes([0, 3, row, *string("not.a.row"), 6, *string('{"x": [1, 2]}'), 0x02]),
+        initial("{}") + bytes([5, *string("Team"), 1, 0, *toggle, 0, 1, 1, 0, *choice, 3, *string("x"), 0, 5]),
+        initial("[1, 2]") + bytes([7, 1, 0, 0, 0, *toggle, 0, 1, 2]),
+        initial("{}") + bytes([0, 3, *row, *string("not.a.row"), 6, *string('{"x": [1, 2]}'), 0x02]),
     ]
     write("config_store", seeds)
 

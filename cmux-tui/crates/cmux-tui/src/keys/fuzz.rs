@@ -5,6 +5,13 @@
 //! reaches layouts, texts and modifier sets no terminal sends. Each event goes
 //! through `KeyboardInput` and the ghostty key encoder in a fuzz-chosen
 //! keyboard mode, as App routes a key.
+//!
+//! One terminal and one encoder serve the whole process, as a surface's do in
+//! App; each input sets every keyboard mode the encoder reads. Chrome's
+//! fuzzers likewise build their environment once per process
+//! (testing/libfuzzer/getting_started.md).
+
+use std::cell::RefCell;
 
 use crossterm::event::{MediaKeyCode, ModifierKeyCode};
 use ghostty_vt::{Callbacks, KeyEncoder, Terminal};
@@ -12,68 +19,79 @@ use ghostty_vt::{Callbacks, KeyEncoder, Terminal};
 use super::*;
 use crate::fuzzing::FuzzBytes;
 
-/// crossterm's `parse_event_from_bytes` reads a complete internal event
-/// (a cursor report) as `None`, like an incomplete one; past this many
-/// bytes the driver drops the pending buffer, as the reader drops an error.
-#[cfg(unix)]
-const MAX_PENDING_BYTES: usize = 256;
-
 const KINDS: [KeyEventKind; 3] = [KeyEventKind::Press, KeyEventKind::Repeat, KeyEventKind::Release];
+
+struct Encoding {
+    terminal: Terminal,
+    encoder: KeyEncoder,
+}
+
+impl Encoding {
+    fn new() -> Option<Self> {
+        let terminal = Terminal::new(80, 24, 0, Callbacks::default()).ok()?;
+        let encoder = KeyEncoder::new().ok()?;
+        Some(Self { terminal, encoder })
+    }
+
+    /// Sets every keyboard mode the encoder reads from the terminal (Kitty
+    /// flags, cursor-key and keypad application modes, modifyOtherKeys) from
+    /// `mode`, whatever the previous input left, and syncs the encoder.
+    fn set_mode(&mut self, mode: u8) {
+        let kitty = format!("\x1b[={};1u", mode & 0x1f);
+        self.terminal.vt_write(kitty.as_bytes());
+        self.terminal.vt_write(if mode & 0x20 != 0 { b"\x1b[?1h" } else { b"\x1b[?1l" });
+        self.terminal.vt_write(if mode & 0x40 != 0 { b"\x1b=" } else { b"\x1b>" });
+        self.terminal.vt_write(if mode & 0x80 != 0 { &b"\x1b[>4;2m"[..] } else { b"\x1b[>m" });
+        self.encoder.sync_from_terminal(&self.terminal);
+    }
+}
+
+thread_local! {
+    static ENCODING: RefCell<Option<Encoding>> = RefCell::new(Encoding::new());
+}
 
 pub(crate) fn one_input(data: &[u8]) {
     let mut input = FuzzBytes::new(data);
     let (Some(mode), Some(source)) = (input.byte(), input.byte()) else {
         return;
     };
-    let Ok(mut terminal) = Terminal::new(80, 24, 0, Callbacks::default()) else {
-        return;
-    };
-    // The keyboard modes the encoder reads from the terminal: Kitty flags,
-    // cursor-key and keypad application modes, modifyOtherKeys.
-    terminal.vt_write(format!("\x1b[>{}u", mode & 0x1f).as_bytes());
-    if mode & 0x20 != 0 {
-        terminal.vt_write(b"\x1b[?1h");
-    }
-    if mode & 0x40 != 0 {
-        terminal.vt_write(b"\x1b=");
-    }
-    if mode & 0x80 != 0 {
-        terminal.vt_write(b"\x1b[>4;2m");
-    }
-    let Ok(mut encoder) = KeyEncoder::new() else {
-        return;
-    };
-    encoder.sync_from_terminal(&terminal);
-    let option_as_alt = source & 0b10 != 0;
-    let mut route = |keyboard: KeyboardInput| route_key(keyboard, option_as_alt, &mut encoder);
-    if source & 1 == 0 {
-        #[cfg(unix)]
-        parsed_events(input.rest(), &mut route);
-    } else {
-        built_events(&mut input, &mut route);
-    }
+    ENCODING.with_borrow_mut(|encoding| {
+        let Some(encoding) = encoding else {
+            return;
+        };
+        encoding.set_mode(mode);
+        let option_as_alt = source & 0b10 != 0;
+        let encoder = &mut encoding.encoder;
+        let mut route = |keyboard: KeyboardInput| route_key(keyboard, option_as_alt, encoder);
+        if source & 1 == 0 {
+            #[cfg(unix)]
+            parsed_events(input.rest(), &mut route);
+        } else {
+            built_events(&mut input, &mut route);
+        }
+    });
 }
 
+/// The event reader's loop (crossterm's unix `Parser::advance`): an
+/// incomplete sequence keeps its bytes; an event, a terminal reply or an
+/// error ends it.
 #[cfg(unix)]
 fn parsed_events(bytes: &[u8], route: &mut impl FnMut(KeyboardInput)) {
+    use crossterm::event::{Event, ParsedInput, parse_input_from_bytes};
+
     let mut pending = Vec::new();
     for (index, byte) in bytes.iter().enumerate() {
         pending.push(*byte);
         let more = index + 1 < bytes.len();
-        match crossterm::event::parse_event_from_bytes(&pending, more) {
-            Ok(Some(event)) => {
-                pending.clear();
-                match event {
-                    crossterm::event::Event::Key(key) => route(KeyboardInput::from(key)),
-                    crossterm::event::Event::EnhancedKey(key) => {
-                        route(KeyboardInput::from_enhanced(key));
-                    }
-                    _ => {}
-                }
+        match parse_input_from_bytes(&pending, more) {
+            Ok(None) => continue,
+            Ok(Some(ParsedInput::Event(Event::Key(key)))) => route(KeyboardInput::from(key)),
+            Ok(Some(ParsedInput::Event(Event::EnhancedKey(key)))) => {
+                route(KeyboardInput::from_enhanced(key));
             }
-            Ok(None) if pending.len() < MAX_PENDING_BYTES => {}
-            Ok(None) | Err(_) => pending.clear(),
+            Ok(Some(_)) | Err(_) => {}
         }
+        pending.clear();
     }
 }
 
@@ -167,5 +185,69 @@ fn route_key(mut keyboard: KeyboardInput, option_as_alt: bool, encoder: &mut Key
         assert!(!release, "a key release produced terminal input");
         let mut encoded = Vec::new();
         let _ = encoder.encode(&key_input, &mut encoded);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encodings(encoder: &mut KeyEncoder) -> Vec<Vec<u8>> {
+        let keys = [
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Home, KeyModifiers::NONE),
+        ];
+        keys.iter()
+            .map(|key| {
+                let mut out = Vec::new();
+                let input = KeyboardInput::from(*key).into_terminal_input().expect("a press");
+                encoder.encode(&input, &mut out).expect("encodes");
+                out
+            })
+            .collect()
+    }
+
+    /// The shared terminal encodes every mode as a terminal that only ever
+    /// had that mode, whatever mode the input before it left.
+    #[test]
+    fn a_reused_encoding_matches_a_fresh_terminal_in_every_mode() {
+        let mut shared = Encoding::new().expect("terminal and encoder");
+        for mode in 0..=u8::MAX {
+            let mut fresh = Encoding::new().expect("terminal and encoder");
+            fresh.terminal.vt_write(format!("\x1b[>{}u", mode & 0x1f).as_bytes());
+            if mode & 0x20 != 0 {
+                fresh.terminal.vt_write(b"\x1b[?1h");
+            }
+            if mode & 0x40 != 0 {
+                fresh.terminal.vt_write(b"\x1b=");
+            }
+            if mode & 0x80 != 0 {
+                fresh.terminal.vt_write(b"\x1b[>4;2m");
+            }
+            fresh.encoder.sync_from_terminal(&fresh.terminal);
+            shared.set_mode(!mode);
+            shared.set_mode(mode);
+            assert_eq!(
+                encodings(&mut shared.encoder),
+                encodings(&mut fresh.encoder),
+                "mode {mode:#x}"
+            );
+        }
+    }
+
+    /// A terminal reply ends its sequence, as in the event reader: the key
+    /// after a cursor position report is decoded on its own.
+    #[cfg(unix)]
+    #[test]
+    fn a_key_after_a_terminal_reply_is_decoded() {
+        let mut keys = Vec::new();
+        parsed_events(b"\x1b[5;5Ra\x1b[?1ub", &mut |keyboard: KeyboardInput| {
+            keys.push(keyboard.ui_key().code);
+        });
+        assert_eq!(keys, [KeyCode::Char('a'), KeyCode::Char('b')]);
     }
 }
