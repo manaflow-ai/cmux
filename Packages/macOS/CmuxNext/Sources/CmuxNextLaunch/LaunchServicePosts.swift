@@ -7,7 +7,8 @@ public import CmuxNextWakeups
 ///
 /// What the person sees soon after the first frame is afterFirstFrame: SSH (it reconnects the
 /// restored machines, whose terminals show), and the New Tab spare's open hooks and target window.
-/// The rest is afterStartup, the spare's first load too. The app passes its services' starts
+/// The rest is afterStartup, the spare's WebKit probe and first load and the agent pages' WebKit
+/// warm-up too. The app passes its services' starts
 /// (`AppServices+AfterFirstFrame`); tests pass their own and read the scheduler's records.
 ///
 /// ```swift
@@ -55,13 +56,21 @@ public struct LaunchServicePosts {
         ])
     }
 
-    /// The warm-ups for later tabs (Chromium, the New Tab spare, page hosts), the agent tab import and the
-    /// right sidebar's icons.
+    /// The warm-ups for later tabs (Chromium, WebKit for agent pages, the New Tab spare, page hosts), the
+    /// agent tab import and the right sidebar's icons.
+    ///
+    /// No post here makes a `WKWebView` or a `WKProcessPool` before startup completes (p08-startup-042):
+    /// before completion the only WebKit views are those of the agent tabs the launch shows, each made in
+    /// its own afterFirstFrame post once its picture drew (``LaunchViewQueue``). The agent pages' warm-up
+    /// and the New Tab spare's WebKit probe and first page are afterStartup.
     ///
     /// - Parameters:
     ///   - chromiumWarmup: Arms Chromium's own launch warm-up (task 018 moves its timers onto the scheduler).
     ///   - spareHooks: The New Tab spare's open hooks and target window, no spare yet
     ///     (`NewTabPreload.start(holdingWarm:)`).
+    ///   - agentPageWarmup: The agent pages' WebKit warm-up (`AgentPageWarmup.start(webUI:)`); it makes
+    ///     nothing once a shown agent tab made its view, or when agent pages open in Chromium.
+    ///   - spareProbe: Asks off the main thread whether WebKit's setup answers (`NewTabPreload.prewarm()`).
     ///   - spareWarming: Lets the New Tab spare be made (`NewTabPreload.startWarming()`).
     ///   - pageHostPool: Starts the page host pool.
     ///   - agentTabImport: Starts the agent tab import.
@@ -69,6 +78,8 @@ public struct LaunchServicePosts {
     /// - Returns: The posts, Chromium and the spare's hooks at afterFirstFrame and the rest at afterStartup.
     public static func laterTabs(chromiumWarmup: @escaping @MainActor @Sendable () -> Void,
                                  spareHooks: @escaping @MainActor @Sendable () -> Void,
+                                 agentPageWarmup: @escaping @MainActor @Sendable () -> Void,
+                                 spareProbe: @escaping @MainActor @Sendable () -> Void,
                                  spareWarming: @escaping @MainActor @Sendable () -> Void,
                                  pageHostPool: @escaping @MainActor @Sendable () -> Void,
                                  agentTabImport: @escaping @MainActor @Sendable () -> Void,
@@ -76,6 +87,8 @@ public struct LaunchServicePosts {
         LaunchServicePosts(posts: [
             Post(priority: .afterFirstFrame, name: "ChromiumWarmup.start", work: chromiumWarmup),
             Post(priority: .afterFirstFrame, name: "NewTabSpares.hooks", work: spareHooks),
+            Post(priority: .afterStartup, name: "AgentPane.webKitWarmup", work: agentPageWarmup),
+            Post(priority: .afterStartup, name: "NewTabSpares.probe", work: spareProbe),
             Post(priority: .afterStartup, name: "NewTabSpares.warm", work: spareWarming),
             Post(priority: .afterStartup, name: "PageHostPool.start", work: pageHostPool),
             Post(priority: .afterStartup, name: "AgentTabImport.start", work: agentTabImport),
@@ -142,42 +155,5 @@ public struct LaunchServicePosts {
     /// - Parameter startup: The launch's scheduler.
     public func post(on startup: StartupScheduler) {
         for entry in posts { startup.post(entry.priority, entry.name, on: .main, entry.work) }
-    }
-}
-
-/// Where the agent pages' WebKit warm-up (`AgentPageWarmup.start(webUI:)`) runs: one post named
-/// `AgentPane.webKitWarmup` (its StartupScheduler record is the named WKProcessPool turn), decided
-/// once the launch's restore finished, when the restored panes exist. It is afterFirstFrame when the
-/// front window's focused pane shows an agent chat that opens in WebKit, so that page loads warm;
-/// else afterStartup. A launch whose startup completes with no restore (the daemon unavailable, the
-/// failsafe) posts it at afterStartup then.
-@MainActor
-public final class AgentPageWarmupSlot {
-    private let startup: StartupScheduler
-    private let warm: @MainActor @Sendable () -> Void
-    /// The priority it was posted at; nil until then.
-    public private(set) var postedPriority: StartupPriority?
-
-    /// - Parameters:
-    ///   - startup: The launch's scheduler.
-    ///   - warm: The warm-up (the app: `AgentPageWarmup.start(webUI:)` and its launch mark).
-    public init(startup: StartupScheduler, warm: @escaping @MainActor @Sendable () -> Void) {
-        self.startup = startup
-        self.warm = warm
-        startup.whenComplete { [weak self] _ in self?.post(.afterStartup) }
-    }
-
-    /// The launch's restore finished.
-    ///
-    /// - Parameter showsWebKitAgentChat: Whether the front window's focused pane shows an agent chat
-    ///   that opens in WebKit.
-    public func restored(showsWebKitAgentChat: Bool) {
-        post(showsWebKitAgentChat ? .afterFirstFrame : .afterStartup)
-    }
-
-    private func post(_ priority: StartupPriority) {
-        guard postedPriority == nil else { return }
-        postedPriority = priority
-        startup.post(priority, "AgentPane.webKitWarmup", on: .main, warm)
     }
 }
