@@ -1624,6 +1624,11 @@ export function devboxDaemonUnit(): string {
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
     "After=network.target",
+    // Never give up (as acpmux.service): no start limit, so a crash loop or a
+    // full disk is retried until the daemon stays up, 3 s then backing off to
+    // 60 s (RestartSteps/RestartMaxDelaySec need systemd 254+; an older one
+    // ignores them and restarts every 3 s).
+    "StartLimitIntervalSec=0",
     "",
     "[Service]",
     "Type=simple",
@@ -1645,7 +1650,9 @@ export function devboxDaemonUnit(): string {
     "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "ExecStart=/usr/local/bin/cmux-devbox-boot",
     "Restart=always",
-    "RestartSec=2",
+    "RestartSec=3",
+    "RestartSteps=5",
+    "RestartMaxDelaySec=60",
     "",
     "[Install]",
     "WantedBy=multi-user.target",
