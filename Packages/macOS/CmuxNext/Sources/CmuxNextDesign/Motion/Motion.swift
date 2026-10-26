@@ -36,9 +36,11 @@ public struct Motion {
 
     /// System Reduce Motion (Accessibility > Display) or calm mode (`ui.calm`, ``CalmMode``), or
     /// the test override.
-    public static var reduceMotion: Bool {
-        reduceMotionOverride ?? (NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            || DesignSettings.shared.calmMode.reducesMotion)
+    public static var reduceMotion: Bool { reduceMotion(of: .shared) }
+
+    /// ``reduceMotion`` with `design`'s calm mode.
+    public static func reduceMotion(of design: DesignSettings) -> Bool {
+        reduceMotionOverride ?? (NSWorkspace.shared.accessibilityDisplayShouldReduceMotion || design.calmMode.reducesMotion)
     }
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
@@ -48,13 +50,16 @@ public struct Motion {
     /// Reduce Motion and a live resize. Animations never read it directly:
     /// they ask their category's gate (`Motion.sidebar.policy`), which adds
     /// the category.
-    public static var basePolicy: MotionPolicy {
-        let design = DesignSettings.shared
-        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
-                            enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
-                            animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
-                            disabledCategories: design.disabledAnimationCategories,
-                            pacesLoops: design.loopsFollowFrameRate)
+    public static var basePolicy: MotionPolicy { basePolicy(of: .shared) }
+
+    /// ``basePolicy`` as `design`'s settings make it. The gates read it of `DesignSettings.shared`; a reader
+    /// that holds its own `DesignSettings` (the oracle's settings facet) reads it with the same rules.
+    public static func basePolicy(of design: DesignSettings) -> MotionPolicy {
+        MotionPolicy(speed: design.animationSpeed, reduceMotion: reduceMotion(of: design), bounce: design.animationBounce,
+                     enabledKinds: design.enabledAnimations, liveResize: isLiveResizing,
+                     animationsEnabled: design.animationsEnabled && !design.calmMode.stopsAnimations,
+                     disabledCategories: design.disabledAnimationCategories,
+                     pacesLoops: design.loopsFollowFrameRate)
     }
 
     // MARK: Gates, one per MotionCategory

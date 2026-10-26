@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextHibernation
 
-// Parked workspaces (plans/cmux-next/tab-lifecycle.md): every workspace this window showed stays mounted and
-// paused, so a switch back swaps its view in within the frame.
+// Parked workspaces (plans/cmux-next/tab-lifecycle.md): a workspace this window showed stays mounted and
+// paused, so a switch back swaps its view in within the frame. The app's `ParkedWorkspaceBudget` follows them
+// across every window: critical memory pressure tears them down one per release slice, and with
+// `memoryDiscardParkedWorkspaces` (default off) it holds them to the Mac's budget and idle timeout.
 extension WindowController {
     /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
     var mountedContents: [WorkspaceContentController] {
@@ -13,35 +15,35 @@ extension WindowController {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
+        services.parkedWorkspaceBudget.didPark(controller.workspace.id, in: self)
+    }
+
+    /// Takes parked workspace `id` out of the window (to show it, or to tear it down) and out of the budget.
+    func unpark(_ id: String) -> WorkspaceContentController? {
+        services.parkedWorkspaceBudget.forget(id, in: self)
+        return parked.removeValue(forKey: id)
     }
 }
 
-// Critical memory pressure releases parked workspaces one per frame (`ParkedWorkspaceRelease`): each
-// leaves (views, panes, observations; its terminal surfaces already left the warm set) and mounts again
-// when shown, with its view-only state (strip and screen bar scroll) reset.
-extension WindowController: ParkedWorkspaceHost {
+extension WindowController: ParkedWorkspaceHolder {
+    /// Shown, not minimized and not fully covered.
     var showsOnScreen: Bool {
         guard let window else { return false }
         return window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
     }
 
-    /// The one under a top page stays: it is this window's workspace. So do the ones on screen beside
-    /// the shown one (`sidebar.multiView`).
-    var oldestReleasableParked: (id: String, serial: UInt64)? {
-        var oldest: (id: String, serial: UInt64)?
-        for (id, controller) in parked where isReleasable(id) {
-            if let current = oldest, current.serial <= controller.parkedSerial { continue }
-            oldest = (id, controller.parkedSerial)
-        }
-        return oldest
+    /// The window's own workspace under a top page stays (it is this window's workspace), and so do
+    /// the ones on screen beside the shown one (`sidebar.multiView`).
+    func keepsParkedWorkspace(_ id: String) -> Bool {
+        (content == nil && id == state.workspaceID) || state.viewSet?.contains(id) == true
     }
 
-    func releaseParked(_ id: String) {
-        guard isReleasable(id), let controller = parked.removeValue(forKey: id) else { return }
+    /// Tears the workspace down (views, panes, observations); it mounts again when shown, with its
+    /// view-only state (strip and screen bar scroll) reset.
+    @discardableResult
+    func discardParkedWorkspace(_ id: String) -> Bool {
+        guard let controller = unpark(id) else { return false }
         controller.teardown()
-    }
-
-    private func isReleasable(_ id: String) -> Bool {
-        (content != nil || id != state.workspaceID) && state.viewSet?.contains(id) != true
+        return true
     }
 }

@@ -11,7 +11,8 @@ public import CmuxNextWakeups
 /// (`AppServices+AfterFirstFrame`); tests pass their own and read the scheduler's records.
 ///
 /// ```swift
-/// LaunchServicePosts.nonPaint(freeTierAttest: attest, ssh: ssh, serverReach: reach, updater: update)
+/// LaunchServicePosts.nonPaint(freeTierAttest: attest, ssh: ssh, serverReach: reach, updater: update,
+///                             emptyWorkspaceRepair: repair)
 ///     .post(on: startup)
 /// ```
 @MainActor
@@ -29,7 +30,7 @@ public struct LaunchServicePosts {
     /// The posts, in post order.
     public let posts: [Post]
 
-    /// The free-tier attest, SSH, server reach and the updater (Sparkle).
+    /// The free-tier attest, SSH, server reach, the updater (Sparkle) and the empty-workspace repair.
     ///
     /// - Parameters:
     ///   - freeTierAttest: Starts the free-tier attest.
@@ -37,20 +38,25 @@ public struct LaunchServicePosts {
     ///     them on app activation and system wake.
     ///   - serverReach: Starts the server reach.
     ///   - updater: Starts the updater.
+    ///   - emptyWorkspaceRepair: Builds the empty-workspace repair, which starts its store observation; a
+    ///     window's content builds it before its frame, so this one matters on a launch with no window.
     /// - Returns: The posts, SSH at afterFirstFrame and the rest at afterStartup.
     public static func nonPaint(freeTierAttest: @escaping @MainActor @Sendable () -> Void,
                                 ssh: @escaping @MainActor @Sendable () -> Void,
                                 serverReach: @escaping @MainActor @Sendable () -> Void,
-                                updater: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
+                                updater: @escaping @MainActor @Sendable () -> Void,
+                                emptyWorkspaceRepair: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
         LaunchServicePosts(posts: [
             Post(priority: .afterFirstFrame, name: "SSH.start", work: ssh),
             Post(priority: .afterStartup, name: "FreeTierAttest.start", work: freeTierAttest),
             Post(priority: .afterStartup, name: "ServerReach.start", work: serverReach),
             Post(priority: .afterStartup, name: "Updater.start", work: updater),
+            Post(priority: .afterStartup, name: "EmptyWorkspaceRepair.observe", work: emptyWorkspaceRepair),
         ])
     }
 
-    /// The warm-ups for later tabs (Chromium, the New Tab spare, page hosts) and the agent tab import.
+    /// The warm-ups for later tabs (Chromium, the New Tab spare, page hosts), the agent tab import and the
+    /// right sidebar's icons.
     ///
     /// - Parameters:
     ///   - chromiumWarmup: Arms Chromium's own launch warm-up (task 018 moves its timers onto the scheduler).
@@ -59,18 +65,21 @@ public struct LaunchServicePosts {
     ///   - spareWarming: Lets the New Tab spare be made (`NewTabSparePool.startWarming()`).
     ///   - pageHostPool: Starts the page host pool.
     ///   - agentTabImport: Starts the agent tab import.
+    ///   - rightSidebarIcons: Posts the right sidebar's icon build on the cpu lane (a panel built first posted it).
     /// - Returns: The posts, Chromium and the spare's hooks at afterFirstFrame and the rest at afterStartup.
     public static func laterTabs(chromiumWarmup: @escaping @MainActor @Sendable () -> Void,
                                  spareHooks: @escaping @MainActor @Sendable () -> Void,
                                  spareWarming: @escaping @MainActor @Sendable () -> Void,
                                  pageHostPool: @escaping @MainActor @Sendable () -> Void,
-                                 agentTabImport: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
+                                 agentTabImport: @escaping @MainActor @Sendable () -> Void,
+                                 rightSidebarIcons: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
         LaunchServicePosts(posts: [
             Post(priority: .afterFirstFrame, name: "ChromiumWarmup.start", work: chromiumWarmup),
             Post(priority: .afterFirstFrame, name: "NewTabSpares.hooks", work: spareHooks),
             Post(priority: .afterStartup, name: "NewTabSpares.warm", work: spareWarming),
             Post(priority: .afterStartup, name: "PageHostPool.start", work: pageHostPool),
             Post(priority: .afterStartup, name: "AgentTabImport.start", work: agentTabImport),
+            Post(priority: .afterStartup, name: "RightSidebar.prewarm", work: rightSidebarIcons),
         ])
     }
 

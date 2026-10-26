@@ -8,14 +8,16 @@ import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
+import CmuxNextWakeups
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
-    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers
-    /// with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it
-    /// each level, as do the terminal warm set (the one budget of hidden GPU surfaces) and the parked
-    /// workspaces, which the coordinator releases one surface or one workspace per frame.
+    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers with
+    /// the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each
+    /// level. The terminal warm set (the one budget of hidden GPU surfaces, a lossless consumer) and the
+    /// parked workspaces (a lossy one) register there too; the coordinator releases them one surface or
+    /// one workspace per frame.
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
@@ -28,14 +30,16 @@ extension AppServices {
         }
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
+        hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
+        hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
-        cache.warmSetRelease = WarmSetRelease(host: cache, registry: memoryCoordinator) { WarmSetBudget.current(pressure: $0).terminalCapacity }
-        windows.parkedRelease = ParkedWorkspaceRelease(hosts: { [weak self] in self?.windows.controllers.map { $0 as any ParkedWorkspaceHost } ?? [] }, registry: memoryCoordinator)
+        cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
+        _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard) {
             hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
@@ -49,6 +53,21 @@ extension AppServices {
         let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
         let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
         return FrozenGrowthRule.openerGroup(of: key, openers: openers)
+    }
+
+    /// The parked workspaces of every window: none at critical memory pressure, one teardown per release
+    /// slice (p07-memory-096). With `memoryDiscardParkedWorkspaces` (p07-memory-032) also
+    /// `SubsystemBudget.parkedWorkspaces` across every window and the 15 min idle timeout with
+    /// `memoryDiscardParkedIdleTimeout`; off, every parked workspace stays until critical pressure. Its
+    /// look runs as background work on one deadline.
+    func makeParkedWorkspaceBudget() -> ParkedWorkspaceBudget {
+        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
+        let held = features.isEnabled(.memoryDiscardParkedWorkspaces)
+        return ParkedWorkspaceBudget(
+            capacity: held ? budget.parkedWorkspaces : nil,
+            idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
+            deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
+            memory: memoryCoordinator)
     }
 }
 

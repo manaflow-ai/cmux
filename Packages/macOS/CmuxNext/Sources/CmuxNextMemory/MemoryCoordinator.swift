@@ -14,7 +14,9 @@ public import CmuxNextCompat
 ///   never in the event's turn.
 /// - Each slice gives the consumers whose limit fell, in ``MemoryReleaseOrder``, one shared budget
 ///   (2 ms on the injected clock). A consumer stops when the slice expires; the next one waits for a
-///   later frame.
+///   later frame. A consumer that frees one item per frame (``MemoryReleaseProgress/yield``) leaves
+///   the rest of the slice to the ones after it and goes again on the next frame, so a pass ordered
+///   later (the urgent page discard) never waits for it to finish.
 /// - A consumer whose limit rises again before its release ran is not called: critical then normal
 ///   in one frame makes no release call.
 /// - A repeated level makes no call at all.
@@ -194,6 +196,8 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
             case .more:
                 scheduleSlice()
                 return
+            case .yield:
+                scheduleSlice()
             }
         }
     }

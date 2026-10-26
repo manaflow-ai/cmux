@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b";
+inline constexpr std::string_view kProtocolIrSha256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -26,7 +26,11 @@ struct AgentCliStoredIntent;
 enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
+struct AgentSessionAcpmuxReply;
+struct AgentSessionAnsweredBy;
+struct AgentSessionPage;
 struct AgentSessionSource;
+struct AgentSessionSummary;
 enum class AgentSource;
 enum class AgentState;
 struct AppGrant;
@@ -277,6 +281,23 @@ struct AgentCliIntentsSettleRequest;
 struct AgentCliIntentsSettleResult;
 struct AgentCliUpdateJobRequest;
 struct AgentCliUpdateJobResolveRequest;
+struct AgentSessionAttachRequest;
+struct AgentSessionCancelRequest;
+struct AgentSessionCancelResult;
+struct AgentSessionChildrenRequest;
+struct AgentSessionChildrenResult;
+struct AgentSessionDetachRequest;
+struct AgentSessionDetachResult;
+struct AgentSessionEventsRequest;
+struct AgentSessionMediaRequest;
+struct AgentSessionMediaResult;
+struct AgentSessionObserveRequest;
+struct AgentSessionPermissionRequest;
+struct AgentSessionPromptRequest;
+struct AgentSessionPromptResult;
+struct AgentSessionStartRequest;
+struct AgentSessionStartResult;
+struct AgentSessionTrustRequest;
 struct ApplyLayoutRequest;
 struct AppsAgentInventoryChangedRequest;
 struct AppsDispatchRequest;
@@ -735,6 +756,7 @@ enum class TabKind;
 struct TerminalExitOutcomeExit;
 struct TerminalExitOutcomeSignal;
 struct TerminalExitOutcomeUnknown;
+enum class AgentSessionTrustRequestLevel;
 enum class AttachSurfaceRequestMode;
 enum class BrowserKeyRequestKind;
 enum class BrowserMouseRequestKind;
@@ -1031,12 +1053,164 @@ enum class AgentReportSource {
     hook,
 };
 
+struct AgentSessionAcpmuxReply {
+    Json value{};
+    friend bool operator==(const AgentSessionAcpmuxReply&, const AgentSessionAcpmuxReply&) = default;
+};
+
+struct AgentSessionAnsweredBy {
+    std::string device{};
+    std::string feed_item{};
+    friend bool operator==(const AgentSessionAnsweredBy&, const AgentSessionAnsweredBy&) = default;
+};
+
+struct AgentSessionAttachRequest {
+    Field<std::uint64_t> after_seq{};
+    Field<std::uint64_t> before_seq{};
+    Field<std::vector<std::string>> kinds{};
+    Field<std::uint64_t> limit{};
+    Id surface{};
+    friend bool operator==(const AgentSessionAttachRequest&, const AgentSessionAttachRequest&) = default;
+};
+
+struct AgentSessionCancelRequest {
+    Id surface{};
+    friend bool operator==(const AgentSessionCancelRequest&, const AgentSessionCancelRequest&) = default;
+};
+
+struct AgentSessionCancelResult {
+    friend bool operator==(const AgentSessionCancelResult&, const AgentSessionCancelResult&) = default;
+};
+
+struct AgentSessionChildrenRequest {
+    Id surface{};
+    friend bool operator==(const AgentSessionChildrenRequest&, const AgentSessionChildrenRequest&) = default;
+};
+
+struct AgentSessionSummary {
+    Json value{};
+    friend bool operator==(const AgentSessionSummary&, const AgentSessionSummary&) = default;
+};
+
+struct AgentSessionChildrenResult {
+    std::vector<AgentSessionSummary> sessions{};
+    friend bool operator==(const AgentSessionChildrenResult&, const AgentSessionChildrenResult&) = default;
+};
+
+struct AgentSessionDetachRequest {
+    Id surface{};
+    friend bool operator==(const AgentSessionDetachRequest&, const AgentSessionDetachRequest&) = default;
+};
+
+struct AgentSessionDetachResult {
+    friend bool operator==(const AgentSessionDetachResult&, const AgentSessionDetachResult&) = default;
+};
+
+struct AgentSessionEventsRequest {
+    Field<std::uint64_t> after_seq{};
+    Field<std::uint64_t> before_seq{};
+    Field<std::vector<std::string>> kinds{};
+    Field<std::uint64_t> limit{};
+    Id surface{};
+    friend bool operator==(const AgentSessionEventsRequest&, const AgentSessionEventsRequest&) = default;
+};
+
+struct AgentSessionMediaRequest {
+    std::string path{};
+    Id surface{};
+    friend bool operator==(const AgentSessionMediaRequest&, const AgentSessionMediaRequest&) = default;
+};
+
+struct AgentSessionMediaResult {
+    std::string data{};
+    std::optional<std::string> mime_type{};
+    friend bool operator==(const AgentSessionMediaResult&, const AgentSessionMediaResult&) = default;
+};
+
+struct AgentSessionObserveRequest {
+    Field<std::uint64_t> after_seq{};
+    Field<std::uint64_t> before_seq{};
+    Field<std::vector<std::string>> kinds{};
+    Field<std::uint64_t> limit{};
+    Id surface{};
+    friend bool operator==(const AgentSessionObserveRequest&, const AgentSessionObserveRequest&) = default;
+};
+
+struct AgentSessionPage {
+    Json value{};
+    friend bool operator==(const AgentSessionPage&, const AgentSessionPage&) = default;
+};
+
+struct AgentSessionPermissionRequest {
+    Field<AgentSessionAnsweredBy> answered_by{};
+    Field<std::string> decision_nonce{};
+    std::string option_id{};
+    std::string permission_id{};
+    Field<std::string> person_decision{};
+    Id surface{};
+    friend bool operator==(const AgentSessionPermissionRequest&, const AgentSessionPermissionRequest&) = default;
+};
+
+struct AgentSessionPromptRequest {
+    std::string prompt_id{};
+    Id surface{};
+    std::string text{};
+    friend bool operator==(const AgentSessionPromptRequest&, const AgentSessionPromptRequest&) = default;
+};
+
+struct AgentSessionPromptResult {
+    std::string prompt_id{};
+    bool queued{};
+    std::optional<std::string> turn_id{};
+    friend bool operator==(const AgentSessionPromptResult&, const AgentSessionPromptResult&) = default;
+};
+
 struct AgentSessionSource {
     Field<std::string> harness{};
     std::string host{};
     Field<std::string> host_name{};
     Field<std::string> session{};
     friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
+struct AgentSessionStartRequest {
+    std::string cwd{};
+    Field<std::string> harness{};
+    std::optional<bool> home_confirmed{};
+    Field<std::string> person_instance{};
+    std::optional<bool> require_person_key{};
+    Id surface{};
+    friend bool operator==(const AgentSessionStartRequest&, const AgentSessionStartRequest&) = default;
+};
+
+struct ConversationTabRecord {
+    std::optional<AgentSessionSource> agent_session{};
+    std::optional<std::string> conversation{};
+    std::optional<std::string> owner{};
+    std::optional<std::string> page{};
+    std::optional<std::string> route{};
+    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
+};
+
+struct AgentSessionStartResult {
+    ConversationTabRecord conversation{};
+    std::string session{};
+    Id surface{};
+    friend bool operator==(const AgentSessionStartResult&, const AgentSessionStartResult&) = default;
+};
+
+enum class AgentSessionTrustRequestLevel {
+    trusted,
+    untrusted,
+    unknown,
+};
+
+struct AgentSessionTrustRequest {
+    std::string cwd{};
+    std::optional<bool> home_confirmed{};
+    Field<AgentSessionTrustRequestLevel> level{};
+    Id surface{};
+    friend bool operator==(const AgentSessionTrustRequest&, const AgentSessionTrustRequest&) = default;
 };
 
 struct AppGrant {
@@ -1372,15 +1546,6 @@ struct BindConversationTabSessionRequest {
     std::string session{};
     Id surface{};
     friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
-};
-
-struct ConversationTabRecord {
-    std::optional<AgentSessionSource> agent_session{};
-    std::optional<std::string> conversation{};
-    std::optional<std::string> owner{};
-    std::optional<std::string> page{};
-    std::optional<std::string> route{};
-    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
 struct BindConversationTabSessionResult {
@@ -6633,9 +6798,33 @@ struct Codec<AgentReportSource> {
 };
 
 template <>
+struct Codec<AgentSessionAcpmuxReply> {
+    static Result<Json> encode(const AgentSessionAcpmuxReply& value);
+    static Result<AgentSessionAcpmuxReply> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionAnsweredBy> {
+    static Result<Json> encode(const AgentSessionAnsweredBy& value);
+    static Result<AgentSessionAnsweredBy> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionPage> {
+    static Result<Json> encode(const AgentSessionPage& value);
+    static Result<AgentSessionPage> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentSessionSource> {
     static Result<Json> encode(const AgentSessionSource& value);
     static Result<AgentSessionSource> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionSummary> {
+    static Result<Json> encode(const AgentSessionSummary& value);
+    static Result<AgentSessionSummary> decode(const Json& value);
 };
 
 template <>
@@ -8136,6 +8325,108 @@ template <>
 struct Codec<AgentCliUpdateJobResolveRequest> {
     static Result<Json> encode(const AgentCliUpdateJobResolveRequest& value);
     static Result<AgentCliUpdateJobResolveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionAttachRequest> {
+    static Result<Json> encode(const AgentSessionAttachRequest& value);
+    static Result<AgentSessionAttachRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionCancelRequest> {
+    static Result<Json> encode(const AgentSessionCancelRequest& value);
+    static Result<AgentSessionCancelRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionCancelResult> {
+    static Result<Json> encode(const AgentSessionCancelResult& value);
+    static Result<AgentSessionCancelResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionChildrenRequest> {
+    static Result<Json> encode(const AgentSessionChildrenRequest& value);
+    static Result<AgentSessionChildrenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionChildrenResult> {
+    static Result<Json> encode(const AgentSessionChildrenResult& value);
+    static Result<AgentSessionChildrenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionDetachRequest> {
+    static Result<Json> encode(const AgentSessionDetachRequest& value);
+    static Result<AgentSessionDetachRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionDetachResult> {
+    static Result<Json> encode(const AgentSessionDetachResult& value);
+    static Result<AgentSessionDetachResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionEventsRequest> {
+    static Result<Json> encode(const AgentSessionEventsRequest& value);
+    static Result<AgentSessionEventsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionMediaRequest> {
+    static Result<Json> encode(const AgentSessionMediaRequest& value);
+    static Result<AgentSessionMediaRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionMediaResult> {
+    static Result<Json> encode(const AgentSessionMediaResult& value);
+    static Result<AgentSessionMediaResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionObserveRequest> {
+    static Result<Json> encode(const AgentSessionObserveRequest& value);
+    static Result<AgentSessionObserveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionPermissionRequest> {
+    static Result<Json> encode(const AgentSessionPermissionRequest& value);
+    static Result<AgentSessionPermissionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionPromptRequest> {
+    static Result<Json> encode(const AgentSessionPromptRequest& value);
+    static Result<AgentSessionPromptRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionPromptResult> {
+    static Result<Json> encode(const AgentSessionPromptResult& value);
+    static Result<AgentSessionPromptResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionStartRequest> {
+    static Result<Json> encode(const AgentSessionStartRequest& value);
+    static Result<AgentSessionStartRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionStartResult> {
+    static Result<Json> encode(const AgentSessionStartResult& value);
+    static Result<AgentSessionStartResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionTrustRequest> {
+    static Result<Json> encode(const AgentSessionTrustRequest& value);
+    static Result<AgentSessionTrustRequest> decode(const Json& value);
 };
 
 template <>
@@ -10884,6 +11175,12 @@ template <>
 struct Codec<TerminalExitOutcomeUnknown> {
     static Result<Json> encode(const TerminalExitOutcomeUnknown& value);
     static Result<TerminalExitOutcomeUnknown> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentSessionTrustRequestLevel> {
+    static Result<Json> encode(const AgentSessionTrustRequestLevel& value);
+    static Result<AgentSessionTrustRequestLevel> decode(const Json& value);
 };
 
 template <>

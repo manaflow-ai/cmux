@@ -7,42 +7,57 @@ import CmuxNextCompat
 import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
+@testable import CmuxNextTerminal
 import Testing
 
 /// Memory pressure releases the terminal warm set and the parked workspaces through the app's memory
-/// coordinator, one surface close or one workspace teardown per release slice, on frames after the
+/// coordinator, one surface close and one workspace teardown per release slice, on frames after the
 /// pressure event (p07-memory-096). Before, `memoryPressureDidChange` closed every surface over the
 /// smaller budget and tore down every parked workspace of every window in the event's turn.
+///
+/// What a real close or teardown costs on the main thread is not measured here: the fake clock only
+/// moves when a test moves it. The "no turn over 4 ms" clause rests on `bench_memory --pressure
+/// critical` with a 150 workspace STRESS session on the fleet.
 @MainActor @Suite(.serialized)
 struct SlicedReleaseTests {
-    @Test func criticalReleasesOneSurfaceOrWorkspacePerSlice() {
+    @Test func criticalReleasesOneSurfaceAndOneWorkspacePerSlice() {
         let rig = SlicedReleaseRig(warm: 30, windows: [(onScreen: true, parked: 50), (false, 50), (false, 50)])
         rig.kernel.send(.critical)
         #expect(rig.released == 0, "nothing is released in the pressure event's turn")
 
-        let perFrame = rig.drain()
+        let frames = rig.drain()
 
         #expect(rig.warm.closes == 30)
-        #expect(rig.parked.teardowns == 150)
-        #expect(perFrame.allSatisfy { $0 <= 1 }, "a slice released \(perFrame.max() ?? 0) items")
-        // One slice per item, plus one per consumer that finds itself within its limit.
-        #expect(perFrame.count <= 180 + 2, "the release took \(perFrame.count) slices")
-        #expect(rig.slicer.frameDurations.allSatisfy { $0 <= .milliseconds(4) },
-                "a release frame took \(rig.slicer.frameDurations.max() ?? .zero)")
+        #expect(rig.parked.discardedCount == 150)
+        #expect(frames.allSatisfy { $0.closes <= 1 }, "a slice closed \(frames.map(\.closes).max() ?? 0) surfaces")
+        #expect(frames.allSatisfy { $0.teardowns <= 1 }, "a slice tore down \(frames.map(\.teardowns).max() ?? 0) workspaces")
+        // The two release side by side: one slice per workspace, plus one that finds the release done.
+        #expect(frames.count <= 150 + 1, "the release took \(frames.count) slices")
         #expect(rig.cache.ledger.capacity == 0)
         #expect(rig.warmKeys.allSatisfy { !rig.cache.ledger.isRetained($0) })
         #expect(rig.windows.allSatisfy { $0.parked.isEmpty })
     }
 
-    /// The warm set closes its surfaces before any parked workspace goes (lossless before lossy), and
-    /// the parked workspaces of off-screen windows go before those of the window on screen, least
-    /// recently shown first.
+    /// A consumer ordered after the warm set (the browser's urgent discard pass) runs on the first
+    /// release frame, not after the warm set's 30 single closes.
+    @Test func theUrgentPassRunsOnTheFirstReleaseFrame() {
+        let rig = SlicedReleaseRig(warm: 30, windows: [(onScreen: false, parked: 5)])
+        rig.kernel.send(.critical)
+        rig.drain()
+
+        #expect(rig.urgent.passFrames == [1], "the urgent pass ran on frames \(rig.urgent.passFrames)")
+        #expect(rig.order.prefix(2) == ["warm", "w0-0"], "the first frame did not close a surface, then tear down a workspace")
+    }
+
+    /// The parked workspaces of off-screen windows go before those of the window on screen, least
+    /// recently shown first; in each frame the warm set (lossless) goes before the teardown (lossy).
     @Test func hiddenGoesBeforeVisibleAdjacent() {
         let rig = SlicedReleaseRig(warm: 3, windows: [(onScreen: true, parked: 2), (false, 2), (false, 2)])
         rig.kernel.send(.critical)
         rig.drain()
 
-        #expect(rig.order == ["warm", "warm", "warm", "w1-0", "w1-1", "w2-0", "w2-1", "w0-0", "w0-1"])
+        #expect(rig.order.filter { $0 != "warm" } == ["w1-0", "w1-1", "w2-0", "w2-1", "w0-0", "w0-1"])
+        #expect(rig.order.prefix(6) == ["warm", "w1-0", "warm", "w1-1", "warm", "w2-0"])
     }
 
     /// A workspace shown while the release runs is no longer parked and stays.
@@ -53,28 +68,52 @@ struct SlicedReleaseTests {
         rig.windows[0].show("w0-3")
         rig.drain()
 
-        #expect(rig.parked.teardowns == 3)
+        #expect(rig.parked.discardedCount == 3)
         #expect(!rig.order.contains("w0-3"))
     }
 
-    /// Warning shrinks the warm set to its warning budget one surface per slice and keeps every parked
-    /// workspace; normal raises the budget at once with no release.
-    @Test func warningShrinksTheWarmSetSlicedAndKeepsParkedWorkspaces() {
+    /// Warning scales the warm set by its limit, the Memory Saver mode's share of 50 % (medium: 25 %),
+    /// one surface per slice, and keeps every parked workspace; a mode with a larger share raises it at
+    /// once, and normal gives back the full capacity with no release.
+    @Test func warningScalesTheWarmSetByItsLimitAndKeepsParkedWorkspaces() {
         let rig = SlicedReleaseRig(warm: 30, windows: [(onScreen: false, parked: 5)])
         rig.kernel.send(.warning)
         #expect(rig.cache.ledger.capacity == SlicedReleaseRig.normalCapacity, "nothing closes in the event's turn")
+        let warning = rig.coordinator.limit(for: WarmSetRelease.memoryTraits)
+        #expect(warning == MemoryLimit(percent: 25))
+        #expect(rig.cache.warmBudget.terminalCapacity == warning.scale(SlicedReleaseRig.normalCapacity))
 
-        let perFrame = rig.drain()
+        let frames = rig.drain()
 
-        #expect(rig.warm.closes == 30 - SlicedReleaseRig.warningCapacity)
-        #expect(perFrame.allSatisfy { $0 <= 1 })
-        #expect(rig.parked.teardowns == 0)
-        #expect(rig.cache.warmBudget.terminalCapacity == SlicedReleaseRig.warningCapacity)
+        #expect(rig.warm.closes == 30 - warning.scale(SlicedReleaseRig.normalCapacity))
+        #expect(frames.allSatisfy { $0.closes <= 1 })
+        #expect(rig.parked.discardedCount == 0)
+        #expect(rig.cache.ledger.capacity == warning.scale(SlicedReleaseRig.normalCapacity))
+
+        rig.coordinator.mode = .off
+        let off = rig.coordinator.limit(for: WarmSetRelease.memoryTraits)
+        #expect(rig.cache.ledger.capacity == off.scale(SlicedReleaseRig.normalCapacity), "the warm set did not follow its larger limit")
 
         rig.kernel.send(.normal)
         #expect(!rig.slicer.hasPendingSlice)
         #expect(rig.cache.ledger.capacity == SlicedReleaseRig.normalCapacity)
         #expect(rig.cache.warmBudget.terminalCapacity == SlicedReleaseRig.normalCapacity)
+    }
+
+    /// Surfaces hidden in the last 2 s are the warm set's working set (p07-memory.md section 3.A):
+    /// critical closes the older ones and stops there.
+    @Test func criticalKeepsTheSurfacesHiddenInTheLastTwoSeconds() {
+        let rig = SlicedReleaseRig(warm: 10, windows: [])
+        rig.clock.advance(by: .seconds(5))
+        let recent = rig.hide(3)
+        rig.clock.advance(by: .seconds(1))
+        rig.kernel.send(.critical)
+        let frames = rig.drain()
+
+        #expect(rig.warm.closes == 10)
+        #expect(recent.allSatisfy { rig.cache.ledger.isRetained($0) }, "a surface hidden a second ago closed")
+        #expect(rig.cache.ledger.capacity == 3)
+        #expect(frames.count == 11, "the working set did not end the release (\(frames.count) frames)")
     }
 
     /// Critical then normal before the next frame releases nothing.
@@ -85,18 +124,109 @@ struct SlicedReleaseTests {
         rig.drain()
 
         #expect(rig.released == 0)
+        #expect(rig.urgent.passFrames.isEmpty)
         #expect(rig.cache.ledger.capacity == SlicedReleaseRig.normalCapacity)
+    }
+
+    /// The warm set's release closes real terminals (`TerminalEntry`) at once, keeping no last picture.
+    @Test func aReleasedSurfaceClosesAtOnceWithNoLastFrame() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let cache = services.cache
+        let rig = SlicedReleaseRig(warm: 0, windows: [], cache: cache)
+        var scripted: [ScriptedTerminalIO] = []
+        defer { scripted.forEach { $0.finish() } }
+        let keys = (1...3).map { "terminal-\($0)" }
+        for (index, key) in keys.enumerated() {
+            let io = ScriptedTerminalIO()
+            scripted.append(io)
+            cache.terminals[key] = try Self.entry(services, surface: UInt64(index + 1), io: io)
+        }
+        rig.hide(keys)
+        rig.clock.advance(by: .seconds(3))
+        let kept = cache.lastFrames.outcomes["kept"] ?? 0, atOnce = cache.lastFrames.outcomes["evicted_at_once"] ?? 0
+
+        rig.kernel.send(.critical)
+        let frames = rig.drain()
+
+        #expect(frames.allSatisfy { $0.closes <= 1 })
+        #expect(keys.allSatisfy { cache.terminals[$0] == nil }, "a hidden terminal stayed open at critical")
+        #expect(keys.allSatisfy { cache.lastFrames[$0] == nil }, "a pressure close kept a last frame")
+        #expect((cache.lastFrames.outcomes["evicted_at_once"] ?? 0) - atOnce == keys.count)
+        #expect((cache.lastFrames.outcomes["kept"] ?? 0) == kept)
+        withExtendedLifetime(services) {}
+    }
+
+    /// A terminal of the cache on a scripted IO, as `TabContentCache` makes one for a daemon tab.
+    private static func entry(_ services: AppServices, surface: UInt64, io scripted: ScriptedTerminalIO) throws -> TerminalEntry {
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: surface), title: "~"))
+        let session = TerminalSession(io: scripted)
+        try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
+        let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
+                                  visible: false, endpoint: { throw CancellationError() })
+        return TerminalEntry(validity: "test", session: session, io: io, themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
+                             store: services.daemon.store, surface: tab.surface)
+    }
+}
+
+/// The production `WindowController` under the parked workspaces' release: the workspace under a top
+/// page and the ones `sidebar.multiView` shows stay; the others go, least recently shown first.
+@MainActor @Suite(.serialized)
+struct SlicedReleaseWindowTests {
+    /// A window over `k0`...`k3` that showed each, back on `k0`: `k1`, `k2`, `k3` are parked, `k1` the
+    /// least recently shown.
+    private static func window() async throws -> SpaceSwitchBench {
+        try await SpaceSwitchBench(total: 4, spaces: 1, panes: true, parked: 4)
+    }
+
+    /// Tears down at critical pressure, slice by slice, what the app's parked budget gives up.
+    private static func releaseAtCritical(_ bench: SpaceSwitchBench) -> [String] {
+        let budget = bench.services.parkedWorkspaceBudget
+        let before = Set(bench.controller.parked.keys)
+        budget.updateMemoryLimit(.criticalThreshold)
+        let slice = MemoryReleaseSlice(limit: .criticalThreshold) { false }
+        var order: [String] = []
+        var remaining = before
+        for _ in 0..<before.count + 1 {
+            let progress = budget.releaseMemory(within: slice)
+            let gone = remaining.subtracting(bench.controller.parked.keys)
+            #expect(gone.count <= 1, "one slice tore down \(gone.sorted())")
+            order += gone.sorted()
+            remaining.subtract(gone)
+            if progress == .done { break }
+        }
+        return order
+    }
+
+    @Test func theWorkspaceUnderATopPageStays() async throws {
+        let bench = try await Self.window()
+        defer { bench.close() }
+        #expect(Set(bench.controller.parked.keys) == ["k1", "k2", "k3"])
+        bench.controller.parkContentForPage()
+        #expect(bench.controller.parked["k0"] != nil, "the top page did not park the window's workspace")
+
+        #expect(Self.releaseAtCritical(bench) == ["k1", "k2", "k3"])
+        #expect(Set(bench.controller.parked.keys) == ["k0"], "the workspace under the top page went")
+    }
+
+    @Test func theWorkspacesMultiViewShowsStay() async throws {
+        let bench = try await Self.window()
+        defer { bench.close() }
+        bench.state.viewSet = .split(stacked: false, first: .workspace("k0"), second: .workspace("k2"))
+        #expect(bench.controller.keepsParkedWorkspace("k2"))
+
+        #expect(Self.releaseAtCritical(bench) == ["k1", "k3"])
+        #expect(Set(bench.controller.parked.keys) == ["k2"], "a workspace on screen beside the shown one went")
     }
 }
 
 /// A memory coordinator on a manual kernel source, fake frames and a fake clock, with a real cache's
-/// warm set of hidden surfaces and fake windows of parked workspaces.
+/// warm set of hidden surfaces, a lossy urgent pass ordered after it, and the parked budget over fake
+/// windows of parked workspaces.
 @MainActor
 private final class SlicedReleaseRig {
     static let normalCapacity = 30
-    static let warningCapacity = 6
-    /// What one parked workspace teardown costs on the fake clock.
-    static let teardownCost: Duration = .milliseconds(1)
 
     let clock: SliceClock
     let slicer: FrameSlices
@@ -105,120 +235,167 @@ private final class SlicedReleaseRig {
     let coordinator: MemoryCoordinator
     let cache: TabContentCache
     let warm: WarmSetRelease
-    let parked: ParkedWorkspaceRelease
+    let urgent: FakeUrgentPass
+    let parked: ParkedWorkspaceBudget
     let windows: [FakeParkedWindow]
-    let warmKeys: [String]
-    /// The ledger keys owners by object identity: the owners live as long as the rig.
-    private let owners: [Owner]
+    private(set) var warmKeys: [String] = []
+    /// The ledger keys' owners by object identity: the owners live as long as the rig.
+    private var owners: [Owner] = []
     /// Every item released, in order: `warm` for a surface, the id of a workspace.
     private(set) var order: [String] = []
+    /// Frames fired so far.
+    private(set) var frames = 0
 
-    init(warm count: Int, windows layout: [(onScreen: Bool, parked: Int)]) {
+    init(warm count: Int, windows layout: [(onScreen: Bool, parked: Int)], cache given: TabContentCache? = nil) {
         let clock = SliceClock()
         let kernel = ManualMemoryPressureSource()
-        let slicer = FrameSlices(clock: clock)
+        let slicer = FrameSlices()
         let pressure = MemoryPressureEvents(source: kernel)
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: slicer, clock: clock)
-        let cache = TabContentCache(
+        let cache = given ?? TabContentCache(
             daemon: DaemonService(),
             cef: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
             fileInput: NoFileInput())
-        cache.ledger = SurfaceLedger(capacity: Self.normalCapacity)
-        let keys = (0..<count).map { "warm-\($0)" }
-        let owners = keys.map { _ in Owner() }
-        for (key, owner) in zip(keys, owners) {
-            _ = cache.ledger.present(key, by: ObjectIdentifier(owner), presence: .hidden)
-        }
-        var serial: UInt64 = 0
-        var windows: [FakeParkedWindow] = []
-        for (window, spec) in layout.enumerated() {
-            var serials: [String: UInt64] = [:]
-            for index in 0..<spec.parked {
-                serial += 1
-                serials["w\(window)-\(index)"] = serial
-            }
-            windows.append(FakeParkedWindow(onScreen: spec.onScreen, parked: serials))
-        }
-        let warm = WarmSetRelease(host: cache, registry: coordinator) { level in
-            switch level {
-            case .normal: Self.normalCapacity
-            case .warning: Self.warningCapacity
-            case .critical: 0
-            }
-        }
-        cache.warmSetRelease = warm
-        let hosts: [any ParkedWorkspaceHost] = windows
+        cache.ledger = SurfaceLedger(capacity: Self.normalCapacity) { clock.instant }
         self.clock = clock
         self.kernel = kernel
         self.slicer = slicer
         self.pressure = pressure
         self.coordinator = coordinator
         self.cache = cache
+        let warm = WarmSetRelease(host: cache, normalCapacity: Self.normalCapacity, registry: coordinator)
+        cache.warmSetRelease = warm
         self.warm = warm
-        parked = ParkedWorkspaceRelease(hosts: { hosts }, registry: coordinator)
-        self.windows = windows
-        warmKeys = keys
-        self.owners = owners
-        for window in windows {
-            window.onRelease = { [weak self] id in
-                clock.advance(by: Self.teardownCost)
-                self?.order.append(id)
-            }
+        urgent = FakeUrgentPass(registry: coordinator)
+        parked = ParkedWorkspaceBudget(capacity: nil, idleTimeout: nil, deadline: NoLook(), memory: coordinator)
+        self.windows = layout.map { FakeParkedWindow(onScreen: $0.onScreen) }
+        urgent.frame = { [unowned self] in self.frames }
+        for window in self.windows {
+            window.budget = parked
+            window.onDiscard = { [unowned self] id in self.order.append(id) }
         }
+        for (index, spec) in layout.enumerated() {
+            for workspace in 0..<spec.parked { self.windows[index].park("w\(index)-\(workspace)") }
+        }
+        hide((0..<count).map { "warm-\($0)" })
+        clock.advance(by: .seconds(3))  // out of the working set
+    }
+
+    /// Hides `count` new surfaces now; returns their keys.
+    @discardableResult
+    func hide(_ count: Int) -> [String] {
+        let keys = (warmKeys.count..<warmKeys.count + count).map { "warm-\($0)" }
+        hide(keys)
+        return keys
+    }
+
+    /// Hides surfaces `keys` now, each under its own presenter.
+    func hide(_ keys: [String]) {
+        for key in keys {
+            let owner = Owner()
+            owners.append(owner)
+            _ = cache.ledger.present(key, by: ObjectIdentifier(owner), presence: .hidden)
+        }
+        warmKeys += keys
     }
 
     /// Surfaces closed plus workspaces torn down so far.
-    var released: Int { warm.closes + parked.teardowns }
+    var released: Int { warm.closes + parked.discardedCount }
 
-    /// Fires one frame; returns how many items it released, or nil when no slice was asked for.
+    /// Fires one frame; returns what it released, or nil when no slice was asked for.
     @discardableResult
-    func fireFrame() -> Int? {
-        let before = released
-        let closes = warm.closes
-        guard slicer.fireFrame() else { return nil }
-        order += Array(repeating: "warm", count: warm.closes - closes)
-        return released - before
+    func fireFrame() -> (closes: Int, teardowns: Int)? {
+        guard slicer.hasPendingSlice else { return nil }
+        let closes = warm.closes, teardowns = parked.discardedCount, before = order.count
+        frames += 1
+        slicer.fireFrame()
+        // The warm set releases first in a frame (lossless before lossy).
+        order.insert(contentsOf: Array(repeating: "warm", count: warm.closes - closes), at: before)
+        return (warm.closes - closes, parked.discardedCount - teardowns)
     }
 
     /// Fires frames until none is asked for; returns what each released.
     @discardableResult
-    func drain(limit: Int = 10_000) -> [Int] {
-        var perFrame: [Int] = []
-        while perFrame.count < limit, let count = fireFrame() { perFrame.append(count) }
+    func drain(limit: Int = 10_000) -> [(closes: Int, teardowns: Int)] {
+        var perFrame: [(closes: Int, teardowns: Int)] = []
+        while perFrame.count < limit, let frame = fireFrame() { perFrame.append(frame) }
         return perFrame
     }
 }
 
 private final class Owner {}
 
-/// One window of parked workspaces by park serial.
+/// A lossy consumer with the browser hibernation's traits: it acts once per critical limit, on the
+/// release slice, as `BrowserHibernation`'s urgent discard pass.
 @MainActor
-private final class FakeParkedWindow: ParkedWorkspaceHost {
+private final class FakeUrgentPass: MemoryConsumer {
+    static let traits = MemoryConsumerTraits(
+        estimatedUsage: .large, dataAccess: .reads, retention: .lossy, recreateCost: .expensive,
+        releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
+
+    /// The frames its passes ran on.
+    private(set) var passFrames: [Int] = []
+    var frame: () -> Int = { 0 }
+    private var registration: MemoryConsumerRegistration?
+
+    init(registry: any MemoryConsumerRegistry) {
+        registration = MemoryConsumerRegistration(name: "urgent-pass", traits: Self.traits, consumer: self, registry: registry)
+    }
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {}
+
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        if slice.limit.isCritical { passFrames.append(frame()) }
+        return .done
+    }
+
+    var memoryUsage: MemoryUsage? { nil }
+}
+
+/// One window of parked workspaces, parked in order.
+@MainActor
+private final class FakeParkedWindow: ParkedWorkspaceHolder {
     let showsOnScreen: Bool
-    private(set) var parked: [String: UInt64]
-    var onRelease: (String) -> Void = { _ in }
+    private(set) var parked: Set<String> = []
+    weak var budget: ParkedWorkspaceBudget?
+    var onDiscard: (String) -> Void = { _ in }
 
-    init(onScreen: Bool, parked: [String: UInt64]) {
+    init(onScreen: Bool) {
         showsOnScreen = onScreen
-        self.parked = parked
     }
 
-    var oldestReleasableParked: (id: String, serial: UInt64)? {
-        parked.min { $0.value < $1.value }.map { (id: $0.key, serial: $0.value) }
-    }
-
-    func releaseParked(_ id: String) {
-        guard parked.removeValue(forKey: id) != nil else { return }
-        onRelease(id)
+    func park(_ id: String) {
+        parked.insert(id)
+        budget?.didPark(id, in: self)
     }
 
     /// The person switches to `id`: it shows and is no longer parked.
     func show(_ id: String) {
-        parked[id] = nil
+        parked.remove(id)
+        budget?.forget(id, in: self)
+    }
+
+    func keepsParkedWorkspace(_ id: String) -> Bool { false }
+
+    func discardParkedWorkspace(_ id: String) -> Bool {
+        guard parked.remove(id) != nil else { return false }
+        onDiscard(id)
+        return true
     }
 }
 
-/// A clock whose time moves only when the test's work advances it.
+/// The parked budget's look deadline: with no budget and no timeout a park arms none.
+@MainActor
+private final class NoLook: ParkedWorkspaceDeadline {
+    func schedule(after delay: Duration, _ action: @escaping @MainActor () -> Void) {
+        Issue.record("a look was armed with no budget and no timeout")
+    }
+
+    func cancel() {}
+}
+
+/// A clock whose time moves only when the test moves it: the slices' budget and the warm set's hide
+/// times.
 private nonisolated final class SliceClock: Clock, Sendable {
     nonisolated struct Instant: InstantProtocol {
         var offset: Duration
@@ -232,11 +409,15 @@ private nonisolated final class SliceClock: Clock, Sendable {
         case notSupported
     }
 
+    private let base = ContinuousClock.now
     // Advanced and read on main; Clock is Sendable.
     private let offset = Mutex<Duration>(.zero)
 
     var now: Instant { Instant(offset: offset.withLock { $0 }) }
     var minimumResolution: Duration { .nanoseconds(1) }
+
+    /// The same time as a `ContinuousClock` instant (the ledger's hide times).
+    var instant: ContinuousClock.Instant { base.advanced(by: offset.withLock { $0 }) }
 
     func advance(by duration: Duration) {
         offset.withLock { $0 += duration }
@@ -247,16 +428,10 @@ private nonisolated final class SliceClock: Clock, Sendable {
     }
 }
 
-/// Release frames the test fires; records the clock time each took (the main frame budget's view).
+/// Release frames the test fires.
 @MainActor
 private final class FrameSlices: MemoryReleaseSlicer {
     private var pending: [@MainActor () -> Void] = []
-    private let clock: SliceClock
-    private(set) var frameDurations: [Duration] = []
-
-    init(clock: SliceClock) {
-        self.clock = clock
-    }
 
     var hasPendingSlice: Bool { !pending.isEmpty }
 
@@ -264,14 +439,10 @@ private final class FrameSlices: MemoryReleaseSlicer {
         pending.append(slice)
     }
 
-    /// Runs the slices asked for before this call (one frame); false when none was.
-    func fireFrame() -> Bool {
+    /// Runs the slices asked for before this call (one frame).
+    func fireFrame() {
         let slices = pending
         pending = []
-        guard !slices.isEmpty else { return false }
-        let start = clock.now
         for slice in slices { slice() }
-        frameDurations.append(start.duration(to: clock.now))
-        return true
     }
 }

@@ -60,22 +60,42 @@ tab's page window covers the pane (`foreign_pages`).
   strip at once and queues `showSelected` on the frame scheduler, so holding
   Ctrl-Tab creates, attaches or reveals content only for the tab selected
   when the frame runs.
-- Terminal warm set sized by memory (`WarmSetBudget`: 1/128 of RAM at 48 MB a
-  surface, 4 to 12 hidden surfaces; pressure warning 4, critical 0). Browser
+- Terminal warm set sized by memory (`WarmSetBudget`: 1/64 of RAM at 48 MB a
+  surface, 8 to 24 hidden surfaces; memory pressure below). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
   manages their memory.
 - Workspace switches park the previous workspace (`WindowController.parked`):
-  its layout view leaves the window but its panes stay in the keep-alive
-  band (mounted, paused, never evicted). Switching back swaps the view in
-  within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
-- Memory pressure shrinks both through the app's memory coordinator, one
-  surface close or one parked workspace teardown per frame, never all in
-  one main turn (`WarmSetRelease`, `ParkedWorkspaceRelease`; parked
-  workspaces of off-screen windows first, least recently shown first).
+  its layout view leaves the window and its panes stay mounted and paused;
+  only their GPU surfaces leave, under the terminal warm set's LRU. Switching
+  back swaps the view in within the frame: no pane controller rebuild, no
+  blank frame. One `ParkedWorkspaceBudget` follows every window's parked
+  workspaces. By default it has no budget: a window keeps every workspace it
+  showed until it closes, and critical memory pressure tears the parked
+  workspaces down through the memory coordinator, one per release slice
+  (p07-memory-096), off-screen windows' first, then the least recently
+  parked, except the ones the window keeps: the workspace under a top page
+  and the ones on screen beside the shown one (`sidebar.multiView`).
+- With `memoryDiscardParkedWorkspaces` (labs, default off; p07-memory-032,
+  taking back 6f04ec90105) the budget is `SubsystemBudget.parkedWorkspaces`
+  (RAM/2048 MiB, 4 to 16) across every window: past it the least recently
+  parked one that is not kept is torn down, as Chrome's
+  `FrameEvictionManager` culls saved frames; kept ones count but stay. With
+  `memoryDiscardParkedIdleTimeout` too, one hidden 15 minutes goes even
+  within the budget. Each look runs on one background `MainDeadline` after the switch's
+  turn and tears down at most one workspace; nothing polls. A kept workspace
+  arms no look: the window tells the budget after each arrangement
+  (`arrangeOnScreen`), and one it stopped keeping is hidden from then on,
+  the most recently parked. A torn-down
+  workspace mounts again when shown, with its view-only state (strip and
+  screen bar scroll) reset until p07-memory-033's `WorkspaceViewRecord`.
+- Memory pressure shrinks the terminal warm set through the memory
+  coordinator too (`WarmSetRelease`, p07-memory-096): the coordinator's
+  limit scales the warm set's normal capacity (warning: the Memory Saver
+  mode's share of 50 %, critical: 0), and each release slice closes one
+  surface at once (no last picture), the least recently hidden first. A
+  surface hidden in the last 2 s is the working set and stays. A closing
+  consumer yields the rest of its slice, so the browser's urgent discard
+  pass and the parked workspaces' teardown run in the same first frame.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20

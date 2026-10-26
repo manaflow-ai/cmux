@@ -145,6 +145,7 @@ final class InternalPageTabStore {
                           window: WindowController?) -> InternalPageView {
         let gone = discardRecords.discarded.removeValue(forKey: key)
         if let route = gone?.route { provider.restore(route, for: key) }
+        if let gone { provider.willRemakeView(for: key, with: gone.state) }
         let content = provider.makeView(for: key, in: window)
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate

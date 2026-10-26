@@ -99,7 +99,7 @@ extension ScreenContentView {
         guard !arriving.isEmpty || renderTracks.tookBack, newDockColumns.isEmpty, geometry.dock.isEmpty, zoomMotion.pane == nil,
               !scrollRidesFrames else { return false }
         let strip = stripShift, scale = self.scale
-        let panes = SplitMotion.renderMoves(paneFrames.filter { context.hosts[$0.key]?.superview === self }) { pane, rect in
+        let panes = SplitMotion.renderMoves(paneFrames.filter { entry in context.hosts[entry.key].map { holds($0) } ?? false }) { pane, rect in
             shownRect(rect, of: pane, strip: strip, scale: scale)
         }
         let dividers = SplitMotion.renderMoves(dividerFrames.filter { dividerViews[$0.key] != nil }) { kind, rect in
@@ -125,7 +125,7 @@ extension ScreenContentView {
         guard scrollRidesFrames, hasMotion, arriving.isEmpty, newDockColumns.isEmpty, zoomMotion.pane == nil, !isGesturing,
               !areasMoving, !canvasState.camera.isMoving, geometry.dock.isEmpty, baseGeometry.scrollAreas.isEmpty else { return false }
         let scale = self.scale
-        let panes = paneFrames.filter { context.hosts[$0.key]?.superview === self }
+        let panes = paneFrames.filter { entry in context.hosts[entry.key].map { holds($0) } ?? false }
         let dividers = dividerFrames.filter { dividerViews[$0.key] != nil }
         // Where each shows now and how fast, at the cameras' presented offsets and velocities, before they rest.
         let strip = stripShift, stripVelocity = scroll.velocity

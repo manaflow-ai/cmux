@@ -2326,13 +2326,14 @@
           ]
         },
         "tabs": {
-          "description": "Engine-neutral browser tab state per pane.",
+          "description": "Per pane that lists a browser or page tab: the tab it shows and its browser and page tabs as its strip lists them (daemon tabs, then its window's session-local browser tabs, then internal page tabs, less the tabs the strip hides while they move to a dock or the side), read through the engine-neutral BrowserTab protocol (Chromium's TabRendererData analog). The find bar is overlays.findBar.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/tabs",
             "v0": null,
             "provider": "OracleTabsFacet",
-            "task": "p15-oracle-037"
+            "task": "p15-oracle-037",
+            "from": "BrowserTab.state of the live page, else the daemon tab record"
           },
           "oneOf": [
             {
@@ -2355,6 +2356,7 @@
                         "x-oracle-id-kind": "pane"
                       },
                       "selected": {
+                        "description": "the tab the pane shows, of any kind (a terminal too); null when no window remembers one",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/selected"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
@@ -2369,8 +2371,12 @@
                           "required": [
                             "tab",
                             "kind",
+                            "page",
+                            "pinned",
+                            "engine",
                             "url",
                             "title",
+                            "loadState",
                             "loading",
                             "canGoBack",
                             "canGoForward",
@@ -2378,7 +2384,7 @@
                             "muted",
                             "audible",
                             "crashed",
-                            "findActive"
+                            "hibernated"
                           ],
                           "properties": {
                             "title": {
@@ -2387,8 +2393,8 @@
                                 "path": "/tabs/panes/*/tabs/*/title",
                                 "derive": "sha256"
                               },
-                              "type": "string",
-                              "description": "a terminal tab's title is a shell title",
+                              "type": ["string", "null"],
+                              "description": "page text; null when the page has no title",
                               "pattern": "^sha256:[0-9a-f]{64}$",
                               "x-oracle-rewrite": "path"
                             },
@@ -2401,6 +2407,27 @@
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/kind"},
                               "type": "string",
                               "enum": ["browser", "page"]
+                            },
+                            "page": {
+                              "description": "the internal page a page tab shows (InternalPageID); null for a browser tab",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/page"},
+                              "type": ["string", "null"]
+                            },
+                            "pinned": {
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/pinned"},
+                              "type": "boolean"
+                            },
+                            "engine": {
+                              "description": "BrowserTab.engineKind of the live page, else the record's engine; null for a page tab",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/engine"},
+                              "type": ["string", "null"],
+                              "enum": ["webkit", "cef", null]
+                            },
+                            "loadState": {
+                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no engine page now (none made yet, or a hibernated or not-yet-started stand-in, as Chrome gives a discarded tab TabNetworkState::kNone); canGoBack, canGoForward, audible and crashed are then false",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/loadState"},
+                              "type": "string",
+                              "enum": ["unloaded", "idle", "provisional", "committed", "finished", "failed"]
                             },
                             "url": {
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/url"},
@@ -2433,11 +2460,13 @@
                               "type": "boolean"
                             },
                             "crashed": {
+                              "description": "the page's content process ended (the sad tab)",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/crashed"},
                               "type": "boolean"
                             },
-                            "findActive": {
-                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/findActive"},
+                            "hibernated": {
+                              "description": "the page was discarded to free memory (DormantTabs; Chrome's is_tab_discarded)",
+                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/hibernated"},
                               "type": "boolean"
                             }
                           }

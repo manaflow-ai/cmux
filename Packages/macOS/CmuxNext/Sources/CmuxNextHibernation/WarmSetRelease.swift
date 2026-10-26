@@ -4,8 +4,13 @@ package import CmuxNextCompat
 /// `SurfaceLedger`, the one LRU of hidden terminal surfaces).
 @MainActor
 package protocol WarmSetHost: AnyObject {
-    /// How many hidden surfaces the LRU keeps now.
+    /// How many hidden surfaces the LRU may keep now.
     var warmCapacity: Int { get }
+    /// How many hidden surfaces the LRU keeps now (at most ``warmCapacity``).
+    var warmHiddenCount: Int { get }
+    /// How long the least recently hidden surface, the next one a smaller capacity closes, has been
+    /// hidden; nil when the LRU keeps none.
+    var leastRecentlyHiddenAge: Duration? { get }
     /// The budget the warm set comes down to (or goes up to): what `debug.surfaces` reports and what
     /// the last frames of closed surfaces are kept at.
     func warmBudgetDidChange(to capacity: Int)
@@ -16,72 +21,76 @@ package protocol WarmSetHost: AnyObject {
     func setWarmCapacity(_ capacity: Int) -> Int
 }
 
-/// The terminal warm set as a consumer of the app's memory coordinator (p07-memory.md task 096).
+/// The terminal warm set as a lossless consumer of the app's memory coordinator (p07-memory.md
+/// task 096).
 ///
-/// Chrome keeps hidden tabs' saved frames in one LRU, `content/browser/renderer_host/frame_eviction_manager.cc`,
+/// Chrome keeps hidden tabs' saved frames in one LRU, `components/viz/client/frame_eviction_manager.cc`,
 /// which purges part of it at moderate pressure and all of it at critical. cmux's warm set is that LRU for
-/// terminal surfaces. Chrome purges in the pressure listener's turn; cmux closes one surface per release
-/// slice, on later frames, least recently hidden first, so a fall to critical with 30 warm surfaces costs
-/// 30 short frames instead of one long main turn.
+/// terminal surfaces, and its limit is the coordinator's: the warm set keeps `limit` of its normal capacity
+/// (warning: the Memory Saver mode's share of 50 %, critical: 0). Chrome purges in the pressure listener's
+/// turn; cmux closes one surface per release slice, on later frames, least recently hidden first, and
+/// yields the rest of the slice to the consumers after it (``MemoryReleaseProgress/yield``).
 ///
-/// The capacity per level stays `WarmSetBudget`'s (task 037 moves it to `SubsystemBudget`), so the level,
-/// not the limit's percentage, sets the target. The traits are those of a lossless, memory-only consumer
-/// that is cheap to rebuild (a surface comes back with its last frame shown at once and a replay from the
-/// daemon's memory), which gives it release slices at warning as at critical, as Chrome's purge at
-/// moderate pressure.
+/// A surface hidden less than ``workingSet`` ago is the warm set's working set (p07-memory.md section
+/// 3.A): the release stops there, since the LRU's other surfaces were hidden later still.
 @MainActor
-package final class WarmSetRelease: MemoryLevelConsumer {
+package final class WarmSetRelease: MemoryConsumer {
     package static let memoryConsumerName = "terminal-warm-set"
+    /// Lossless, memory only and cheap to rebuild (a surface comes back with a replay from the daemon's
+    /// memory), so the policy scales it at warning as at critical.
     package static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .large, dataAccess: .none, retention: .lossless, recreateCost: .cheap,
         releaseCPUCost: .high, isStateful: true, supportsMemoryLimit: true)
+    /// Surfaces hidden this recently are never closed by a release (p07-memory.md section 3.A).
+    package static let workingSet: Duration = .seconds(2)
 
-    /// How many surfaces it closed for a smaller budget (tests).
+    /// How many surfaces it closed for a smaller limit (tests).
     package private(set) var closes = 0
-    /// The capacity the level sets; the host's LRU comes down to it one surface per slice.
-    package private(set) var targetCapacity: Int
+    /// The warm set's capacity at 100 % (`WarmSetBudget` at normal pressure, from physical memory).
+    package let normalCapacity: Int
+    /// The coordinator's limit.
+    package private(set) var limit = MemoryLimit.default
     private weak var host: (any WarmSetHost)?
-    private let capacities: (MemoryPressureLevel) -> Int
     private var registration: MemoryConsumerRegistration?
 
     /// Registers `host`'s warm set with `registry`; the host keeps the consumer.
     ///
     /// - Parameters:
     ///   - host: The warm set it sizes.
+    ///   - normalCapacity: The warm set's capacity at 100 %.
     ///   - registry: The app's memory coordinator.
-    ///   - capacities: The warm set's capacity at each pressure level (from physical memory in the app).
-    package init(host: any WarmSetHost, registry: any MemoryConsumerRegistry, capacities: @escaping (MemoryPressureLevel) -> Int) {
+    package init(host: any WarmSetHost, normalCapacity: Int, registry: any MemoryConsumerRegistry) {
         self.host = host
-        self.capacities = capacities
-        targetCapacity = host.warmCapacity
+        self.normalCapacity = max(normalCapacity, 0)
         registration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 
-    /// The level sets the target. A larger one applies at once (nothing closes); a smaller one waits for
-    /// the release slices that follow on later frames.
-    package func memoryLevelDidChange(_ level: MemoryPressureLevel) {
-        targetCapacity = capacities(level)
+    /// The capacity the limit sets: ``normalCapacity`` scaled by it.
+    package var targetCapacity: Int { limit.scale(normalCapacity) }
+
+    /// A larger target applies at once (nothing closes); a smaller one waits for the release slices
+    /// that follow on later frames.
+    package func updateMemoryLimit(_ limit: MemoryLimit) {
+        self.limit = limit
         guard let host else { return }
         host.warmBudgetDidChange(to: targetCapacity)
         if targetCapacity > host.warmCapacity { _ = host.setWarmCapacity(targetCapacity) }
     }
 
-    /// The level, which comes with each limit, sets the target (``memoryLevelDidChange(_:)``).
-    package func updateMemoryLimit(_ limit: MemoryLimit) {}
-
-    /// Closes the least recently hidden surface and returns ``MemoryReleaseProgress/more``, or returns
-    /// ``MemoryReleaseProgress/done`` when the warm set is within its target. Each step lowers the LRU's
-    /// capacity by one; a step that closes nothing (fewer hidden surfaces than the capacity) costs no
-    /// close, so one call closes at most one surface in at most the old capacity's steps.
+    /// Closes the least recently hidden surface and returns ``MemoryReleaseProgress/yield`` while the
+    /// warm set is over `slice.limit`; ``MemoryReleaseProgress/done`` once it is within it, or when the
+    /// next surface to close is in the working set.
     package func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         guard let host else { return .done }
-        while host.warmCapacity > targetCapacity {
-            guard host.setWarmCapacity(host.warmCapacity - 1) > 0 else { continue }
-            closes += 1
-            return .more
-        }
-        return .done
+        let target = slice.limit.scale(normalCapacity)
+        // Capacity no hidden surface fills goes at once: lowering it closes nothing.
+        let filled = max(target, min(host.warmCapacity, host.warmHiddenCount))
+        if filled < host.warmCapacity { _ = host.setWarmCapacity(filled) }
+        guard host.warmCapacity > target else { return .done }
+        if let age = host.leastRecentlyHiddenAge, age < Self.workingSet { return .done }
+        closes += host.setWarmCapacity(host.warmCapacity - 1)
+        return host.warmCapacity > target ? .yield : .done
     }
 
     /// Unknown: the host counts surfaces, not their bytes (`debug.surfaces` has the counts).
