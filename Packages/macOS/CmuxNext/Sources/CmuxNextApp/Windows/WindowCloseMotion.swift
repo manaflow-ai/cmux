@@ -27,6 +27,8 @@ import CmuxNextWakeups
     /// set: it fades from the first and gets it back when the fade ends. A child added during the
     /// fade (the fork re-adds a page window that becomes visible) joins in the next frame.
     private var children: [ObjectIdentifier: (window: NSWindow, alpha: CGFloat, set: CGFloat)] = [:]
+    /// Children whose owner set their alpha during the fade: the fade leaves them alone after.
+    private var released: Set<ObjectIdentifier> = []
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
         self?.step(tick.elapsed) ?? false
     }
@@ -84,18 +86,41 @@ import CmuxNextWakeups
             child.window.alphaValue = child.alpha
         }
         children = [:]
+        released = []
     }
 
     /// Sets the fade's alpha on the window and on every window below it in the child tree.
     private func apply(_ value: CGFloat) {
         window.alphaValue = value
+        for (id, child) in children {
+            if child.window.alphaValue != child.set {
+                // Its owner set another alpha (a panel's own fade): that one is the owner's now.
+                children[id] = nil
+                released.insert(id)
+            } else if let parent = child.window.parent, !contains(parent) {
+                // It moved under another window (a palette follows the key window): whole again.
+                child.window.alphaValue = child.alpha
+                children[id] = nil
+            }
+        }
         var pending = window.childWindows ?? []
         while let child = pending.popLast() {
             pending += child.childWindows ?? []
             let id = ObjectIdentifier(child)
+            guard !released.contains(id) else { continue }
             let base = children[id]?.alpha ?? child.alphaValue
             child.alphaValue = base * value
             children[id] = (child, base, child.alphaValue)
         }
+    }
+
+    /// Whether `other` is the window or below it in its child tree.
+    private func contains(_ other: NSWindow) -> Bool {
+        var next: NSWindow? = other
+        while let candidate = next {
+            if candidate === window { return true }
+            next = candidate.parent
+        }
+        return false
     }
 }
