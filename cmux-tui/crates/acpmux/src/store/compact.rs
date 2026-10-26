@@ -14,7 +14,8 @@
 //!
 //! Each segment is rewritten beside itself (`NNNNNN.ndjson.compact`) with no lock held
 //! ([`LocalStore::stage_compaction`]) and renamed over it once nothing was appended since
-//! ([`LocalStore::commit_compaction`], under the chat's append lock), so a segment on disk is
+//! ([`LocalStore::commit_compaction`], under the chat's append lock and the store's writers'
+//! lock, which every `append` takes), so a segment on disk is
 //! always either the old one or the compacted one, with the same records in the same order.
 //! `events/compacted.json` records the pass in two steps: written before the first rename, so a
 //! log that may hold nothing is never taken for a purged chat's (`has_records`), and marked
@@ -62,7 +63,8 @@ pub enum CompactMode<'a> {
     /// Only measure.
     DryRun,
     /// Write the compacted segments; with `archive`, hard-link (or copy) each old segment into
-    /// `<archive>/<id>/events/` first, so nothing is lost.
+    /// `<archive>/<id>/<pass>/events/` first, so nothing is lost. Each pass has its own folder (its
+    /// start, in Unix ms): a pass done again after a crash never replaces the first one's copies.
     Write { archive: Option<&'a Path> },
 }
 
@@ -110,10 +112,15 @@ impl LocalStore {
         }
         let (write, archive) = match mode {
             CompactMode::DryRun => (false, None),
-            CompactMode::Write { archive } => (true, archive.map(|a| a.join(id))),
+            CompactMode::Write { archive } => {
+                (true, archive.map(|a| a.join(id).join(format!("{}", now_ms()))))
+            }
         };
         if let Some(archive) = &archive {
             // Owner-only, as the chat's own folder is.
+            if archive.exists() {
+                anyhow::bail!("archive folder {} already exists", archive.display());
+            }
             std::fs::create_dir_all(archive.parent().unwrap_or(archive))?;
             crate::config::private_state_dir(archive)?;
             crate::config::private_state_dir(&archive.join("events"))?;
@@ -165,31 +172,32 @@ impl LocalStore {
             drop_cache(&file);
             if let (Some(archive), Some(name)) = (&archive, path.file_name()) {
                 let to = archive.join("events").join(name);
-                let _ = std::fs::remove_file(&to);
                 if std::fs::hard_link(&path, &to).is_err() {
                     std::fs::copy(&path, &to)?;
+                    File::open(&to)?.sync_all()?;
                 }
             }
+        }
+        // The copies are on disk before any segment is replaced.
+        if let Some(archive) = &archive {
+            sync_directory(&archive.join("events"))?;
+            sync_directory(archive)?;
         }
         Ok(Some(staged))
     }
 
     /// Puts `staged` in place of the log it was read from, unless the log changed since (false).
-    /// The caller holds the chat's append lock, so no record lands meanwhile.
+    /// The caller holds the chat's append lock; the store's own writers' lock is held from the
+    /// check to the last rename, so no record lands meanwhile from any writer (an import's
+    /// `append` takes no chat lock).
     pub(super) fn commit_compaction(&self, id: &str, mut staged: Staged) -> Result<bool> {
-        let now = self.segments(id)?;
-        let unchanged = now.len() == staged.segments.len()
-            && now.iter().zip(&staged.segments).all(|((_, path), s)| {
-                *path == s.path
-                    && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
-                    && s.tmp.is_some()
-            });
-        if !unchanged {
+        if staged.segments.iter().any(|s| s.tmp.is_none()) {
             return Ok(false);
         }
         // The record goes first: a crash between two renames leaves a log that may hold nothing,
         // and the record keeps it from passing for a purged chat's. Until it says complete, a
-        // later pass compacts the log again.
+        // later pass compacts the log again. Written before the lock: one left by a commit that
+        // then refuses only has the log compacted again.
         let mut marker = Marker {
             last_seq: staged.last_seq,
             at: now_ms(),
@@ -197,13 +205,27 @@ impl LocalStore {
             stats: staged.stats,
         };
         write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
-        // Its next append opens the compacted segment, not the old one's descriptor.
-        self.close_log(id);
-        // Every segment stays, an empty one too: a reader that listed the segments a moment ago
-        // opens each by its name.
-        for segment in &mut staged.segments {
-            if let Some(tmp) = segment.tmp.take() {
-                std::fs::rename(&tmp, &segment.path)?;
+        {
+            let mut writers = self.writers.lock_or_recover();
+            let now = self.segments(id)?;
+            let unchanged = now.len() == staged.segments.len()
+                && now.iter().zip(&staged.segments).all(|((_, path), s)| {
+                    *path == s.path
+                        && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == s.len)
+                });
+            if !unchanged {
+                return Ok(false);
+            }
+            // Its next append opens the compacted segment, not the old one's descriptor.
+            if let Some(w) = writers.open.remove(id) {
+                w.close(id);
+            }
+            // Every segment stays, an empty one too: a reader that listed the segments a moment
+            // ago opens each by its name.
+            for segment in &mut staged.segments {
+                if let Some(tmp) = segment.tmp.take() {
+                    std::fs::rename(&tmp, &segment.path)?;
+                }
             }
         }
         sync_directory(&self.dir(id).join("events"))?;

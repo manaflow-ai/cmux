@@ -211,6 +211,14 @@ fn a_log_written_since_it_was_read_is_left_whole() {
     assert_eq!(log(&store, "c1").len(), 16);
 }
 
+/// The folders a pass archived chat `id` into, oldest first.
+fn passes(archive: &Path, id: &str) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> =
+        std::fs::read_dir(archive.join(id)).unwrap().map(|e| e.unwrap().path()).collect();
+    dirs.sort();
+    dirs
+}
+
 #[test]
 fn archive_mode_keeps_the_old_segments() {
     let (home, store) = Home::new();
@@ -220,11 +228,27 @@ fn archive_mode_keeps_the_old_segments() {
     let mode = CompactMode::Write { archive: Some(&archive) };
     let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
     assert!(store.commit_compaction("c1", staged).unwrap());
-    for (path, content) in original {
-        let kept = archive.join("c1/events").join(path.file_name().unwrap());
-        assert!(std::fs::read(&kept).unwrap() == content, "{}", kept.display());
-    }
-    assert!(archive.join("c1/session.json").exists());
+    let first = passes(&archive, "c1");
+    assert_eq!(first.len(), 1);
+    let kept_all = |pass: &Path| {
+        for (path, content) in &original {
+            let kept = pass.join("events").join(path.file_name().unwrap());
+            assert!(std::fs::read(&kept).unwrap() == *content, "{}", kept.display());
+        }
+        assert!(pass.join("session.json").exists());
+    };
+    kept_all(&first[0]);
+    // A pass done again (a crash left the record incomplete) archives into a folder of its own:
+    // the first pass's copies of the original log stay.
+    let mut marker: Value =
+        serde_json::from_slice(&std::fs::read(store.marker("c1")).unwrap()).unwrap();
+    marker["complete"] = json!(false);
+    std::fs::write(store.marker("c1"), marker.to_string()).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    let staged = store.stage_compaction("c1", mode).unwrap().unwrap();
+    assert!(store.commit_compaction("c1", staged).unwrap());
+    assert_eq!(passes(&archive, "c1").len(), 2);
+    kept_all(&first[0]);
     // Appends after it go to the compacted log.
     store.append("c1", &record(16, "mux", "status", json!({"status": "idle"}))).unwrap();
     assert_eq!(log(&store, "c1").last().map(|r| r.seq), Some(16));
