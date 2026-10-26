@@ -87,7 +87,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [MainActorObservation] = []
+    private var motionWatch: AppearanceSignals.Subscription?
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -391,19 +391,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                 self.applyTheme()
             }
         }
-        // Reduce Motion is not observable through Observation.
-        reduceMotionObservers = [
-            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-                self?.applyTheme()
-            },
-            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-            // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            MainActorObservation(Motion.speedDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-        ]
+        // Reduce Motion, the master motion switch, a category switch or the speed: `data-cmux-motion` follows.
+        motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "PageWebView") { [weak self] in
+            self?.applyTheme()
+        }
     }
 
     private func observeUIScale() {

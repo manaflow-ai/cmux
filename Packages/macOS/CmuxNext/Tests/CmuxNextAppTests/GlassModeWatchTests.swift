@@ -24,7 +24,7 @@ struct GlassModeWatchTests {
     @Test func theLowPowerOverrideDrawsPlainGlassWhileTheSystemSaysOff() {
         let lowPower = LowPowerMode(enabled: false)
         let seen = Seen()
-        let watch = GlassModeWatch(store: Self.lensStore(), reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()),
+        let watch = GlassModeWatch(store: Self.lensStore(), reduceTransparency: ReduceTransparency(system: { false }),
                                    lowPowerMode: lowPower) { seen.modes.append($0) }
         #expect(watch.mode == .lens)
         lowPower.override = true
@@ -38,7 +38,7 @@ struct GlassModeWatchTests {
         let monitor = EnergyMonitor(lowPowerMode: LowPowerMode(enabled: false), thermal: ThermalStateWatch(state: .nominal),
                                     power: PowerSourceInput(read: { PowerSourceReading() }, listen: { _ in }))
         let seen = Seen()
-        let watch = GlassModeWatch(store: Self.lensStore(), reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()),
+        let watch = GlassModeWatch(store: Self.lensStore(), reduceTransparency: ReduceTransparency(system: { false }),
                                    lowPowerMode: monitor.lowPowerMode) { seen.modes.append($0) }
         monitor.lowPowerMode.override = true
         #expect(seen.modes == [.plain])

@@ -74,8 +74,7 @@ public final class AgentPaneView: NSView {
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
-    private var reduceMotionObserver: MainActorObservation?
-    private var reduceMotionOverrideObserver: MainActorObservation?
+    private var reduceMotionWatch: AppearanceSignals.Subscription?
     /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
     /// through one input tap subscription per window, while the pane is in one.
     let gestureRouter: AgentPaneGestureRouter
@@ -216,11 +215,8 @@ public final class AgentPaneView: NSView {
                 self.applyTheme()
             }
         }
-        // Reduce Motion is not observable through Observation.
-        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-            self?.applyTheme()
-        }
-        reduceMotionOverrideObserver = MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+        // Reduce Motion: the system setting, the tests' pin or calm mode.
+        reduceMotionWatch = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "AgentPaneView") { [weak self] in
             self?.applyTheme()
         }
     }
@@ -285,8 +281,7 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
-        reduceMotionObserver = nil
-        reduceMotionOverrideObserver = nil
+        reduceMotionWatch = nil
         dictation.close()
         model.shell.terminateAll()
         gestureRouter.detach(self)

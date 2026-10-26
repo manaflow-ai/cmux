@@ -9,6 +9,8 @@ struct WindowKeyEnvironment {
     /// root (``WindowMaterialView/observeKeyFamily(of:through:)``). Nil for a window it did not set
     /// up: that window's tracker observes `NotificationCenter.default` itself.
     var events: AppEvents?
+    /// Where `appearance.inactiveWindowDim` changes arrive (the app's ``AppearanceSignals``).
+    var appearance: AppearanceSignals = DesignSettings.shared.signals
     /// The key window now (`NSApp.keyWindow`).
     var keyWindow: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     /// Whether this app is active (`NSApp.isActive`).
