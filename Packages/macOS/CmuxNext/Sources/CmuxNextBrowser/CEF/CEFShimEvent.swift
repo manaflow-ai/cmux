@@ -114,6 +114,11 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29): `status` 1 value, 0
     /// exception, -1 no result (renderer ended, navigated away), -2 refused world name.
     case evaluateResult(token: Int32, status: Int, value: String)
+    /// A host widget with a WebContents shows or changes (WIDGET_CONTEXT, host mode, fork task 173):
+    /// ``ChromiumHostWidgetHost`` shows it.
+    case widgetContext(ChromiumHostWidgetContext)
+    /// That widget closed (WIDGET_GONE).
+    case widgetGone(browser: Int32, widget: ChromiumHostWidgetID)
     case unknown(kind: Int32)
 
     init(kind: Int32, browser: Int32, request: Int32, a: Int64, b: Int64, s1: String, s2: String) {
@@ -180,6 +185,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 49: self = .pageMessage(browser: browser, mainFrame: a == 1, channel: s1, payload: s2)
         case 50: self = .evaluateResult(token: request, status: Int(a), value: s1)
         case 51: self = .createFailed(browser: browser, request: request)
+        case 52:
+            self = ChromiumHostWidgetContext(owner: browser, request: request, a: a, s1: s1, s2: s2).map(Self.widgetContext)
+                ?? .unknown(kind: kind)
+        case 53: self = request != 0 ? .widgetGone(browser: browser, widget: ChromiumHostWidgetID(rawValue: request)) : .unknown(kind: kind)
         default: self = .unknown(kind: kind)
         }
     }
