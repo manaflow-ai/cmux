@@ -15,7 +15,9 @@ The pass, per package, on one tip:
   3. This script applies them on the checkout: apply-unsafe-fixits.py --fixits FILE --ref SHA [--commit].
 
 What it applies: a pure insertion of `unsafe ` or `@unsafe ` (offset == end_offset) in a .swift file under
-Packages/<...>/Sources or Tests of a closure package that is not vendored verbatim (no SOURCE file). It adds one
+Packages/<...>/Sources or Tests of a closure package that is not vendored: not a package vendored verbatim (a
+SOURCE file) and not a file its vendor.tsv lists (CmuxMessagesLab: sync-messageslab.sh copies pin + Patches/ over
+those, so an edit there would be lost and would fail its --check). It adds one
 `// SAFETY-TODO(p10)` comment line above each line that gains an insertion, at that line's indentation (above the
 line that opens the literal when the line starts inside a multi-line string or a block comment). Everything else
 is refused and listed, never applied: another fix-it, another group, a file outside the closure's sources, a file
@@ -64,7 +66,8 @@ UNSAFE_SUBJECT = "unsafe fix-its lander:"
 INSERTION = re.compile(r"@?unsafe ")
 SOURCE_PATH = re.compile(r"^Packages/.+/(?:Sources|Tests)/.+\.swift$")
 WORD = re.compile(rb"[A-Za-z0-9_]")
-VENDORED_MARKER = "SOURCE"
+VENDORED_MARKER = "SOURCE"  # the whole package is an upstream copy
+VENDOR_TABLE = "vendor.tsv"  # upstream path<TAB>vendored path (relative to the package)[<TAB>pin], `#` comments
 PLAN = "plans/cmux-next/chrome-parity/design-result.json"
 PLAN_PROGRAM = "p10-stability"
 MODULE_TASK_TITLE = "SAFETY-TODO removal"
@@ -103,8 +106,9 @@ class Fixit:
 
 @dataclass
 class Refusal:
-    where: str
+    where: str  # as the fix-it names it: the fleet host's path:line:column
     why: str
+    path: str | None  # repository-relative, None when the fix-it's file is not inside the repository
 
 
 @dataclass
@@ -157,16 +161,16 @@ def read_fixits(path: Path, source_root: str | None) -> tuple[list[Fixit], list[
         except (ValueError, KeyError, TypeError) as error:
             raise UsageError(f"{path}:{number}: not a swift-diagnostics fix-it line ({error})") from error
         where = f"{file}:{start[0]}:{start[1]}"
+        relative = relative_path(file, source_root)
         if row.get("group") != GROUP:
-            refused.append(Refusal(where, f"group {row.get('group') or '(none)'}, not {GROUP}"))
+            refused.append(Refusal(where, f"group {row.get('group') or '(none)'}, not {GROUP}", relative))
             continue
         if start != end or not INSERTION.fullmatch(text):
             refused.append(Refusal(where, f"not an `unsafe` insertion: replace {start}..{end} with {text!r} "
-                                          "(a person applies it)"))
+                                          "(a person applies it)", relative))
             continue
-        relative = relative_path(file, source_root)
         if relative is None or not SOURCE_PATH.match(relative):
-            refused.append(Refusal(where, "not a .swift file under Packages/<package>/Sources or Tests"))
+            refused.append(Refusal(where, "not a .swift file under Packages/<package>/Sources or Tests", relative))
             continue
         fixit = Fixit(relative, start[0], start[1], start[2], text)
         key = (relative, fixit.offset, text)
@@ -273,18 +277,18 @@ def apply_file(data: bytes, fixits: list[Fixit]) -> tuple[bytes, int, int, list[
         if not 1 <= fixit.line <= len(starts) or starts[fixit.line - 1] + fixit.column - 1 != fixit.offset \
                 or fixit.offset > len(data):
             refused.append(Refusal(where, f"offset {fixit.offset} is not line {fixit.line} column {fixit.column} of "
-                                          "this text"))
+                                          "this text", fixit.path))
             continue
         before = data[fixit.offset - 1:fixit.offset] if fixit.offset else b""
         at = data[fixit.offset:fixit.offset + 1]
         if WORD.fullmatch(before or b" ") or not at or at.isspace():
-            refused.append(Refusal(where, "the insertion point is not the start of an expression"))
+            refused.append(Refusal(where, "the insertion point is not the start of an expression", fixit.path))
             continue
         good.append(fixit)
     try:
         flags = literal_line_starts(data.decode("utf-8"))
     except UnicodeDecodeError:
-        return data, 0, 0, refused + [Refusal(fixits[0].path, "not UTF-8 text")]
+        return data, 0, 0, refused + [Refusal(fixits[0].path, "not UTF-8 text", fixits[0].path)]
     lines = data.split(b"\n")
     marks: set[int] = set()  # 0-based lines that get a mark above them
     for fixit in good:
@@ -364,10 +368,9 @@ def owner_of(path: str | None, owners: list[tuple[str, str]]) -> str:
     return next((task for prefix, task in owners if path and path.startswith(prefix)), UNOWNED)
 
 
-def leftovers(refused: list[Refusal], unfixable: list[Leftover], source_root: str | None) -> list[Leftover]:
+def leftovers(refused: list[Refusal], unfixable: list[Leftover]) -> list[Leftover]:
     """Every refused fix-it, then every diagnostic with no fix-it."""
-    out = [Leftover("refused", r.where, relative_path(r.where.rsplit(":", 2)[0], source_root), r.why) for r in refused]
-    return out + unfixable
+    return [Leftover("refused", r.where, r.path, r.why) for r in refused] + unfixable
 
 
 # ---------------------------------------------------------------- the pass
@@ -375,6 +378,26 @@ def leftovers(refused: list[Refusal], unfixable: list[Leftover], source_root: st
 def package_of(path: str, packages: list[str]) -> str | None:
     owners = [p for p in packages if path.startswith(p.rstrip("/") + "/")]
     return max(owners, key=len) if owners else None
+
+
+def vendored_files(root: Path, package: str) -> set[str]:
+    """The repository-relative files PACKAGE's vendor.tsv lists: sync-messageslab.sh owns them (pin + Patches/)."""
+    table = root / package / VENDOR_TABLE
+    try:
+        lines = table.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return set()
+    except OSError as error:
+        raise UsageError(f"cannot read {package}/{VENDOR_TABLE}: {error}") from error
+    files = set()
+    for number, line in enumerate(lines, 1):
+        if not line.strip() or line.startswith("#"):
+            continue
+        columns = line.split("\t")
+        if len(columns) < 2 or not columns[1]:
+            raise UsageError(f"{package}/{VENDOR_TABLE}:{number}: not `upstream<TAB>vendored path[<TAB>pin]`")
+        files.add(f"{package}/{columns[1]}")
+    return files
 
 
 def plan_pass(root: Path, ref: str, fixits: list[Fixit], only: list[str]) -> Result:
@@ -385,6 +408,7 @@ def plan_pass(root: Path, ref: str, fixits: list[Fixit], only: list[str]) -> Res
     except lander.LanderError as error:
         raise UsageError(f"cannot read the package closure: {error}") from error
     vendored = {p for p in closure if (root / p / VENDORED_MARKER).is_file()}
+    vendored_by_table = {path: package for package in closure for path in vendored_files(root, package)}
     by_file: dict[str, FileEdit] = {}
     refused: list[Refusal] = []
     for fixit in fixits:
@@ -392,10 +416,15 @@ def plan_pass(root: Path, ref: str, fixits: list[Fixit], only: list[str]) -> Res
         package = package_of(fixit.path, closure)
         if package is None:
             refused.append(Refusal(where, "not in a package of the app's closure (apply-stability-settings.py "
-                                          "--list-closure)"))
+                                          "--list-closure)", fixit.path))
             continue
         if package in vendored:
-            refused.append(Refusal(where, f"{package} is vendored verbatim ({VENDORED_MARKER}); change its upstream"))
+            refused.append(Refusal(where, f"{package} is vendored verbatim ({VENDORED_MARKER}); change its upstream",
+                                   fixit.path))
+            continue
+        if fixit.path in vendored_by_table:
+            refused.append(Refusal(where, f"vendored by {package}/{VENDOR_TABLE}: an edit is lost on the next sync "
+                                          "and fails its --check; change it with its Patches/", fixit.path))
             continue
         if only and package not in only:
             continue
@@ -409,7 +438,8 @@ def plan_pass(root: Path, ref: str, fixits: list[Fixit], only: list[str]) -> Res
             current = None
         if shown.returncode or current != shown.stdout:
             result.refused.extend(Refusal(f"{f.path}:{f.line}:{f.column}", f"stale: {path} is not its text at "
-                                          f"{ref[:12]}; rerun swift-diagnostics on this tip") for f in edit.fixits)
+                                          f"{ref[:12]}; rerun swift-diagnostics on this tip", f.path)
+                                  for f in edit.fixits)
             continue
         text, inserted, marked, problems = apply_file(current, edit.fixits)
         result.refused.extend(problems)
@@ -511,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"apply-unsafe-fixits: {result.duplicates} duplicate fix-it line(s) dropped")
     for refusal in result.refused:
         print(f"apply-unsafe-fixits: refused {refusal.where}: {refusal.why}", file=sys.stderr)
-    left = leftovers(result.refused, unfixable, args.source_root)
+    left = leftovers(result.refused, unfixable)
     by_owner = Counter(owner_of(item.path, owners) for item in left)
     for item in unfixable:
         print(f"apply-unsafe-fixits: no fix-it {item.where}: {item.why}", file=sys.stderr)

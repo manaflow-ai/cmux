@@ -279,6 +279,71 @@ class RefusalTests(Case):
         self.assertIsNone(auf.relative_path("/tmp/x.swift", None))
 
 
+MESSAGES_LAB = "Packages/Shared/CmuxMessagesLab"
+LAB_VENDORED = f"{MESSAGES_LAB}/Sources/MessagesLabHome/Vendor/catalyst/LongText.swift"
+LAB_OWN = f"{MESSAGES_LAB}/Sources/MessagesLabHome/Home.swift"
+LAB_SOURCE = b"func f(_ p: UnsafeMutablePointer<Int>) {\n  p.pointee = 3\n}\n"
+
+
+class VendorTableTests(Case):
+    """A file a package's vendor.tsv lists is sync-messageslab.sh's (pin + Patches/): the pass never edits it."""
+
+    def setUp(self):
+        super().setUp()
+        manifest = APP_MANIFEST.replace('        .package(path: "../../Shared/Vendored"),\n',
+                                        '        .package(path: "../../Shared/Vendored"),\n'
+                                        '        .package(path: "../../Shared/CmuxMessagesLab"),\n')
+        self.repo.write("Packages/macOS/CmuxNext/Package.swift", manifest.encode())
+        self.repo.write(f"{MESSAGES_LAB}/Package.swift", SHARED_MANIFEST.format(name="MessagesLabHome").encode())
+        self.repo.write(f"{MESSAGES_LAB}/vendor.tsv",
+                        b"# MessagesLab commit 849eb3f. upstream path<TAB>vendored path\n\n"
+                        b"catalyst/Sources/LongText.swift\tSources/MessagesLabHome/Vendor/catalyst/LongText.swift\t"
+                        b"bd65bbf\n")
+        self.repo.write(LAB_VENDORED, LAB_SOURCE)
+        self.repo.write(LAB_OWN, LAB_SOURCE)
+        self.repo.ref = self.repo.commit("messages lab")
+
+    def lab_fixit(self, path: str) -> dict:
+        return fixit(path, 2, 3, at(LAB_SOURCE, 2, 3))
+
+    def test_vendored_file_is_refused_and_left_to_its_module_task(self):
+        out_path = self.directory / "left.jsonl"
+        status, out, err = self.run_main([self.lab_fixit(LAB_VENDORED), self.lab_fixit(LAB_OWN)],
+                                         "--leftovers-out", str(out_path))
+        self.assertEqual(status, 1)
+        self.assertIn(f"vendored by {MESSAGES_LAB}/vendor.tsv", err)
+        self.assertEqual(self.repo.read(LAB_VENDORED), LAB_SOURCE)
+        self.assertEqual(self.repo.read(LAB_OWN), b"func f(_ p: UnsafeMutablePointer<Int>) {\n  // SAFETY-TODO(p10)\n"
+                                                  b"  unsafe p.pointee = 3\n}\n")
+        self.assertIn(f"applied 1 insertion(s), 1 mark(s) in 1 file(s) of {MESSAGES_LAB}", out)
+        left = [json.loads(line) for line in out_path.read_text().splitlines()]
+        self.assertEqual([(item["path"], item["owner"]) for item in left], [(LAB_VENDORED, "p10-stability-073")])
+
+    def test_source_root_refusals_keep_their_path_and_owner(self):
+        self.repo.write(LAB_OWN, LAB_SOURCE + b"// edited since the ref\n")
+        out_path = self.directory / "left.jsonl"
+        status, out, err = self.run_main([self.lab_fixit(LAB_OWN), self.lab_fixit(LAB_VENDORED)], "--source-root",
+                                         FLEET_ROOT, "--leftovers-out", str(out_path))
+        self.assertEqual(status, 1)
+        self.assertIn("stale", err)
+        self.assertIn("2 site(s) left for the module tasks (0 with no fix-it): p10-stability-073 2", out)
+        left = [json.loads(line) for line in out_path.read_text().splitlines()]
+        self.assertEqual(sorted((item["path"], item["owner"]) for item in left),
+                         [(LAB_OWN, "p10-stability-073"), (LAB_VENDORED, "p10-stability-073")])
+
+    def test_this_repository_vendor_table_lists_the_vendored_lab_files(self):
+        files = auf.vendored_files(auf.ROOT, MESSAGES_LAB)
+        self.assertIn(LAB_VENDORED, files)
+        self.assertTrue(all(path.startswith((f"{MESSAGES_LAB}/Sources/", f"{MESSAGES_LAB}/Tests/")) for path in files))
+        self.assertTrue(all((auf.ROOT / path).is_file() for path in files))
+        self.assertEqual(auf.vendored_files(auf.ROOT, DEMO), set())
+
+    def test_malformed_vendor_table_is_a_usage_error(self):
+        self.repo.write(f"{MESSAGES_LAB}/vendor.tsv", b"catalyst/Sources/LongText.swift\n")
+        with self.assertRaises(auf.UsageError):
+            auf.vendored_files(self.repo.root, MESSAGES_LAB)
+
+
 class PlacementTests(unittest.TestCase):
     def test_literal_line_starts(self):
         text = ('let a = """\n  x \\(f(\n "y"))\n z\n  """\nlet b = 1 /* a\n b /* c */ d\n e */\n'
