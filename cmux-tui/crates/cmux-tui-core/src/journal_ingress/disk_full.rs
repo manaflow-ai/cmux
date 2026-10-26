@@ -278,7 +278,7 @@ mod tests {
         mux.flush_terminal_journal().unwrap();
         assert!(!mux.journal_disk_full_for_test());
         let outputs = mux
-            .session_journal_after(0, 4096)
+            .session_journal_after(0, 1024)
             .unwrap()
             .records
             .into_iter()
