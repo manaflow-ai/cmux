@@ -1488,38 +1488,89 @@ GENERIC_CLASS_ALLOW = swift_scope.GENERIC_CLASS_ALLOW
 GENERIC_TYPE = swift_scope.GENERIC_TYPE
 PACKAGE_ROOT = "Packages/macOS/CmuxNext/"
 MANIFEST = PACKAGE_ROOT + "Package.swift"
+UI_LEVELS = 2  # the batches of files GenericTypes.prefetch reads ahead: the named types, then their superclasses
 
 
 class GenericTypes:
-    """Which type names are declared generic (`struct Name<...>`) at one revision.
+    """Which type names are declared generic (`struct Name<...>`) at one revision, and which are UI types (main
+    actor by what they inherit, `final class TerminalView: NSView`).
 
     KNOWN holds the declarations in the push's own files at that revision. A name it lacks is looked up once in
     the revision's `Name.swift` files (CLAUDE.md: one major type per file, named after the type); a type declared
-    in a file of another name is not found, and its extensions read as non-generic (fail open).
+    in a file of another name is not found, and its extensions read as non-generic and not UI (fail open).
     """
 
     def __init__(self, repo: Path | None, rev: str | None, texts: list[str]):
         self.repo, self.rev = repo, rev
+        self.texts = texts
         self.known = {name for text in texts for name in GENERIC_TYPE.findall(text)}
         self.looked: dict[str, bool] = {}
-        self.tree: list[str] | None = None
+        self.ui_known: set[str] | None = None
+        self.ui_looked: dict[str, bool] = {}
+        self.by_name: dict[str, list[str]] | None = None  # file name -> its paths at REV
+        self.named: dict[str, str] = {}  # type name -> its `Name.swift` texts, joined
+        self.headers: dict[str, list] = {}  # type name -> its class or struct declarations in `Name.swift`
 
     def __contains__(self, name: str) -> bool:
         if name in self.known:
             return True
         if name not in self.looked:
-            self.looked[name] = self.declared_generic(name)
+            declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
+            self.looked[name] = declared.search(self.named_file(name)) is not None
         return self.looked[name]
 
-    def declared_generic(self, name: str) -> bool:
+    def ui_type(self, name: str) -> bool:
+        """Whether NAME is a UI type (check-main-actor-work.py's ui_subclasses): the main-thread rules read an
+        extension of it in another file (`extension TerminalView` in TerminalView+Drag.swift) as main actor."""
+        scope = swift_scope.main_actor_scope
+        if self.ui_known is None:
+            self.ui_known = set()
+            pushed = [scope.type_headers(text.split("\n")) for text in self.texts]
+            # The files the push's declarations name (`extension TerminalView`, `: TerminalView`), read in batches.
+            self.prefetch({n for headers in pushed for h in headers
+                           for n in ([h.name] if h.kind == "extension" else h.inherited if h.kind == "class" else [])})
+            for headers in pushed:
+                self.ui_known |= scope.ui_subclasses(headers, self.ui_type)
+        if name in self.ui_known:
+            return True
+        if name not in self.ui_looked:
+            self.ui_looked[name] = False  # a cycle (`class A: B`, `class B: A`) reads as no UI type
+            self.prefetch({name})
+            self.ui_looked[name] = any(scope.inherits_ui(h, self.ui_type) for h in self.headers[name])
+        return self.ui_looked[name]
+
+    def named_file(self, name: str) -> str:
+        """The revision's `NAME.swift` files under Sources and Tests, joined ("" when there is none)."""
+        self.prefetch({name})
+        return self.named[name]
+
+    def prefetch(self, names: set[str], levels: int = UI_LEVELS):
+        """Read the `Name.swift` files of NAMES not read yet in one `git cat-file --batch`, then, for LEVELS - 1 more
+        batches, the files of the types their classes inherit (a subclass of a subclass of NSView)."""
+        wanted = {n for n in names if n not in self.named}
+        if not wanted:
+            return
         if self.repo is None or self.rev is None:
-            return False
-        if self.tree is None:
-            self.tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS,
-                            check=False).split("\n")
-        paths = [p for p in self.tree if p.rsplit("/", 1)[-1] == f"{name}.swift"]
-        declared = re.compile(r"\b(?:class|struct|enum|actor)\s+" + re.escape(name) + r"\s*<")
-        return any(declared.search(text) for text in blobs(self.repo, [(self.rev, p) for p in paths]).values())
+            self.named.update(dict.fromkeys(wanted, ""))
+            self.headers.update({n: [] for n in wanted})
+            return
+        if self.by_name is None:
+            self.by_name = collections.defaultdict(list)
+            tree = git(self.repo, "ls-tree", "-r", "--name-only", self.rev, "--", SOURCES, TESTS, check=False)
+            for path in tree.split("\n"):
+                self.by_name[path.rsplit("/", 1)[-1]].append(path)
+        paths = {n: self.by_name.get(f"{n}.swift", []) for n in wanted}
+        specs = [(self.rev, p) for found in paths.values() for p in found]
+        texts = blobs(self.repo, specs) if specs else {}
+        inherited = set()
+        for n, found in paths.items():
+            self.named[n] = "\n".join(texts[(self.rev, p)] for p in found if (self.rev, p) in texts)
+            lines = [line for line in self.named[n].split("\n") if n in line] if found else []
+            self.headers[n] = [h for h in swift_scope.main_actor_scope.type_headers(lines)
+                               if h.name == n and h.kind != "extension"]
+            inherited.update(i for h in self.headers[n] if h.kind == "class" for i in h.inherited)
+        if levels > 1:
+            self.prefetch(inherited, levels - 1)
 
 
 def main_by_default(path: str, targets: list) -> bool:
@@ -1757,6 +1808,12 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return debt, openers
 
 
+# The one fix for a main-thread hop (p06-scheduler.md recipe R-hop): main-async and main-hop print it, so neither
+# rule's fix is a line the other refuses.
+R_HOP = ("recipe R-hop: change the model synchronously in the input's turn, or post with a class and an owner "
+         "(`mainWork.post(.visible, owner: ...)`, `node.queue(...).post`), or compute off main in a nonisolated "
+         "Task and `.reply(on:)`; deliveries use `MainDelivery(class:owner:)`")
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1768,8 +1825,7 @@ RULES = (
          unchecked_sendable),
     Rule("main-async", "`DispatchQueue.main.async`",
          "an untyped hop that reorders work and hides isolation (CLAUDE.md forbids it in new code)",
-         "annotate the destination `@MainActor` and `await` it, or hop once with `Task { @MainActor in ... }` "
-         "owned by the caller",
+         R_HOP,
          "// main-async-allow: <the API that forces a GCD hop>",
          line_rule(r"\bDispatchQueue\.main\.async\b|\bOperationQueue\.main\.addOperation\b", "main-async-allow:")),
     Rule("combine-state", "`ObservableObject` / `@Published` / Combine state",
@@ -1956,6 +2012,271 @@ INPUT_RULES = (
 )
 RULES += INPUT_RULES
 # ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
+
+
+# ---------------------------------------------------------------- main-thread classes (p06-scheduler)
+# Main-thread work has a class and an owner, and hidden things do no view work
+# (plans/cmux-next/chrome-parity/p06-scheduler.md, section F). Chrome posts every UI-thread task to a typed queue
+# (content/browser/scheduler/browser_task_queues.h: BrowserTaskType and its priority), tells hidden pages so
+# (content/public/browser/visibility.h, WebContentsImpl::UpdateWebContentsVisibility), aligns timers
+# (base/task/delay_policy.h: kFlexibleNoSooner) and registers observers on their owner (base/observer_list.h).
+# Six line rules judge what a push adds, per file as a count ratchet like main-async: an edit of a line that
+# already has the debt adds none. Local only, never CI (Lawrence 2026-10-23). CmuxNextWakeups holds the
+# primitives that implement the classes and is not judged. Each concern has one owner, so these rules do not
+# repeat: `DispatchQueue.main.async` (main-async), a sleep without `// wakeup-allow:` (check-concurrency.sh's
+# wakeup rule) and a monitor outside CmuxNextInput (input-monitor).
+# The block owns its lines from here to `RULES += MAIN_CLASS_RULES`.
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+main_actor_work = swift_scope.main_actor_scope  # check-main-actor-work.py: the main-actor scopes and Task predicate
+RAW_MAIN_HOP = re.compile(r"\bMainActor\.run\b|\bCFRunLoopPerformBlock\(|\bRunLoop\.main\.perform\b")
+MAIN_DELIVERY = re.compile(r"\bMainDelivery\(")
+
+
+def prefilter(*patterns: re.Pattern) -> re.Pattern:
+    """PATTERNS joined, each alternative without its leading `\\b` (so a superset): a rule with a context reads every
+    line of a changed file, and a leading `\\b` costs re its literal-prefix scan (5x slower); the rule's own check
+    holds the exact patterns."""
+    return re.compile("|".join(piece.removeprefix(r"\b") for p in patterns for piece in p.pattern.split("|")))
+
+
+MAIN_HOP_LINE = prefilter(main_actor_work.TASK_START, RAW_MAIN_HOP, MAIN_DELIVERY)
+ARGUMENT_LABEL = re.compile(r"\s*(\w+)\s*:(?!:)")
+CALL_LINES = 40  # the lines one call's arguments are read across (`MainDelivery(\n    owner: ...,\n    class: ...`)
+# `ObservationStream({`, its trailing-closure form and `.current({`; not `extension ObservationStream {`.
+VIEW_OBSERVATION = re.compile(r"(?<!extension )\bObservationStream(\s*[({]|\.current\()|\bwithObservationTracking\b")
+HIDDEN_WALK = re.compile(r"\bisHiddenOrHasHiddenAncestor\b")
+HIDE_OVERRIDE = re.compile(r"\boverride\s+func\s+viewDid(Hide|Unhide)\b")
+# The one body a hide override may have (recipe R-hide): call its own super and tell the view's VisibilityNode its
+# own direction (`viewDidHide` -> `.hidden`, `viewDidUnhide` -> `.visible`).
+HIDE_FORWARD = {
+    direction: re.compile(r"^\s*(super\.viewDid" + direction + r"\(\)|(self\.)?\w*[nN]ode\??\.set\(\." + state
+                          + r"\))\s*$")
+    for direction, state in (("Hide", "hidden"), ("Unhide", "visible"))
+}
+BODY_LINES = 40  # the lines a hide override's body is read across
+DEMAND_TIMER = re.compile(r"\bDemandTimer\(")
+SLEEP = re.compile(r"\bTask\.sleep\(|\.sleep\((for|until):")
+WAKEUP_ALLOWED = re.compile(r"//\s*wakeup-allow:\s*\S")
+LOOP_OPENER = re.compile(r"^\s*(\}\s*)?(while|for|repeat)\b")
+BRANCH_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|switch|case|default|do|catch|defer)\b|^\s*\{$")
+SCOPE_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
+RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|will)[A-Za-z]+Notification\b"
+                          r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
+                          r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
+                          r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
+
+
+def allow_marker(rule: str) -> re.Pattern:
+    return re.compile(r"//\s*" + re.escape(rule) + r"-allow:\s*\S")
+
+
+# {id(side's lines): (those lines, the side's memo in its FileChange)}: matcher_rule makes a new Version per rule, so
+# main-hop and timer-class share one isolation reading per side through the FileChange (scoped_to registers it).
+SIDE_MEMO: dict[int, tuple[list[str], dict]] = {}
+
+
+def side_memo(version: Version) -> dict:
+    entry = SIDE_MEMO.get(id(version.lines))
+    return entry[1] if entry is not None and entry[0] is version.lines else version.memo
+
+
+def isolation(version: Version) -> list[tuple[bool, int]]:
+    """Each line of VERSION: (main-actor code, the 1-based line that made it so; 0: its target's default)."""
+    memo = side_memo(version)
+    if "isolation" not in memo:
+        ui_type = version.types.ui_type if version.types is not None else main_actor_work.no_ui_type
+        memo["isolation"] = main_actor_work.main_actor_scopes(version.lines, version.main_default, ui_types=True,
+                                                              ui_type=ui_type)
+    return memo["isolation"]
+
+
+def main_tasks(version: Version) -> dict[int, int]:
+    """{0-based line: the 1-based line that set its isolation} of VERSION's Tasks that run on the main actor."""
+    memo = side_memo(version)
+    if "main_tasks" not in memo:
+        memo["main_tasks"] = dict(main_actor_work.main_inherited_tasks(version.lines, version.main_default,
+                                                                       isolation(version)))
+    return memo["main_tasks"]
+
+
+def call_labels(lines: list[str], index: int, call: re.Pattern) -> tuple[set[str] | None, list[int]]:
+    """(the labels of the arguments of CALL on LINES[INDEX], read to its matching `)`, None when that `)` does not
+    come within CALL_LINES lines; the 1-based lines after INDEX it read). A label inside a nested call, closure or
+    collection (`MainDelivery(owner: f(class: 1))`) is not the call's own."""
+    text = "\n".join(code_of(line) for line in lines[index:index + CALL_LINES])
+    start = call.search(text).end()
+    depth, labels, argument = 1, set(), start
+    for i in range(start, len(text)):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if depth == 0 or (c == "," and depth == 1):
+            if label := ARGUMENT_LABEL.match(text, argument, i):
+                labels.add(label.group(1))
+            argument = i + 1
+            if depth == 0:
+                return labels, list(range(index + 2, index + 2 + text.count("\n", 0, i)))
+    return None, list(range(index + 2, index + 1 + min(CALL_LINES, len(lines) - index)))
+
+
+def main_hop_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw main hop, a MainDelivery without a class, or a Task that runs on the main actor (the shared predicate:
+    annotated, or plain in main-actor code, so deleting `@MainActor in` keeps the debt). A MainDelivery whose
+    arguments do not close within CALL_LINES lines is not judged."""
+    code = code_of(version.lines[index])
+    if RAW_MAIN_HOP.search(code):
+        return True, []
+    if MAIN_DELIVERY.search(code):
+        labels, read = call_labels(version.lines, index, MAIN_DELIVERY)
+        if labels is not None and "class" not in labels:
+            return True, read
+    main_task = main_tasks(version).get(index)
+    source = main_task if main_task is not None else isolation(version)[index][1]
+    return main_task is not None, [source] if source else []
+
+
+def block_body(lines: list[str], index: int) -> tuple[str, int] | None:
+    """(the code inside the first block that opens on LINES[INDEX], the 0-based line that closes it), or None when it
+    does not close within BODY_LINES."""
+    depth, body = 0, []
+    for j in range(index, min(len(lines), index + BODY_LINES)):
+        for c in code_of(lines[j]):
+            if c == "{":
+                depth += 1
+                if depth == 1:
+                    continue
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return "".join(body), j
+            if depth > 0:
+                body.append(c)
+        if depth > 0:
+            body.append("\n")
+    return None
+
+
+def visibility_walk_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """An ancestor walk, or a hide override whose body does more than forward to the view's VisibilityNode (its body
+    lines are the context: an edit there re-judges it)."""
+    code = code_of(version.lines[index])
+    if HIDDEN_WALK.search(code):
+        return True, []
+    override = HIDE_OVERRIDE.search(code)
+    if override is None:
+        return False, []
+    body = block_body(version.lines, index)
+    if body is None:
+        return True, []
+    text, end = body
+    forward = HIDE_FORWARD[override.group(1)]
+    forwards = all(forward.match(s) for s in re.split(r"[\n;]", text) if s.strip())
+    return not forwards, list(range(index + 2, end + 2))
+
+
+def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A DemandTimer made in main-actor code, or a sleep in a loop that check-concurrency.sh lets through (its
+    `// wakeup-allow:`): a periodic timer with no class or alignment."""
+    lines = version.lines
+    code = code_of(lines[index])
+    if DEMAND_TIMER.search(code):
+        main, source = isolation(version)[index]
+        return main, [source] if source else []
+    match = SLEEP.search(code)
+    window = escape_window(lines, index)
+    context = [j + 1 for j in window]
+    if match is None or not any(WAKEUP_ALLOWED.search(lines[j]) for j in window):
+        return False, context  # an unescaped sleep is check-concurrency.sh's refusal, not this rule's
+    for opener, number in enclosing_openers(lines, index, SCOPE_STOP, code[:match.start()]):
+        if LOOP_OPENER.search(opener):
+            return True, context + [number]
+        if not BRANCH_OPENER.search(opener):
+            break  # a closure or a declaration: the loop around it does not repeat this sleep
+    return False, context
+
+
+def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
+    """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
+    def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+        kept = [c for c in changes if keep_file(c.path)]
+        if len(SIDE_MEMO) > 4096:  # one push holds a few hundred sides; a long-lived caller (the tests) many pushes
+            SIDE_MEMO.clear()
+        for change in kept:
+            for side, lines in (("head", change.head_lines), ("base", change.base_lines)):
+                SIDE_MEMO[id(lines)] = (lines, change.memo.setdefault(f"main-thread classes {side}", {}))
+        return matcher_rule(matcher)(kept, moved)
+    return find
+
+
+MAIN_CLASS_RULES = (
+    Rule("main-hop", "A main-thread hop without a class: a `Task` that runs on the main actor (`Task { @MainActor in`, "
+         "or a plain `Task {` in main-actor code), `MainActor.run`, `CFRunLoopPerformBlock`, `RunLoop.main.perform` or "
+         "a `MainDelivery(` with no `class:`",
+         "an unclassed hop is a FIFO main-queue job: the scheduler cannot put the person's input first or keep "
+         "automation and hidden work out of the frame (p06-scheduler.md rule 1; Chrome posts every UI-thread task "
+         "with a BrowserTaskType, content/browser/scheduler/browser_task_queues.h). Deleting `@MainActor in` does "
+         "not remove the hop: the Task still inherits the main actor",
+         R_HOP,
+         "// main-hop-allow: <the AppKit order that needs this hop (focus, menu tracking)>",
+         scoped_to(Matcher(MAIN_HOP_LINE, allow_marker("main-hop"), main_hop_debt),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/MainRunLoopBlock.swift")))),
+    Rule("view-observation", "A raw observation: `ObservationStream(` or `withObservationTracking`",
+         "it re-arms on every change whether or not anything shows the value, with no class or owner: hidden "
+         "workspaces keep doing view work and one O(all) closure per row runs per change (p06-scheduler.md F5)",
+         "recipe R-obs: `VisibleObservation(node, owner:, on:)` when the apply touches views (it tracks only while "
+         "the node is visible), `ServiceObservation(class, owner, read, apply)` for anything else (model, daemon, "
+         "disk); waits use StoreWaiters or PageWaiters",
+         "// view-observation-allow: <why neither VisibleObservation nor ServiceObservation fits>",
+         scoped_to(Matcher(VIEW_OBSERVATION, allow_marker("view-observation")),
+                   lambda path: not path.startswith((WAKEUPS, SOURCES + "CmuxNextCompat/ObservationStream.swift")))),
+    Rule("visibility-walk", "An ad hoc visibility test: `isHiddenOrHasHiddenAncestor`, or a `viewDidHide`/"
+         "`viewDidUnhide` override that does more than forward to its VisibilityNode",
+         "an ancestor walk per call, and a per-view hidden flag the scheduler cannot see: hidden work is not held, "
+         "and on show it runs out of order (p06-scheduler.md rule 4; Chrome keeps one visibility per WebContents, "
+         "content/public/browser/visibility.h)",
+         "recipe R-vis: read `node.isVisible` and defer with `node.deferUntilVisible(key:)`; recipe R-hide: a hide "
+         "override only calls super and `node.set(.hidden)` / `node.set(.visible)`",
+         "// visibility-walk-allow: <the hit test or accessibility read that needs the walk>",
+         scoped_to(Matcher(prefilter(HIDDEN_WALK, HIDE_OVERRIDE), allow_marker("visibility-walk"),
+                           visibility_walk_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("timer-class", "A timer with no class: a `DemandTimer(` in main-actor code, or a `Task.sleep` / "
+         "`clock.sleep` loop (a sleep in a loop with `// wakeup-allow:`)",
+         "a main-thread deadline without a class fires in FIFO order beside the person's input, and an unaligned "
+         "periodic sleep wakes the process on its own schedule while hidden (p06-scheduler.md section E; Chrome "
+         "aligns delayed tasks, base/task/delay_policy.h, and throttles hidden ones, "
+         "third_party/blink/renderer/platform/scheduler/common/throttling/cpu_time_budget_pool.cc)",
+         "recipe R-timer: an event first (idle-wakeups.md); else `MainDeadline(owner:, workClass:, alignment:, "
+         "scheduler:)` on main (`.flexible` by default, `.precise` only under 36 ms); a race timeout uses the "
+         "`Deadline` helper; DemandTimer stays for off-main deadlines",
+         "// timer-class-allow: <why this deadline needs no class or alignment>",
+         scoped_to(Matcher(prefilter(DEMAND_TIMER, SLEEP), allow_marker("timer-class"),
+                           timer_class_debt), lambda path: not path.startswith(WAKEUPS))),
+    Rule("raw-observer", "A raw notification or KVO observer (queue Q4: `addObserver(`, NSWindow/NSApplication "
+         "notices, the NSWorkspace center, `notifications(named:)`, DistributedNotificationCenter, `.observe(\\.`, "
+         "NSView frame/bounds notices, `didUpdateNotification`)",
+         "each observer runs for every post, visible or not, in no class: N views x every window notice "
+         "(p06-scheduler.md F5; Chrome observers register on their owner, base/observer_list.h)",
+         "recipe R-notif: subscribe through WindowEvents or AppEvents with a node (one observer per window or app "
+         "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
+         "`setFrameSize`; KVO on WebKit takes the tab's node",
+         "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+                   lambda path: not path.startswith(WAKEUPS))),
+    Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
+         "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
+         "monitors outside CmuxNextInput, and a module-local one beside the tap runs for every event outside its "
+         "order (Chrome's one InputRouter per widget, components/input/input_router_impl.cc)",
+         "recipe R-monitor: add a phase or a subscription to `InputEventTap`; a session monitor is subscribed only "
+         "while its session is active",
+         "// local-monitor-allow: <why the tap cannot see this event>",
+         scoped_to(Matcher(INPUT_MONITOR, allow_marker("local-monitor")),
+                   lambda path: path.startswith(INPUT_TAP_MODULE) and not TAP_FILE.match(path))),
+)
+RULES += MAIN_CLASS_RULES
+# ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
