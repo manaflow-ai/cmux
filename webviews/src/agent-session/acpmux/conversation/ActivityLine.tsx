@@ -17,7 +17,7 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   useEffect(() => {
     setTime(now());
   }, [now]);
-  usePageInterval(() => setTime(now()), 1000);
+  usePageInterval(() => setTime(now()), 1000, { catchUpOnShow: true });
   return (
     <div className="cv-activity">
       {row.text ? (

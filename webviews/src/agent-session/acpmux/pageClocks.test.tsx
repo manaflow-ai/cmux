@@ -148,8 +148,9 @@ const thisMac: AcpmuxSnapshot["catalog"] = [
   { id: "codex", name: "Codex", family: "codex", models: [], auth: { login: "codex login" } },
 ];
 
-test("a sign-in wait checks nothing while the page is hidden and checks on show", async () => {
-  const refreshes: string[] = [];
+/// The Harnesses page waiting for a Codex sign-in it started, every `harness.health` refresh it
+/// asks for recorded in `refreshes`.
+async function waitingForSignIn(refreshes: string[]): Promise<HTMLElement> {
   const native = (method: string, params: Record<string, unknown> = {}) => {
     if (method === "harness.health") {
       if (params.refresh) refreshes.push(String(params.id));
@@ -170,12 +171,36 @@ test("a sign-in wait checks nothing while the page is hidden and checks on show"
   const button = container.querySelector<HTMLButtonElement>('[data-harness-status="signIn"] button');
   expect(button).not.toBeNull();
   await act(async () => button!.click());
+  expect(container.querySelector('[data-harness-status="waiting"]')).not.toBeNull();
+  return container;
+}
+
+test("a sign-in wait checks nothing while hidden or on show, and checks one period after show", async () => {
+  const refreshes: string[] = [];
+  await waitingForSignIn(refreshes);
   await advance(1000);
   expect(refreshes).toEqual(["codex"]);
   await setVisibility("hidden");
   await advance(30_000);
   expect(refreshes).toEqual(["codex"]);
+  // Showing the page is no read: the check waits for its next period.
   await setVisibility("visible");
   await act(async () => undefined);
+  expect(refreshes).toEqual(["codex"]);
+  await advance(1000);
   expect(refreshes).toEqual(["codex", "codex"]);
+});
+
+test("a sign-in wait that ended while hidden clears on the first tick after show, with no check", async () => {
+  const refreshes: string[] = [];
+  const container = await waitingForSignIn(refreshes);
+  await setVisibility("hidden");
+  await advance(4 * 60 * 1000);
+  await setVisibility("visible");
+  await act(async () => undefined);
+  expect(container.querySelector('[data-harness-status="waiting"]')).not.toBeNull();
+  await advance(1000);
+  expect(refreshes).toEqual([]);
+  expect(container.querySelector('[data-harness-status="waiting"]')).toBeNull();
+  expect(container.querySelector('[data-harness-status="signIn"]')).not.toBeNull();
 });

@@ -130,7 +130,8 @@ export function HarnessesScreen({
     .filter((harness) => progress[harness]?.kind === "waiting")
     .join("\n");
   // A sign-in started here: checked until it lands (the row turns ready) or the wait ends. The
-  // checks rest while the page is hidden; the wait's end is wall time, so it still ends on time.
+  // checks rest while the page is hidden, and showing the page checks nothing (a read never catches
+  // up on show): the next check comes one period later. The wait's end is wall time.
   const signIn = useRef<SignInWait | undefined>(undefined);
   useEffect(() => {
     signIn.current = waiting

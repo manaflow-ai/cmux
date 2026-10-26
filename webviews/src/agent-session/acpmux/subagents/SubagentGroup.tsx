@@ -69,7 +69,7 @@ export function useNow(live: boolean): number {
   useEffect(() => {
     if (live) setNow(Date.now());
   }, [live]);
-  usePageInterval(() => setNow(Date.now()), live ? 1000 : null);
+  usePageInterval(() => setNow(Date.now()), live ? 1000 : null, { catchUpOnShow: true });
   return now - offset;
 }
 

@@ -84,7 +84,7 @@ export function useTicking(running: boolean, now: () => number = Date.now): numb
   useEffect(() => {
     if (running) setTime(now());
   }, [now, running]);
-  usePageInterval(() => setTime(now()), running ? 1000 : null);
+  usePageInterval(() => setTime(now()), running ? 1000 : null, { catchUpOnShow: true });
   return time;
 }
 
