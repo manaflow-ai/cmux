@@ -2324,7 +2324,7 @@
           ]
         },
         "tabs": {
-          "description": "Per pane that lists a browser or page tab: the tab it shows and its browser and page tabs in strip order (daemon tabs, then session-local browser tabs, then internal page tabs), read through the engine-neutral BrowserTab protocol (Chromium's TabRendererData analog). The find bar is overlays.findBar.",
+          "description": "Per pane that lists a browser or page tab: the tab it shows and its browser and page tabs as its strip lists them (daemon tabs, then its window's session-local browser tabs, then internal page tabs, less the tabs the strip hides while they move to a dock or the side), read through the engine-neutral BrowserTab protocol (Chromium's TabRendererData analog). The find bar is overlays.findBar.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/tabs",
@@ -2422,7 +2422,7 @@
                               "enum": ["webkit", "cef", null]
                             },
                             "loadState": {
-                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no page now",
+                              "description": "BrowserLoadPhase of the live page; unloaded when the tab has no engine page now (none made yet, or a hibernated or not-yet-started stand-in, as Chrome gives a discarded tab TabNetworkState::kNone); canGoBack, canGoForward, audible and crashed are then false",
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/loadState"},
                               "type": "string",
                               "enum": ["unloaded", "idle", "provisional", "committed", "finished", "failed"]

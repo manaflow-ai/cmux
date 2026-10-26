@@ -1,10 +1,12 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 /// The `tabs` facet (schemas/oracle/snapshot-v1.schema.json, p15-oracle-037): per pane, its shown tab and its
-/// browser and page tabs in strip order, with the values a tab strip draws. Chromium's strip reads one
+/// browser and page tabs as its strip lists them, with the values a tab strip draws. Chromium's strip reads one
 /// engine-neutral value per tab, `TabRendererData` (chrome/browser/ui/tabs/tab_renderer_data.h: url, title,
 /// network_state, crashed_status, pinned, alert_state, is_tab_discarded), never the renderer. ``Tab`` is that
-/// value; CmuxNextBrowserTabs builds it from the engine-neutral `BrowserTab` protocol, so a case compares the
-/// same way on WebKit and Chromium. Titles arrive hashed (`sha256:<hex>`); the find bar is the overlays facet's.
+/// value; CmuxNextBrowserTabs builds it from the engine-neutral `BrowserTab` protocol only (`engineKind` and
+/// `BrowserTabState`), so no field reads an engine type. Whether both engines reach the same state for one
+/// navigation is the fleet journey's to show. Titles arrive hashed (`sha256:<hex>`); the find bar is the overlays
+/// facet's.
 public struct OracleTabsFacet: OracleFacetProvider {
     /// One tab of a pane's strip.
     public struct Tab: Sendable, Hashable {
@@ -15,7 +17,8 @@ public struct OracleTabsFacet: OracleFacetProvider {
             case page
         }
 
-        /// Where the tab's page load is (`BrowserLoadPhase`), or `unloaded` when no page exists for the tab.
+        /// Where the tab's page load is (`BrowserLoadPhase`), or `unloaded` when the tab has no engine page (none
+        /// made yet, or a hibernated or not-yet-started stand-in).
         public enum LoadState: String, Sendable {
             case unloaded, idle, provisional, committed, finished, failed
         }
@@ -72,7 +75,7 @@ public struct OracleTabsFacet: OracleFacetProvider {
         private static func optional(_ text: String?) -> OracleValue { text.map(OracleValue.string) ?? .null }
     }
 
-    /// One pane: the tab it shows (of any kind, a terminal too) and its browser and page tabs in strip order.
+    /// One pane: the tab it shows (of any kind, a terminal too) and its browser and page tabs as its strip lists them.
     public struct Pane: Sendable, Hashable {
         public var id: String
         public var selected: String?

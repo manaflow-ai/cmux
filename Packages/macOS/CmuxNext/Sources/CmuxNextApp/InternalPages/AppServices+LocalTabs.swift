@@ -54,26 +54,44 @@ extension AppServices {
 
 #if DEBUG || CMUX_BENCH_HOOKS
 extension AppServices {
-    /// The oracle's `tabs` facet (p15-oracle-037): every pane that lists a browser or page tab, in the order its
-    /// strip draws them (`PaneController.structure`: daemon tabs, the windows' session-local browser tabs, then
-    /// internal page tabs), shown tab as `controlPageTabs` picks it. Model values only, O(panes + tabs).
+    /// The oracle's `tabs` facet (p15-oracle-037): every pane that lists a browser or page tab, as its strip lists
+    /// them (`PaneController.structure`): daemon tabs, then its window's session-local browser tabs, then internal
+    /// page tabs, less the tabs the strip leaves out (`stripHidden`). A pane no window mounts lists what its strip
+    /// would: no tab hidden, the local tabs of the window that holds them. Shown tab as `controlPageTabs` picks it.
+    /// Model values only, O(panes + tabs).
+    ///
+    /// The page table is not observable: reading `pageInstalls` makes a `wait_for` read again when a page is
+    /// installed or replaced (a CEF page made later, a stand-in swapped for the live page); the live page's own
+    /// state is observable.
     func oracleTabPanes() -> [OracleTabsFacet.Pane] {
-        let controllers = windows.controllers
+        oracleTabPanes(strip: paneController(for:), windows: windows.controllers.map(\.state))
+    }
+
+    /// - Parameters:
+    ///   - strip: The pane's mounted strip, nil when no window mounts it.
+    ///   - windows: Every window's state, front first (session-local tabs and remembered selections).
+    func oracleTabPanes(strip mounted: (PaneModel) -> PaneController?, windows states: [WindowState]) -> [OracleTabsFacet.Pane] {
+        _ = cache.pageInstalls.revision
         var panes: [OracleTabsFacet.Pane] = []
         for (workspace, _) in machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
-                var tabs = pane.tabs.compactMap(oracleTab)
-                for local in controllers.flatMap({ $0.state.localBrowserTabs[pane.id] }) {
+                let strip = mounted(pane)
+                let hidden = strip?.stripHidden ?? []
+                let locals: [LocalBrowserTab] = if let strip { strip.state?.localBrowserTabs[pane.id] ?? [] } else {
+                    states.lazy.map { $0.localBrowserTabs[pane.id] }.first(where: { !$0.isEmpty }) ?? []
+                }
+                var tabs = pane.tabs.filter { !hidden.contains($0.id) }.compactMap(oracleTab)
+                for local in locals where !hidden.contains(local.id) {
                     tabs.append(.browser(id: local.id, pinned: false, page: cache.existingBrowser(local.id)?.tab,
                                          record: .init(url: local.url?.absoluteString), hibernated: cache.dormantTabs.contains(local.id)))
                 }
-                for key in pages.tabIDs(in: pane.id) {
+                for key in pages.tabIDs(in: pane.id) where !hidden.contains(key) {
                     guard let page = LocalPageTab.page(of: key) else { continue }
                     tabs.append(.page(id: key, page: page.rawValue, title: pages.provider(page)?.title(for: key)))
                 }
                 guard !tabs.isEmpty else { continue }
-                let selected = paneController(for: pane)?.stripModel.selectedID?.rawValue
-                    ?? controllers.lazy.compactMap { $0.state.selection.selection(in: pane.id) }.first
+                let selected = strip?.stripModel.selectedID?.rawValue
+                    ?? states.lazy.compactMap { $0.selection.selection(in: pane.id) }.first
                 panes.append(OracleTabsFacet.Pane(id: pane.id, selected: selected, tabs: tabs))
             }
         }
