@@ -244,7 +244,7 @@ public final class BrowserChromeView: NSView {
         installAccessoryBar(below: separator)
         installHeaderBand(beside: accessoryBar)
         addSubview(progressLine)
-        pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
+        pageStatus.install(in: self) { [weak self] in self?.tab }
         addSubview(promptBar)
         addSubview(findBar)
 
@@ -441,6 +441,7 @@ public final class BrowserChromeView: NSView {
         // sync-layout: followLayout below reads the address bar's frame from this pass.
         addressBar.layoutSubtreeIfNeeded()
         addressBar.followLayout()
+        pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
     }
