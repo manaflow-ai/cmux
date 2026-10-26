@@ -13,7 +13,7 @@ import Foundation
 /// usable id, if that request is still pending, and is dropped otherwise; an unfinished last line is never
 /// read; EOF fails what is left, as a shutdown once a `daemon-shutdown` event came.
 struct WireFuzzTransportCase {
-    static let command = "fuzz"
+    static let command: DaemonCommandName = "fuzz"
     static let hangLimit: DispatchTimeInterval = .seconds(20)
 
     /// What the transport gave one request.
@@ -28,7 +28,7 @@ struct WireFuzzTransportCase {
             case .success(let response):
                 self = .success(line: [UInt8](response.line), barrier: response.eventBarrier)
             case .failure(let error as DaemonError):
-                if case .command(WireFuzzTransportCase.command, let message, _, _, _) = error {
+                if case .command(WireFuzzTransportCase.command.wire, let message, _, _, _) = error {
                     self = .command(message: message)
                 } else {
                     self = .closed(error)
@@ -196,7 +196,7 @@ struct WireFuzzTransportCase {
         // task-owner: one per case; it ends when the reader resolves every slot, at the latest at EOF.
         Task {
             let lines = (0..<requests).map { _ in
-                PipelinedLine(cmd: command) { id in Data(#"{"cmd":"\#(command)","id":\#(id)}"#.utf8) }
+                PipelinedLine(cmd: command) { id in Data(#"{"cmd":"\#(command.wire)","id":\#(id)}"#.utf8) }
             }
             let results = await transport.pipeline(lines, timeout: nil)
             replies.withLock { $0 = results.map(Outcome.init) }

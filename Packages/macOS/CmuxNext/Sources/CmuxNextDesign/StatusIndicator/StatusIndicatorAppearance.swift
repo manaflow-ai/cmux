@@ -121,12 +121,17 @@ public final class StatusIndicatorAppearance {
     private var reduceMotionObserver: MainActorObservation?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     private var resyncObservers: [MainActorObservation] = []
+    /// The windows whose visibility a resync reads again (``resync()``).
+    private let windows: @MainActor () -> [NSWindow]
 
     /// - Parameters:
     ///   - appCenter: Where the app and window notices arrive (tests post to their own).
     ///   - workspaceCenter: Where the wake notices arrive.
-    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+    ///   - windows: The app's windows (tests pass their own).
+    init(appCenter: NotificationCenter = .default, workspaceCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+         windows: @escaping @MainActor () -> [NSWindow] = { NSApplication.shared.windows }) {
         config = StatusIndicatorConfig.current
+        self.windows = windows
         startObserving()
         // Reduce Motion is not observable through Observation.
         let center = NSWorkspace.shared.notificationCenter
@@ -158,8 +163,11 @@ public final class StatusIndicatorAppearance {
         }
     }
 
-    /// Tells every client to check its indicator again (`statusIndicatorResync`).
+    /// Reads each window's visibility again, then tells every client to check its indicator again
+    /// (`statusIndicatorResync`). A window whose occlusion notice never came still has a stale node,
+    /// and a hidden indicator waits on that node; an unchanged read flips nothing.
     public func resync() {
+        for window in windows() { WindowVisibilitySource.installed(on: window)?.refresh() }
         for case let client as any StatusIndicatorConfigClient in clients.allObjects {
             client.statusIndicatorResync()
         }

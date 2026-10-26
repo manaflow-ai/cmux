@@ -56,13 +56,14 @@ extension BrowserProfileService {
         // A service that never loaded its file (tests) touches no data.
         let pending = book.pendingCleanup
         guard file != nil, !pending.isEmpty else { return }
-        let cef = services.cache.cef, webKit = services.cache.webKit.profileStore
+        // An engine not built yet opened no profile in this process; the cleanup never builds it.
+        let cef = services.cache.chromium.built, webKit = services.cache.webKit.profileStore
         let ready = pending.filter { id in
             guard let profile = BrowserProfileRecord.engineProfile(for: id) else { return true }
-            return !cef.hasOpened(profile) && !webKit.loadedProfiles.contains(profile)
+            return cef?.hasOpened(profile) != true && !webKit.loadedProfiles.contains(profile)
         }
         guard !ready.isEmpty else { return }
-        let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
+        let cleanup = BrowserProfileStorageCleanup(chromiumRoot: CEFEngine.storageRoot)
         let bundleID = services.environment.launch.bundleID
         // task-owner: one-shot removal of deleted profiles' files; reports back once
         Task { [weak self] in

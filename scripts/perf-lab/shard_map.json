@@ -5,13 +5,14 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 11100,
+            "T1": 12000,
             "T2": 18960
           },
           "stories": {
             "T1": [
               "blocking-hangs",
               "chat-anim",
+              "daemon-ops",
               "home-idle",
               "launch-cold",
               "launch-cold-realistic",
@@ -96,7 +97,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 5580
+            "T1": 6000
           },
           "stories": {
             "T0": [
@@ -104,13 +105,14 @@
             ],
             "T1": [
               "blocking-hangs",
-              "home-idle",
-              "launch-warm-realistic",
-              "memory-hidden",
+              "daemon-ops",
+              "launch-cold",
+              "launch-cold-realistic",
+              "motion",
               "new-surfaces-matrix",
+              "omnibar",
               "pane-stress",
-              "perf-gate",
-              "tab-switch"
+              "switch"
             ]
           }
         },
@@ -118,7 +120,7 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 5520
+            "T1": 6000
           },
           "stories": {
             "T0": [
@@ -126,13 +128,13 @@
             ],
             "T1": [
               "chat-anim",
-              "launch-cold",
-              "launch-cold-realistic",
+              "home-idle",
+              "launch-warm-realistic",
+              "memory-hidden",
               "memory-hidden-webkit",
-              "motion",
-              "omnibar",
+              "perf-gate",
               "sidebar",
-              "switch"
+              "tab-switch"
             ]
           }
         }

@@ -23,6 +23,9 @@ fn request_path_note_outside_a_scope_counts_nothing() {
 
 #[test]
 fn request_path_note_feeds_the_thread_blocking_detector_at_the_same_site() {
+    // This test reads the recorded site, so it must not depend on the Debug
+    // default (a panic) or on CMUX_DAEMON_BLOCKING.
+    cmux_threads::blocking::set_mode(cmux_threads::blocking::BlockingMode::Record);
     let stats = RequestPathStats::new(RequestPathMode::OFF);
     let (line, hold_line) = std::thread::spawn(move || {
         let _scope = RequestPathScope::enter(&stats);

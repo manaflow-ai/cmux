@@ -296,7 +296,7 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `AppServices.ssh` sets the install offer and the current policy when made. |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
-| Q1-7 | `_ = terminalColors` | keep (022 found it must stay) | - | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does). Built late, the daemons answer the first terminals' OSC 10/11/12 queries without the painted colors. Making it lazy needs a reader in the Daemon.start post first. |
+| Q1-7 | `_ = terminalColors` | built by its reader at the daemon start (024) | 024 | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does), and built late the daemons would answer the first terminals' OSC 10/11/12 queries without the painted colors. Done (024): `AppServices.startLocalDaemon` (Themes/TerminalColorSync.swift) builds it and applies the colors just before `daemon.start`. It is still built before the first frame (the daemon needs it), so this moves no launch work; it names its reader. |
 | Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a remote machine's browser tab (its route, store or loopback chip), a machine browser, or a remote machine's connection; this Mac's pages ask `RemoteLocalhostService.routesToThisMac` and make none. It takes the current settings in the turn it is made, then follows them. |
 | Q1-9 | `_ = emptyWorkspaces` | onDemand; afterStartup `EmptyWorkspaceRepair.observe` on main | 022 | A window's content builds it before its frame; with no window shown, the post starts its store observation. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
@@ -307,10 +307,10 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-15 | `_ = remoteTerminals` | onDemand (its start is S5) | 021 | Restored remote workspaces. Done (021). |
 | Q1-16 | `_ = palette` | onDemand | 023 | Deleted: `AppServices.palettes` (`PaletteOnDemand`) builds the palette at its first read, then its `whenBuilt` hooks; `Palette.build` afterFirstFrame; a palette key before that builds it in the key's turn. |
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
-| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
+| Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | Done (024): `TabContentCache.chromium` (`ChromiumEngineSlot`) builds the `CEFEngine` at its first read (a Chromium tab or page, the afterFirstFrame warm-up). The launch readers (`webUI`'s page host, `cefUnavailable`, the link-click, managed-policy, password, search and proxy followers) read the slot and apply through `whenBuilt`, so no engine is built before the first frame unless a Chromium page is opened then. |
 
-022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above), so
-with 020's auth split for Q1-1, Q1 reaches 4, one above the spec's target of 3, until Q1-7 gets its reader. Without the auth split Q1-1 stays built before the
+022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above);
+024 gave Q1-7 its daemon-start reader, so with 020's auth split for Q1-1, Q1 is 3 (cache, keyRouter, windows). Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
 ## 7. Q1b stored initializers (42)

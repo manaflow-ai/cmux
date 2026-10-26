@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextDevices
-import Observation
+import CmuxNextWakeups
 
 /// The card over a Mac Screen tab's screen (AppKit): connecting, waiting,
 /// failed, ended, and a device hub tab's Connect card and every way a request
@@ -30,8 +30,10 @@ final class MacScreenCardView: MacScreenThemedView {
     private let stack = MacScreenStack.make(.vertical, spacing: 12, alignment: .centerX,
                                             insets: NSEdgeInsets(top: 24, left: 24, bottom: 24, right: 24))
     private(set) var shown: Shown?
+    /// What the card says (`render(_:)` on a change).
+    private var watch: FrameObservation<Shown>?
 
-    init(model: MacScreenPaneModel, actions: MacScreenChromeActions) {
+    init(model: MacScreenPaneModel, actions: MacScreenChromeActions, node: VisibilityNode, on mainWork: MainWorkScheduler) {
         self.model = model
         self.actions = actions
         super.init(frame: .zero)
@@ -55,7 +57,13 @@ final class MacScreenCardView: MacScreenThemedView {
             trailing,
             bottom,
         ])
-        render()
+        let watch = FrameObservation(owner: "mac-screen.card", delivery: .visible(node), on: mainWork) { [model] in
+            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
+        } onChange: { [weak self] next in
+            self?.render(next)
+        }
+        self.watch = watch
+        render(watch.value)
     }
 
     override var isFlipped: Bool { true }
@@ -71,12 +79,7 @@ final class MacScreenCardView: MacScreenThemedView {
         background.frame = bounds
     }
 
-    private func render() {
-        let next = withObservationTracking {
-            Shown(card: model.card, name: model.name, failedDetail: model.card == .failed ? model.failedDetail : "")
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.render() }
-        }
+    private func render(_ next: Shown) {
         guard next != shown else { return }
         shown = next
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }

@@ -187,7 +187,7 @@ public actor DaemonConnection {
         try onTransport(ready.transport)
         requestStarted()
         defer { requestEnded() }
-        let response = try await ready.transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
+        let response = try await ready.transport.request(cmd: DaemonCommandName(wire: envelope(0).operation), timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
         return try ResourceRequestEnvelope.decodeResult(R.self, from: response)

@@ -275,8 +275,10 @@ public final class ControlRouter: Sendable {
             return .failure(Self.methodNotFound(request.method, appCLIPath: identity.appCLIPath))
         }
         // The snapshot as of now: built first when a work-queue frame changed main-actor state since the last
-        // publish (a lazy publish: frames with no reader build nothing).
-        var snapshot = await snapshots.fresh()
+        // publish (a lazy publish: frames with no reader build nothing), within the request deadline. A liveness
+        // diagnostic answers from the last published one, so it works while the main thread is stalled.
+        var snapshot = await method.readsLastPublished ? snapshots.current
+            : snapshots.fresh(deadline: .now + configuration.requestDeadline)
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)

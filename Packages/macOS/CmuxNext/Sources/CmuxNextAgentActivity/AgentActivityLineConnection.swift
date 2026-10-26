@@ -14,7 +14,7 @@ import CmuxNextCompat
 /// swap the socket between the two, and the first frame (with its token)
 /// would reach it.
 public nonisolated final class AgentActivityLineConnection: @unchecked Sendable { // crash-allow: every mutable field is read and written only on `queue` (one serial queue)
-    private let queue = DispatchQueue(label: "cmux.agent-activity.socket")
+    private let queue = DispatchQueue(label: "cmux.agent-activity.socket", qos: .utility)
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-activity.socket")
     private var descriptor: Int32 = -1
     private var source: (any DispatchSourceRead)?

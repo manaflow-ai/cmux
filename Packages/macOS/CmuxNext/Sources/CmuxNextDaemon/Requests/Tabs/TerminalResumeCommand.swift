@@ -30,7 +30,7 @@ public struct TerminalResumeCommandRequest: DaemonRequest {
         case clear
     }
 
-    public static let command = "terminal-resume-command"
+    public static let commandName: DaemonCommandName = "terminal-resume-command"
     public static let requiredCapability: String? = DaemonCapability.resumeCommand.rawValue
     public var target: SetTerminalKeepRequest.Target
     public var change: Change

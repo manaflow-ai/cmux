@@ -16,7 +16,7 @@
 public struct AgentInventoryRequest: DaemonRequest {
     public typealias Response = AcpmuxHarnessInventory
     /// The cache-only native daemon command.
-    public static let command = "agent-inventory"
+    public static let commandName: DaemonCommandName = "agent-inventory"
     /// Older daemons receive no request when they do not advertise this capability.
     public static let requiredCapability: String? = "agent-inventory-v1"
 

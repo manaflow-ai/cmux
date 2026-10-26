@@ -23,7 +23,9 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod owner_panic_log;
-pub use owner_panic_log::owner_panic_log_path;
+#[cfg(debug_assertions)]
+pub use owner_panic_log::spawn_owner_hang_test;
+pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod requests;

@@ -1168,12 +1168,16 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
+                // A commit busy past its hang tier is written to the hang
+                // log with this thread's stack (request_watchdog.rs).
+                let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(hang);
                 match committed {
                     Ok(commits) => {
                         let terminal_events =

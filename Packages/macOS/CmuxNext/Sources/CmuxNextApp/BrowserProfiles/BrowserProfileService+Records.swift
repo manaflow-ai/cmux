@@ -31,15 +31,16 @@ extension BrowserProfileService {
     }
 
     /// Gives both engines each profile's proxy (#24432); a profile without one goes direct.
-    /// A record whose proxy this app cannot read keeps its pages off the direct path.
+    /// A record whose proxy this app cannot read keeps its pages off the direct path. A Chromium engine not built
+    /// yet is left unbuilt; it takes the proxies as it is built (`observeHomeRecords`).
     func applyProxies() {
         guard usesDaemonRecords else { return }
-        let webKit = services.cache.webKit.profileStore, cef = services.cache.cef
+        let webKit = services.cache.webKit.profileStore, cef = services.cache.chromium.built
         for snapshot in services.machines.local.store.personal.browserProfiles {
             guard let profile = BrowserProfileRecord.engineProfile(for: snapshot.id) else { continue }
             let proxy = snapshot.proxy.map { Self.proxy(from: $0) ?? Self.unreadableProxy }
             webKit.setProxy(proxy, for: profile)
-            cef.setProxy(proxy, for: profile)
+            cef?.setProxy(proxy, for: profile)
         }
     }
 
@@ -104,6 +105,7 @@ extension BrowserProfileService {
     /// browser profile records, this Mac's file records are copied there
     /// once; every later change of the records re-renders tabs and omnibars.
     func observeHomeRecords() {
+        services.cache.chromium.whenBuilt { [weak self] _ in self?.applyProxies() }  // before its first page's request
         // task-owner: lives as long as the service; event-driven (Observation)
         homeRecordsObservation = Task { [weak self] in
             guard let store = self?.services.machines.local.store else { return }

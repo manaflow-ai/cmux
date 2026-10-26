@@ -22,7 +22,7 @@ extension WindowController {
     /// parked budget, so a workspace that left the screen or a page's cover is hidden from now
     /// (``WindowController/keepsParkedWorkspace(_:)``).
     func arrangeOnScreen() {
-        defer { services.parkedWorkspaceBudget?.keepingDidChange(in: self) }
+        defer { services.parkedWorkspaceBudget.keepingDidChange(in: self) }
         guard SidebarTunables.multiView.value else { return leaveMultiView() }
         guard let content else {
             // A top page or the connecting view fills the content area: no workspace is on screen.

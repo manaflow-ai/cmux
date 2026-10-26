@@ -134,24 +134,23 @@ enum DebugCEF {
             "delayed_requests": .number(Double(stats.delayedRequests)),
             "reentrant_fires": .number(Double(stats.reentrantFires)),
             "long_work_runs": .number(Double(stats.longWorkRuns)),
-            "follow_up_runs": .number(Double(stats.followUpRuns)),
             "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
             "work_ms": .number(stats.workSeconds * 1_000),
-            "fallback_ms": .number(stats.fallbackInterval * 1_000),
             "passes_while_input_pending": .object(stats.passesWhileInputPending.byName.mapValues { .number(Double($0)) }),
             "deferred_for_input": .number(Double(stats.deferredForInput)),
             "pass_ms_p99": .number(stats.passMillisecondsP99),
         ])
     }
 
-    /// `debug.input` section `pump`: the in-process pump's input policy counters (p04-input-024).
-    static func pumpInputSource(_ cef: CEFEngine) -> DebugInputPumpSource {
-        DebugInputPumpSource(read: { [weak cef] in
-            cef?.pumpStats.map {
+    /// `debug.input` section `pump`: the in-process pump's input policy counters (p04-input-024); none, and no
+    /// engine built, before a Chromium need built the engine (p08-startup-024).
+    static func pumpInputSource(_ chromium: ChromiumEngineSlot) -> DebugInputPumpSource {
+        DebugInputPumpSource(read: { [weak chromium] in
+            chromium?.built?.pumpStats.map {
                 DebugInputPump(passesWhileInputPending: $0.passesWhileInputPending.byName,
                                deferredForInput: UInt64(clamping: $0.deferredForInput), passMillisecondsP99: $0.passMillisecondsP99)
             }
-        }, reset: { [weak cef] in cef?.resetPumpInputCounters() })
+        }, reset: { [weak chromium] in chromium?.built?.resetPumpInputCounters() })
     }
 
     /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).

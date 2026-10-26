@@ -12,7 +12,7 @@ public struct WsListenRequest: DaemonRequest {
         public var opened: Bool
     }
 
-    public static let command = "ws-listen"
+    public static let commandName: DaemonCommandName = "ws-listen"
     public static var requiredCapability: String? { DaemonCapability.wsListen.rawValue }
     /// One page origin the listener admits besides its own.
     public var allowOrigin: String?

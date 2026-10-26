@@ -164,9 +164,12 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
-    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
-    /// until then (a spy runtime in tests).
-    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
+    /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
+    /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
+    /// spy runtime in tests).
+    private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+    /// The pages' keyed waits on ``wakeUps``.
+    var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
 
     private init() {}
 
@@ -176,12 +179,13 @@ final class CEFRuntime {
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue. Idempotent for the same stores.
+    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
+    /// same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
         self.signInCallbacks = signInCallbacks
-        if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
+        if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
         // The pages profile belonged to the old stores: no key of these takes its spare.
@@ -415,9 +419,13 @@ final class CEFRuntime {
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
+            let forkAPI = shim.forkAPIVersion()
+            if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
+                logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
+            }
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
-                safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+                timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
                 gate: pumpGate
             )
             self.pump = pump
@@ -511,11 +519,11 @@ final class CEFRuntime {
         storage.contextKey(for: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
     }
 
-    /// Off-the-record context keys the shim holds, by profile.
+    /// Off-the-record context keys the shim holds, by profile. The profile's hosts left the
+    /// routing table with their last tab (`hostEmptied`).
     func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
         for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
-        hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
@@ -524,6 +532,18 @@ final class CEFRuntime {
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
+    }
+
+    /// `host`'s last tab left: it goes from the routing table, as Chromium closes a `Browser` whose
+    /// tab strip emptied (chrome/browser/ui/browser.cc, `Browser::TabStripEmpty`). The one place a
+    /// host whose tabs are gone leaves `hosts`. A page key (`cmux-page-<UUID>`) is never asked for
+    /// again, and a pane's next tab gets a new host. An untaken spare whose placeholder Chromium
+    /// closed stays in both tables (`CEFSpareWindow` owns it; `state(of:)` says `closed`), and a
+    /// host the key no longer names leaves the newer host in place.
+    func hostEmptied(_ host: CEFPaneHost) {
+        guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
+        hosts[host.key] = nil
+        if lastShownHost === host { lastShownHost = nil }
     }
 
     func makeRequestToken() -> Int32 {

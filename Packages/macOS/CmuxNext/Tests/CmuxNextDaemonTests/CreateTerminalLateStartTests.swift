@@ -15,7 +15,7 @@ import Testing
 struct CreateTerminalLateStartTests {
     private struct Recorded: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-terminal-creates"
+        static let commandName: DaemonCommandName = "test-terminal-creates"
     }
 
     private static let script = #"""

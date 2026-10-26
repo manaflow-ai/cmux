@@ -26,9 +26,9 @@ struct ScreenDividers {
               let windowPoint = screen.context.hoverPointer(window, event) else { return nil }
         let point = screen.convert(windowPoint, from: nil)
         guard screen.bounds.intersection(screen.visibleRect).contains(point) else { return nil }
-        let hit = screen.subviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
+        let hit = screen.stackedSubviews.reversed().lazy.compactMap { $0 as? DividerHandleView }.first {
             // Where it shows its cursor: not the part under a dock or past its area's window.
-            !$0.isHidden && $0.alphaValue > 0.01 && screen.convert($0.cursorRectInBounds, from: $0).contains(point)
+            !$0.isHidden && $0.alphaValue > 0.01 && shown($0.cursorRectInBounds, of: $0).contains(point)
         }
         guard let hit, screen.context.hoverReachesWindow(window, windowPoint) else { return nil }
         return hit
@@ -40,7 +40,7 @@ struct ScreenDividers {
     var mouseAreas: [LayoutMouseArea] {
         screen.dividerViews.compactMap { kind, view in
             guard !view.isHidden, view.alphaValue > 0.01 else { return nil }
-            let rect = uncovered(screen.convert(view.cursorRectInBounds, from: view).intersection(screen.bounds))
+            let rect = uncovered(shown(view.cursorRectInBounds, of: view).intersection(screen.bounds))
             guard !rect.isNull, !rect.isEmpty else { return nil }
             return LayoutMouseArea(id: kind.mouseAreaID, rect: rect, resizesColumns: view.axis == .horizontal)
         }.sorted { $0.id < $1.id }
@@ -54,10 +54,16 @@ struct ScreenDividers {
         screen.dividerViews.values.compactMap { view in
             guard !view.isHidden, view.alphaValue > 0.01, view.isLineVisible else { return nil }
             // Cut where its cursor stops too (DividerHandleView `cursorClip`): no hole through a dock.
-            let line = view.lineFrameInSuperview.intersection(screen.bounds)
+            let line = view.lineFrameInSuperview.offsetBy(dx: screen.panTranslation(of: view), dy: 0).intersection(screen.bounds)
             let rect = uncovered(view.cursorClip.map { line.intersection($0) } ?? line)
             return rect.isNull || rect.isEmpty ? nil : rect
         }.sorted { ($0.minX, $0.minY) < ($1.minX, $1.minY) }
+    }
+
+    /// `rect` (`view`'s coordinates) in the screen's, where it shows: a strip pan on the motion
+    /// container moves it by the container's translation, which `convert` does not see.
+    private func shown(_ rect: CGRect, of view: DividerHandleView) -> CGRect {
+        screen.convert(rect, from: view).offsetBy(dx: screen.panTranslation(of: view), dy: 0)
     }
 
     /// `rect` less what a zooming or unzooming pane shows over it: the dividers are under that pane

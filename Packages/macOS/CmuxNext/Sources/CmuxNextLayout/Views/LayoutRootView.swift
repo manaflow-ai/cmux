@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextSignposts
+public import CmuxNextWakeups
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -36,17 +37,29 @@ public final class LayoutRootView: NSView {
     /// This window's `motion.frame` and `motion.run` signposts.
     let motionTrace: LayoutMotionTrace
     private var observationTask: Task<Void, Never>?
+    /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
+    /// overlay, applied once per frame (made in `init`).
+    private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
     let inputTap: InputEventTap?
     /// The scroll, magnify and button intercept (``InputEventTap/InterceptOrder/layout``), held while
     /// the root is live (`setLive`).
     private var inputIntercept: InputSubscription?
+    /// The pointer-move intercept held while a strip shows away from its laid-out place
+    /// (``updatePointerLanding()``).
+    private var pointerLanding: InputSubscription?
     /// Key-window observers of the current window (`observeKeyWindow()`).
     var keyWindowObservers: [any NSObjectProtocol] = []
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
+    /// Each screen's last automation-caused structural change, in ``burstClock`` seconds (``landsAtOnce(_:steps:)``).
+    private var lastAutomationChange: [ScreenID: CFTimeInterval] = [:]
+    /// The clock of automation bursts; tests set their own.
+    var burstClock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    /// Structural changes of automation bursts that landed with no spring, cumulative (diagnostics, tests).
+    private(set) var automationBurstSnaps = 0
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
@@ -148,13 +161,15 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
+    /// `mainWork` is the app's main-thread scheduler: the Debug Settings looks of the panes' overlays
+    /// and the drop highlight follow through it.
     /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
     /// their own trace runtime.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil,
+                input: InputEventTap? = nil, mainWork: MainWorkScheduler,
                 motionSignposter: Signposter = .motion) {
         self.model = model
         inputTap = input
@@ -168,7 +183,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.wireOverlaySync(to: self)
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
             guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
@@ -178,11 +193,19 @@ public final class LayoutRootView: NSView {
         }
         context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun() }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
+        // The window adopts the plane exactly while it shows content child windows (`OverlayPlaneHosting`).
+        context.childWindowContentShows = { [weak self] in self.map { !$0.overlayPlane.isHome } ?? false }
+        context.stripMovedDidChange = { [weak self] in self?.updatePointerLanding() }
+        overlayPlane.onHomeChange = { [weak self] in self?.overlayPlaneHomeDidChange() }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)
         }
-        highlight.needsFrame = { [weak self] in self?.driver.start() }
+        highlight.needsFrame = { [weak self] in
+            guard let self, self.highlightStepsOnFrames else { return }
+            self.driver.start()
+        }
+        followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
@@ -198,12 +221,27 @@ public final class LayoutRootView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// One watch per root for the panes' attention look, not one per pane: a change reaches every
+    /// overlay in one apply, as Chrome's `Widget::ThemeChanged` reaches its views
+    /// (ui/views/widget/widget.cc). A pane made later reads the look when its overlay is made.
+    private func followLooks(on mainWork: MainWorkScheduler) {
+        highlight.follow(on: mainWork)
+        // node-free: the root has no VisibilityNode; the apply only recolors the panes' rings.
+        attentionLookWatch = FrameObservation(owner: "Layout.attentionLook", delivery: .visible(nil), on: mainWork) {
+            AttentionHighlightLook.tunable.value
+        } onChange: { [weak self] look in
+            guard let self else { return }
+            for host in self.context.hosts.values { host.chrome.setAttentionLook(look) }
+        }
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             observationTask?.cancel()
             inputIntercept?.cancel()
+            pointerLanding?.cancel()
             for token in keyWindowObservers { NotificationCenter.default.removeObserver(token) }
             driver.detach()
             motionTrace.endRun()
@@ -326,6 +364,7 @@ public final class LayoutRootView: NSView {
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
         let animated = chromeAnimated && context.animatesPaneLayout
+        let automationSteps = model.takeAutomationSteps()
         var needsFrames = false
 
         if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
@@ -380,8 +419,12 @@ public final class LayoutRootView: NSView {
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
+            // An automation burst's structural change takes the path `ui.animations.panes` off takes:
+            // its panes, scroll and camera land in this frame, springs in flight included; chrome still fades.
+            var landsAtOnce = false
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
+                landsAtOnce = structureChanged && self.landsAtOnce(screen.id, steps: automationSteps[screen.id])
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
@@ -389,7 +432,7 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden && !landsAtOnce) {
                     screenNeedsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -415,18 +458,19 @@ public final class LayoutRootView: NSView {
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                   animated: previous != nil && canAnimate && context.animatesPaneLayout && !landsAtOnce,
+                                   reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                     screenNeedsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
-               view.center(request.pane, animated: animated) {
+               view.center(request.pane, animated: animated && !landsAtOnce) {
                 screenNeedsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated, reveal: true) { screenNeedsFrames = true }
+                if view.center(request.pane, animated: animated && !landsAtOnce, reveal: true) { screenNeedsFrames = true }
             }
             if view.endMotionTurn(needsFrames: screenNeedsFrames) { needsFrames = true }
         }
@@ -436,6 +480,7 @@ public final class LayoutRootView: NSView {
             view.removeFromSuperview()
             screenViews[id] = nil
             screenFrames[id] = nil
+            lastAutomationChange[id] = nil
         }
 
         // Screen switch.
@@ -458,6 +503,24 @@ public final class LayoutRootView: NSView {
         if needsFrames, driver.isAttached { motionTrace.beginRun() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
+    }
+
+    /// Whether a structural change of `screen` lands with no spring, as part of an automation burst
+    /// (`LayoutModel.snapsAutomationBursts`; `steps`: the panes its automation changes moved, nil
+    /// when anyone else changed it). A burst moved several panes at once (commands coalesced into
+    /// one apply), or comes within a split spring's time of the screen's last automation change
+    /// (one command per frame), whose spring it would restart before it lands. A single automation
+    /// change after a pause springs as a person's does.
+    private func landsAtOnce(_ screen: ScreenID, steps: Int?) -> Bool {
+        guard let steps else {
+            lastAutomationChange[screen] = nil
+            return false
+        }
+        let now = burstClock()
+        let last = lastAutomationChange.updateValue(now, forKey: screen)
+        guard steps > 1 || last.map({ now - $0 < Motion.panes.spring(.split).perceivedDuration }) == true else { return false }
+        automationBurstSnaps += 1
+        return true
     }
 
     // MARK: Frames
@@ -511,7 +574,7 @@ public final class LayoutRootView: NSView {
             if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
         }
         applyScreenFrames()
-        if highlight.step(dt) { moving = true }
+        if highlightStepsOnFrames, highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
         // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
@@ -520,8 +583,8 @@ public final class LayoutRootView: NSView {
         if moving || gesturing { setLayoutInMotion(true) }
         flushOverlaySync()
         if !moving && !gesturing { setLayoutInMotion(false) }
-        // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
-        // a gesture with a still pointer needs none after that.
+        // A strip pan that moves the frames keeps the ticks until its finger lifts
+        // (`ScreenContentView.displayFrameBegan`); a pan on the motion container keeps none.
         return moving || panning
     }
 
@@ -544,6 +607,8 @@ public final class LayoutRootView: NSView {
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
+            // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
+            view.recordVisibilitySpan()
         }
         guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
         var changes: [(PaneID, PanePresence)] = []
@@ -634,6 +699,8 @@ public final class LayoutRootView: NSView {
         isLive = live
         inputIntercept?.cancel()
         inputIntercept = nil
+        pointerLanding?.cancel()
+        pointerLanding = nil
         driver.detach()
         if !live {
             for view in screenViews.values { view.settleMotion() }
@@ -653,6 +720,7 @@ public final class LayoutRootView: NSView {
             driver.attach(to: self)
             if screenViews.values.contains(where: \.hasMotion) || screenFrames.values.contains(where: { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target }) { driver.start() }
             inputIntercept = subscribeInput()
+            updatePointerLanding()
         }
         updateVisibility()
         // The layout changes it saw while parked: one overlay sync now.
@@ -662,3 +730,40 @@ public final class LayoutRootView: NSView {
 }
 
 extension LayoutRootView: ParkingObserver {}
+
+// MARK: Pointer input lands a moved strip
+
+extension LayoutRootView {
+    /// Lays every strip that shows away from its laid-out place out where it shows
+    /// (`ScreenContentView.landStripWhereItShows()`), before a press, a pointer move, a new scroll
+    /// gesture or a wheel notch reaches a view. O(screens); nothing when no strip shows moved.
+    func landStripsWhereTheyShow() {
+        for view in screenViews.values where view.stripContainer.showsMoved { view.landStripWhereItShows() }
+    }
+
+    /// Holds a pointer-move intercept exactly while a strip shows moved: a move then lands it before
+    /// AppKit reads its tracking areas and cursor rects at the views' frames. The press and the scroll
+    /// routes land it in the root's own intercept (``handleMonitored(_:)``). Called when a strip starts
+    /// or stops showing moved and when the root goes live, so a strip at rest costs pointer moves nothing.
+    func updatePointerLanding() {
+        let moved = isLive && screenViews.values.contains { $0.stripContainer.showsMoved }
+        if moved, pointerLanding == nil {
+            pointerLanding = inputTap?.subscribe(class: .pointerMove, phase: .intercept(order: .layout)) { [weak self] event in
+                if let self, event.window === self.window { self.landStripsWhereTheyShow() }
+                return .pass
+            }
+        } else if !moved, let subscription = pointerLanding {
+            subscription.cancel()
+            pointerLanding = nil
+        }
+    }
+
+    /// The overlay plane moved between this view and the window's overlay panel: content child
+    /// windows came or went. While they show, a strip pans its frames (`ScreenContentView.pansOnContainer`),
+    /// so one that shows moved lands where it shows now and a page window placed from its host's frame
+    /// matches it.
+    func overlayPlaneHomeDidChange() {
+        guard !overlayPlane.isHome else { return }
+        landStripsWhereTheyShow()
+    }
+}

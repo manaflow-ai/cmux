@@ -15,6 +15,10 @@
    a sync holds the host repo lock while it reads and writes.
 8. The gh CLI adapter, end to end against a fake `gh` executable: one issue list read per sync, labels created only
    when an issue is created, the run file applied once, and both rate buckets read.
+9. Sentry import (task 035), fed stability-health.py's recorded --json output: one Sentry issue is one GitHub issue
+   and keeps its link through re-imports, lab syncs and a raced create; a Sentry issue that already links a GitHub
+   issue or that another owner claims is not imported; an import never resets a fix or reopens; a bad report is
+   refused, and stdin is read, before the lock and any read.
 
     python3 -I -m pytest scripts/cmux-next/tests/test_stability_issues.py
     python3 -I -m unittest discover -s scripts/cmux-next/tests -p test_stability_issues.py
@@ -485,6 +489,185 @@ class DuplicateIssueTests(Harness):
         self.sync(run("c", sha(3), []))
         self.assertEqual(self.gh.issues[2].state, "CLOSED")
         self.assertEqual(self.gh.state(1)["count"], 2)
+
+
+RECORDED_HEALTH = HERE / "tests" / "fixtures" / "stability-health" / "report-nightly-next.json"
+HEALTH_SCRIPT = HERE / "stability-health.py"
+
+
+def recorded_health() -> dict:
+    """stability-health.py --json --top 3 (task 034) run on its own recorded Sentry responses: CMUXTERM-MACOS-10
+    links GitHub #30001, -11 is claimed by the PL-cefhost owner entry, -12 has no GitHub issue."""
+    return json.loads(RECORDED_HEALTH.read_text())
+
+
+def health_entry(sentry_id: str = "4501", **extra) -> dict:
+    """One normalized top_issues entry, as stability-health.py's normalize_issue writes it."""
+    out = {"id": sentry_id, "short_id": f"CMUXTERM-MACOS-{sentry_id}", "title": "EXC_BAD_ACCESS: Workspace.close",
+           "culprit": "Workspace.close(_:)", "level": "error", "events": 12, "users": 3,
+           "first_seen": "2026-10-20T00:00:00Z", "last_seen": "2026-10-24T00:00:00Z",
+           "permalink": f"https://manaflow.sentry.io/issues/{sentry_id}/", "github": [], "owner": None}
+    out.update(extra)
+    return out
+
+
+def health(entries: list[dict]) -> dict:
+    report = recorded_health()
+    report["top_issues"] = entries
+    return report
+
+
+class SentryTests(Harness):
+    """stability-health.py's top Sentry issues become signatures with source sentry."""
+
+    def sentry(self, report: dict, *flags: str) -> tuple[int, dict, str]:
+        path = self.tmp / "health.json"
+        path.write_text(json.dumps(report))
+        return self.cli(*flags, "sentry", str(path))
+
+    def test_the_recorded_034_report_imports_only_the_issue_without_a_github_issue(self) -> None:
+        code, out, _ = self.sentry(recorded_health())
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.gh.issues), 1)
+        issue, state = self.gh.issues[1], self.gh.state()
+        self.assertEqual(state["hash12"], si.sentry_hash12("1012"))
+        self.assertEqual(state["source"], "sentry")
+        self.assertIn("stability-kind:sentry", issue.labels)
+        self.assertEqual(state["sentry"]["1012"]["events"], 20)
+        self.assertEqual(state["sentry"]["1012"]["users"], 5)
+        self.assertIn("[CMUXTERM-MACOS-12](https://manaflow.sentry.io/issues/1012/)", issue.body)
+        self.assertIn("20 events and 5 users in the last 3 d", issue.body)
+        self.assertIn("NSInternalInconsistencyException", issue.title)
+        # Sentry gives dates, not commits: the lab's commit table stays empty instead of pairing a wrong commit.
+        self.assertEqual((state["first_sha"], state["last_sha"]), ("", ""))
+        self.assertIn("| First | - | - |", issue.body)
+        self.assertTrue(any("CMUXTERM-MACOS-10 already links GitHub issue #30001" in n for n in out["notes"]))
+        self.assertTrue(any("CMUXTERM-MACOS-11 is claimed by PL-cefhost (#24913)" in n for n in out["notes"]))
+
+    def test_import_is_idempotent_and_updates_counts_in_place(self) -> None:
+        self.sentry(health([health_entry()]))
+        self.gh.calls.clear()
+        self.sentry(health([health_entry()]))
+        self.assertEqual(self.gh.writes(), [])
+        self.sentry(health([health_entry(events=40, last_seen="2026-10-25T00:00:00Z")]))
+        self.assertEqual(len(self.gh.issues), 1)
+        self.assertEqual(self.gh.calls.count("create"), 0)
+        self.assertEqual(self.gh.state()["sentry"]["4501"]["events"], 40)
+        self.assertEqual(self.gh.state()["sentry"]["4501"]["last_seen"], "2026-10-25T00:00:00Z")
+
+    def test_two_sentry_issues_are_two_github_issues(self) -> None:
+        self.sentry(health([health_entry("1"), health_entry("2")]))
+        self.assertEqual(len(self.gh.issues), 2)
+        self.assertEqual(sorted(link for n in self.gh.issues for link in self.gh.state(n)["sentry"]), ["1", "2"])
+
+    def test_a_sentry_issue_linked_to_a_github_issue_is_not_imported(self) -> None:
+        code, out, _ = self.sentry(health([health_entry(github=[123])]))
+        self.assertEqual(code, 0)
+        self.assertEqual(self.gh.calls.count("create"), 0)
+        self.assertEqual(self.gh.issues, {})
+        self.assertTrue(any("already links GitHub issue #123" in note for note in out["notes"]))
+
+    def test_a_sentry_issue_linked_to_a_stability_issue_joins_it(self) -> None:
+        self.sync(run("r1", sha(1), [finding()]))
+        self.sentry(health([health_entry(github=[1])]))
+        self.assertEqual(len(self.gh.issues), 1)
+        state = self.gh.state()
+        self.assertEqual((state["hash12"], state["source"], state["kind"]), (H1, "lab", "ips"))
+        self.assertIn("4501", state["sentry"])
+        # A lab sync after the import keeps the link.
+        self.sync(run("r2", sha(2), [finding()]))
+        self.assertIn("https://manaflow.sentry.io/issues/4501/", self.gh.issues[1].body)
+        self.assertEqual(self.gh.state()["count"], 2)
+
+    def test_a_linked_sentry_issue_stays_on_its_issue_when_sentry_links_change(self) -> None:
+        self.sentry(health([health_entry()]))
+        owner = {"owner": "PL-cefhost", "eta": "later", "github_issue": 24913}
+        self.sentry(health([health_entry(events=13, github=[24913], owner=owner)]))
+        self.assertEqual(len(self.gh.issues), 1)
+        self.assertEqual(self.gh.state()["hash12"], si.sentry_hash12("4501"))
+        self.assertEqual(self.gh.state()["sentry"]["4501"]["events"], 13)
+
+    def test_two_imports_that_raced_heal_into_one_issue(self) -> None:
+        report = health([health_entry()])
+        listed = self.gh.list_issues(si.LABEL)
+        # Two hosts listed the issues before either created one.
+        for _ in range(2):
+            tracked, _ = si.plan_sentry(listed, report)
+            si.apply(tracked, self.gh, max_writes=60, dry_run=False)
+        self.assertEqual(sorted(self.gh.issues), [1, 2])
+        self.sentry(report)
+        self.assertEqual((self.gh.issues[2].state, self.gh.issues[2].state_reason), ("CLOSED", "NOT_PLANNED"))
+        self.assertEqual(list(self.gh.state(1)["sentry"]), ["4501"])
+        self.assertEqual(self.gh.state(1)["merged"], [2])
+        self.gh.calls.clear()
+        self.sentry(report)
+        self.assertEqual(self.gh.writes(), [])
+
+    def test_imports_never_reset_a_verified_fix_or_reopen(self) -> None:
+        self.unknown.add(sha(3))
+        self.sentry(health([health_entry()]))
+        hash12 = si.sentry_hash12("4501")
+        for events in (20, 30, 40):
+            self.cli("fix-verified", "--hash12", hash12, "--fix", FIX, "--evidence", "job 9")
+            self.sentry(health([health_entry(events=events)]))
+            self.assertEqual(self.gh.state()["fix"]["sha"], FIX)
+        self.assertEqual(self.gh.state()["fix_history"], [])
+        self.gh.issues[1].state, self.gh.issues[1].state_reason = "CLOSED", "COMPLETED"
+        self.sentry(health([health_entry(events=50)]))
+        self.assertEqual(self.gh.issues[1].state, "CLOSED")
+        self.assertNotIn("reopen 1", self.gh.calls)
+
+    def test_bad_report_is_refused_before_any_read(self) -> None:
+        for report, text in ((health([{"title": "no id"}]), "without an id"),
+                             ({**health([health_entry()]), "schema": "other"}, "expected cmux-stability-health/v1"),
+                             (health([health_entry(github="#5")]), "not issue numbers")):
+            code, _, err = self.sentry(report)
+            self.assertEqual(code, 1)
+            self.assertIn(text, err)
+        self.assertEqual(self.gh.calls, [])
+
+    def test_stdin_is_read_before_the_repo_lock(self) -> None:
+        lock = self.tmp / "lock"
+        held: list[bool] = []
+
+        class Stdin:
+            def read(self) -> str:
+                with open(lock, "a") as handle:
+                    try:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        held.append(True)
+                    else:
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                        held.append(False)
+                return json.dumps(health([health_entry()]))
+
+        with mock.patch.object(si.sys, "stdin", Stdin()):
+            code, _, _ = self.cli("sentry", "-")
+        self.assertEqual((code, held), (0, [False]))
+        self.assertEqual(len(self.gh.issues), 1)
+
+    def test_a_link_that_is_not_https_is_not_rendered_as_a_link(self) -> None:
+        self.sentry(health([health_entry(permalink="javascript:alert(1)")]))
+        self.assertNotIn("](javascript", self.gh.issues[1].body)
+        self.assertIn("CMUXTERM-MACOS-4501", self.gh.issues[1].body)
+
+    @unittest.skipUnless(HEALTH_SCRIPT.exists(), "stability-health.py (task 034) is not in this checkout")
+    def test_stability_health_output_imports_with_its_counts(self) -> None:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("stability_health", HEALTH_SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        self.assertEqual(module.SCHEMA, si.HEALTH_SCHEMA)
+        raw = {"id": "77", "shortId": "CMUXTERM-MACOS-77", "title": "SIGSEGV: PaneStore.remove", "culprit": "",
+               "count": "90", "userCount": 9, "filtered": {"count": "40", "userCount": 4}, "annotations": [],
+               "firstSeen": "2026-10-20T00:00:00Z", "lastSeen": "2026-10-25T00:00:00Z",
+               "permalink": "https://manaflow.sentry.io/issues/77/"}
+        self.sentry(health([module.normalize_issue(raw, [])]))
+        self.assertEqual(self.gh.state()["sentry"]["77"]["events"], 40)
+        self.assertEqual(self.gh.state()["sentry"]["77"]["users"], 4)
 
 
 class LockTests(Harness):
