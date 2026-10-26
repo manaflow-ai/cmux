@@ -6,11 +6,17 @@ import CmuxNextDesign
 /// check on the current one. Choosing writes the Debug Settings tunable, so
 /// every window's toggle changes at once and the choice persists in the
 /// build's debug-tunables.json. Choosing the default removes the override.
+/// The item it makes holds it (`representedObject`): its choices' target
+/// and its submenu's delegate are weak, so the menu bar that shows the item
+/// keeps this alive, one per main menu (`MainMenu.make`).
 final class SidebarToggleIconMenu: NSObject, NSMenuDelegate {
-    static let shared = SidebarToggleIconMenu()
-
     /// Where the choice is written (tests pass their own store).
-    var store: TunableStore = .shared
+    let store: TunableStore
+
+    init(store: TunableStore = .shared) {
+        self.store = store
+        super.init()
+    }
 
     func makeItem() -> NSMenuItem {
         let item = NSMenuItem(title: Strings.menuSidebarToggleIcon, action: nil, keyEquivalent: "")
@@ -26,6 +32,7 @@ final class SidebarToggleIconMenu: NSObject, NSMenuDelegate {
             menu.addItem(choice)
         }
         item.submenu = menu
+        item.representedObject = self
         updateStates(in: menu)
         return item
     }

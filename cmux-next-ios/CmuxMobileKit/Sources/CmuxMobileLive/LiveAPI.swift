@@ -173,9 +173,41 @@ public struct LiveAPI: Sendable {
     }
 
     /// `PUT /v1/devices/:id/push`: this phone's APNs token and the events it wants.
-    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String]) async throws {
-        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds]
+    public func putPush(deviceID: String, token: String, environment: String, topic: String, kinds: [String],
+                        mutedMacs: [String] = [], previews: Bool = true) async throws {
+        // `mutedMacs` and `previews` are API 0.13.0; an older service ignores them.
+        let body: [String: Any] = ["token": token, "environment": environment, "topic": topic, "kinds": kinds,
+                                   "mutedMacs": mutedMacs, "previews": previews]
         _ = try await call("PUT", "v1/devices/\(deviceID)/push", body: body)
+    }
+
+    /// What the mailbox says about a reply (`GET /v1/devices/:mac/mailbox/:id`).
+    public struct MailboxState: Decodable, Equatable, Sendable {
+        /// `queued`, `applied`, `rejected` or `expired`.
+        public var state: String
+        public var reason: String?
+        /// The Mac's identity signature over the outcome (`cmux-mobile-mailbox-ack-v1`).
+        public var sig: String?
+
+        public init(state: String, reason: String? = nil, sig: String? = nil) {
+            self.state = state
+            self.reason = reason
+            self.sig = sig
+        }
+    }
+
+    /// `POST /v1/devices/:mac/mailbox` (PROTOCOL.md "Reply mailbox"): a reply
+    /// sealed to the Mac, held until its host connects. Returns whether the
+    /// Mac's socket was open (it got it at once).
+    public func postMailbox(macID: String, id: String, from phone: String, sealed: String) async throws -> Bool {
+        struct Reply: Decodable { var queued: Bool?; var delivered: Bool? }
+        let data = try await call("POST", "v1/devices/\(macID)/mailbox", body: ["id": id, "from": phone, "sealed": sealed])
+        return (try? JSONDecoder().decode(Reply.self, from: data))?.delivered ?? false
+    }
+
+    /// `GET /v1/devices/:mac/mailbox/:id`.
+    public func mailboxState(macID: String, id: String) async throws -> MailboxState {
+        try JSONDecoder().decode(MailboxState.self, from: try await call("GET", "v1/devices/\(macID)/mailbox/\(id)"))
     }
 
     /// `DELETE /v1/devices/:id/push`: stop pushing to this phone.

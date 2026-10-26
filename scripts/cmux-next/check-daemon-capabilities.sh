@@ -4,7 +4,7 @@
 # its bundled daemon lacks.
 #
 # The app's list is plans/cmux-next/daemon-capabilities.json, exported from
-# DaemonCapabilities (Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/
+# enum DaemonCapability (Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/
 # Connection/DaemonEndpoint.swift) by DaemonCapabilityExportTests, which fails
 # when the file is stale:
 #   required, optional         the binary must serve every one (error)
@@ -20,12 +20,13 @@
 #
 # It starts the binary as an isolated daemon (temporary HOME, TMPDIR and
 # CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace), sends a raw `identify` over its
-# socket, and stops it (`server stop --end-terminals`).
+# socket, and stops it (`server stop --end-terminals`). Distribution workflows
+# use `--static-only` so runtime checks stay in the daemon integration lane.
 #
 # The Xcode "Bundle cmux-tui" phase runs it on every non-release bundle, and
 # the cmux-next workflow runs it on the same-tree binary.
 #
-# Usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>]
+# Usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>] [--static-only]
 #   default binary: scripts/cmux-next/pin-cmux-tui.sh path (this tree's binary)
 set -euo pipefail
 
@@ -33,12 +34,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 binary=""
 capabilities="$repo_root/plans/cmux-next/daemon-capabilities.json"
+static_only=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --binary) binary="${2:?--binary needs a path}"; shift 2 ;;
     --capabilities) capabilities="${2:?--capabilities needs a path}"; shift 2 ;;
+    --static-only) static_only=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
-    *) echo "usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>]" >&2; exit 2 ;;
+    *) echo "usage: check-daemon-capabilities.sh [--binary <cmux-tui>] [--capabilities <json>] [--static-only]" >&2; exit 2 ;;
   esac
 done
 [[ -n "$binary" ]] || binary="$("$script_dir/pin-cmux-tui.sh" path)"
@@ -55,6 +58,48 @@ if [[ -d "$repo_root/Packages/macOS/CmuxNext/Sources" && -d "$repo_root/cmux-tui
   python3 -I "$script_dir/check-app-capability-references.py" --repo "$repo_root"
 else
   echo "check-daemon-capabilities: note: no app or cmux-tui-core source under $repo_root; skipped check-app-capability-references.py"
+fi
+
+if [[ "$static_only" = true ]]; then
+  # install-cmux-tui-client.sh and bundle-cmux-tui.sh generate this manifest
+  # directly from the exact binary (`__daemon-capabilities --json`). Validate
+  # that signed artifact's advertised static set without starting a daemon.
+  # `required` is the unconditional publication contract. Most `optional`
+  # entries are also static, but this explicit set is installed only when the
+  # daemon has a runtime service/configuration; those remain covered by the
+  # daemon integration lane.
+  manifest="$(dirname "$binary")/daemon-capabilities.json"
+  [[ -f "$manifest" ]] || {
+    echo "check-daemon-capabilities: $manifest is missing; regenerate it from the installed binary" >&2
+    exit 1
+  }
+  python3 - "$manifest" "$capabilities" <<'PY'
+import json
+import sys
+
+manifest_path, required_path = sys.argv[1:]
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+served = set(manifest.get("cmuxTui") or [])
+if not served:
+    raise SystemExit(f"check-daemon-capabilities: {manifest_path} has no cmuxTui capability list")
+required = json.load(open(required_path, encoding="utf-8"))
+runtime_only = {
+    "agent-inventory-watch-admission-v1", "agent-inventory-watch-v1",
+    "agent-session-attach-v1", "agent-session-children-v1", "agent-session-observe-v1",
+    "agent-session-presence-v1", "agent-session-start-keyed-reason-v1", "agent-session-start-v1", "agent-session-trust-v1",
+    "cloud-attachments-v1", "cloud-chief-live-v1",
+    "cloud-conversation-runs-v1", "cloud-conversation-typing-v1", "cloud-conversations-v1",
+    "cloud-host-replica-v1", "cloud-selfhost-v1", "history-v1", "terminal-reaper-active-v1",
+    "ws-listen-v1", "ws-listen-origins-v1",
+}
+needed = (set(required.get("required", [])) | set(required.get("optional", []))) - runtime_only
+missing = sorted(needed - served)
+if missing:
+    raise SystemExit("check-daemon-capabilities: the bundled static capability manifest is missing " + ", ".join(missing))
+print(f"check-daemon-capabilities: static bundled manifest serves all {len(needed)} needed capabilities ({len(served)} served)")
+PY
+  echo "check-daemon-capabilities: runtime daemon probe is reserved for integration tests"
+  exit 0
 fi
 
 # A short private root: the daemon's socket path must fit sun_path (104 bytes).
@@ -147,14 +192,14 @@ if missing:
     failed = True
     print("check-daemon-capabilities: error: the bundled cmux-tui does not serve "
           + ", ".join(missing), file=sys.stderr)
-    print("  Every capability in DaemonCapabilities.required/optional must be served by the same-tree daemon.",
+    print("  Every capability in DaemonCapability.required/optional must be served by the same-tree daemon.",
           file=sys.stderr)
     print("  Land the daemon change on this branch, or remove the app's use of the capability.", file=sys.stderr)
 if now_served:
     failed = True
     print("check-daemon-capabilities: error: the bundled cmux-tui now serves "
           + ", ".join(now_served)
-          + "; move them from DaemonCapabilities.unservedByBundledDaemon to optional", file=sys.stderr)
+          + "; move them from the unservedByBundledDaemon arm of DaemonCapability.tier to optional", file=sys.stderr)
 if not failed:
     print(f"check-daemon-capabilities: PASS: {binary} serves all {len(needed)} needed capabilities "
           f"({len(served)} served)")

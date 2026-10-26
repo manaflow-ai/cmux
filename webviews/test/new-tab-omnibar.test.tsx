@@ -1,8 +1,10 @@
 // The New Tab field is an omnibar (Leo 2026-10-12): typing "reddit" showed nothing, the rows that
 // did show pushed the page down, and blank browser tabs were offered as "about:blank workspace-N".
 // Now the rows float in a popover under the composer: URL completions from visited pages and top
-// sites, open tabs and workspaces, "Search the web for …" and "Ask <agent>", the top row highlighted
-// and taken by Return.
+// sites, open tabs and workspaces, "Ask <agent>" and "Search the web for …", the top row highlighted
+// and taken by Return. Leo 2026-10-24 ("Search the web. Do you really want that first?"): a
+// completion leads only for a site's whole name ("reddit") or a host ("reddit.c"); a partial word
+// asks the agent.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -132,11 +134,24 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
 test("Right accepts the inline URL completion without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls);
-  const field = await type("reddi");
+  const field = await type("reddit.c");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
   expect(field.value).toBe("reddit.com");
+  expect(calls).toEqual([]);
+});
+
+test("a partial word asks first: the completion is one row down and Right leaves the text", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddi");
+  expect(label(rows()[0]!)).toBe("Ask Claude Code");
+  expect(rows().map(label)).toContain("reddit.com");
+  field.focus();
+  field.setSelectionRange(field.value.length, field.value.length);
+  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(field.value).toBe("reddi");
   expect(calls).toEqual([]);
 });
 
@@ -150,7 +165,7 @@ test("End accepts the inline URL completion and Tab only advances a keyboard-hig
   expect(field.value).toBe("reddit.com");
 
   // A fresh query has multiple rows; once Down highlights one, Tab moves the highlight and never submits.
-  await type("why is the reddit scraper slow");
+  await type("reddi");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
@@ -187,7 +202,7 @@ test("Tab with suggestions showing steps from Return's row", async () => {
 test("Right inline-accepts a visited-page (history) row without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls, [{ url: "https://zulip.example.com/" }]);
-  const field = await type("zuli");
+  const field = await type("zulip");
   expect(rows()[0]?.getAttribute("data-type")).toBe("history");
   field.focus();
   field.setSelectionRange(field.value.length, field.value.length);
@@ -218,6 +233,93 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   // On the model the chip names (cx-sljrg).
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
+});
+
+// Lucas 2026-10-26: the arrows wrapped through the rows and never came back to the chat field.
+// Down on the last row still wraps to the top row, but Up on the top row returns to the field (no
+// row highlighted), and Return there sends the prompt.
+test("Down on the last row wraps to the top; Up on the top row comes back to the field", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("why is the reddit scraper slow");
+  const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const press = (key: string) =>
+    act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+  const count = rows().length;
+  expect(count).toBeGreaterThan(1);
+  expect(highlighted()).toBe(0);
+
+  for (let step = 1; step < count; step += 1) await press("ArrowDown");
+  expect(highlighted()).toBe(count - 1);
+  await press("ArrowDown");
+  expect(highlighted()).toBe(0);
+  await press("ArrowUp");
+  expect(highlighted()).toBe(-1);
+  await press("ArrowUp");
+  expect(highlighted()).toBe(count - 1);
+  for (let step = 1; step < count; step += 1) await press("ArrowUp");
+  expect(highlighted()).toBe(0);
+  await press("ArrowUp");
+  expect(highlighted()).toBe(-1);
+
+  await press("Enter");
+  expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
+});
+
+// Lucas 2026-10-26: in a prompt of several lines ↑ cycled the rows, so the caret could not go up a
+// line. The top row stays selected while typing (the list has the arrows), ↑ from it goes back to the
+// text, and in the text ↑ and ↓ move the caret while there is a line to go to, as in the chat's
+// composer; ← and → in the list go back to the text and move the caret.
+test("in the text Up and Down move the caret between lines; in the list they step the rows", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("first line\nsecond line");
+  const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const press = async (key: string) => {
+    const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => field.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  const count = rows().length;
+  expect(count).toBeGreaterThan(1);
+  expect(highlighted()).toBe(0);
+
+  field.setSelectionRange(field.value.length, field.value.length); // the second line
+  expect(await press("ArrowDown")).toBe(true); // the list: the next row
+  expect(highlighted()).toBe(1);
+  expect(await press("ArrowUp")).toBe(true);
+  expect(await press("ArrowUp")).toBe(true); // the top row: back to the text
+  expect(highlighted()).toBe(-1);
+
+  expect(await press("ArrowUp")).toBe(false); // the text: the caret goes up a line
+  expect(highlighted()).toBe(-1);
+  field.setSelectionRange(3, 3); // the first line
+  expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
+  expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last
+  expect(highlighted()).toBe(count - 1);
+
+  expect(await press("ArrowLeft")).toBe(false); // the list: back to the text, the caret moves
+  expect(highlighted()).toBe(-1);
+  await press("Enter");
+  expect(calls).toEqual([["ask", "claude", "first line\nsecond line", undefined, "claude-opus-5-5"]]);
+});
+
+// Review of https://github.com/manaflow-ai/cmux/pull/25222: ← to fix a typo left the list, and Return on an address then did nothing (no
+// row, and an address is no prompt). The top row typing selects keeps ← and → for the caret, and
+// with no row selected (↑ from the top row) Return still opens the address.
+test("an address keeps Return opening it after Left, and after Up from the top row", async () => {
+  const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  for (const key of ["ArrowLeft", "ArrowUp"]) {
+    const calls: unknown[][] = [];
+    await render(calls);
+    const field = await type("reddit.com");
+    await act(async () =>
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
+    );
+    expect(highlighted()).toBe(key === "ArrowLeft" ? 0 : -1);
+    await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(calls).toEqual([["open", "https://reddit.com"]]);
+  }
 });
 
 // Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside

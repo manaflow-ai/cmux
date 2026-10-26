@@ -70,6 +70,32 @@
 .acpmux-dock > .acpmux-composer > * {
   flex: none;
 }
+/* Who gives up height in a short pane, in order (Leo 2026-10-22: "how did the bottom overflow!? ...
+   the access to the composer got fucked"): first the parts over the composer (a question, the pull
+   request dock, the tray), each down to one row; then the queue; then the card's draft, which
+   scrolls inside a card of one line at least. The card and the quiet row under it never leave the
+   pane. Without an order the stack shrank the composer by its share, under what its card and quiet
+   row need, and the quiet row ran past the pane's bottom edge out of reach
+   (test/agent-pane-bottom-stack.test.ts). A part with nothing to give keeps its height. */
+.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > .acpmux-composer-queue {
+  flex-shrink: 1000;
+}
+/* The plain footer's card (composerLocation.css) is a grid: its prompt row takes what the card keeps,
+   and the prompt (or the shell field) fills that row, its own eight-line cap still the most it grows. */
+.acpmux-main[data-dock="float"]
+  > .acpmux-dock
+  > .acpmux-composer
+  > .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  flex: 0 1 auto;
+  min-height: calc(var(--text-title--line-height, 22px) + 22px * var(--cmux-interface-scale, 1));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.acpmux-main[data-dock="float"]
+  .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+  :is(.acpmux-md-field, .acpmux-shell-field) {
+  align-self: stretch;
+}
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
 .acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
@@ -81,6 +107,27 @@
   overflow-y: auto;
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
+}
+/* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
+   (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
+   In a short pane its list gives up its height to nothing first; the tray keeps room for both pinned
+   rows, the header and View all, whole. Clip, not hidden: a hidden box still scrolls when focus or a
+   script moves into it. */
+.acpmux-dock > .acpmux-running-tray {
+  overflow: clip;
+}
+@media (min-height: 360px) {
+  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+    min-height: calc(2 * var(--ds-control-row, 28px) + 2px + 2 * var(--cmux-hairline, 0.5px));
+  }
+}
+/* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer
+   first: the tray keeps the stack's one-row minimum and scrolls as a whole again, as it did before,
+   so View all is never cut out of reach (a wheel or keyboard focus scrolls it into view). */
+@media (max-height: 359.98px) {
+  .acpmux-dock > .acpmux-running-tray {
+    overflow-y: auto;
+  }
 }
 
 /* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional

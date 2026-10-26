@@ -121,11 +121,15 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     unsafe {
         std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
         std::env::set_var("ACPMUX_HOME", root.join("home"));
+        std::env::set_var("FLEET_REGISTRY", root.join("fleet-registry.json"));
     }
+    // A registry that lists no machine: this host is uncapped. A set
+    // FLEET_REGISTRY that is missing would log a warning on every create (`hub/admission.rs`).
+    std::fs::write(root.join("fleet-registry.json"), r#"{"machines": {}}"#).unwrap();
     let hub = hub();
     let mut app = Client::new(&hub);
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
-    let parent = app.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
+    let parent = app.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
 
     // Without a caller token nobody acts as a session.
     let e = app.refused(START, json!({"prompt": "hi"})).await;
@@ -214,6 +218,16 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     // A session acts only on its own family.
     let e = pa.refused("_acpmux/subsession/stop", json!({"sessionId": b})).await;
     assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+    // retry_session is held to the same ownership as stop_session, then to the retry's rules.
+    let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": b})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+    let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a})).await;
+    assert_eq!(e["data"]["reason"], "retry.nothing_failed", "{e}");
+    let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a, "subagentId": "x"})).await;
+    assert_eq!(e["data"]["reason"], "retry.unknown_subagent", "{e}");
+    // Nor its own parent: a session retries only its own sub-sessions.
+    let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": parent})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
     // A child reports to its parent.
     pa.ok("_acpmux/subsession/send", json!({"sessionId": parent, "text": "echo from a"})).await;
     // It never stops its parent's turn.
@@ -255,6 +269,49 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     assert_eq!(app.summary(&parent).await["children"], 1);
     let c = p.ok(START, json!({"prompt": "echo child c"})).await;
     assert_eq!(c["depth"], 1, "{c}");
+
+    // host auto: the placement engine (`server/place.rs`, the one `new --host
+    // auto` calls) weighs this machine, the only one a sub-session starts on,
+    // before anything starts; the result says why, in `new --host auto`'s words.
+    let q = app.ok("session/new", new.clone()).await["sessionId"].as_str().unwrap().to_owned();
+    let here = app.ok("_acpmux/host_health", json!({})).await["host"].as_str().unwrap().to_owned();
+    let registry = |max_lanes: u32| {
+        let lanes = json!({"build": false, "reserved_gb": 0, "per_lane_gb": 0.1, "free_gb_floor": 0,
+            "disk_per_lane_gb": 0.1, "cores_per_lane": 0.1, "max_lanes": max_lanes});
+        let doc = json!({"machines": {here.clone(): {"lanes": lanes}}});
+        std::fs::write(root.join("fleet-registry.json"), doc.to_string()).unwrap();
+    };
+    registry(1000);
+    let mut pq = Client::as_session(&hub, &q).await;
+    // Its role takes no builds.
+    let e = pq.refused(START, json!({"prompt": "echo build", "host": "auto-build"})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.no_room", "{e}");
+    let message = e["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!("{here}: no builds here (lanes.build is false)")),
+        "{message}"
+    );
+    // Another machine: a family lives on one daemon.
+    let e = pq.refused(START, json!({"prompt": "echo far", "host": "elsewhere"})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.host_unsupported", "{e}");
+    let list = pq.ok("_acpmux/subsession/list", json!({})).await;
+    assert_eq!(
+        list["sessions"].as_array().unwrap().len(),
+        0,
+        "a refused start made a child: {list}"
+    );
+    // No lane left under its max_lanes: it starts here all the same and says it is past
+    // its room (load and lane caps only warn). With room, the line ends "room for N"
+    // (`server/place.rs` and `placement.rs` tests).
+    registry(0);
+    let placed = pq.ok(START, json!({"prompt": "echo full", "host": "auto"})).await;
+    let placed = placed["placed"].as_str().unwrap_or_default().to_owned();
+    assert!(placed.starts_with(&format!("placed on {here}: ")), "{placed}");
+    assert!(placed.contains("only warn"), "{placed}");
+    registry(1000);
+    // This machine's own name is no placement.
+    let own = pq.ok(START, json!({"prompt": "echo own", "host": here.clone()})).await;
+    assert!(own.get("placed").is_none(), "{own}");
 
     // Settings turn the tools off.
     std::fs::write(&settings, r#"{"agents": {"subsessions": {"enabled": false}}}"#).unwrap();

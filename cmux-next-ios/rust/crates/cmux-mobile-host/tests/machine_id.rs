@@ -1,7 +1,7 @@
 //! A Mac's machine id and its other builds' device ids (PROTOCOL.md "Devices"):
 //! what lets the phone list one computer once, whatever the names.
 
-use cmux_mobile_host::config::{HostUuid, MACHINE_MARKER, MAX_SIBLINGS, machine_id, normalize_machine_id, sibling_device_ids};
+use cmux_mobile_host::config::{HostUuid, MACHINE_MARKER, MAX_SIBLINGS, machine_id, normalize_machine_id, registration_machine, registration_siblings, sibling_device_ids};
 use cmux_mobile_link::api::DeviceRegistration;
 
 const HOST: [u8; 16] = *b"0123456789abcdef";
@@ -109,4 +109,36 @@ fn an_override_must_be_a_machine_id() {
 #[test]
 fn the_host_uuid_never_prints() {
     assert_eq!(format!("{:?}", HostUuid(HOST)), "HostUuid(<redacted>)");
+}
+
+/// A machine id override (a hidden test rig, #24701) says "this build is its
+/// own computer": it has no siblings on the real Mac. Sending them would make
+/// the backend give the rig's made-up id to every same-owner record with none
+/// yet (old builds, other rigs), folding them into the rig for good.
+#[test]
+fn an_overridden_machine_id_claims_no_siblings() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("old.build/cmux-mobile-host/device-id");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "88888888-8888-4888-8888-888888888888").unwrap();
+    assert_eq!(registration_siblings(root.path(), "own", MINE, false), vec!["88888888-8888-4888-8888-888888888888".to_owned()]);
+    assert!(registration_siblings(root.path(), "own", MINE, true).is_empty());
+}
+
+/// The registration itself: an override sends no siblings and writes no
+/// marker; this computer's own id sends them and writes its marker.
+#[test]
+fn a_registration_with_an_override_sends_no_siblings_and_writes_no_marker() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("old.build/cmux-mobile-host/device-id");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, "99999999-9999-4999-8999-999999999999").unwrap();
+    let state = root.path().join("rig.app/cmux-mobile-host");
+    let (id, siblings) = registration_machine(Some(MINE.into()), true, &state, root.path(), "own");
+    assert_eq!(id.as_deref(), Some(MINE));
+    assert!(siblings.is_empty());
+    assert!(!state.join(MACHINE_MARKER).exists());
+    let (_, siblings) = registration_machine(Some(MINE.into()), false, &state, root.path(), "own");
+    assert_eq!(siblings, vec!["99999999-9999-4999-8999-999999999999".to_owned()]);
+    assert_eq!(std::fs::read_to_string(state.join(MACHINE_MARKER)).unwrap(), MINE);
 }

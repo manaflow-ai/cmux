@@ -139,6 +139,16 @@ pub(crate) fn list_for_test(
     merged::list(mux, fields, now_ms, local_day_start_ms(now_ms))
 }
 
+/// Saves the agent fold as if it had never been saved, the way the history
+/// feed does after a fold, and returns the cursor it saved.
+#[cfg(test)]
+pub(crate) fn resave_agent_fold_for_test(mux: &Mux) -> u64 {
+    let _turn = mux.history.turn();
+    let cursor = mux.history.mark_unsaved_for_test();
+    mux.history.save(mux);
+    cursor
+}
+
 /// Logs a `history.trail.record` the origin rules refused on `client` (the
 /// trail's failure log, cx-hnmbt.14).
 pub(crate) fn log_trail_refusal(mux: &Mux, client: u64, error: &ResourceError) {

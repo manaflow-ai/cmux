@@ -1,11 +1,14 @@
 import type { Env } from "../env.ts"
+import { GITHUB_CLIENT } from "./github.ts"
+import { WAKE_CLIENT } from "./wake.ts"
+import { AUTO_CLIENT } from "./jobs.ts"
 
 /**
  * The Cloud Chief's own tools (Lawrence, 2026-10-22: "the Cloud Chief must be able to add or change its own
  * tools fast, with no snapshot rebake and no app update"): text files the Chief keeps through `chief-tools`
- * in its turn machine (POST 127.0.0.1:4018/vm {action: tools_list|tools_put|tools_rm}, run.mjs passes it to
+ * in its turn machine (POST 127.0.0.1:4018/vm {action: tools_list|tools_put|tools_rm}, chief-turn-runner passes it to
  * the Worker with the turn's token), and the Worker writes into every later turn machine with the rest of
- * its files (turn.ts `files`; run.mjs writes them under /home/chief before Claude Code starts).
+ * its files (turn.ts `files`; chief-turn-runner writes them under /home/chief before Claude Code starts).
  *
  * Kept per Chief, not per conversation: in one object of the brain class named `<agent>/tools` (never a
  * conversation id), table cc_tools. The agent is the one the running turn's brain belongs to, so a Chief
@@ -17,11 +20,14 @@ export const TOOL_TOTAL_BYTES = 256_000
 export const TOOL_FILES = 100
 const PATH = /^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/
 const CLIENT = ".local/bin/chief-tools"
+const GITHUB = ".local/bin/chief-github"
+const WAKE = ".local/bin/chief-wake"
+const AUTO = ".local/bin/chief-auto"
 const SETTINGS = ".claude/settings.json"
 
 /** A path the Chief may keep a tool at: ~/.local/bin/NAME, ~/.claude/agents/NAME, ~/.claude/skills/** or ~/.chief/tools/**. */
 export const toolPathOk = (path: string): boolean => {
-  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT) return false
+  if (path.length > 200 || !PATH.test(path) || path.split("/").some((p) => p === "." || p === "..") || path === CLIENT || path === GITHUB || path === WAKE || path === AUTO) return false
   const parts = path.split("/")
   if (path.startsWith(".local/bin/") || path.startsWith(".claude/agents/")) return parts.length === 3
   return (path.startsWith(".claude/skills/") || path.startsWith(".chief/tools/")) && parts.length >= 3
@@ -72,8 +78,8 @@ type ToolsStub = { ccTools(req: unknown): Promise<Out>; ccToolFiles(): Promise<R
 export const toolsOf = (env: Env, agent: string): ToolsStub => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(`${agent}/tools`)) as unknown as ToolsStub
 
 /**
- * Makes ~/.local/bin/* and ~/.chief/tools/** runnable when Claude Code starts (run.mjs writes every file mode 600).
- * Shipped as a SessionStart hook so it works with the baked snapshot; run.mjs does the same from the next bake.
+ * Makes ~/.local/bin/* and ~/.chief/tools/** runnable when Claude Code starts (chief-turn-runner writes every file mode 600).
+ * Shipped as a SessionStart hook so it works with the baked snapshot; chief-turn-runner does the same from the next bake.
  */
 const CHMOD = "chmod 700 /home/chief/.local/bin/* 2>/dev/null; [ -d /home/chief/.chief/tools ] && find /home/chief/.chief/tools -type f -exec chmod 700 {} + 2>/dev/null; true"
 const withHook = (raw: string | undefined): string => {
@@ -88,7 +94,7 @@ const withHook = (raw: string | undefined): string => {
 }
 
 /**
- * `chief-tools`: the Chief's client (curl to run.mjs on 127.0.0.1:4018; node only encodes the JSON). A put or rm
+ * `chief-tools`: the Chief's client (curl to chief-turn-runner on 127.0.0.1:4018; node only encodes the JSON). A put or rm
  * also changes the file in this machine at once, so the tool works in the same turn.
  */
 const CLIENT_TEXT = `#!/bin/sh
@@ -134,5 +140,5 @@ esac
  */
 export const mergeTurnFiles = (base: Readonly<Record<string, string>>, tools: Readonly<Record<string, string>>): Record<string, string> => {
   const own = Object.fromEntries(Object.entries(tools).filter(([p]) => toolPathOk(p)))
-  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [SETTINGS]: withHook(base[SETTINGS]) }
+  return { ...base, ...own, [CLIENT]: CLIENT_TEXT, [GITHUB]: GITHUB_CLIENT, [WAKE]: WAKE_CLIENT, [AUTO]: AUTO_CLIENT, [SETTINGS]: withHook(base[SETTINGS]) }
 }

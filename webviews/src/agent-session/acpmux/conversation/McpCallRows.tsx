@@ -6,7 +6,7 @@ import { useFindReveal } from "./chatFind";
 import { useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { toolImages } from "../toolImages";
+import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
@@ -14,7 +14,7 @@ import { isFailed, isRunning } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
 import { ToolImages } from "./ToolRow";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
-import { useFold } from "./fold";
+import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
@@ -31,7 +31,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
   const names = useContext(McpNamesContext);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   useFindReveal(items, () => setOpen(true));
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const calls = useMemo(() => items.map((item) => mcpCall(item.tool!)!), [items]);
   const running = items.some((item) => isRunning(item.tool!));
@@ -43,7 +43,8 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
@@ -59,7 +60,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         />
       </button>
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
+        <div {...fold.bodyProps}>
           <div className="cv-tool-group" id={detailsId}>
             {items.map((item, index) => (
               <McpCallRow key={item.tool!.id || index} item={item} />
@@ -83,7 +84,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
-  const fold = useFold(open);
+  const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const detailsId = useId();
   const tool = item.tool!;
   const call = useMemo(() => mcpCall(tool)!, [tool]);
@@ -101,7 +102,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        onClick={() => setOpen((value) => !value)}
+        ref={fold.headerRef}
+        onClick={fold.toggle}
       >
         <span className="cv-tool__icon">
           {running ? <Spinner size={16} /> : <ToolGroup size={16} strokeWidth={1.2} />}
@@ -120,8 +122,15 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
-        <div ref={fold.ref} className="cv-fold">
-          <McpCallDetails id={detailsId} call={call} raw={raw} output={tool.output} reveal={reveal} />
+        <div {...fold.bodyProps}>
+          <McpCallDetails
+            id={detailsId}
+            call={call}
+            raw={raw}
+            output={tool.output}
+            strip={stripsEnvelopeImages(tool)}
+            reveal={reveal}
+          />
         </div>
       )}
     </>
@@ -129,24 +138,27 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
 }
 
 /// The opened call: its request, then its response (only its end while long), each as a tight
-/// block; a block with nothing in it is left out.
-function McpCallDetails({
+/// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
+export function McpCallDetails({
   id,
   call,
   raw,
   output,
+  strip,
   reveal,
 }: {
   id: string;
   call: McpCall;
   raw: string;
   output?: string;
+  /// Whether the call's strip shows its envelope's images, which its response then leaves out.
+  strip: boolean;
   reveal: number;
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
   const response = useOutput(
-    useMemo(() => prettyOutput(output), [output]),
+    useMemo(() => prettyOutput(output, strip), [output, strip]),
     reveal,
   );
   return (

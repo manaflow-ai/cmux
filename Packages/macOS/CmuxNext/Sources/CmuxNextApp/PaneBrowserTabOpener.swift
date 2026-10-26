@@ -2,8 +2,11 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
+import CmuxNextRemoteLocalhostService
 import CmuxNextTabs
 
 /// Opens a browser tab in one pane: daemon-owned when supported, on the
@@ -17,26 +20,6 @@ import CmuxNextTabs
 struct PaneBrowserTabOpener {
     let controller: PaneController
 
-    /// Where a new tab of a pane's machine goes (cx-2cob): the machine's
-    /// daemon when it serves browser tabs; a refusal with the machine's name
-    /// when another machine is not connected; else this Mac's session-local
-    /// tab (a Cloud image whose cmux-tui predates daemon browser tabs).
-    enum MachineRoute: Equatable { case daemon, sessionLocal, refuseNotConnected }
-
-    nonisolated static func machineRoute(isLocal: Bool, connected: Bool, servesTabs: Bool) -> MachineRoute {
-        if !isLocal && !connected { return .refuseNotConnected }
-        return servesTabs ? .daemon : .sessionLocal
-    }
-
-    /// Whether a session-local (WebKit) tab may stand in when the daemon
-    /// cannot make browser tabs.
-    /// Never for a Chromium request or a Chromium internal page: those are
-    /// refused rather than shown by the wrong engine.
-    nonisolated static func allowsSessionLocalTab(url: URL?, requested: String?) -> Bool {
-        if BrowserEngineResolver.explicitEngine(requested) == .cef { return false }
-        return !(url.map(ChromiumInternalURL.needsChromium) ?? false)
-    }
-
     /// `inherited` is a reopened or duplicated tab's engine or a popup
     /// opener's (falls back instead of refusing). `adopting` is a popup page
     /// the engine already created (`BrowserPageRequests`). `background` (a
@@ -49,15 +32,16 @@ struct PaneBrowserTabOpener {
     /// False when the tab is refused (no tab, no daemon request). A local file goes where
     /// `LocalFileHandoff` shows it (a tab's first load is not guarded): Markdown opens the markdown
     /// page unless the caller waits for the tab, and media Chromium cannot play opens in WebKit.
-    func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?,
+    func open(url: URL?, engine requested: String?, inherited: String?, adopting child: (any BrowserTab)?, // perf-hot: 10ms new-tab (the key's turn of every new browser tab)
               background: Bool, profile: String?, notice: String?, opener: SurfaceID?,
               then: (@MainActor (SurfaceID) -> Void)?) -> Bool {
         let services = controller.services
         var target = url
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
-        // and no tab (false, so a New Tab page that asked stays in place).
+        // and cmux://mac-screen the Mac Screen tab, and no browser tab (false, so a New Tab page that
+        // asked stays in place).
         if child == nil, let typed = target {
-            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
+            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background, in: controller) else { return false }
             target = routed
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {
@@ -86,8 +70,8 @@ struct PaneBrowserTabOpener {
         let onMachine = MachineBrowserRecord.matches(url)
         let requested = onMachine ? nil : requested ?? (child == nil && inherited == nil ? url.flatMap(FilePageOpener.tabEngine(for:)) : nil)
         let browserTabs = services.cache.browserTabs
-        let route = Self.machineRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
-                                      servesTabs: browserTabs.isAvailable(in: controller.pane))
+        let route = BrowserTabRoute(isLocal: daemon.isLocal, connected: daemon.connection != nil,
+                                    servesTabs: browserTabs.isAvailable(in: controller.pane))
         // Another machine that is not connected says so (cx-2cob).
         if route == .refuseNotConnected {
             child?.close()
@@ -105,8 +89,21 @@ struct PaneBrowserTabOpener {
             if child != nil { choice = BrowserPageRequests.choice(adopting: child, inherited: inherited, browserTabs: browserTabs) }
             let pageRequests = services.cache.pageRequests
             let newTabAddress = services.newTabAddress(for: choice)
+            // A person's foreground tab: shown with its page in this turn (openStandIn).
+            if standInApplies(child: child, opener: opener, background: background) {
+                openStandIn(choice, address: url?.absoluteString ?? newTabAddress, focusesAddressBar: url == nil,
+                            profile: profile, notice: notice, then: then)
+                return true
+            }
             let controller = controller, model = controller.pane
-            let intent = background ? nil : controller.workspace?.beginFocusIntent()
+            // Home's pinned dock takes dragged tabs (`allow_tabs`, Leo 2026-10-21) but opens nothing in
+            // itself (HomeDockOpens): a new browser tab aimed at it (History, Bookmarks, a URL from another
+            // app, Split Browser, Duplicate Tab, a popup) is made there and moves to a column on its right,
+            // as the daemon reroutes it for a dock closed to tabs. A caller's `then` places it itself
+            // (LinkOpener, AgentBesidePlacement, a script's HomeDockOpens.placing).
+            let beside = then == nil && controller.isOpenPinnedDockPane
+            let linkOpener = services.linkOpener
+            let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -114,9 +111,14 @@ struct PaneBrowserTabOpener {
                     let address = url?.absoluteString ?? (child == nil ? newTabAddress : BrowserNewTabPage.blankURL)
                     let surface = try await pageRequests.openers.open(opener, foreground: !background, in: model,
                                                                       browserTabs: browserTabs) { after in
-                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice, after: after)
+                        try await browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice,
+                                                   activate: !background, after: after)
                     }
                     if let child { pageRequests.adopt(child, surface: surface) }
+                    if beside {
+                        linkOpener.moveBeside(surface, from: controller, focus: !background, target: url == nil ? .addressBar : .content)
+                        return nil
+                    }
                     then?(surface)
                     guard !background else { return nil }
                     controller.selectWhenReported(surface: surface)
@@ -130,22 +132,88 @@ struct PaneBrowserTabOpener {
             })
             return true
         }
-        guard Self.allowsSessionLocalTab(url: url, requested: requested) else {
+        guard BrowserTabRoute.allowsSessionLocalTab(url: url, requested: requested) else {
             child?.close()
-            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
+            services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
             return false
         }
         child?.close()  // Session-local tabs are WebKit pages made on demand.
+        // Home's pinned dock holds no tab of this Mac's (H1): it opens in the pane right of the dock,
+        // and with the dock alone, where no daemon move can take an app-only tab, it is refused.
+        var holder = controller
+        if controller.isPinnedDockPane {
+            guard case .pane(let id) = services.linkOpener.target(from: controller), id != controller.layoutPaneID,
+                  let right = controller.workspace?.panes[id] else {
+                services.registry.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.frontendBrowserTabs.rawValue))
+                return false
+            }
+            holder = right
+        }
         let local = LocalBrowserTab.make(url: url)
         // Another machine's workspace: the tab is this Mac's; its page says so.
-        if !controller.daemon.isLocal, !onMachine {
-            browserTabs.setNotice(notice ?? RemoteStrings.browserRunsOnThisMac(browserTabs.machineName(controller.daemon)), forKey: local.id)
+        if !holder.daemon.isLocal, !onMachine {
+            browserTabs.setNotice(notice ?? {
+                let name = browserTabs.machineName(holder.daemon)
+                return RemoteStrings.browserRunsOnThisMac(name, route: .thisMacInstead(name, .webKit))
+            }(), forKey: local.id)
         }
-        controller.state?.localBrowserTabs[controller.paneKey].append(local)
-        controller.apply(controller.snapshot())
+        holder.state?.localBrowserTabs[holder.paneKey].append(local)
+        holder.apply(holder.snapshot())
         if background { return true }
-        controller.select(StripTabID(local.id))
-        if url == nil { controller.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
+        if holder !== controller, let content = holder.workspace { PaneHandlers.focus(holder.layoutPaneID, in: content) }
+        holder.select(StripTabID(local.id))
+        if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
+    }
+}
+
+// MARK: Stand-in
+
+extension PaneBrowserTabOpener {
+    /// A person's foreground tab of this Mac's daemon in a normal window, with no popup page to
+    /// adopt and no opener slot (decided after the reply).
+    private func standInApplies(child: (any BrowserTab)?, opener: SurfaceID?, background: Bool) -> Bool {
+        child == nil && opener == nil && !background && controller.daemon.isLocal && controller.daemon.connection != nil
+            && ActionRunScope.viewChangeAllowed() && !controller.services.cache.browserTabs.isIncognitoPane(controller.pane)
+    }
+
+    /// A new browser tab that waits for nothing (PL-cef-tab): the stand-in (`NewBrowserTabCommand`)
+    /// is selected and shown with its page in the key's turn, so the tab and its themed content area
+    /// draw in the key's frame and the page starts loading at once instead of after the daemon's
+    /// reply. One path for every person's foreground tab `PaneBrowserTabOpener` sends to the daemon
+    /// (New Browser Tab, the New Tab page's browser, a link in a new tab, New WebKit Tab). On the
+    /// reply the stand-in's page and chrome move to the daemon's tab (`TabContentCache.moveBrowser`),
+    /// which keeps its cell, selection and view. Keys typed meanwhile wait for the daemon's tab.
+    private func openStandIn(_ choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, profile: String?, notice: String?, // perf-hot: 10ms new-tab (the stand-in shows in the key's turn)
+                             then: (@MainActor (SurfaceID) -> Void)?) {
+        let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
+        let command = NewBrowserTabCommand(pane: model.handle, url: address, engine: choice.engine.rawValue,
+                                           profile: cache.browserTabs.resolveProfile(model, profile))
+        let intent = controller.workspace?.beginFocusIntent(), window = controller.view.window
+        let pending = BenchSpans.measure("browserTab.intend") {
+            command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice) }
+        }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
+        controller.selectWhenReported(surface: pending.surface)
+        services.registry.track(Task {
+            var landed = false
+            defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+            do {
+                let surface = try await pending.send { surface in
+                    if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }
+                }
+                let selected = controller.stripModel.selectedID?.rawValue
+                if selected == nil || selected == pending.tab || controller.pendingSelectSurface == pending.surface { controller.selectWhenReported(surface: surface) }
+                controller.workspace?.expectFocus(on: surface, target: focusesAddressBar ? .addressBar : .content, generation: intent)
+                landed = true
+                then?(surface)
+                return nil
+            } catch {
+                cache.release(pending.tab)
+                if error is NewBrowserTabCancelled { return nil }
+                controller.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
+                return "new-frontend-browser-tab: \(error)"
+            }
+        })
     }
 }

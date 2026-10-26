@@ -85,6 +85,7 @@ pub(super) fn handle_command_with_cancellation(
             api_revision,
             version,
             install,
+            remote,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -99,6 +100,7 @@ pub(super) fn handle_command_with_cancellation(
             api_revision,
             version,
             install,
+            remote.unwrap_or(false),
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
@@ -159,6 +161,10 @@ pub(super) fn handle_command_with_cancellation(
             cmd_attach::reattach_view(mux, client, surface, counts)
         }
         Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
+        Command::GetHostSizePolicy { surface } => cmd_sizing::get_host_size_policy(mux, surface),
+        Command::SetHostSizePolicy { policy } => {
+            cmd_sizing::set_host_size_policy(mux, client, policy.mode, policy.order)
+        }
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
@@ -643,6 +649,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudConversationTyping(params) => {
             cloud_conversations::typing(mux, client, params)
         }
+        Command::CloudConversationPresence(params) => {
+            cloud_conversations::presence(mux, client, params)
+        }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
@@ -897,17 +906,24 @@ pub(super) fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
-        } => cmd_attach::attach_surface(
-            mux,
-            client,
-            writer,
-            surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        ),
+        } => {
+            // A sized attach is a size report: it starts (or renews) the
+            // lease before the size applies.
+            if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
+                size_lease::renew_size_lease(mux, client, surface);
+            }
+            cmd_attach::attach_surface(
+                mux,
+                client,
+                writer,
+                surface_id,
+                mode,
+                cols,
+                rows,
+                expected_generation,
+                expected_terminal_id,
+                snapshot,
+            )
+        }
     }
 }

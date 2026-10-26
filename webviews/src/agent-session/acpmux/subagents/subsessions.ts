@@ -27,6 +27,10 @@ export type SubsessionInfo = {
   doing?: string;
   /// What it waits on the person for, while it does and acpmux says.
   waiting?: SessionWaiting;
+  /// It waits for a run slot (its parent runs `maxRunning` already): it has not started.
+  slot?: true;
+  /// Its model, as acpmux names it.
+  model?: string;
 };
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
@@ -41,7 +45,7 @@ export function waitingLine(t: Translate, waiting: SessionWaiting): string {
 /// Each state's word.
 export const SUBSESSION_STATE_LABEL: Record<SubsessionState, StringKey> = {
   working: "subsession.state.working",
-  input: "home.needsInput",
+  input: "subsession.state.input",
   failed: "subagents.state.failed",
   done: "subagents.state.completed",
 };
@@ -75,6 +79,8 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(entry.queued ? { queued: entry.queued } : {}),
     ...(state === "working" && entry.doing ? { doing: entry.doing } : {}),
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
+    ...(entry.waitsForSlot ? { slot: true as const } : {}),
+    ...(entry.model ? { model: entry.model } : {}),
   };
 }
 
@@ -134,6 +140,7 @@ export class SubsessionStore {
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
   private places = new Map<string, SenderPlace>();
+  private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
@@ -171,9 +178,15 @@ export class SubsessionStore {
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
+    const namedKey = JSON.stringify([
+      [...named],
+      [...harnesses],
+      [...places],
+      sessions.map((entry) => entry.sessionId),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
+    this.ids = new Set(sessions.map((entry) => entry.sessionId));
     this.harnesses = harnesses;
     this.hosts = hosts;
     if (renamed) this.places = places;
@@ -212,6 +225,11 @@ export class SubsessionStore {
   /// The listed chat named `name`, if one is.
   find(name: string): string | undefined {
     return this.named.get(name.trim());
+  }
+
+  /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
+  has(sessionId: string): boolean {
+    return this.ids.has(sessionId);
   }
 
   harness(sessionId: string): string | undefined {
