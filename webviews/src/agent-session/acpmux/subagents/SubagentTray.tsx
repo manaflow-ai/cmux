@@ -49,7 +49,7 @@ import { memo, useId, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
 import { foldMotion, useFold } from "../conversation/fold";
-import { entranceAllowed } from "../../shared/pageReveal";
+import { isAgentMotionOff } from "../../shared/motion";
 import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -146,8 +146,9 @@ export const SubagentTray = memo(function SubagentTray({
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there.
-  // With no motion (Reduce Motion, the host's switch, a hidden page) nothing arrives: it is there.
-  const arrivals = useArrivals(keys, open && entranceAllowed() && !foldMotion.reducedMotion() ? keys : NO_KEYS);
+  // With no motion (Reduce Motion, the host's switch) nothing arrives: it is there. A line that
+  // arrives on a hidden page is finished when the page shows (shared/pageReveal.ts), which settles it.
+  const arrivals = useArrivals(keys, open && !isAgentMotionOff() && !foldMotion.reducedMotion() ? keys : NO_KEYS);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
