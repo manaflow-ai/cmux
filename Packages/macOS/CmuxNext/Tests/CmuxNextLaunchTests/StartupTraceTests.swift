@@ -287,7 +287,7 @@ import Testing
 }
 
 /// Lane items (synchronous) report that they ran; the async test awaits the reports.
-private struct Started: Sendable {
+nonisolated private struct Started: Sendable {  // signalled from a lane thread (onRan)
     private let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation
 
