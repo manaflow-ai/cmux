@@ -640,7 +640,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
-  expect(subagents.querySelector(".cv-subagent-avatar")).toBeNull();
+  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
   expect(lines(subagents)).toEqual([
     ["Agent 0", "Running"],
@@ -658,6 +658,10 @@ test("Subagents names each running one on its line, and folds the ended ones int
   // The ended ones are one row, folded.
   const ended = endedRow(subagents)!;
   expect(ended.textContent).toBe("39 done · 1 failed");
+  // The compact completed summary previews four agents without replacing their named rows.
+  expect(ended.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector('[aria-hidden="true"]')?.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector(".acpmux-wave-item")).toBeNull();
   expect(ended.getAttribute("aria-expanded")).toBe("false");
   expect(lines(subagents)).toHaveLength(3);
   await click(ended);
