@@ -38,8 +38,10 @@
       "args": {
         "method": "sidebar.section.update",
         "params": {
-          "id": "",
-          "patch": {}
+          "id": "sec_top",
+          "patch": {
+            "gap": 99
+          }
         },
         "idempotencyKey": "sidebar-section-update-error.call"
       },
@@ -51,7 +53,7 @@
         "before",
         "settled"
       ],
-      "note": "id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (invalid_value) and writes nothing: a gap is 0 to 32 points"
     }
   ],
   "invariants": [
@@ -60,8 +62,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }
