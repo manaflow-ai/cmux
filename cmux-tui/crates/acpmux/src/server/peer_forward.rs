@@ -247,6 +247,13 @@ async fn forward_inner(
                 }),
             )
         });
+        // The link the request goes on and the generation the row names as it goes: a page is
+        // kept only while that link is the peer's, and only as that generation's.
+        let link = peer.link_epoch();
+        let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
+        let purge =
+            m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
+        let asked = (pages || purge).then(|| hub.listed_generation(&peer.name, &id)).flatten();
         // A client that left takes its prompt or wait along: those wait on the peer's turn with no
         // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
         // request keeps its deadline and always goes out: an attach the marker above stands for
@@ -280,6 +287,12 @@ async fn forward_inner(
                         }
                     })?;
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        // What the client reads of a peer's chat is kept here too, so the chat
+        // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
+        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) {
+            let on = (peer.name.as_str(), peer.generation, link, asked);
+            hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
+        }
         // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
         if m == method::MUX_ATTACH
             && let Some(obj) = result.as_object_mut()
@@ -292,8 +305,8 @@ async fn forward_inner(
             super::view::subscribe_remote(hub, conn, new_id, None);
             peer.mark_attached(new_id);
         }
-        if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
-            hub.forget_remote(&id);
+        if purge {
+            hub.forget_remote(&peer.name, &id, asked);
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));

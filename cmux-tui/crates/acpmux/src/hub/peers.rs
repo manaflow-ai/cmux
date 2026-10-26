@@ -401,6 +401,8 @@ impl Hub {
                     if !changed.is_empty() {
                         self.save_peer_cache(&peer, generation, true);
                     }
+                    // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).
+                    self.peer_snapshots.flush(Some(&peer));
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -429,6 +431,13 @@ impl Hub {
                             }
                             map.insert(id, RemoteSession { peer: peer.clone(), summary, receipt });
                         }
+                        // Which generation of each session is current (`peer_snapshot.rs`), sent
+                        // before the lock goes: a page asked of a row read after it comes after it.
+                        let created =
+                            |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
+                        let listed = map.values().filter(|r| r.peer == peer);
+                        let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
+                        self.peer_snapshots.listed(&peer, listed.collect(), true);
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
                     self.save_peer_cache(&peer, generation, true);
@@ -455,7 +464,13 @@ impl Hub {
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                                 .map(|(key, _)| key.clone());
-                            key.and_then(|key| map.remove(&key).map(|r| r.summary))
+                            let removed = key.and_then(|key| map.remove(&key).map(|r| r.summary));
+                            // The generation the purge names (else the row's) goes from the
+                            // snapshots too (`peer_snapshot.rs`), before the lock does.
+                            let created = |s: &Value| s.get("createdAt").and_then(Value::as_u64);
+                            let purged = created(&session).or(removed.as_ref().and_then(created));
+                            self.peer_snapshots.gone(&peer, &mux_id, purged);
+                            removed
                         };
                         self.save_peer_cache(&peer, generation, false);
                         let _ = self.events.send(HubEvent {
@@ -494,6 +509,8 @@ impl Hub {
                             id.clone(),
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
+                        let created = summary.get("createdAt").and_then(Value::as_u64);
+                        self.peer_snapshots.listed(&peer, vec![(mux_id.clone(), created)], false);
                     }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
@@ -510,12 +527,14 @@ impl Hub {
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
-                PeerNotice::Notification { method: m, params }
+                PeerNotice::Notification { method: m, params, .. }
                     if m == method::MUX_PROMPT_ACCEPTED =>
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
-                PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
+                PeerNotice::Notification { method: m, params, .. } if m == "_acpmux/lagged" => {
+                    // Its live records have a hole now: none is kept until a page (`peer_snapshot.rs`).
+                    self.peer_snapshots.lagged(&peer);
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
@@ -539,7 +558,7 @@ impl Hub {
                         });
                     }
                 }
-                PeerNotice::Notification { method: m, params } => {
+                PeerNotice::Notification { method: m, params, link } => {
                     let Some(id) =
                         params.get("sessionId").and_then(Value::as_str).map(str::to_owned)
                     else {
@@ -621,6 +640,7 @@ impl Hub {
                         },
                         _ => return,
                     };
+                    self.capture_peer_record((&peer, generation, link), &id, &summary, &record);
                     let _ = self.events.send(HubEvent {
                         session_id: id,
                         record: Arc::new(record),
@@ -739,18 +759,20 @@ impl Hub {
         Some((peer, id, summary))
     }
 
-    /// A remote session was deleted through us: drop it now rather than at
-    /// the next reconnect.
-    pub fn forget_remote(&self, id: &str) {
+    /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
+    /// reconnect. `generation` is the one the row named when the purge was asked: a session
+    /// recreated since keeps its row, and only that generation's event snapshot goes.
+    pub fn forget_remote(&self, peer: &str, mux: &str, generation: Option<u64>) {
         let mut map = self.remote_sessions.lock().unwrap();
-        if map.remove(id).is_some() {
-            return;
-        }
-        let key =
-            map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone());
-        if let Some(key) = key {
-            map.remove(&key);
-        }
+        let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
+        let key = map
+            .iter()
+            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
+            .filter(|(_, r)| generation.is_none() || created(r) == generation)
+            .map(|(key, _)| key.clone());
+        let removed = key.and_then(|key| map.remove(&key));
+        // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does.
+        self.peer_snapshots.gone(peer, mux, generation.or(removed.as_ref().and_then(created)));
     }
 
     /// Every peer's sessions, each with its peer's current `peerState` and
