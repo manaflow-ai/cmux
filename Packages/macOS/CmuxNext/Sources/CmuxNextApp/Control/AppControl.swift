@@ -128,11 +128,7 @@ final class AppControl {
         ])
         service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
         // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
-        if services.features.isEnabled(.traceControl) {
-            let app = RuntimeTraceRecording(blackBox: services.traceBlackBox?.blackBox, work: services.work)
-            let parts = TraceControlParts(app: app, daemon: services.daemon.traceLink, secureInput: SystemSecureInput())
-            service.router.register(TraceControl(parts: parts).methods)
-        }
+        if services.features.isEnabled(.traceControl) { service.router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work)) }
         // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
