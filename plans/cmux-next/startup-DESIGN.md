@@ -47,23 +47,25 @@ marked "assigned here" names a call the program spec gave no task.
 ## 1. Critical allowlist
 
 These 14 names are `StartupScheduler.criticalAllowlist`, in this order (the code list equals this table).
-The cap is 15. Costs are not measured yet: task 072 seeds them at hour 0 and task 070 checks them
-(done check 4: `main_cpu_ms_to_first_frame <= 60`). Until then this column says what the step reads.
+The cap is 15. Task 072 seeded the costs that a launch mark brackets at `772cdfc45ac` (section 11, rows
+S6 to S17). Each such cost is an upper bound, because its interval also holds other calls. Task 070
+checks the costs (done check 4: `main_cpu_ms_to_first_frame <= 60`). Where no mark brackets a step, this
+column says what the step reads.
 
 | # | Post name | Calls it covers (rows below) | Why the first frame needs it | Cost |
 |---|---|---|---|---|
-| 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` (O3) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. It precedes `ThemeBridge.start` (the Ghostty overrides before the first config load). 025 makes the read a LaunchRead from `main()`; this post only takes it. | to measure (072); today a sync file read |
-| 2 | `ThemeBridge.start` | `ThemeBridge.start(` (Q2 26) | Chrome colors derive from the Ghostty theme; first `GhosttyRuntime.shared`. | to measure (072); 026 moves the config bytes off main |
-| 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | test phase (030): Release launch, `debug.startup` p50/p95 of the `AppActions.bind` record |
+| 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` (O3) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. It precedes `ThemeBridge.start` (the Ghostty overrides before the first config load). 025 makes the read a LaunchRead from `main()`; this post only takes it. | 072 seed: <= 7.5 ms p50 (S6, with 2 other calls); today a sync file read |
+| 2 | `ThemeBridge.start` | `ThemeBridge.start(` (Q2 26) | Chrome colors derive from the Ghostty theme; first `GhosttyRuntime.shared`. | 072 seed: <= 4.0 ms p50 (S7, with the 3 page roots); 026 moves the config bytes off main |
+| 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | 072 seed: <= 15.7 ms p50 (S9, with 5 other calls); test phase (030): Release launch, `debug.startup` p50/p95 of the `AppActions.bind` record |
 | 4 | `Settings.applyManagedFeaturesNow` | `SettingsController(registry:fileURL:launch:)` (O19), `settings.applyManagedFeaturesNow(` (Q2 80) | Managed (MDM) feature policy applies before any feature or page engine starts (101). The controller is made in this post: its init needs the `ActionRegistry`, which exists only after `AppServices` (O8), so it cannot be in post 1. | to measure (101) |
 | 5 | `ManagedPolicyBridge.start` | `ManagedPolicyBridge(...).start()` (O20) | Managed URL filter and updater policy before any page engine (101). | to measure (101) |
 | 6 | `TerminalTheme.follow` | `services.terminalTheme.follow(` (Q2 77) | Applies the loaded theme, background and backdrop art at once, so the first frame is not in the defaults. | to measure (072) |
 | 7 | `Themes.start` | `services.themes.start(` (Q2 78), `themes.followChromeTheme` (O32) | Per-workspace themes, backgrounds and the app accent are the look of the restored workspaces. | to measure (072) |
-| 8 | `MainMenu.make` | `MainMenu.make` (O13) | Menu key equivalents work from the first frame; 030 keeps only the top-level items here if the menu costs > 2 ms. | budget 2 ms p95; test phase (030): Release launch `debug.startup` record, and `swift test -c release --filter LaunchMenuAndBindingsTests` fails over it |
+| 8 | `MainMenu.make` | `MainMenu.make` (O13) | Menu key equivalents work from the first frame; 030 keeps only the top-level items here if the menu costs > 2 ms. | 072 seed: <= 2.5 ms p50 (S10, `dfl.settings` -> `dfl.menu`); budget 2 ms p95; test phase (030): Release launch `debug.startup` record, and `swift test -c release --filter LaunchMenuAndBindingsTests` fails over it |
 | 9 | `WindowActivation.activateApp` | `WindowActivation.activateApp()` (O14) | The first window shows active (key, not a dimmed title bar that flips a frame later). | to measure (072) |
 | 10 | `Daemon.start` | `services.daemon.start(` (Q2 55) | Attaches the prestarted connection; the restore and the terminals need it. 074 moves `LaunchSnapshot.load` off main. | to measure (074) |
 | 11 | `FeaturePolicyEnforcer.start` | `FeaturePolicyEnforcer(...).start()` (O15) | Disabled features are enforced before any window shows them (101: not moved). | to measure (101) |
-| 12 | `WindowManager.restoreWhenLoaded` | `services.windows.restoreWhenLoaded()` (O25) | The front window (picture after 059, live window before it). | to measure (072, 059) |
+| 12 | `WindowManager.restoreWhenLoaded` | `services.windows.restoreWhenLoaded()` (O25) | The front window (picture after 059, live window before it). | 072 seed: about 94 ms p50 in the call (S12 to S16), plus 49.6 ms commit (S17); 059 |
 | 13 | `WebAuthSessionHandler.install` | `WebAuthSessionHandler.install(` (Q2 30) | Other apps' sign-ins: a launch by one delivers its request right after `applicationDidFinishLaunching` (029). | to measure (072) |
 | 14 | `AppleEvents.getURL` | `NSAppleEventManager.setEventHandler` for `kAEGetURL` (O28) | A launch by a URL open delivers the event after launch; without the handler the URL is lost (029, 096). | to measure (072) |
 
@@ -546,3 +548,149 @@ Results: not run yet. The fleet run pastes its `table.md` here, with the commit,
 | base | - | - | - | - | - | - | - | - | - | - | - | reference |
 | thinlto | - | - | - | - | - | - | - | - | - | - | - | - |
 | cmo | - | - | - | - | - | - | - | - | - | - | - | - |
+
+## 11. Hour-0 launch seed (072)
+
+These are the first measured rows for Q6 (main CPU before the first frame) and Q5 (main-thread waits).
+They come from the tools that exist at `772cdfc45ac`. Status: partial. The `772cdfc45ac` run is complete
+at mark-interval level. The `ba1d1a4a239` run, the per-symbol profile and the App Launch template are
+still open, for the reasons in "Open" below.
+
+### How it ran
+
+- Run: fleet step `553abcd1be26ba33337a9742` on cmux22-perf, 2026-10-26. Ref `cp/p08-startup-072-m772`
+  at `678eeb5a0e4` is `772cdfc45ac` plus measurement scaffolding that is never merged:
+  `scripts/cmux-next/launch-seed-072.py`, a `--suite=launch-seed` dispatch in `split-spring-terminal.py`,
+  and `CMUX_BLOCKING_PROBE_UNTIL_MS` in `probe.c`.
+- Command: `cmux-ci run --class exclusive --measurement --label measure --script
+  scripts/measure/split-spring.sh --ref <ref> --artifact artifacts/split-spring/report.json
+  --arg=--config=bench --arg=--vdisplay=120 --arg=--suite=launch-seed --arg=--runs=10 --arg=--hangs=16`.
+- App: `reload.sh --config bench` (Release optimization, `-DCMUX_BENCH_HOOKS`) on a 120 Hz virtual main display.
+- State: bench-startup's realistic seed without the agent chat: 24 workspaces of 3 terminal tabs and a split,
+  with project-01's first terminal selected at quit. The daemon stays up (warm).
+- Parts: 10 warm launches with every launch mark and `debug.hangs` >= 16 ms; 3 launches under
+  `xctrace record --template 'Time Profiler' --all-processes` (pids 92909, 93083, 93236); 3 launches with
+  the blocking probe (pids 93317, 93458, 93544).
+- Load average before the bench: 16.8 / 13.4 / 10.5, because a 713 s build ended just before it.
+
+### Marks (10 runs, ms since process start)
+
+| Mark | p50 | p95 |
+|---|---|---|
+| `main_start` | 2934.2 | 2952.9 |
+| `main.run` | 2983.1 | 3009.9 |
+| `did_finish_launching_start` | 3013.2 | 3034.1 |
+| `terminal.launch_frame_shown` (the saved picture in its pane) | 3103.3 | 3125.3 |
+| `did_finish_launching_end` | 3153.7 | 3176.8 |
+| `first_window_frame_committed` | 3203.8 | 3227.6 |
+| `first_terminal_content_applied` | 3286.8 | 3318.7 |
+| `first_terminal_frame` | 3386.3 | 3418.2 |
+| `main_start` to `first_window_frame_committed`, per run | 270.6 | 280.3 |
+
+Two findings set the order of work:
+
+1. **2.9 s pass before `main()`, and the main thread is almost idle in that time.** The 3 profiles have
+   36 to 45 main-thread samples (1 ms each) between process creation and `main_start`. All of them fall in
+   one burst that starts about 45 ms before `main_start` (dyld and static initializers). The rest is a wait
+   between the launcher's fork and dyld's start. It is either in the launcher before exec or in the
+   kernel's exec (code signature, execution policy), and the probe sees neither. Earlier Debug runs did not
+   wait like this (`ba1d1a4a239` on cmux20-bench: first frame 499 ms). So the cause is the bench (Release)
+   executable or the launcher. The App Launch rerun (Open, item 1) separates the two. Until then, read this
+   run relative to `main_start`.
+2. **The app's own part is 270.6 ms p50 from `main_start` to the first frame.** Main CPU in that window is
+   about 217 ms (3 profiles). Here is the 450 ms gap of the Debug `ba1d1a4a239` run, in an optimized build
+   without the launch-read slice: the pane's saved picture is in place at `main_start` + 169 ms, and the
+   frame that shows it commits at `main_start` + 270 ms.
+
+### Q6 seed: main CPU before the first frame, by interval
+
+Main-thread CPU from the Time Profiler runs, p50 of 3: 261 ms from process creation to the first frame.
+That is 44 ms pre-main, 31 ms CPU in the 79 ms wall from `main_start` to `did_finish_launching_start`,
+137 ms CPU in the 140.5 ms wall of `applicationDidFinishLaunching`, and 49 ms CPU in the 49.6 ms commit.
+The interval rows cover 217 of the 261 ms (83 %). The rest is the 44 ms pre-main burst, which has no
+stack in this pass. Each row is a per-run delta between launch marks (10 runs). File and line are at
+`772cdfc45ac`.
+
+| # | Interval | p50 ms | p95 ms | Code (772cdfc45ac) | What runs |
+|---|---|---|---|---|---|
+| S1 | process start -> `main_start` | 2934.2 | 2952.9 | before `CmuxNextApp.swift:15` | A wait (finding 1). About 44 ms of CPU, in its last burst. |
+| S2 | `main_start` -> `main.warmup_started` | 6.3 | 7.4 | `CmuxNextApp.swift:15-38` | Malloc zone, signal policy, open-file limit, CloudAuth capture, `prepareLaunchEnvironment`, `LaunchWarmup.start`. |
+| S3 | `main.warmup_started` -> `main.prestart` | 6.3 | 7.3 | `CmuxNextApp.swift:39-54` | `AppEnvironment.current`, the 2 `.shared` stores, `DaemonService.prestart` (binary resolve, install key). |
+| S4 | `main.prestart` -> `main.nsapp` | 40.2 | 51.4 | `CmuxNextApp.swift:55-63` | `CrashOnExceptions.register`, `CmuxApplication.shared`, `AppDelegate(environment:daemonPrestart:)`, `setActivationPolicy(.regular)`. The largest step in `main()`. |
+| S5 | `main.run` -> `did_finish_launching_start` | 24.6 | 34.6 | `CmuxNextApp.swift:67` (`app.run()`) to `AppDelegate.swift:81` | AppKit's finishLaunching up to the delegate, then `forcedQuitExit` and `control.startWatchdog()`. S2 to S5 take 77 ms wall but only 31 ms CPU. The probe saw less than 3 ms of waits there, so about 45 ms are waits the probe does not see. The likely candidate is mach_msg to WindowServer or launchservicesd; App Launch confirms it. |
+| S6 | `did_finish_launching_start` -> `dfl.settings_read` | 7.5 | 8.2 | `AppDelegate.swift:81-102` | `NativeCaretAccessory.install`, `LastAppCLIPointer`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime`. |
+| S7 | `dfl.settings_read` -> `dfl.theme` | 4.0 | 4.3 | `AppDelegate.swift:103-109` | `ThemeBridge.start` (the first `GhosttyRuntime.shared`) and 3 `PageDescriptor.register*`. |
+| S8 | `dfl.theme` -> `dfl.services` | 7.8 | 8.0 | `AppDelegate.swift:110-119`, `AppServices.swift:444-593` | `AppServices.init` (4.2 ms to `services.crash_reporting`), watchdog reporting, debug settings. In 4 of 10 runs the 16 ms stall sample's top cmux frame is `ChromiumRuntimeService.make` -> `CEFRuntimeLayout.locate`. |
+| S9 | `dfl.services` -> `dfl.bind` | 15.7 | 16.2 | `AppDelegate.swift:120-131` | `AppActions.bind`, `HandlerCoverage.verify`, `palette.bindRegistryActions`, `GhosttyKeybindSync.start`, `GhosttyConfigLiveReload.start`, `TerminalHooks.install`. The largest step of `applicationDidFinishLaunching` before the window. |
+| S10 | `dfl.bind` -> `dfl.menu` | 5.3 | 6.7 | `AppDelegate.swift:132-136` | `startSettingsAndControl` and `newTabSpares.prewarm` (2.8), then `MainMenu.make` (2.5). |
+| S11 | `dfl.menu` -> `dfl.home_history` | 5.6 | 5.8 | `AppDelegate.swift:137-208` | `activateApp`, `launchSettle.install`, `DaemonPrompts`, `daemon.start` (launch snapshot applied), `FeaturePolicyEnforcer`, `startCloud`, first-window hooks, `browserProfiles.load`, `home.start`, keybindings file, bookmarks, history, `FirstPartyPageSchemes.install`, `ChromiumPageHost`. |
+| S12 | `dfl.home_history` -> `sidebar_rows_shown` | 7.0 | 8.1 | `AppDelegate.swift:209` -> `WindowManager.swift:293` | `restoreWhenLoaded`, `LaunchSnapshotWindow.show`, `WindowController` init, the sidebar rows. |
+| S13 | `sidebar_rows_shown` -> `reveal.tabs` | 19.1 | 22.6 | `WindowManager.swift:293-301` | The window's tab strips (24 workspaces in the sidebar; 3 tabs and a split shown). |
+| S14 | `reveal.tabs` -> `first_terminal_surface_created` | 10.5 | 13.4 | `WindowManager.swift:301`, `WindowController.swift:270` | `showWorkspace`: the workspace content, then the first Ghostty surface. |
+| S15 | `first_terminal_surface_created` -> `terminal.launch_frame_shown` | 7.0 | 9.1 | `PaneController.swift:422` | The terminal panes and their saved frames. Without the launch-read slice, the read and the decode run here. |
+| S16 | `terminal.launch_frame_shown` -> `dfl.windows` | 50.0 | 52.4 | `WindowManager.swift:301-310`, `WindowManager.swift:343-358` | The rest of `showWorkspace`, then `present` (`WindowActivation.show`, `onPresent`, full-screen restore) and `onFirstWindow`. The largest single interval: in this turn the window and its tree are made and ordered in, all on main. |
+| S17 | `did_finish_launching_end` -> `first_window_frame_committed` | 49.6 | 56.0 | `AppDelegate.swift:162` (the commit's completion block) | AppKit layout and display of the whole window, then the Core Animation commit. CPU-bound (49 ms CPU). |
+
+S12 to S17 take 143 of the 270.6 ms. This is the work that 059 and 060 take off the first frame: the first
+frame shows the picture, and the live window builds behind it. After those, the largest intervals left in
+`main()` and the delegate are S4 and S9. S4 and S5 go to 033 and 012, S9 to 030, and S12 to S17 to 059
+and 060.
+
+After the first frame (3 s window, Time Profiler, p50 of 3): 706 ms of main CPU, in 12 to 13 bursts of
+16 ms or more; the longest take 46 to 88 ms. One terminal frame takes 100 ms p50
+(`first_terminal_content_applied` -> `first_terminal_frame`), because launch work keeps main busy. From
+`debug.hangs`: `CefInitialize` 104 ms and the CEF message pump 31 ms per stall.
+`MadeAheadPanelStore`'s `NSOpenPanel()` (`MadeAheadOpenPanel.swift:38`, armed at `AppDelegate.swift:182`)
+stalls 203 ms p50 in 10 of 10 runs with only 10 ms of CPU, so it is a wait that the probe does not see.
+
+### Q5 seed: main-thread waits (blocking probe)
+
+3 launches. The probe records only main-thread calls, from its load (exec) to +3204 ms. Because of
+finding 1, that window ends after the first frame and also holds work done after the frame. In total the
+probe saw 80 ms of waits per launch, and it added about 72 ms of its own. The ms column is the mean per
+launch over the 3 launches.
+
+| # | Site (772cdfc45ac) | ms / launch | max ms | Kinds | Before the first frame? | Owner task |
+|---|---|---|---|---|---|---|
+| W1 | `ChromeWebAppShortcutCopierMain` (CEF) | 44.2 | 69.7 | stat, access, fcntl, waitpid | no (CEF start) | 040, 046 |
+| W2 | `ShellWindow.init(contentRect:styleMask:backing:defer:)` | 1.96 | 2.88 | dispatch_sync | yes (S12, the window) | 060 |
+| W3 | `CEFRuntime.initialize` closure, `CEFRuntime.swift:399` | 1.87 | 2.58 | access, getattrlist, waitpid | no | 040 |
+| W4 | `CmuxApplication.init()` | 1.58 | 1.53 | getattrlist, statfs, stat, dispatch_sync | yes (S4) | 033 |
+| W5 | `LegacyHistoryFile.removeGenerationIfUnchanged`, `LegacyHistoryFile.swift:96` | 0.99 | 2.64 | unlinkat | yes (S11, `history.start`) | 028 |
+| W6 | `+[NSCGSWindow windowWithWindowID:]` | 0.90 | 2.70 | pthread_mutex_lock | yes (S16) | 060 |
+| W7 | `CefInitialize` | 0.70 | 0.06 | getattrlist, open, access | no | 040 |
+| W8 | `ImportCardDeck.list()`, `ImportCardDeck.swift:22` | 0.47 | 0.04 | open, fstat, read | to check | - |
+| W9 | `CodeSigningTeam.read()`, `FrontendInstallKeyStore.swift:41` | 0.35 | 0.06 | getattrlist, pread | yes (S3, prestart) | 066 |
+| W10 | `ConfigFileWatcher.makeSource`, `ConfigFileWatcher.swift:119` | 0.29 | 0.03 | open | yes (S11, watchers) | Q13 |
+| W11 | `LegacyHistoryFile.quarantineIfUnchanged()`, `LegacyHistoryFile.swift:121` | 0.24 | 0.15 | renameat | yes (S11) | 028 |
+| W12 | `SettingsPageDomains.fontFamilies`, `SettingsPageProvider.swift:417` | 0.24 | 0.02 | getattrlist, open | to check | - |
+| W13 | `NSBundle.module`, `resource_bundle_accessor.swift:32` | 0.22 | 0.02 | stat, access | to check | - |
+| W14 | `AgentPaneView.startWarmup()`, `AgentPaneView+Warmup.swift:41` | 0.26 | 0.06 | stat, open | no (`launch.agent_page_warmup`) | - |
+| W15 | `AcpmuxServerPeer.ownTeam`, `AcpmuxServerPeer.swift:255` | 0.19 | 0.03 | getattrlist, pread | to check | - |
+
+The waits with a cmux frame that run before the first frame (the rows marked yes) add up to 6.3 ms per
+launch. Another 13 ms per launch (`__opendir2` 8.2, `fopen` 4.6) has no cmux frame, and the dump does not
+say when it ran. Waits are therefore not the main reason the first frame is late. The main reasons are the
+main CPU of S4, S9 and S12 to S17 and the wait before `main()` (finding 1). The probe does not see
+mach_msg, semaphore_wait and its other known gaps; those are the candidates for the 45 ms of S2 to S5
+that is not CPU.
+
+### Open
+
+1. Rerun with the fixed scaffolding. Refs `cp/p08-startup-072-m772` (`0533c04f972`) and
+   `cp/p08-startup-072-mba1` (`f5218de9018`) add three things:
+   - the launcher's fork-to-exec time (`popen_ms`);
+   - profile windows that start at exec;
+   - 3 `xctrace record --template 'App Launch' --launch` runs (process life cycle, dyld, static
+     initializers).
+   The rerun also has the stack fix. In this run, the parser did not read the backtraces in the rows that
+   `xctrace export` gave, so S1 to S17 have no symbol rows yet. Q6's rows for symbols of 2 ms or more,
+   and the cause of S1, come from the rerun.
+2. `ba1d1a4a239` (the launch-read slice) is not measured yet. Fleet steps `abc0910cdb9e086a443fc953`,
+   `8d9dcba347563a09f7ccaad3`, `8fd0ae5f72e0540262aad40d` and `fdd69e51786b6bbf5268ee47` stopped in
+   `reload.sh` with "cmux-next build needs 40 GiB free on the home volume". So did the `772cdfc45ac`
+   reruns `235ca9bea17f7d82082b8e60`, `ba4ef9abdbe5b994752f34d1` and `187cf4ed320f50f06473d18b`. On
+   2026-10-26, every online perf host had 30 to 44 GiB free when idle. A step's checkout uses about 8 GB
+   before the check, so a host needs about 48 GiB free when idle. `CMUX_NEXT_MIN_FREE_GIB` is not on the
+   ci-step allowlist. To rerun, use the command above with the two refs and add `--arg=--app-cache`, so
+   that each build is kept for a later part.
