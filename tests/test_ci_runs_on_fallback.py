@@ -46,6 +46,11 @@ SINGLE_HOST_VAR = re.compile(r"\bvars\.([A-Z0-9_]*TRUSTED_RUNNER)\b")
 # that is not another single-host one. A configured variable naming a dead host still never falls through;
 # the controller's fall-through and the queue rescue cover that at run time.
 POOL_FALLBACK = re.compile(r"\|\|\s*(?:'[^'\s]+'|vars\.(?![A-Z0-9_]*TRUSTED_RUNNER\b)[A-Z0-9_]+)")
+# A reserved slot's placement output: the DEV compile slot (side_lane_placement.fresh_route(), one side instance
+# per opted-in mini, glaeda#1628, for the compiles a feed's freshness waits on). It names a label only while that slot is idle, and
+# the runs-on alternative that reads it must check it is set, then fall through to a later pool literal, so a busy,
+# unregistered or unread slot never holds a feed's compile.
+RESERVED_OUTPUT = re.compile(r"needs\.[\w-]+\.outputs\.(fresh_runner)\b")
 # A job that compiles, or is a fallback route for one.
 COMPILE_OR_FALLBACK = re.compile(r"compile|fallback", re.IGNORECASE)
 # Keys that scope a group to one pull request, commit, run or branch, as whole identifiers
@@ -210,6 +215,30 @@ class RunsOnFallbackTests(unittest.TestCase):
                     if not POOL_FALLBACK.search(text[match.end():]):
                         failures.append(f"{path.name} {job_id}: vars.{match.group(1)} is the last alternative")
         self.assertEqual(failures, [], "a single-host runner variable needs a later `||` pool fallback")
+
+    def test_a_reserved_slot_always_has_a_fallback(self) -> None:
+        failures, seen = [], 0
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                text = runs_on_text(job)
+                for alternative in split_top(text.strip().removeprefix("${{").removesuffix("}}"), "||"):
+                    for match in RESERVED_OUTPUT.finditer(alternative):
+                        seen += 1
+                        guarded = re.search(re.escape(match.group(0)) + r"\s*!=\s*''", alternative)
+                        rest = text[text.index(alternative) + len(alternative):]
+                        if not guarded or not POOL_FALLBACK.search(rest):
+                            failures.append(f"{path.name} {job_id}: {match.group(0)} without a set check "
+                                            "and a later pool fallback")
+        self.assertEqual(failures, [], "a reserved slot is a preference with a fallback, never the only route")
+        self.assertGreater(seen, 0, "cmux-next's feed compiles read the freshness slot")
+
+    def test_the_freshness_slot_is_a_pool_label(self) -> None:
+        place = next(step for step in load(WORKFLOWS / "cmux-next.yml")["jobs"]["macos-placement"]["steps"]
+                     if step.get("id") == "place")
+        label = place["env"]["FRESH_LABEL"]
+        self.assertRegex(label, r"'glaeda-dev-std-xcode-[0-9.]+'")
+        self.assertIsNone(SINGLE_HOST.search(label))
+        self.assertIsNone(SINGLE_HOST_VAR.search(label))
 
     def test_compile_and_fallback_routes_never_evict_another_head(self) -> None:
         failures = []
