@@ -269,7 +269,6 @@ export default agentPaneEntry({
         user(report, 6, { incoming: message("grid-lane", report, undefined, "child-3"), untyped: true }),
       ]),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-received__body[data-cut]"));
         await ctx.click({ selector: ".cv-received__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector('.cv-received__toggle[aria-expanded="true"]'));
       },

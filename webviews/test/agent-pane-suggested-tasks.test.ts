@@ -569,6 +569,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // One line at the left with the sender's chip, and the message under it as its card, the
       // sender's words only.
       expect(await card.locator(".cv-received__name").innerText()).toBe("Grid fix");
+      await card.getByRole("button", { name: /Message from Grid fix/ }).click();
       expect(await card.locator(".cv-received__body").innerText()).toBe(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
@@ -576,7 +577,6 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the prompt as the agent got it (cmux's envelope, message id and note) waits behind
       // Details.
-      await card.getByRole("button", { name: /Message from Grid fix/ }).click();
       await card
         .locator(".cv-received__body")
         .getByText("The grid fix is on cmux/grid-fix; tests pass.")
@@ -608,30 +608,14 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       const body = card.locator(".cv-received__body");
-      await page.waitForFunction(() => document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
-      const lineHeight = await body.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight));
-      const cutHeight = await card.locator(".cv-received__text").evaluate((el) => el.clientHeight);
-      expect(Math.abs(cutHeight - 6 * lineHeight)).toBeLessThanOrEqual(1);
+      expect(await body.count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-      // A click on the cut card opens it whole.
-      await body.click();
-      await page.waitForFunction(() => !document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
-      expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-      // It slides open to its whole height (fold.ts playResize): read it once the slide is over.
-      await card
-        .locator(".cv-received__text")
-        .evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished)));
-      expect(await card.locator(".cv-received__text").evaluate((el) => el.clientHeight)).toBeGreaterThan(cutHeight * 2);
-      // The chevron cuts it again.
       await toggle.click();
-      await page.waitForFunction(() => document.querySelector(".cv-received__body[data-cut]"), undefined, {
-        timeout: 5_000,
-      });
+      await body.waitFor({ timeout: 5_000 });
+      expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+      await toggle.click();
+      await body.waitFor({ state: "detached", timeout: 5_000 });
       await page.close();
     });
 
