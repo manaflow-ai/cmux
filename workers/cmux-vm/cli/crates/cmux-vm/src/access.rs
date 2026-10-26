@@ -482,7 +482,7 @@ impl Drop for SessionGuard<'_> {
             .agents_revoke_client_session(&self.vm_id, &self.session_id, None);
         let revoked = match tokio::runtime::Handle::try_current() {
             Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
-                tokio::task::block_in_place(|| handle.block_on(revoke)).is_ok()
+                tokio::task::block_in_place(|| handle.block_on(revoke).is_ok())
             }
             _ => false,
         };
