@@ -48,6 +48,7 @@ members = [
     "crates/cmux-panic-log",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
     "crates/cmux-trace",
@@ -67,6 +68,7 @@ members = [
     "crates/cmux-wg",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-ipc",
     "crates/cmux-tasks-core",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -134,6 +136,7 @@ default-members = [
     "crates/cmux-wg",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-ipc",
     "crates/cmux-tasks-core",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -201,6 +204,7 @@ cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
+cmux-ipc = { path = "crates/cmux-ipc" }
 cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-features = { path = "crates/cmux-features" }

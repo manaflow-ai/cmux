@@ -200,6 +200,13 @@ impl MuxEventBroadcaster {
         MuxEventReceiver { mailbox }
     }
 
+    /// Subscriptions whose receiver is still alive (`oracle-state`).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    pub(crate) fn live_subscriber_count(&self) -> usize {
+        let subscribers = self.subscribers.lock().recover_poison();
+        subscribers.iter().filter(|subscriber| subscriber.mailbox.strong_count() > 0).count()
+    }
+
     pub fn emit(&self, event: MuxEvent) {
         let mut subscribers = self.subscribers.lock().recover_poison();
         subscribers.retain_mut(|subscriber| {

@@ -228,6 +228,8 @@ impl Mux {
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
+            #[cfg(any(debug_assertions, feature = "oracle"))]
+            oracle_switches: OnceLock::new(),
             #[cfg(test)]
             client_resize_before_apply: Mutex::new(None),
             #[cfg(test)]
@@ -412,6 +414,7 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            request_watchdog: crate::server::RequestWatchdog::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,

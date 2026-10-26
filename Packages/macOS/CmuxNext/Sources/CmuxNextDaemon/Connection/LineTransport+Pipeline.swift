@@ -2,6 +2,23 @@ import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
 
+extension LineTransport {
+    /// What the reader does with a request's response.
+    enum Waiter {
+        case reply(cmd: String, ReplySlot)
+        case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
+        /// Its deadline passed; the late reply is dropped. The id stays in
+        /// `order` so an id-less error still maps to the right request.
+        case expired(cmd: String)
+
+        var cmd: String {
+            switch self {
+            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
+            }
+        }
+    }
+}
+
 /// One request for `LineTransport.pipeline`: its command name (for errors)
 /// and its encoder, which receives the allocated id.
 struct PipelinedLine {

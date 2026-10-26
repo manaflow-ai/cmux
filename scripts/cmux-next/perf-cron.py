@@ -30,6 +30,11 @@ lower: a creep of a little under 10 % per run does not ratchet the baseline up),
 perf-budgets.json budget). A candidate regresses only when consecutive tip measurements show a shift
 (confirm_regressions).
 
+The perf lab (scripts/perf-lab) takes measurement over with one commit, not a workflow edit: while
+scripts/perf-lab/OWNS_MEASUREMENT is in the plan's checkout, the plan submits 0 parts (no Mac part, no Linux part, no
+frame-pacing dispatch) and the report stores, saves and reports nothing, so the architecture report does not run
+either (LAB_SENTINEL).
+
 Subcommands: fetch-state, plan, fleet-check, run-part, part-cleanup, run-linux-part, report, dispatch-next (see each
 --help). Tests: scripts/cmux-next/tests/test_perf_cron.py (decisions) and test_perf_cron_io.py (GitHub, git, the
 fleet client and multi-tick runs, faked) (run them yourself; no CI job runs them).
@@ -1131,6 +1136,13 @@ GH_CALLS = collections.Counter()
 # fetch-state leaves this file in the state directory when GitHub refused for the rate limit: the plan and the report
 # then do nothing (no state is read, saved or replaced) and the next tick tries again.
 RATE_LIMITED = "RATE_LIMITED"
+# The perf lab owns measurement while this file exists (p12-perf-process task 026). Chromium retires a waterfall bot
+# the same way, with one config change (tools/perf/core/bot_platforms.py), not an edit of the recipe that runs it.
+# The plan job checks out all of scripts/; the report job's sparse checkout has no scripts/perf-lab, so the plan
+# leaves LAB_OWNS in the working state directory and the report reads it there, as it reads RATE_LIMITED.
+LAB_SENTINEL = os.path.join(ROOT, "scripts", "perf-lab", "OWNS_MEASUREMENT")
+LAB_OWNS = "LAB_OWNS_MEASUREMENT"
+LAB_REASON = "perf lab owns measurement"
 
 
 class RateLimited(Exception):
@@ -2298,6 +2310,10 @@ def clear_parts(d):
 
 
 def cmd_plan(o):
+    if os.path.exists(LAB_SENTINEL):
+        yield_to_lab(o)
+        print_calls("plan")
+        return
     try:
         plan(o)
     except RateLimited as error:
@@ -2308,6 +2324,18 @@ def cmd_plan(o):
         print(f"perf-cron plan: {json.dumps(out)}")
         write_outputs(o.output, out)
     print_calls("plan")
+
+
+def yield_to_lab(o):
+    """The plan while the perf lab owns measurement: 0 parts, no frame pacing, no git or GitHub call. The fetched
+    state stays as it is (the report saves nothing), so the cron goes on from it when the sentinel is removed."""
+    os.makedirs(o.dir, exist_ok=True)
+    with open(os.path.join(o.dir, LAB_OWNS), "w") as f:
+        f.write(LAB_REASON + "\n")
+    out = {"action": "none", "sha": "", "part": "", "linux_part": "", "worker": "", "frame_pacing": "false",
+           "frame_pacing_reason": LAB_REASON, "reason": f"{LAB_REASON} (scripts/perf-lab/OWNS_MEASUREMENT)"}
+    print(f"perf-cron plan: {json.dumps(out)}")
+    write_outputs(o.output, out)
 
 
 def plan(o):
@@ -2832,6 +2860,12 @@ def note_bench_host(state, reason, t):
 
 
 def cmd_report(o):
+    if os.path.exists(os.path.join(o.dir, LAB_OWNS)):
+        # The plan yielded to the perf lab: nothing stored, compared, saved, reported or chained.
+        print(f"perf-cron report: {LAB_REASON}; nothing stored")
+        write_outputs(o.output, {"changed": "false", "line": LAB_REASON, "next_now": "false", "not_measuring": ""})
+        print_calls("report")
+        return
     if os.path.exists(os.path.join(o.dir, RATE_LIMITED)):
         # The plan read no state (GitHub's rate limit): nothing to store, compare or save.
         print("perf-cron report: no state this tick (GitHub rate limit); the next tick tries again")

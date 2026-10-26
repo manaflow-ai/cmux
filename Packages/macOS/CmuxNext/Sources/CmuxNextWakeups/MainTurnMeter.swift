@@ -39,7 +39,7 @@ import Darwin
 /// the trace ring: numbers only, no message text (Chrome's `TRACE_EVENT_INSTANT`).
 ///
 /// ```swift
-/// let budget = MainFrameBudget(input: SessionInputPending(), signposts: true)
+/// let budget = MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true)
 /// budget.turns.observe()   // the composition root, once
 /// ```
 @MainActor

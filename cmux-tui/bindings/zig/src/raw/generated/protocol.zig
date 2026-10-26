@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5";
+pub const ir_sha256 = "e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1945,14 +1945,34 @@ pub const ServerStatsResult = struct {
     request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
+    slow_requests: ?ServerStatsSlowRequests = null,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "request_path_io",
         "resource_projection",
+        "slow_requests",
         "write_path",
     };
+};
+
+pub const ServerStatsSlowRequest = struct {
+    busy_ms: u64,
+    client: u64,
+    duration_ms: wire.Nullable(u64),
+    method: []const u8,
+    started_ms: u64,
+};
+
+pub const ServerStatsSlowRequests = struct {
+    expected_waits: u64,
+    recent: []const ServerStatsSlowRequest,
+    spawn_failures: u64,
+    threshold_ms: u64,
+    total: u64,
+    unwatched: u64,
+    watchdog_wakeups: u64,
 };
 
 pub const ServerStatsWritePath = struct {

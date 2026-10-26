@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5. */
+/* cmux-tui mux protocol 12, IR e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5" as const;
+export const SDK_IR_SHA256 = "e1240f73a120038c17b53bc2c9c781f08181559708f4ca5d9f9ef39b09e6d103" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10702,7 +10702,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
       "write_path is present only when the request names it in include.",
-      "request_path_io is present only when the request names it in include."
+      "request_path_io is present only when the request names it in include.",
+      "slow_requests is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -10753,6 +10754,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "uint32"
         }
       },
+      "slow_requests": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsSlowRequests"
+        }
+      },
       "uptime_ms": {
         "nullable": false,
         "presence": "required",
@@ -10767,6 +10776,129 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsWritePath"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsSlowRequest": {
+    "additional_properties": false,
+    "constraints": [
+      "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
+      "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+      "duration_ms is how long the request ran in total, null while it still runs."
+    ],
+    "fields": {
+      "busy_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "duration_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "method": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "started_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsSlowRequests": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start.",
+      "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
+      "unwatched counts requests that started while every watchdog slot was taken.",
+      "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+      "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
+    ],
+    "fields": {
+      "expected_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "recent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsSlowRequest"
+          },
+          "kind": "array"
+        }
+      },
+      "spawn_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "threshold_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "unwatched": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "watchdog_wakeups": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
