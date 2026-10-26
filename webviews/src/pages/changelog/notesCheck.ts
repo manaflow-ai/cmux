@@ -92,6 +92,21 @@ function pageDefects(where: NotesDefect["where"], view: ReleaseView, heading = "
   return [...rowDefects(where, rows, true), ...changes.map((c) => ({ kind: "bead" as const, where, text: c.title }))];
 }
 
+/** The update span has no curated heading. The journal's ledger gives each day
+    its own heading and view, even across a ten-nightly range. */
+function pageRangeDefects(where: NotesDefect["where"], notes: ReleaseNotes[], language: string): NotesDefect[] {
+  const days = new Map<string, ReleaseNotes[]>();
+  for (const note of notes) {
+    const day = days.get(note.date) ?? [];
+    day.push(note);
+    days.set(note.date, day);
+  }
+  return [
+    ...pageDefects(where, mergedView(notes, language)),
+    ...[...days.values()].flatMap((day) => pageDefects(where, mergedView(day, language), releaseTitle(day, language))),
+  ];
+}
+
 /** UpdateHighlights.pick: the What's New entries (New, Improved, Fixed, Security), else the
     highlights, else the summary lines; the first three, as the card and popup read them. */
 export function cardItems(notes: ReleaseNotes, language: string): UpdateHighlightItem[] {
@@ -134,15 +149,13 @@ function same(a: NotesDefect, b: NotesDefect): boolean {
     published before it, newest first (the first RANGE - 1 are read). */
 export function checkNightlyNotes(notes: ReleaseNotes, previous: ReleaseNotes[], language = "en"): NotesDefect[] {
   const before = previous.filter((n) => n.build !== notes.build).slice(0, RANGE - 1);
-  const older = pageDefects("page (10 nightlies)", mergedView(before, language), releaseTitle(before, language));
+  const older = pageRangeDefects("page (10 nightlies)", before, language);
   const defects = [
     ...noteRows(notes, language).flatMap((rows) => rowDefects("notes", rows, false)),
-    ...pageDefects("page (1 nightly)", mergedView([notes], language), releaseTitle([notes], language)),
-    ...pageDefects(
-      "page (10 nightlies)",
-      mergedView([notes, ...before], language),
-      releaseTitle([notes, ...before], language),
-    ).filter((d) => !older.some((o) => same(o, d))),
+    ...pageRangeDefects("page (1 nightly)", [notes], language),
+    ...pageRangeDefects("page (10 nightlies)", [notes, ...before], language).filter(
+      (d) => !older.some((o) => same(o, d)),
+    ),
     ...rowDefects(
       "card",
       cardItems(notes, language).map((i) => ({ title: i.title, summary: i.summary ?? "" })),

@@ -1003,6 +1003,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return
+    # "slow-limit": a usage limit after a second, then on the fallback profile (FAKE_FALLBACK=1)
+    # an answer (`hub/full_access_bound.rs`, a family message that fails over).
+    if text == "slow-limit":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            time.sleep(1)
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
     # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
     if text == "limit-then-hang":
@@ -1299,6 +1308,13 @@ def main():
             if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
                 update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
                                              "kind": "execute", "status": "in_progress"})
+            # FAKE_LOAD_REPLAY_REPLY=<text>: the history replayed on load holds an earlier turn's
+            # reply, as codex-acp replays every turn's agent messages on session/load.
+            # FAKE_LOAD_REPLAY_CHUNKS=<n>: in that many chunks (a long history), default 1.
+            if os.environ.get("FAKE_LOAD_REPLAY_REPLY"):
+                for _ in range(int(os.environ.get("FAKE_LOAD_REPLAY_CHUNKS", "1"))):
+                    update(params["sessionId"], {"sessionUpdate": "agent_message_chunk",
+                                                 "content": {"type": "text", "text": os.environ["FAKE_LOAD_REPLAY_REPLY"]}})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")

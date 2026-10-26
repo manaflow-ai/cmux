@@ -390,9 +390,15 @@ impl Translator {
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
-                        // A background subagent's result is only its launch.
-                        if self.background_subagents.lock().await.contains(tool) {
-                            continue;
+                        // A background subagent's result is only its launch, unless the launch
+                        // failed: then it never ran, and ends here (manaflow-ai/cmux#25230: else
+                        // the chat reads working forever).
+                        {
+                            let mut background = self.background_subagents.lock().await;
+                            if background.contains(tool) && !is_err {
+                                continue;
+                            }
+                            background.remove(tool);
                         }
                         if let Some(child) = self.subagents.lock().await.remove(tool) {
                             let mut tasks = self.subagent_tasks.lock().await;

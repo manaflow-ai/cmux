@@ -818,6 +818,7 @@ async fn dispatch_request(
             let policy = pick("policy")
                 .map(|p| p.parse::<PermissionPolicy>().map_err(RpcError::invalid_params))
                 .transpose()?;
+            refuse_full_access_policy(hub, policy)?;
             let env = crate::session_env::parse(meta)?;
             let route = pick("route");
             if let Some(r) = &route
@@ -881,6 +882,7 @@ async fn dispatch_request(
                         cfg!(target_os = "macos"),
                         super::remote_guard::control_of(conn.origin, conn.auth, &params)
                             == crate::hub::Control::Peer,
+                        hub.approve_all_allowed(),
                     )
                 {
                     hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
@@ -1234,6 +1236,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             {
                 let mut cfg = hub.config.write().await;
                 cfg.permission_policy = policy;
@@ -1420,15 +1423,16 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             // After a restart the chat logs are read after the ready line; until
             // then the queue, the turn and the status are the session list's. Info
-            // waits for them (#22916), unless a caller that reads only what the
+            // waits for this chat's (#22916; read now if the background pass has not
+            // reached it, `hub/log_load.rs`), unless a caller that reads only what the
             // session list holds (its id, env, policy, rules, modes) asks with
             // `waitLogs: false`: it answers at once, with `logsLoading`.
             if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
-                hub.wait_logs().await;
+                hub.session_log(&s).await;
             }
             let mut detail = hub.session_detail(&s);
             if let Some(obj) = detail.as_object_mut() {
-                obj.insert("logsLoading".into(), json!(!hub.logs_loaded()));
+                obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
             }
             // The session env reaches the unix socket only: no summary or
             // event carries it, so a key added to the allowlist later never
@@ -1547,8 +1551,8 @@ async fn dispatch_request(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             // A restart reads the chat logs after its ready line: the queue, turn and status
-            // shown here come from them (`Hub::load_logs`).
-            hub.wait_logs().await;
+            // shown here come from this chat's (`hub/log_load.rs`).
+            hub.session_log(&s).await;
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             let hidden = params.get("visible") == Some(&Value::Bool(false));
@@ -1615,7 +1619,7 @@ async fn dispatch_request(
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
             // The queue a restart rebuilds from the logs.
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // A peer read the prompt masked (`peer_text.rs`): it may move or send one
             // with a secret, not rewrite it.
@@ -1633,7 +1637,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.wait_logs().await;
+            hub.session_log(&s).await;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
             // Again after the wait, right before the change (`full_access_hold`).
@@ -1700,6 +1704,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
+            refuse_full_access_policy(hub, Some(policy))?;
             hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
@@ -1788,6 +1793,19 @@ async fn dispatch_request(
             Err(RpcError::method_not_found(other))
         }
     }
+}
+
+/// MDM forces `sessions.allowFullAccess` off: a request for the approve-all policy (`approve-all`, `yolo`)
+/// on `session/new`, `_acpmux/set_policy` or `_acpmux/set_default_policy` is refused, as a
+/// switch into a full-access mode is (`full_access_off`). A stored approve-all runs as `ask`
+/// meanwhile (`Hub::policy_for`).
+fn refuse_full_access_policy(hub: &Hub, policy: Option<PermissionPolicy>) -> Result<(), RpcError> {
+    if policy.is_some_and(crate::hub::full_access_bound::policy_is_full_access)
+        && !hub.approve_all_allowed()
+    {
+        return Err(crate::hub::start_mode::full_access_off());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

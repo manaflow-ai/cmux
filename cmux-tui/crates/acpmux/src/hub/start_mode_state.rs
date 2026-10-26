@@ -12,6 +12,11 @@
 //! - the effective value when nothing forces it, for a file with no key: a
 //!   team default or an MDM recommended value, so new chats start in what
 //!   Settings shows. With the app closed it is the last value pushed.
+//! - the `sessions.allowFullAccess` that MDM or the team policy forces
+//!   (`allowFullAccess` with `allowFullAccessManaged`): a forced off is an
+//!   upper bound the settings file cannot raise (`full_access_bound::full_access_allowed_by`);
+//!   a forced on adds nothing. acpmux reads only the file, so without the
+//!   push a managed off never reached it.
 //! - the setting as acpmux last saw it (the pushed values and the file's
 //!   value) and a count of the changes it saw, so a push that changes what a
 //!   new chat starts in tells the watchers (`apply_permission_push`). acpmux
@@ -44,6 +49,9 @@ pub(crate) struct StartModeState {
     pub seen: Option<String>,
     /// Changes to the setting counted so far.
     pub changes: u64,
+    /// The `sessions.allowFullAccess` MDM or the team policy forces, as the app pushed it
+    /// (`false` for a forced value that is not `true`). Only `false` acts: an upper bound.
+    pub full_access_managed: Option<bool>,
 }
 
 impl StartModeState {
@@ -100,9 +108,19 @@ impl StartModeState {
     }
 }
 
-/// The state, loaded from `start-mode.json` at first use.
+/// The state, loaded from `start-mode.json` when the hub is built (`StartModeCell::load`), so a
+/// forced `sessions.allowFullAccess` off holds from the first request after a daemon restart;
+/// a daemon with no config file loads it at first use.
 #[derive(Default)]
 pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>);
+
+impl StartModeCell {
+    /// The state saved beside config.json (`state_file`), read now. Nothing is written until the
+    /// first update.
+    pub(super) fn load(path: Option<&Path>) -> Self {
+        Self(StdMutex::new(path.map(|p| StartModeState::load(Some(p)))))
+    }
+}
 
 /// Where the state is kept: beside config.json, if the daemon has one.
 pub(super) fn state_file(cfg: &Config) -> Option<PathBuf> {
@@ -131,6 +149,35 @@ impl Hub {
             tracing::warn!("{FILE} not saved: {e:#}");
         }
         (before, state.clone())
+    }
+
+    /// The `sessions.allowFullAccess` MDM or the team policy forces, as last pushed.
+    pub(super) fn full_access_managed(&self) -> Option<bool> {
+        let cell = self.start_mode_state.0.lock().unwrap_or_else(|e| e.into_inner());
+        cell.as_ref().and_then(|s| s.full_access_managed)
+    }
+
+    /// The app's push of `sessions.allowFullAccess` (`_acpmux/chat_settings`): the value MDM or
+    /// the team policy forces, `None` when nothing forces it. Tells watchers (the pane's mode
+    /// menu, `_acpmux/start_mode`) when it changed.
+    pub async fn apply_full_access_push(&self, managed: Option<bool>) {
+        let path = state_file(&*self.config.read().await);
+        let (before, after) = self.update_start_mode_state(path.as_deref(), |state| {
+            state.full_access_managed = managed;
+        });
+        if before.full_access_managed != after.full_access_managed {
+            tracing::info!(
+                managed = ?after.full_access_managed,
+                "{}: MDM or the team policy pushed a new value",
+                super::start_mode::ALLOW_FULL_ACCESS
+            );
+            self.start_mode_changed();
+        }
+        // Every push of the off crosses the permission barrier, not only the one that changed
+        // it: a second push may otherwise return while an ask still decides under the old bound.
+        if after.full_access_managed == Some(false) {
+            self.full_access_turned_off(before.full_access_managed != Some(false)).await;
+        }
     }
 
     /// The app's push (`_acpmux/chat_settings`): the effective setting and
