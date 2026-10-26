@@ -807,7 +807,7 @@ pub(super) mod acp {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_EVENT_PAGES, Transcript, load};
+    use super::{ChatCommand, MAX_EVENT_PAGES, Transcript, load, parse};
     use serde_json::{Value, json};
 
     fn update(seq: u64, update: Value) -> Value {
@@ -1051,5 +1051,54 @@ mod tests {
         assert_eq!(page["items"][0]["text"], "use [AWS access key] now", "{page}");
         assert_eq!(page["items"][0]["from_name"], "bot [AWS access key]", "{page}");
         assert_eq!(page["items"][1]["text"], "set [AWS access key] done", "{page}");
+    }
+
+    #[test]
+    fn read_can_request_the_latest_complete_code_block() {
+        let events = vec![
+            mux(1, "user_message", json!({"text": "show code"})),
+            update(
+                2,
+                json!({"sessionUpdate": "agent_message_chunk", "content": {"text":
+                    "Here is one:\n```rust\nlet first = 1;\n```\nAnd the latest:\n```sh\necho latest\n```"}}),
+            ),
+            mux(3, "turn_result", json!({"status": "completed"})),
+        ];
+        let transcript = transcript(&events);
+        assert_eq!(
+            transcript.last_code_block(),
+            Some(json!({"language": "sh", "code": "echo latest\n"}))
+        );
+    }
+
+    #[test]
+    fn latest_code_block_is_secret_masked_and_incomplete_fences_are_ignored() {
+        let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+        let events = vec![
+            update(
+                1,
+                json!({"sessionUpdate": "agent_message_chunk", "content": {"text":
+                    format!("```\nuse {key}\n```\n```rust\nunfinished")}}),
+            ),
+            mux(2, "turn_result", json!({"status": "completed"})),
+        ];
+        let transcript = transcript(&events);
+        assert_eq!(
+            transcript.last_code_block(),
+            Some(json!({"language": "", "code": "use [AWS access key]\n"}))
+        );
+    }
+
+    #[test]
+    fn read_parser_accepts_last_code_block_flag() {
+        assert_eq!(
+            parse(&["read", "chat-1", "--last-code-block"]),
+            Ok(ChatCommand::Read {
+                target: "chat-1".into(),
+                after: 0,
+                limit: super::super::super::agents::chat::DEFAULT_READ_LIMIT,
+                code_block: true,
+            })
+        );
     }
 }
