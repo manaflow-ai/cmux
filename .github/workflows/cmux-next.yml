@@ -643,10 +643,11 @@ jobs:
   # The daemon and scheme tiers also need this commit's same-tree cmux-tui.
   # It is probed once here, never awaited (pin-cmux-tui.sh probe): published,
   # the tree jobs run in this run; still being built, this run leaves a
-  # cmux-next-tree-wait-<key> marker and skips them, and the cmux-tui
-  # artifacts run that publishes the key dispatches this workflow's same-tree
-  # mode for it (scripts/ci/cmux_next_tree_notify.py). A superseded push skips
-  # them; a tree that nothing will publish fails same-tree-cmux-tui at once.
+  # cmux-next-tree-wait-<key> marker and skips them, and a trusted publication
+  # may dispatch this workflow's same-tree mode for it
+  # (scripts/ci/cmux_next_tree_notify.py). A superseded push skips them. PRs
+  # never create a synthetic pin ref: a cold PR tree is skipped with a named
+  # reason, while trusted branch pushes still report an unavailable tree.
   path_route:
     if: ${{ inputs.same_tree_sha == '' }}
     name: cmux-next path routing
@@ -852,22 +853,20 @@ jobs:
           # still publishing, build the exact app head against the newest
           # published compatible tree instead of waiting on nightly's tree.
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ (inputs.dev_daily == true || steps.route.outputs.own_tui == 'false') && '1' || '' }}
-          # A same-repository PR with its own merge tree waits (read-only, the
-          # script's 90s default) for the artifacts run main's
-          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
-          # workflow skips forks, so a fork PR looks once.
-          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
+          # No PR merge-tree publisher exists. A PR looks once for an already
+          # published tree or trusted publisher; a cold own tree is skipped.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
-      # What the publish needs to start this run's tree jobs later. Written for
-      # failed too: a later publication of the key (a takeover run, a
-      # cmux-tui-pin-* push) still starts them.
+      # What a trusted publication needs to start this run's tree jobs later.
+      # A cold PR tree has no publisher, so it leaves no marker. An active
+      # trusted run still gets one and may later start the tree jobs.
       - name: Write the tree wait marker
         id: marker
         # A DEV daily run waits for its own tree (job dev-daily-tree-wait): a
         # same-tree run would start only while the tip is still its SHA.
-        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || steps.tree.outputs.tree_state == 'failed')
+        if: inputs.dev_daily != true && (steps.tree.outputs.tree_state == 'deferred' || (github.event_name != 'pull_request' && steps.tree.outputs.tree_state == 'failed'))
         env:
           KEY: ${{ steps.tree.outputs.tree_key }}
           DAEMON: ${{ steps.route.outputs.daemon }}
@@ -936,7 +935,7 @@ jobs:
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
-          # The first probe already waited for main's merge-tree publisher.
+          # The first probe already inspected the trusted publisher.
           CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
@@ -947,13 +946,20 @@ jobs:
           STATE: ${{ steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state }}
           KEY: ${{ steps.tree.outputs.tree_key }}
           REASON: ${{ steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if [[ "$EVENT_NAME" == pull_request && "$STATE" == failed ]]; then
+            STATE=skipped
+            REASON="No cmux-tui-pin ref is created for pull requests; re-run after a trusted feat-cmux-next publication. $REASON"
+          fi
           {
             echo "### same-tree cmux-tui $KEY: $STATE"
             echo
             echo "$REASON"
           } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$STATE" == deferred ]]; then
+          if [[ "$STATE" == skipped ]]; then
+            echo "::notice title=same-tree cmux-tui skipped::$REASON"
+          elif [[ "$STATE" == deferred ]]; then
             echo "::notice title=same-tree cmux-tui deferred::$REASON"
           fi
 
@@ -1502,11 +1508,9 @@ jobs:
             python3 tests/test_dev_release_product_key.py
             # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
             python3 tests/test_dev_release_product_reuse.py
-            # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
-            python3 tests/test_merge_compile_guard.py
             # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
             python3 tests/test_ci_compile_test_plan.py
-            # The merge guards run from the feat-cmux-next tip, never a pull request's checkout.
+            # A merge goes to the landing gate installed from cmuxterm-hq, never a guard in a checkout.
             python3 tests/test_guard_hooks_from_base.py
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
             python3 tests/test_feat_ci_guard_group.py
@@ -2096,8 +2100,10 @@ jobs:
 
   same-tree-cmux-tui:
     needs: [path_route, push-head-preflight]
-    # A superseded push reports nothing: its newer head is tested.
-    if: ${{ !cancelled() && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
+    # A superseded push reports nothing: its newer head is tested. Pull
+    # requests with a cold own tree are named in path_route's summary and
+    # skipped here; no synthetic cmux-tui-pin ref is created for them.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' && inputs.same_tree_origin != 'pull_request' && ((needs.path_route.outputs.tree_state == 'failed' && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'failed')) }}
     name: same-tree cmux-tui
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
@@ -2203,7 +2209,7 @@ jobs:
   # A same-repository pull request's app compile, on the build fleet instead
   # of the Mac Release queue (2026-10-21: 76 of ~350 queued Mac jobs were
   # Release compiles). It compiles and links the app at the PR's head, the
-  # commit merge_compile_guard.py and the landing hooks ask about, in about a
+  # commit the landing gate (require-cmux-guards) asks about, in about a
   # minute. A fleet compile error fails this job: the PR's own red. No verdict
   # (no client, the fleet down, a timeout) is a notice, and release-compile
   # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch

@@ -307,7 +307,7 @@ final class CloudUpdateFixture {
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("cloud-update-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        board.showNotice = { [weak self] in self?.notices.append($0.message) }
+        board.showNotice = { [weak self] in self?.notices.append($0.toast.message); return nil }
     }
 
     var directory: URL { root }
