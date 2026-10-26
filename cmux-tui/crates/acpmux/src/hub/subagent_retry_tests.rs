@@ -278,3 +278,19 @@ async fn a_stopped_subagent_a_person_retried_stays_stopped() {
     let again = hub.retry_subagent(&session, "s/t1", by_person()).await.unwrap();
     assert_ne!(again["promptId"], v["promptId"]);
 }
+
+/// A person's retry whose prompt is refused at dispatch (here: the sub-session that asked is
+/// gone) answers with the refusal at once, never after the next automatic attempt's wait.
+#[tokio::test]
+async fn a_refused_person_retry_answers_at_once() {
+    let (hub, session, _conn) = chat(vec![60_000, 60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let by = crate::hub::auto_resume::retry_turn::RetryBy { from: Some("gone".into()), ..by_person() };
+    let answer = hub.retry_subagent(&session, "s/t1", by);
+    let refused = tokio::time::timeout(Duration::from_secs(10), answer).await;
+    let refused = refused.expect("answered at once").unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "subsessions.sender_gone");
+    settle().await;
+    assert_eq!(outcomes(&hub, &session), ["scheduled", "fired", "scheduled"]);
+}
