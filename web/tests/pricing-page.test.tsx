@@ -445,6 +445,24 @@ describe("localized pricing page", () => {
     expect(individual).not.toContain("Early supporter price");
   });
 
+  test("a yearly early supporter sees both the discount and the yearly bill", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{
+      id: "sub_yearly_early",
+      plan: "pro",
+      status: "active",
+      raw: { items: { data: [{ price: { currency: "usd", unit_amount: 30000, recurring: { interval: "year" } } }] } },
+    }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    expect(individual).toMatch(/<s[^>]*>\$40<\/s>/);
+    expect(individual).toContain(">$25<");
+    expect(individual).toContain("Early supporter price");
+    expect(individual).toContain("Billed $300 yearly");
+  });
+
   test("prices a card only from the subscription behind the plan in force", async () => {
     const { currentPersonalSubscriptionPrice } = await import("../services/billing/dashboardBilling");
     const price: { amountUsd: number; interval: "month" | "year" } = { amountUsd: 30, interval: "month" };
