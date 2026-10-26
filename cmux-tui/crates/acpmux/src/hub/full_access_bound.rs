@@ -246,4 +246,67 @@ mod tests {
         assert!(full_access_allowed_by(Some(true), true));
         assert!(!full_access_allowed_by(Some(true), false), "a forced on raises nothing");
     }
+
+    /// A hub with two open chats on a stand-in agent.
+    async fn two_chats() -> (Arc<Hub>, Arc<Session>, Arc<Session>) {
+        use crate::config::{Config, StoreMode};
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let a = hub.new_session(req()).await.unwrap();
+        let b = hub.new_session(req()).await.unwrap();
+        (hub, a, b)
+    }
+
+    /// Review 26 of #23322: under MDM's off a stored approve-all runs as ask, and sub-session
+    /// checks rank it so. A parent in approve-all may message an approve-edits child before the
+    /// push, never after it: the child would approve edits the parent must ask about.
+    #[tokio::test]
+    async fn under_an_mdm_off_approve_all_ranks_as_ask_between_sessions() {
+        let (hub, parent, child) = two_chats().await;
+        hub.set_policy(&parent, PermissionPolicy::ApproveAll).await;
+        hub.set_policy(&child, PermissionPolicy::ApproveEdits).await;
+        assert!(hub.receiver_check(&parent, &child).await.is_ok(), "before the push");
+        hub.apply_full_access_push(Some(false)).await;
+        let r = hub.receiver_check(&parent, &child).await;
+        assert!(r.is_err(), "an approve-all parent messaged an approve-edits child under the off");
+        assert_eq!(hub.effective_policy(&parent.meta()).await, PermissionPolicy::Ask);
+    }
+
+    /// Review 26 of #23322: a second push of the same off waits, as the first does, for an ask
+    /// deciding under the old bound (it holds the session's permission lock), so no push returns
+    /// before that decision is made.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    // The test stands in for an ask deciding under the permission lock across the pushes.
+    #[allow(clippy::await_holding_lock)]
+    async fn every_off_push_waits_for_an_ask_deciding_under_the_old_bound() {
+        let (hub, session, _) = two_chats().await;
+        let deciding = session.permissions.lock().unwrap();
+        let push = || {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.apply_full_access_push(Some(false)).await })
+        };
+        let first = push();
+        let stored = async {
+            while !hub.full_access_managed_off() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), stored)
+            .await
+            .expect("the off is stored");
+        let second = push();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let returned = second.is_finished();
+        drop(deciding);
+        let (_, _) = (first.await, second.await);
+        assert!(!returned, "a second off push returned while an ask decided under the old bound");
+    }
 }
