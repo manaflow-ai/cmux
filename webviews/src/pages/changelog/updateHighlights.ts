@@ -36,6 +36,8 @@ export interface UpdateHighlights {
   builtAt?: string | null;
   /** The commit the build was cut from (the notes' `head`); absent from older notes. */
   head?: string | null;
+  /** Builds taken off the feed (its pulled.json): never counted as newer. Absent from an older host. */
+  pulled?: string[] | null;
   source: "whatsNew" | "highlights" | "summary" | "appcast" | "none";
   language: string;
   /** At most 3, in display order. */

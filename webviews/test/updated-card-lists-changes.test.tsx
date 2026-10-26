@@ -150,6 +150,9 @@ test("the build line says how far the build is from the newest", async () => {
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434 · 1 build behind newest");
   await renderCard(leo, index(["4037004604601", "4035798236101"]));
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434 · Newest");
+  // A pulled build is offered to no Mac: it is not newer.
+  await renderCard({ ...leo, pulled: ["4037632091801"] }, index(["4037632091801", "4037226096601", "4037004604601"]));
+  expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434 · 1 build behind newest");
   // An index that no longer lists the build says nothing about its place.
   await renderCard(leo, index(["4037632091801"]));
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434");

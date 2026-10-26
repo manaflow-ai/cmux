@@ -59,6 +59,8 @@ nonisolated public struct UpdateHighlights: Codable, Equatable, Sendable {
     public var builtAt: String?
     /// The commit the build was cut from (the notes' `head`); the card names the build by it.
     public var head: String?
+    /// Builds taken off the feed (its `pulled.json`): the card does not count them as newer.
+    public var pulled: [String]?
     public var source: Source
     /// The language the strings resolved to (Apple code).
     public var language: String

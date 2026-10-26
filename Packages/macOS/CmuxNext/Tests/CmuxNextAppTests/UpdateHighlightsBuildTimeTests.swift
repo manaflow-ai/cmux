@@ -51,6 +51,6 @@ import Testing
          "language": "en", "items": [], "moreCount": 0, "changelog": {"from": "0.9.0", "to": "1.0.0"}}
         """#
         let highlights = try JSONDecoder().decode(UpdateHighlights.self, from: Data(record.utf8))
-        #expect(highlights.builtAt == nil && highlights.head == nil)
+        #expect(highlights.builtAt == nil && highlights.head == nil && highlights.pulled == nil)
     }
 }
