@@ -411,6 +411,19 @@ pub(crate) fn host_environment() -> Vec<(std::ffi::OsString, std::ffi::OsString)
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn remote_outer_command_scrubs_loader_env() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"], "env": {"ACPMUX_REMOTE_ENV_POLICY": "1",
+                "LD_PRELOAD": "injected", "GLIBC_TUNABLES": "injected"}
+        }))
+        .unwrap();
+        let cmd = harness_command("remote", &p, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env_cleared(&cmd);
+        assert!(!env.iter().any(|(k, _)| k == "LD_PRELOAD" || k == "GLIBC_TUNABLES"));
+    }
+
     use super::*;
 
     #[test]

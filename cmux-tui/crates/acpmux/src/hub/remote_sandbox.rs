@@ -61,9 +61,16 @@ pub(crate) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
+    platform_profile_id(cfg!(target_os = "linux"))
+}
+
+fn platform_profile_id(_linux: bool) -> String {
     const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint; linux-keeper-v1; bwrap namespace argv v1";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
+
+#[cfg(target_os = "linux")]
+pub(crate) fn scrub_loader_env(_command: &mut tokio::process::Command) {}
 
 /// The system `sandbox-exec`.
 pub(super) const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
@@ -827,12 +834,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
             .and_then(|v| v.parse::<i32>().ok())
     };
     let (o, l, t, u) = (field("outside"), field("loopback"), field("tmp"), field("unix"));
-    let held = matches!(o, Some(c) if c != 0)
-        && matches!(l, Some(c) if c != 0)
-        && t == Some(0)
+    let held = canary_report_held(out.status.success(), (o, l, t, u), linux)
         && !landed
         && !arrived
-        && (!linux || (matches!(u, Some(c) if c != 0) && !arrived_unix));
+        && (!linux || !arrived_unix);
     if held {
         return Ok(());
     }
@@ -845,6 +850,17 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         out.status,
         String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
     ))
+}
+
+fn canary_report_held(
+    _success: bool,
+    (o, l, t, u): (Option<i32>, Option<i32>, Option<i32>, Option<i32>),
+    linux: bool,
+) -> bool {
+    matches!(o, Some(c) if c != 0)
+        && matches!(l, Some(c) if c != 0)
+        && t == Some(0)
+        && (!linux || matches!(u, Some(c) if c != 0))
 }
 
 impl Hub {
@@ -1118,6 +1134,60 @@ mod vm_host_tests {
 #[cfg(test)]
 mod endpoint_tests {
     use super::*;
+
+    const LOADER_KEYS: &str = "LD_PRELOAD LD_LIBRARY_PATH LD_AUDIT LD_UNKNOWN GCONV_PATH GETCONF_DIR GLIBC_TUNABLES HOSTALIASES LOCALDOMAIN LOCPATH MALLOC_ARENA_MAX MALLOC_ARENA_TEST MALLOC_PERTURB_ MALLOC_TOP_PAD_ MALLOC_TRACE MALLOC_MMAP_MAX_ MALLOC_MMAP_THRESHOLD_ MALLOC_TRIM_THRESHOLD_ NIS_PATH NLSPATH RESOLV_HOST_CONF RES_OPTIONS TZDIR";
+
+    #[test]
+    fn macos_profile_identity_stays_at_base() {
+        assert_eq!(
+            platform_profile_id(false),
+            "dfe0fa2509e4121cda90d0e4fb84e961ba886c72a73385954dcbb48774058054"
+        );
+    }
+
+    #[test]
+    fn canary_requires_success_and_every_field() {
+        let fields = (Some(1), Some(1), Some(0), Some(1));
+        assert!(canary_report_held(true, fields, true));
+        assert!(!canary_report_held(false, fields, true));
+        for fields in [
+            (None, Some(1), Some(0), Some(1)),
+            (Some(1), None, Some(0), Some(1)),
+            (Some(1), Some(1), None, Some(1)),
+            (Some(1), Some(1), Some(0), None),
+        ] {
+            assert!(!canary_report_held(true, fields, true));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_refuses_loader_profile_env() {
+        for key in LOADER_KEYS.split_whitespace() {
+            let p = profile(&["claude"], &[(key, "injected")]);
+            assert!(claude_args(&bound(None), &p, vec![]).is_err(), "{key}");
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn canary_missing_unix_helper_is_unknown() {
+        let out = std::process::Command::new("/bin/bash")
+            .args([
+                "-c",
+                CANARY,
+                "canary",
+                "/nonexistent/outside",
+                "0",
+                "/nonexistent/tmp",
+                "0",
+                "/nonexistent/socket",
+                "/nonexistent/acpmux",
+            ])
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).contains("unix=unknown"));
+    }
 
     fn profile(argv: &[&str], env: &[(&str, &str)]) -> HarnessProfile {
         serde_json::from_value(json!({

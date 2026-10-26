@@ -501,6 +501,7 @@ async fn run(options: Options) -> Result<i32> {
         .collect();
     let bwrap_path = format!("/proc/self/fd/{}", bwrap_fd.as_raw_fd());
     let mut command = Command::new(bwrap_path);
+    crate::hub::remote_sandbox::scrub_loader_env(&mut command);
     // bwrap passes inherited non-CLOEXEC fds to its command; bind fds are
     // consumed by the mount plan, and init closes the handoff before exec.
     command
@@ -571,6 +572,16 @@ pub(crate) fn main(args: Vec<OsString>) -> ! {
 /// deadline; listeners are only inspected, never accepted, and all fds are RAII-owned.
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bwrap_command_scrubs_loader_env() {
+        let mut cmd = Command::new("/usr/bin/bwrap");
+        cmd.env("LD_PRELOAD", "injected").env("LOCPATH", "injected").env("PATH", "/usr/bin");
+        crate::hub::remote_sandbox::scrub_loader_env(&mut cmd);
+        let env = crate::agent::command_env(&cmd);
+        assert!(!env.iter().any(|(k, _)| k == "LD_PRELOAD" || k == "LOCPATH"));
+        assert!(env.iter().any(|(k, v)| k == "PATH" && v == "/usr/bin"));
+    }
+
     use super::*;
     use std::net::{TcpStream, UdpSocket};
     use std::os::unix::ffi::OsStringExt;
