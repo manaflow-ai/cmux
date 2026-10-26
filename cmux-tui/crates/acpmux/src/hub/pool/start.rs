@@ -138,9 +138,14 @@ impl Hub {
             end_pooled_host(&record).await;
             anyhow::bail!("the daemon is stopping");
         }
-        let hub = Arc::downgrade(self);
+        // MDM's off as this start begins (reviews 71 and 73 of #23322): a report of full access
+        // while it starts ends it then, an unset after the off too, not at its answer.
+        let latch = self.off_latch();
+        let reported = Arc::new(tokio::sync::Notify::new());
+        let (hub, notify) = (Arc::downgrade(self), reported.clone());
         let id = session_id.clone();
         let (tap, slot) = holding_tap(move || {
+            notify.notify_one();
             if let Some(hub) = hub.upgrade() {
                 hub.pool_end_reported(&id);
             }
@@ -178,18 +183,30 @@ impl Hub {
             };
             Ok::<_, RpcError>((init, new_result))
         };
-        let (init, new_result) = match tokio::time::timeout(START_BUDGET, started).await {
-            Ok(Ok(v)) => v,
-            failed => {
-                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
-                end_pooled_host(&record).await;
-                match failed {
-                    Ok(Err(e)) => anyhow::bail!("{}", e.message),
-                    _ => anyhow::bail!("no harness session within {START_BUDGET:?}"),
+        let held = slot.clone();
+        let held_full = move || {
+            let slot = held.lock().unwrap_or_else(|e| e.into_inner());
+            matches!(&*slot, TapSlot::Held(h) if held_reports_full_access(h, None))
+        };
+        let outcome = tokio::time::timeout(START_BUDGET, async {
+            tokio::select! {
+                started = started => started.map_err(|e| anyhow::anyhow!("{}", e.message)),
+                () = latch.reported_under_off(&reported, held_full) => {
+                    Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
                 }
             }
+        })
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no harness session within {START_BUDGET:?}")));
+        let (init, new_result) = match outcome {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = tokio::time::timeout(END_GRACE, child.terminate(END_GRACE)).await;
+                end_pooled_host(&record).await;
+                return Err(e);
+            }
         };
-        Ok(Pooled {
+        let p = Pooled {
             session_id,
             name,
             key: spec.key.clone(),
@@ -204,7 +221,14 @@ impl Hub {
             parked: false,
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
             preview: Default::default(),
-        })
+        };
+        // An off this start began under, or that began while it ran, holds though an unset
+        // followed (review 73): an agent that came up in full access then is not kept.
+        if latch.off() && p.runs_full_access(&spec.spawn.argv) {
+            end_pooled(p).await;
+            anyhow::bail!("it came up in full access, which MDM forces off");
+        }
+        Ok(p)
     }
 
     /// End entries nobody will take (in the background).

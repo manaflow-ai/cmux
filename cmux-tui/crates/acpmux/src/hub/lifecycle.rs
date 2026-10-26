@@ -1286,11 +1286,9 @@ impl Hub {
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
-        // The off count before the state, as `probe_bound` reads it: an off that begins while the
-        // probe runs ends it once its harness reported full access, an unset after it too (review
-        // 71 of #23322).
-        let offs = self.full_access_off_watch();
-        let offs_seen = *offs.borrow();
+        // MDM's off as the probe starts: an off that holds or begins while it runs ends it once its
+        // harness reported full access, an unset after it too (reviews 71 and 73 of #23322).
+        let latch = self.off_latch();
         // MDM forces full access off (#23322): a profile pinning it is never started to probe,
         // and a probe that runs when the off lands ends then (`probe_bound`).
         let mut bound =
@@ -1316,9 +1314,7 @@ impl Hub {
                 super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
             view.reported =
                 reports.lock().unwrap_or_else(|e| e.into_inner()).of(res["sessionId"].as_str());
-            if self.full_access_off_since(offs_seen)
-                && super::full_access_bound::runs_full_access(&view).is_some()
-            {
+            if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
                 anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
             }
             let cfg = self.config.read().await;
@@ -1336,7 +1332,7 @@ impl Hub {
             () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
                 Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
             }
-            () = self.reported_under_off(offs, offs_seen, &reported, || {
+            () = latch.reported_under_off(&reported, || {
                 reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
             }) => {
                 Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))

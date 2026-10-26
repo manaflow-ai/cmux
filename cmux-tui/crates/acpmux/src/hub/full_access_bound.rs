@@ -247,26 +247,49 @@ impl Hub {
         Ok(Some(OffWatch { offs, seen }))
     }
 
-    /// Whether MDM forces full access off now, or began to since the off count was `seen`
-    /// (`full_access_off_watch`), though an unset followed it (review 71).
-    pub(super) fn full_access_off_since(&self, seen: u64) -> bool {
-        self.full_access_managed_off() || *self.full_access_off_watch().borrow() != seen
+    /// MDM's off as a start that begins now sees it (`OffLatch`).
+    pub(super) fn off_latch(&self) -> OffLatch {
+        // The count before the state: an off counted after this changes the count, and one
+        // counted before it is in the state (both change under the state lock).
+        let offs = self.full_access_off_watch();
+        let seen = *offs.borrow();
+        OffLatch { offs, seen, was_off: self.full_access_managed_off() }
     }
 
-    /// For a probe whose argv pins nothing (review 71): resolves once its harness reported full
-    /// access (`any`; `reported` is notified on each such report) under MDM's off, one that holds
-    /// now or began since the probe started under count `seen`, though an unset followed it.
-    /// Never otherwise: the probe's own timeout bounds it.
+    /// MDM has just forced full access off (`apply_full_access_push`).
+    pub(super) async fn full_access_turned_off(&self) {
+        // Pooled agents started under the old bound (a profile pinning full access among them)
+        // end; the pool starts again under the new one.
+        self.drain_pool();
+    }
+}
+
+/// MDM's off as one start (a probe, a pooled agent) saw it: on when it was off as the start
+/// began, or began while it ran, though an unset followed (reviews 71 and 73 of #23322).
+pub(super) struct OffLatch {
+    offs: tokio::sync::watch::Receiver<u64>,
+    seen: u64,
+    was_off: bool,
+}
+
+impl OffLatch {
+    /// Whether MDM's off holds for this start.
+    pub(super) fn off(&self) -> bool {
+        self.was_off || *self.offs.borrow() != self.seen
+    }
+
+    /// Resolves once the start's harness reported full access (`any`; `reported` is notified on
+    /// each such report) while MDM's off holds for it (`off`). Never otherwise: the start's own
+    /// timeout bounds it.
     pub(super) async fn reported_under_off(
         &self,
-        mut offs: tokio::sync::watch::Receiver<u64>,
-        seen: u64,
         reported: &tokio::sync::Notify,
         any: impl Fn() -> bool,
     ) {
+        let mut offs = self.offs.clone();
         loop {
-            let off = *offs.borrow_and_update() != seen || self.full_access_managed_off();
-            if off && any() {
+            let began = *offs.borrow_and_update() != self.seen;
+            if (self.was_off || began) && any() {
                 return;
             }
             tokio::select! {
@@ -275,13 +298,6 @@ impl Hub {
             }
         }
         std::future::pending().await
-    }
-
-    /// MDM has just forced full access off (`apply_full_access_push`).
-    pub(super) async fn full_access_turned_off(&self) {
-        // Pooled agents started under the old bound (a profile pinning full access among them)
-        // end; the pool starts again under the new one.
-        self.drain_pool();
     }
 }
 
