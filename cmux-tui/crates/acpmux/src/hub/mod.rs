@@ -111,6 +111,9 @@ pub mod approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
+// The store and the hub's taps come in the next PRs (cmuxterm-hq#4381); until then only tests use it.
+#[allow(dead_code)]
+pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 pub(crate) use peers::{
