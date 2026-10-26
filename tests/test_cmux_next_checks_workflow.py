@@ -2059,7 +2059,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         context["needs.push-head-preflight.outputs.current"] = "false"
         context["github.run_id"] = "7"
         self.assertFalse(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-6vcpu-macos-26")
         group = self.job()["concurrency"]
         self.assertEqual(evaluate(group["group"], context), "cmux-next-release-compile-7")
         self.assertIs(group["cancel-in-progress"], False)
@@ -2211,7 +2211,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     def test_base_pushes_still_run_it_on_the_blacksmith_fallback(self):
         context = self.context([], event="push")
         self.assertTrue(self.runs(context))
-        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-6vcpu-macos-26")
 
     def test_a_fast_gate_that_died_before_a_verdict_falls_back_to_the_mac_compile(self):
         # A runner hook refusing the fast gate (disk floor, 2026-10-24) fails it with no
@@ -2227,7 +2227,7 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         # The refused side pool is not asked again: the fallback takes the last-resort
         # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
         context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
-        for result, verdict, label in (("failure", "", "blacksmith-12vcpu-macos-26"),
+        for result, verdict, label in (("failure", "", "blacksmith-6vcpu-macos-26"),
                                        ("success", "", "glaeda-side-std-xcode-26.6"),
                                        ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
             with self.subTest(result=result, verdict=verdict, route=label):

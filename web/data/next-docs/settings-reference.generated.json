@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 495,
+  "count": 496,
   "sections": [
     {
       "id": "general",
@@ -1491,6 +1491,14 @@
             "push",
             "overlay"
           ]
+        },
+        {
+          "key": "agentPane.display.vscodeMinimap",
+          "title": "VS Code Minimap",
+          "help": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.width",

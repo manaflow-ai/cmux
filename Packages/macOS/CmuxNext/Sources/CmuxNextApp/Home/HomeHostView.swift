@@ -295,10 +295,16 @@ final class HomeHostView: NSView {
         // with history never flashes it (at once when the page is cached).
         transcript.holdsFirstRun = true
         let binding = transcript.binding
+        let reveal = services.launchReveal
         // task-owner: lives as long as this view; ends when the first page is in
         firstPage = Task { [weak self] in
             await binding.opened()
-            self?.transcript.holdsFirstRun = false
+            // A Home released before its page came (deinit cancels this) must not
+            // reveal the Home that replaced it, which waits for its own page.
+            guard let self, !Task.isCancelled else { return }
+            transcript.holdsFirstRun = false
+            // A launch holds a Home still being made until here (WorkspaceContentController).
+            reveal.markReady(.home)
         }
         wantsLayer = true
         clipsToBounds = true
