@@ -240,12 +240,21 @@ fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
 #[derive(Default)]
 pub(crate) struct Admitting(StdMutex<Vec<Arc<Making>>>, tokio::sync::Notify);
 
+/// A conversation an adopt names: its harness family and its id, as
+/// `new_session` matches it (`adoption::adopted_in`). One id in two families
+/// is two conversations.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Conversation {
+    pub family: String,
+    pub id: String,
+}
+
 /// One admitted create: the name it asked for, the conversation it adopts (not
 /// as a fork), and the id of the session it made.
 #[derive(Default)]
 pub(crate) struct Making {
     name: Option<String>,
-    conversation: Option<String>,
+    conversation: Option<Conversation>,
     made: OnceLock<String>,
 }
 
@@ -327,11 +336,28 @@ impl Hub {
         counted(&live, open)
     }
 
-    /// Whether a session already holds the conversation `agent_session_id`: an
-    /// adopt of it attaches there and starts nothing new.
-    pub(crate) fn holds_conversation(&self, agent_session_id: &str) -> bool {
+    /// Whether a session already holds `conversation`: an adopt of it attaches
+    /// there and starts nothing new.
+    fn holds_conversation(&self, conversation: &Conversation) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions.values().any(|s| s.meta().agent_session_id.as_deref() == Some(agent_session_id))
+        super::adoption::adopted_in(&sessions, &conversation.family, &conversation.id).is_some()
+    }
+
+    /// The conversation an adopt of `id` names: the harness family `new_session`
+    /// resolves for the same request, then the id.
+    pub(crate) async fn adopt_conversation(
+        &self,
+        id: &str,
+        harness: Option<String>,
+        preset: &Option<String>,
+        model: Option<&str>,
+        remote: bool,
+        cwd: Option<&Path>,
+    ) -> Result<Conversation, RpcError> {
+        let cfg = self.config.read().await;
+        let resolved = self.resolve_new(&cfg, harness, preset, model, remote, cwd)?;
+        let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
+        Ok(Conversation { family, id: id.to_owned() })
     }
 
     /// Whether a session named `name` is in the list.
@@ -356,7 +382,7 @@ impl Hub {
     pub(crate) async fn admit_adopt(
         &self,
         ask: Ask<'_>,
-        conversation: &str,
+        conversation: &Conversation,
     ) -> Result<Option<Admitted<'_>>, RpcError> {
         if self.holds_conversation(conversation) {
             return Ok(None);
@@ -368,7 +394,7 @@ impl Hub {
     async fn admit(
         &self,
         ask: Ask<'_>,
-        conversation: Option<&str>,
+        conversation: Option<&Conversation>,
     ) -> Result<Option<Admitted<'_>>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
@@ -388,8 +414,8 @@ impl Hub {
         let holds = |open: &[Arc<Making>], name: &String| {
             open.iter().any(|m| m.name.as_ref() == Some(name))
         };
-        let adopts = |open: &[Arc<Making>], c: &str| {
-            open.iter().any(|m| m.conversation.as_deref() == Some(c))
+        let adopts = |open: &[Arc<Making>], c: &Conversation| {
+            open.iter().any(|m| m.conversation.as_ref() == Some(c))
         };
         // Counted and reserved under one lock, in a scope of its own so no
         // await below holds it: no file I/O while it is held.
@@ -407,7 +433,7 @@ impl Hub {
             let admitted = |mut open: std::sync::MutexGuard<'_, Vec<Arc<Making>>>| {
                 let made = Arc::new(Making {
                     name: ask.name.clone(),
-                    conversation: conversation.map(str::to_owned),
+                    conversation: conversation.cloned(),
                     made: OnceLock::new(),
                 });
                 open.push(made.clone());

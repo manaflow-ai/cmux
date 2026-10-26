@@ -821,7 +821,18 @@ async fn dispatch_request(
             let who = who(conn);
             let _admitted = match &adopt {
                 Some(a) if a.if_live != crate::adopt::IfLive::Fork => {
-                    hub.admit_adopt(ask(conn, &params, &who), &a.agent_session_id).await?
+                    // Its id and the family `new_session` resolves (`adopted_in`).
+                    let conversation = hub
+                        .adopt_conversation(
+                            &a.agent_session_id,
+                            pick("harness").or_else(|| a.harness.clone()),
+                            &pick("preset"),
+                            pick("model").as_deref(),
+                            conn.origin.web_class(),
+                            cwd.as_deref(),
+                        )
+                        .await?;
+                    hub.admit_adopt(ask(conn, &params, &who), &conversation).await?
                 }
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
