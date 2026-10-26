@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextDesign
 public import Foundation
 
 // The agent pane's actions. Descriptors live in CmuxNextActions
@@ -29,11 +30,11 @@ extension ActionRegistry {
     /// reporting a toggle that changed nothing.
     @discardableResult
     public func bindAgentPaneSessionInfo(
-        isOn: @escaping @MainActor () -> Bool = { AgentPaneTunables.inspector.value },
+        isOn: (@MainActor () -> Bool)? = nil,
         toggle: @escaping @MainActor (ActionInvocation) -> Void
     ) -> Bool {
         bindEffect(.toggleSessionInfo, effect: { invocation in
-            guard isOn() else { return .refused(AgentPaneView.sessionInfoOff) }
+            guard isOn?() ?? AgentPaneTunables.inspector.value else { return .refused(AgentPaneView.sessionInfoOff) }
             guard ActionRunScope.viewChangeAllowed() else {
                 return .refused(AgentPaneView.sessionInfoNeedsFocus)
             }
