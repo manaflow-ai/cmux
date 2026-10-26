@@ -2,12 +2,12 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
-    /// The second and later automation-caused structural layout changes of a window in one frame land with no spring.
+    /// An agent's or a script's burst of pane layout changes lands with no spring: a change that moves several panes at once, or one that lands while the last automation change still springs.
     public static let automationBurstSnap = Feature(
         index: 0,
         name: "automationBurstSnap",
         owner: "PL-motion-core",
-        description: "The second and later automation-caused structural layout changes of a window in one frame land with no spring.",
+        description: "An agent's or a script's burst of pane layout changes lands with no spring: a change that moves several panes at once, or one that lands while the last automation change still springs.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

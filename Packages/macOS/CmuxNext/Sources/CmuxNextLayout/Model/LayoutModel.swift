@@ -200,12 +200,12 @@ public final class LayoutModel {
     /// transaction is rejected.
     @ObservationIgnored private var daemonScreens: [LayoutScreen] = []
 
-    /// The window's count of automation-caused structural changes per frame, shared by every
-    /// workspace layout of the window (set by the App). Nil: every change may animate.
-    @ObservationIgnored public var automationBurst: LayoutAutomationBurst?
-    /// The last ``apply(screens:cause:)`` was a structural change the burst lands at once: the
-    /// view's next sync shows it with no motion (``takeStructureSnap()``).
-    @ObservationIgnored private var snapsStructure = false
+    /// An automation burst's structural changes land with no spring (feature `automationBurstSnap`,
+    /// set by the App; ``takeAutomationSteps()``). Off: every change may animate.
+    @ObservationIgnored public var snapsAutomationBursts = false
+    /// Per screen, the panes that came or went in automation-caused structural changes the view has
+    /// not shown yet (at least 1 per change). A change by anyone else clears its screen's entry.
+    @ObservationIgnored private var automationSteps: [ScreenID: Int] = [:]
 
     public init(screens: [LayoutScreen] = [], activeScreenID: ScreenID? = nil, focusedPane: PaneID? = nil) {
         self.screens = screens
@@ -222,8 +222,8 @@ public final class LayoutModel {
     ///
     /// - Parameters:
     ///   - newScreens: The daemon's screens.
-    ///   - cause: Who caused the change. The second or later automation-caused structural change
-    ///     of the window in one frame (``automationBurst``) lands with no motion.
+    ///   - cause: Who caused the change: an automation burst's structural change lands with no
+    ///     spring (``snapsAutomationBursts``).
     public func apply(screens newScreens: [LayoutScreen], cause: ObservationCause = .program) {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
@@ -235,7 +235,7 @@ public final class LayoutModel {
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
         if next != screens {
-            snapsStructure = Self.changesStructure(from: previous, to: newScreens) && automationBurst?.snaps(cause) == true
+            if snapsAutomationBursts { noteStructure(from: previous, to: newScreens, cause: cause) }
             screens = next
         }
         reconcileCanvases()
@@ -253,18 +253,28 @@ public final class LayoutModel {
         if focusedPane != fallback { focusedPane = fallback }
     }
 
-    /// Whether the last structural change lands with no motion; resets it. The view reads it once
-    /// per sync, so a later change that is not part of the burst moves again.
-    func takeStructureSnap() -> Bool {
-        defer { snapsStructure = false }
-        return snapsStructure
+    /// The automation-caused structural changes since the view's last sync, per screen: how many
+    /// panes came or went; resets them. The view reads it once per sync (`LayoutRootView`), so a
+    /// later change that is not part of a burst springs again.
+    func takeAutomationSteps() -> [ScreenID: Int] {
+        defer { automationSteps.removeAll(keepingCapacity: true) }
+        return automationSteps
     }
 
-    /// A screen came or went, or one changed its panes, splits, columns or zoom.
-    private static func changesStructure(from old: [LayoutScreen], to new: [LayoutScreen]) -> Bool {
-        guard old.count == new.count else { return true }
-        return zip(old, new).contains { before, after in
-            before.id != after.id || before.zoomed != after.zoomed || !before.layout.hasSameStructure(as: after.layout)
+    /// Counts each screen's structural change by `cause`: an automation change adds the panes that
+    /// came or went (at least 1: a move counts too); anyone else's change ends the screen's burst.
+    /// O(panes) of the screens whose structure changed.
+    private func noteStructure(from old: [LayoutScreen], to new: [LayoutScreen], cause: ObservationCause) {
+        let olds = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for screen in new {
+            guard let before = olds[screen.id],
+                  before.zoomed != screen.zoomed || !before.layout.hasSameStructure(as: screen.layout) else { continue }
+            guard cause == .automation else {
+                automationSteps[screen.id] = nil
+                continue
+            }
+            let steps = Set(before.layout.panes).symmetricDifference(screen.layout.panes).count
+            automationSteps[screen.id, default: 0] += max(steps, 1)
         }
     }
 

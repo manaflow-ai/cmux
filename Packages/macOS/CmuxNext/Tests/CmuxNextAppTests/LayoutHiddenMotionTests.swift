@@ -101,22 +101,23 @@ struct LayoutHiddenMotionTests {
 
     // MARK: Automation bursts (p06-scheduler-038)
 
-    /// One screen of one pane in a window, with the test as the clock and the frame counter.
+    /// One screen of one pane in a window, bursts on (`automationBurstSnap`), with the test as the
+    /// display clock and the burst clock.
     @MainActor
     final class Burst {
-        final class FrameCounter {
-            var value = 0
+        final class Clock {
+            var now: CFTimeInterval = 100
         }
 
-        let frames = FrameCounter()
+        let clock = Clock()
         let provider = Panes()
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("p1")))], activeScreenID: "s",
                                 focusedPane: "p1")
         let root: LayoutRootView
         let window: NSWindow
-        let burst: LayoutAutomationBurst
 
         init() {
+            model.snapsAutomationBursts = true
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
@@ -124,11 +125,11 @@ struct LayoutHiddenMotionTests {
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             root.driver.isManual = true
-            burst = LayoutAutomationBurst(frame: { [frames] in frames.value })
-            model.automationBurst = burst
+            root.burstClock = { [clock] in clock.now }
         }
 
-        /// `panes` panes side by side: p1 split once per pane after it, as the App applies a split.
+        /// `panes` panes side by side (p1 split once per pane after it), applied as the App applies
+        /// a daemon tree: the model, then the view's sync.
         func split(into panes: Int, cause: ObservationCause) {
             var node: SplitNode = .leaf(PaneID("p\(panes)"))
             for index in stride(from: panes - 1, through: 1, by: -1) {
@@ -141,47 +142,83 @@ struct LayoutHiddenMotionTests {
         var screen: ScreenContentView? { root.screenViews["s"] }
     }
 
-    @Test func fiveAutomationSplitsInOneFrameLandWithNoSpring() throws {
+    /// Five automation splits that coalesced into one apply (one drain) start no spring and lay
+    /// out once.
+    @Test func fiveAutomationSplitsInOneFrameStartNoSpringAndLayOutOnce() throws {
         let fixture = Burst()
-        for panes in 2...6 { fixture.split(into: panes, cause: .automation) }
         let screen = try #require(fixture.screen)
-        #expect(screen.hasMotion == false, "the burst's later splits land the first one's spring too")
-        #expect(fixture.burst.snapped == 4)
+        let passes = screen.reconcilePasses
+        fixture.split(into: 6, cause: .automation)
+        #expect(!screen.hasMotion, "a spring started")
+        #expect(screen.reconcilePasses - passes == 1, "\(screen.reconcilePasses - passes) layout passes")
+        #expect(fixture.root.automationBurstSnaps == 1)
         #expect(screen.paneFrames.count == 6)
         #expect(screen.paneFrames.values.allSatisfy { $0.rect == $0.targetRect })
     }
 
-    @Test func aPersonsSplitSpringsInAnAutomationBurst() throws {
+    /// One automation split per frame: the first springs as a person's would, every later one in
+    /// the burst lands at once (with the spring in flight), none restarts a spring.
+    @Test func automationSplitsOnePerFrameSpringOnce() throws {
         let fixture = Burst()
-        for panes in 2...4 { fixture.split(into: panes, cause: .automation) }
-        fixture.split(into: 5, cause: .person)
-        #expect(try #require(fixture.screen).hasMotion)
-        #expect(fixture.burst.snapped == 2)
+        let screen = try #require(fixture.screen)
+        fixture.split(into: 2, cause: .automation)
+        #expect(screen.hasMotion, "the first automation split springs")
+        for panes in 3...6 {
+            fixture.clock.now += 1.0 / 120
+            fixture.split(into: panes, cause: .automation)
+            #expect(!screen.hasMotion, "split \(panes - 1) of the burst started a spring")
+        }
+        #expect(fixture.root.automationBurstSnaps == 4)
+        #expect(screen.paneFrames.values.allSatisfy { $0.rect == $0.targetRect })
     }
 
     @Test func onePersonSplitSprings() throws {
         let fixture = Burst()
         fixture.split(into: 2, cause: .person)
         #expect(try #require(fixture.screen).hasMotion)
-        #expect(fixture.burst.snapped == 0)
+        #expect(fixture.root.automationBurstSnaps == 0)
     }
 
-    @Test func oneAutomationSplitPerFrameSprings() throws {
+    /// A person's split in the middle of an agent's burst springs, and the agent's next split
+    /// starts a new burst.
+    @Test func aPersonsSplitSpringsInAnAutomationBurst() throws {
+        let fixture = Burst()
+        let screen = try #require(fixture.screen)
+        fixture.split(into: 2, cause: .automation)
+        fixture.split(into: 3, cause: .automation)
+        #expect(fixture.root.automationBurstSnaps == 1)
+        fixture.split(into: 4, cause: .person)
+        #expect(screen.hasMotion)
+        #expect(fixture.root.automationBurstSnaps == 1)
+    }
+
+    /// A single automation split after a pause longer than a split's spring springs again.
+    @Test func anAutomationSplitAfterAPauseSprings() throws {
         let fixture = Burst()
         fixture.split(into: 2, cause: .automation)
-        fixture.frames.value += 1
+        fixture.clock.now += 10
         fixture.split(into: 3, cause: .automation)
         #expect(try #require(fixture.screen).hasMotion)
-        #expect(fixture.burst.snapped == 0)
+        #expect(fixture.root.automationBurstSnaps == 0)
     }
 
-    @Test func aRatioChangeDoesNotCountTowardTheBurst() {
+    /// A ratio change is not structural: it neither snaps nor counts toward a burst's panes.
+    @Test func aRatioChangeIsNotPartOfTheBurst() {
         let fixture = Burst()
         fixture.split(into: 2, cause: .automation)
+        fixture.clock.now += 10
         let resized: SplitNode = .split("h1", axis: .horizontal, ratio: 0.3, a: .leaf("p1"), b: .leaf("p2"))
         fixture.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(resized))], cause: .automation)
         fixture.root.syncWithModel()
-        fixture.split(into: 3, cause: .automation)
-        #expect(fixture.burst.snapped == 1, "only the second structural change of the frame lands at once")
+        #expect(fixture.root.automationBurstSnaps == 0)
+    }
+
+    /// With the feature off, an agent's coalesced splits spring as before.
+    @Test func burstsOffSpringAsBefore() throws {
+        let fixture = Burst()
+        fixture.model.snapsAutomationBursts = false
+        fixture.split(into: 6, cause: .automation)
+        #expect(try #require(fixture.screen).hasMotion)
+        #expect(fixture.root.automationBurstSnaps == 0)
     }
 }
