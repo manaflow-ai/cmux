@@ -41,24 +41,24 @@ final class HomeChiefAvatarButton: NSButton {
     }
 
     /// The one picture file a drag carries; nil for none, several, or another type.
-    private func picture(in drag: NSDraggingInfo) -> URL? {
+    private func picture(in drag: any NSDraggingInfo) -> URL? {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true,
                                                              .urlReadingContentsConformToTypes: HomeChiefFiles.pictureTypes.map(\.identifier)]
         let files = drag.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
         return files.count == 1 ? files[0] : nil
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let takes = onDropPicture != nil && picture(in: sender) != nil
         highlight(takes)
         return takes ? .copy : []
     }
 
-    override func draggingExited(_ sender: NSDraggingInfo?) {
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         highlight(false)
     }
 
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         highlight(false)
         guard let onDropPicture, let file = picture(in: sender) else { return false }
         onDropPicture(file)

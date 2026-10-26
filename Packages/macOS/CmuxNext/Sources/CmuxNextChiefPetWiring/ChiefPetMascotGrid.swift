@@ -83,24 +83,24 @@ final class ChiefPetMascotGrid: NSStackView {
     // MARK: Drop
 
     /// The one picture file a drag carries, when it is a type an upload takes.
-    static func file(in drag: NSDraggingInfo) -> URL? {
+    static func file(in drag: any NSDraggingInfo) -> URL? {
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true,
                                                              .urlReadingContentsConformToTypes: ChiefAvatarUploads.types.map(\.identifier)]
         let files = drag.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] ?? []
         return files.count == 1 ? files[0] : nil
     }
 
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         let takes = onDrop != nil && uploadCell.isEnabled && Self.file(in: sender) != nil
         uploadCell.highlight(takes)
         return takes ? .copy : []
     }
 
-    override func draggingExited(_ sender: NSDraggingInfo?) {
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
         uploadCell.highlight(false)
     }
 
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         uploadCell.highlight(false)
         guard let onDrop, uploadCell.isEnabled, let file = Self.file(in: sender) else { return false }
         onDrop(file)
