@@ -8,7 +8,7 @@ public struct ReportAgentRequest: DaemonRequest {
         public var surface: SurfaceID
         public var state: AgentState
     }
-    public static let command = "report-agent"
+    public static let commandName: DaemonCommandName = "report-agent"
     public var surface: SurfaceID
     public var state: AgentState
     /// `hook` or `socket` (the only sources raw report-agent accepts).

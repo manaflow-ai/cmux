@@ -26,7 +26,7 @@ public struct SetTerminalKeepRequest: DaemonRequest {
         case terminal(TerminalID)
     }
 
-    public static let command = "set-terminal-keep"
+    public static let commandName: DaemonCommandName = "set-terminal-keep"
     public static let requiredCapability: String? = DaemonCapability.terminalReap.rawValue
     public var target: Target
     public var keep: Bool

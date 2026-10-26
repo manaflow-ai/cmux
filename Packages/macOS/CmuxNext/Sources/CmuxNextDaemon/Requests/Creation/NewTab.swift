@@ -89,7 +89,7 @@ public struct SpawnOptions: Sendable, Hashable {
 
 public struct NewTabRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-tab"
+    public static let commandName: DaemonCommandName = "new-tab"
     public var pane: PaneID?
     public var options: SpawnOptions
     public init(pane: PaneID?, options: SpawnOptions = SpawnOptions()) {
@@ -106,7 +106,7 @@ public struct NewTabRequest: TerminalSpawningRequest {
 
 public struct NewScreenRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-screen"
+    public static let commandName: DaemonCommandName = "new-screen"
     public var workspace: WorkspaceHandle?
     public var size: CellSize?
     public init(workspace: WorkspaceHandle?, size: CellSize? = nil) {

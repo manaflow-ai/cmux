@@ -188,7 +188,10 @@ public final class LayoutRootView: NSView {
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)
         }
-        highlight.needsFrame = { [weak self] in self?.driver.start() }
+        highlight.needsFrame = { [weak self] in
+            guard let self, self.highlightStepsOnFrames else { return }
+            self.driver.start()
+        }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
@@ -542,7 +545,7 @@ public final class LayoutRootView: NSView {
             if screenFrames[id]?.advance(dt, parameters: screenSpring) == true { moving = true }
         }
         applyScreenFrames()
-        if highlight.step(dt) { moving = true }
+        if highlightStepsOnFrames, highlight.step(dt) { moving = true }
         updateVisibility()
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
         // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.

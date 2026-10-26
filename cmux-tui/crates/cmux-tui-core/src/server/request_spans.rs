@@ -342,3 +342,7 @@ impl io::Write for Fnv1a {
 #[cfg(test)]
 #[path = "request_spans_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "request_spans_swift_names_tests.rs"]
+mod swift_names_tests;
