@@ -135,6 +135,25 @@ struct ChiefPendingRemoveTests {
         #expect(section?.items.first?.showsLabel == !undo, "the Chief does not draw its change's label")
     }
 
+    /// The Chief alone in This Mac's Work group, dragged out: the remove took the emptied group too, so its undo puts
+    /// back both. Before the echo the Chief draws in the group the undo put back, not nowhere.
+    @Test func anUndoThatPutsBackTheChiefsGroupDrawsTheChiefInIt() async throws {
+        let (_, store, end) = try await Self.pending(document: Data(#"""
+        {"revision": "1", "sections": [{"id": "sec_m_s1", "kind": {"type": "machine", "session_id": "s1"}}], "items": []}
+        """#.utf8))
+        defer { end() }
+        try store.sendChecked(ops: [["op": "item.put", "item": ["id": "g_work", "section": "sec_m_s1", "order": "a",
+                                                                 "body": ["type": "group", "name": "Work", "collapsed": false]] as [String: Any]],
+                                    ["op": "item.put", "item": ["id": "itm_chief", "section": "sec_m_s1", "parent": "g_work", "order": "a",
+                                                                 "body": ["type": "builtin", "id": "chief"]] as [String: Any]]],
+                              title: "Undo Remove", undoable: false)
+        try #require(store.placesItem(with: .builtIn(.chief)), "the undo placed no Chief")
+        let listed = store.projection(live: [])?.machines["s1"]?.contains { node in
+            if case let .group(group) = node { group.id == "g_work" && group.listed.contains { $0.item.id == "itm_chief" } } else { false }
+        }
+        #expect(listed == true, "the Chief put back with its group draws nowhere before the echo")
+    }
+
     /// The daemon answered the add, then a reload (a reconnect) holds it before its echo: the load settles it, and the
     /// Chief is the document's again, its label edit offered.
     @Test func aReloadThatHoldsTheAnsweredAddSettlesIt() async throws {
