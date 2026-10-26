@@ -62,6 +62,8 @@ public final class StartupInProgressRef {
         /// The launch's ``StartupPhase`` settled by its references (first snapshot, restore done,
         /// visible page idle).
         case launchPhaseSettled
+        /// Session restore finished with a window (the restore ref; the panes it shows hold their own refs).
+        case restoreFinished
 
         public var description: String { rawValue }
     }

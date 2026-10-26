@@ -34,8 +34,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchSettle: LaunchSettle
     /// The startup phase's settle references (first snapshot, restore, visible page).
     private let startupReferences: StartupReferences
-    /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    /// The launch's order owners, made in `main` (p08-startup-012).
+    private let order: LaunchOrder
+    /// Launch work that starts after the first window frame (perf-launch-memory), posted to `order.startup`.
+    private let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
@@ -69,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, wireStats: DaemonWireStats?,
-         startupTrace: StartupTrace? = nil,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.launchReads = launchReads
@@ -77,24 +79,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.startupTrace = startupTrace
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
-        // One display link per display, shared by the app, window and budgeted frame schedulers.
-        let displays = DisplayClock()
-        FrameScheduler.install(displays: displays)
-        // The launch's phases (p06-scheduler-006/007): background work waits for the reveal, idle
-        // work for the settle. The marks are queued first, so each shows before the held work it opens.
-        let startup = StartupPhase()
-        startup.whenReached(.revealed) { DebugTimings.markLaunch("launch.revealed") }
-        startup.whenReached(.settled) { DebugTimings.markLaunch("launch.settled") }
+        self.order = order
+        firstFrame = FirstFrameGate(startup: order.startup)
+        // The launch's phase (made in main with the main-thread scheduler) reveals at the first frame.
+        let startup = order.mainWork.startup
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         launchReveal = reveal
         launchSettle = LaunchSettle(reveal: reveal)
         startupReferences = StartupReferences(startup: startup, reveal: reveal)
-        let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
-                                         displays: displays, startup: startup)
-        starvation.watch(mainWork.frames, FrameScheduler.app)
-        self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        mainWork = order.mainWork
+        control = AppControl(mainWork: order.mainWork)
         super.init()
     }
 
@@ -144,7 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
+                                   startup: order.startup, launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // The settle references, one closure each, before the daemon starts and the windows restore
@@ -156,8 +150,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let references = startupReferences
         references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
         services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
-        let windows = services.windows
+        let windows = services.windows, restored = order.restoreHold { [daemon = services.daemon] in daemon.startup.isUnavailable }
         windows.onRestored = { [weak references, weak windows] in
+            restored(windows?.controllers.count ?? 0) // the scheduler's restore ref ends before the phase reference it feeds
             references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
         }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -195,7 +190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
-        firstFrame.whenOpen { [weak services] in services?.startNonPaintServices() }
+        firstFrame.whenOpen("AppServices.startNonPaintServices") { [weak services] in services?.startNonPaintServices() }
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -264,7 +259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.updateFeedObservation = UpdateFeedPosting.follow(services)
         // The runtime pack check wires the engine reason at once; its download waits until asked.
         services.startChromiumRuntime()
-        firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
+        firstFrame.whenOpen("AppServices.startLaterTabWarmups") { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -278,8 +273,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
         // A launch whose first window never draws (no window, a daemon that never answers) still
-        // starts the work waiting for that frame.
+        // starts the work waiting for that frame. The registered launch work ends the implicit ref.
         firstFrame.armBackstop(after: .seconds(3))
+        order.startup.finishRegistration()
     }
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done`.

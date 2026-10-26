@@ -67,8 +67,8 @@ final class AppServices {
     /// remote machine's service shares.
     let daemon: DaemonService
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
-    /// local daemon and to the Cloud, SSH and server services for their machines.
-    let mainWork: MainWorkScheduler
+    /// local daemon and to the Cloud, SSH and server services for their machines; `startup`, the launch's order owner on it.
+    let mainWork: MainWorkScheduler, startup: StartupScheduler
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -453,13 +453,13 @@ final class AppServices {
     ///   (`AppDelegate` passes the one its startup phase reveals on); tests get one of their own.
     /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); by default
     ///   one watched by `hangWatch`, unless a test passes its own.
-    /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
-    ///   socket uses); tests get one of their own, with no pending-input check.
+    /// - Parameter mainWork: The app's main-thread scheduler and `startup` the launch's on it (both `main`'s `LaunchOrder`);
+    ///   tests get their own: no pending-input check, and a nil `startup` makes one on `mainWork` and `work`.
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+         work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), startup: StartupScheduler? = nil,
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
@@ -473,7 +473,7 @@ final class AppServices {
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
-        self.mainWork = mainWork
+        (self.mainWork, self.startup) = (mainWork, startup ?? StartupScheduler(mainWork: mainWork, background: work, clock: ContinuousClock()))
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
                                              discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
