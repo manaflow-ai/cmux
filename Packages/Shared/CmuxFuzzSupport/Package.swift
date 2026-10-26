@@ -15,6 +15,7 @@ import PackageDescription
 // lander (scripts/cmux-next/apply-stability-settings.py) owns this literal.
 let stabilitySwiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
+    .treatWarning("StrictMemorySafety", as: .error),
 ]
 
 let package = Package(

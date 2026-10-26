@@ -11,6 +11,7 @@ import PackageDescription
 /// The p10 compile-time safety settings (scripts/cmux-next/stability-settings.json fills this list).
 let stabilitySwiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
+    .treatWarning("StrictMemorySafety", as: .error),
 ]
 
 let packageSwiftSettings: [SwiftSetting] = [

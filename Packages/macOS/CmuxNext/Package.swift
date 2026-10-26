@@ -182,6 +182,7 @@ import Foundation
 /// target without it.
 let stabilitySwiftSettings: [SwiftSetting] = [
     .strictMemorySafety(),
+    .treatWarning("StrictMemorySafety", as: .error),
 ]
 
 /// Release-only profile-guided optimization of the CmuxNext Swift targets (plans/cmux-next/chrome-parity/p08-startup.md,

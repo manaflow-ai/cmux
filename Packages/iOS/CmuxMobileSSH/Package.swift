@@ -64,6 +64,7 @@ let stabilitySettingGroups: [(targets: [String], settings: [SwiftSetting])] = [
         ],
         settings: [
             .strictMemorySafety(),
+            .treatWarning("StrictMemorySafety", as: .error),
         ]
     ),
 ]
