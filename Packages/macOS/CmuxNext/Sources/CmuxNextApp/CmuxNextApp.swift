@@ -41,12 +41,23 @@ public struct CmuxNextApp {
         // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
         CloudAuth.captureLaunchEnvironment()
         // This process's only environment writes, then the freeze: a write
-        // after it stops a debug build (ProcessEnvironmentGuard).
-        Self.prepareLaunchEnvironment()
+        // after it stops a debug build (ProcessEnvironmentGuard). Its Ghostty
+        // resources lookup is main's one disk probe; the launch reuses it.
+        let ghosttyResources = Self.prepareLaunchEnvironment()
+        DebugTimings.markLaunch("main.environment_frozen")
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
-        var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
+        // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
+        let hangWatch = TraceRuntime.shared.hangWatch
+        // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
+        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
+        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
+        startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
+        startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
+        // Shells get the launch limit back. Path lookups only: the stores at these paths read and create on first use.
+        var environment = AppEnvironment.current(openFiles: openFiles, ghosttyResources: ghosttyResources)
         environment.marksRun = true
         // Key flows start and stop at run time; CMUX_NEXT_TRACE_FLOWS only starts them at launch.
         TypingLatencyProbe.shared.startFlows(launchEnvironment: ProcessInfo.processInfo.environment)
@@ -54,20 +65,11 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
-        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
-        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        DebugTimings.markLaunch("main.app_environment")
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
-        // from here, while AppKit starts, so each pane's first frame can use them without waiting.
-        // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
-        let hangWatch = TraceRuntime.shared.hangWatch
+        // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
+        // rests and its unsent chips are kept beside them too (AgentPaneChatStores, made with the agent tabs).
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
-        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
-        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
-        startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
-        startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, first:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).
         let settingsRead = SettingsController.startLaunchRead(on: work)
@@ -75,6 +77,9 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // The bundled Ghostty CLI helper (an executable check), after the reads a first frame shows: a shell's env awaits it.
+        environment.ghosttyBinary = LaunchRead(on: work) { GhosttyRuntime.cliHelperPath() }
+        DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
         // video wallpapers list the windows above theirs on its system lane, never on main.
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
@@ -91,7 +96,7 @@ public struct CmuxNextApp {
         CrashOnExceptions.register()
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
-        (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        (app as? CmuxApplication)?.refusesActivation = environment.noActivate // CMUX_NEXT_NO_ACTIVATE=1, read once above
         // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
         // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
         let inputTap = InputEventTap()
@@ -103,6 +108,7 @@ public struct CmuxNextApp {
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
+        DebugTimings.markLaunch("main.delegate")
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
         // The one input tap hears every event from the first (pending input, control, services).

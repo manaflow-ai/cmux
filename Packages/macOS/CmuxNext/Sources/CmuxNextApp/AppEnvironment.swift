@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextTerminal
 import Foundation
@@ -33,15 +34,20 @@ struct AppEnvironment: Sendable {
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
     let terminalEnvironment: [String: String]
-    /// Ghostty resources directory and bundled CLI helper for shell
-    /// integration (`GhosttyShellIntegration`). Resolved once per launch.
-    var ghosttyResources: String?
-    var ghosttyBinary: String?
+    /// Ghostty resources directory for shell integration (`GhosttyShellIntegration`):
+    /// the one `CmuxNextApp.prepareLaunchEnvironment` resolved before the freeze.
+    let ghosttyResources: String?
+    /// The bundled Ghostty CLI helper (`GhosttyRuntime.cliHelperPath`), looked up on a
+    /// launch lane (`LaunchRead`) and awaited by each shell's env, never on the main
+    /// thread. Only the real app process sets it; nil gives shells no helper (tests
+    /// that build `AppServices`).
+    var ghosttyBinary: LaunchRead<String?>?
     /// Whether this app resolves Ghostty's shell integration for its local
     /// terminals (the daemon connection then echoes
     /// `terminal-frontend-shell-integration-v1`). Only when the resources
     /// hold the integration scripts; otherwise the daemon keeps its own.
-    var resolvesShellIntegration: Bool { Self.resolvesShellIntegration(resources: ghosttyResources) }
+    /// Checked once per launch (the daemon prestart needs it in `main`).
+    let resolvesShellIntegration: Bool
 
     nonisolated static func resolvesShellIntegration(resources: String?) -> Bool {
         guard let resources, !resources.isEmpty else { return false }
@@ -91,7 +97,14 @@ struct AppEnvironment: Sendable {
         #endif
     }
 
+    /// This launch's environment, its Ghostty resources looked up now (tests that build `AppServices`).
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
+        current(environment, openFiles: openFiles, ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment))
+    }
+
+    /// This launch's environment on the Ghostty resources `main` already resolved, so they are not looked up again.
+    static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil,
+                        ghosttyResources: String?) -> AppEnvironment {
         let isolation = LaunchIsolation(environment: environment)
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
@@ -105,9 +118,10 @@ struct AppEnvironment: Sendable {
             isolatedLaunch: isolation.isolated,
             showcase: showcase,
             testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
-            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
-            ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
-            ghosttyBinary: GhosttyRuntime.cliHelperPath(),
+            terminalEnvironment: terminalEnvironment(launch: launch, environment: environment, ghosttyResources: ghosttyResources)
+                .merging(openFiles?.childEnvironment ?? [:]) { $1 },
+            ghosttyResources: ghosttyResources,
+            resolvesShellIntegration: Self.resolvesShellIntegration(resources: ghosttyResources),
             oracleRoot: environment["CMUX_NEXT_ORACLE_ROOT"],
             launchHome: environment["HOME"]
         )
@@ -120,9 +134,10 @@ struct AppEnvironment: Sendable {
     /// the next terminal.
     func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
-        let binary = ghosttyBinary
+        let binaryRead = ghosttyBinary
         return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
-            await MainActor.run {
+            let binary: String? = await binaryRead?.finished() ?? nil
+            return await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
         }, cli: Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration))
@@ -150,11 +165,8 @@ struct AppEnvironment: Sendable {
         )
     }
 
-    static func terminalEnvironment(launch: LaunchIdentity, environment: [String: String]) -> [String: String] {
-        let ghostty = TerminalEnvironment.instance.ghostty(
-            resourcesDirectory: GhosttyRuntime.resourcesDirectory(environment: environment),
-            version: GhosttyRuntime.version
-        )
+    static func terminalEnvironment(launch: LaunchIdentity, environment: [String: String], ghosttyResources: String?) -> [String: String] {
+        let ghostty = TerminalEnvironment.instance.ghostty(resourcesDirectory: ghosttyResources, version: GhosttyRuntime.version)
         var terminal = ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
         // `cmux chief` in this app's terminals opens this app's Chief: its
         // isolation markers are the app's own environment, which terminals

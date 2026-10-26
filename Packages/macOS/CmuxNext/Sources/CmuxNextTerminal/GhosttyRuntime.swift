@@ -375,12 +375,18 @@ public final class GhosttyRuntime {
     /// thread starts and the environment freeze; `init` calls it only when
     /// nothing froze the environment (tests). libghostty keeps a slice of
     /// `environ` from `ghostty_init`, so no write may follow it.
-    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) {
+    ///
+    /// - Returns: The resources directory it resolved (``resourcesDirectory(bundle:environment:)``),
+    ///   so the launch reuses this one lookup instead of probing the disk again.
+    @discardableResult
+    public nonisolated static func prepareProcessEnvironment(environmentGuard: ProcessEnvironmentGuard = .process) -> String? {
+        let resources = resourcesDirectory()
         environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
-            guard let resources = resourcesDirectory() else { return }
+            guard let resources else { return }
             if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
             setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
+        return resources
     }
 
     /// The Ghostty resources directory (themes, shell integration; terminfo
