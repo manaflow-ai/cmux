@@ -66,8 +66,9 @@ export function cardBuild(data: UpdateHighlights, builds: IndexEntry[] | undefin
   // Newer by version, as the updater picks the newest item: a rerun that republished an older
   // build moves it up the index without making it newer. A pulled build is offered to no Mac.
   const pulled = new Set(data.pulled ?? []);
-  const newer = builds.filter((b) => !pulled.has(b.build) && compareVersions(b.shortVersion, listed.shortVersion) > 0)
-    .length;
+  const newer = builds.filter(
+    (b) => !pulled.has(b.build) && compareVersions(b.shortVersion, listed.shortVersion) > 0,
+  ).length;
   const where =
     newer === 0
       ? strings.t("updates.card.newest")
