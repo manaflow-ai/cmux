@@ -82,6 +82,11 @@ fn home(name: &str) -> PathBuf {
             // Claude Code pinned to bypassPermissions, whose start takes 1.5 s to answer.
             "claude-pinned-slow": {"argv": ["python3", FAKE_CLAUDE, "--permission-mode=bypassPermissions"],
                                    "kind": "claude-stdio", "env": {"FAKE_CLAUDE_INIT_DELAY_MS": "1500"}},
+            // A profile a config reload pins to full access after its chat started (review 36).
+            "swapper": {"argv": ["python3", FAKE_AGENT]},
+            // Pinned to full access, and ignores SIGTERM: ending it takes the whole grace.
+            "pinned-stubborn": {"argv": ["python3", FAKE_AGENT, "--yolo"],
+                                "env": {"FAKE_IGNORE_TERM": "1"}},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -237,6 +242,19 @@ impl Client {
     async fn prompt(&mut self, id: &str, text: &str) -> Value {
         let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
         self.call("session/prompt", prompt).await
+    }
+
+    /// `_acpmux/reload_config` over the app's socket connection.
+    async fn reload(&mut self) {
+        let socket = self.3.as_mut().expect("the app's socket connection");
+        let r = Box::pin(socket.call("_acpmux/reload_config", json!({}))).await;
+        assert!(r.get("error").is_none(), "{r}");
+    }
+
+    /// Whether `chat`'s log says its full-access agent ended.
+    async fn ended(&mut self, chat: &str) -> bool {
+        let r = self.call("_acpmux/events", json!({"sessionId": chat, "limit": 500})).await;
+        r.to_string().contains("full_access_ended")
     }
 
     async fn switch(&mut self, id: &str, mode: &str) -> Value {
@@ -452,6 +470,58 @@ const RUNNING: &[Case] = &[
             .await;
         })
     }),
+    ("review 36: an agent a config reload respawned with a pinned argv ends at the push", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            let chat = app.ran_on(&dir, "swapper").await;
+            // The agent exits between turns; the profile now pins full access.
+            app.prompt(&chat, "answer-then-exit").await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            let config = dir.join("config.json");
+            let mut cfg: Value = serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+            cfg["harnesses"]["swapper"]["argv"] = json!(["python3", FAKE_AGENT, "--yolo"]);
+            std::fs::write(&config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+            app.reload().await;
+            // With MDM unset the respawn runs the pinned argv.
+            let r = app.prompt(&chat, "argv").await;
+            assert!(r.get("error").is_none(), "{r}");
+            app.push(off()).await;
+            assert!(app.ended(&chat).await, "the respawned pinned agent ran on after the push");
+            let r = app.prompt(&chat, "argv").await;
+            assert_eq!(r["error"]["data"]["reason"], "full_access_off", "it took more work: {r}");
+        })
+    }),
+    (
+        "review 36: an off push ends every full-access agent, also when an unset push follows",
+        |name| {
+            Box::pin(async move {
+                let (dir, daemon, mut app) = daemon(name, true).await;
+                let first = app.ran_on(&dir, "pinned-stubborn").await;
+                let second = app.ran_on(&dir, "pinned-stubborn").await;
+                let settings = |keys: Value| {
+                    let mut params = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": []});
+                    for (k, v) in keys.as_object().unwrap() {
+                        params[k] = v.clone();
+                    }
+                    params
+                };
+                // The off push ends one agent, which takes its whole grace (it ignores SIGTERM); an
+                // unset push lands meanwhile.
+                let mut offs = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+                let off_push = tokio::spawn(async move {
+                    Box::pin(offs.call("_acpmux/chat_settings", settings(off()))).await
+                });
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let mut unsets = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+                let r = unsets.call("_acpmux/chat_settings", settings(json!({}))).await;
+                assert_eq!(r["result"]["applied"], true, "{r}");
+                let r = off_push.await.unwrap();
+                assert_eq!(r["result"]["applied"], true, "{r}");
+                assert!(app.ended(&first).await, "the first agent ran on after the off push");
+                assert!(app.ended(&second).await, "the second agent ran on after the off push");
+            })
+        },
+    ),
 ];
 
 #[tokio::test]
