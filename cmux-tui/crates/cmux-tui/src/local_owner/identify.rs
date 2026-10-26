@@ -10,24 +10,6 @@ use serde_json::Value;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 
-#[cfg(test)]
-mod tests {
-    use super::is_refusal;
-
-    #[test]
-    fn connection_limit_refusal_requires_the_cmux_protocol() {
-        assert!(is_refusal(
-            br#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}"#
-        ));
-        for other_service in [
-            br#"{"type":"refused","code":"server.busy"}"#.as_slice(),
-            br#"{"protocol":"another.protocol/2","type":"refused","code":"server.busy"}"#,
-        ] {
-            assert!(!is_refusal(other_service), "an unrelated service must not be replaced");
-        }
-    }
-}
-
 pub(super) enum IdentifyError {
     Timeout,
     /// The owner refused the connection at its connection limit.
@@ -144,5 +126,23 @@ pub(super) fn identify(
             return Ok(response.get("data").cloned().unwrap_or(Value::Null));
         }
         return Err(IdentifyError::Failed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_refusal;
+
+    #[test]
+    fn connection_limit_refusal_requires_the_cmux_protocol() {
+        assert!(is_refusal(
+            br#"{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}"#
+        ));
+        for other_service in [
+            br#"{"type":"refused","code":"server.busy"}"#.as_slice(),
+            br#"{"protocol":"another.protocol/2","type":"refused","code":"server.busy"}"#,
+        ] {
+            assert!(!is_refusal(other_service), "an unrelated service must not be replaced");
+        }
     }
 }
