@@ -351,10 +351,14 @@ final class BlockingViolationTable: Sendable {
     }
 
     #if DEBUG
-    /// The BackgroundWork lane a `.cpu` item whose seam waits on `seamKind` belongs on: disk I/O on `.files`, any
-    /// other wait (a socket, a process, a system framework, a sleep) on `.system`.
+    /// The BackgroundWork lane a `.cpu` item whose seam waits on `seamKind` belongs on: disk I/O (file data,
+    /// file metadata, SQLite) on `.files`, any other wait (a socket, a process, a system framework, a sleep) on
+    /// `.system`.
     private static func mayBlockLane(for seamKind: BlockingKind) -> String {
-        seamKind == .fileIO ? ".files" : ".system"
+        switch seamKind {
+        case .fileIO, .fsMetadata, .sqlite: ".files"
+        default: ".system"
+        }
     }
     #endif
 
