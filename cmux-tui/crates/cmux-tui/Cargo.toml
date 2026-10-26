@@ -68,6 +68,8 @@ cmux-tui-core.workspace = true
 cmux-process.workspace = true
 # `cmux settings list|schema|validate`: the settings schema and owner state.
 cmux-config.workspace = true
+# The daemon's feature snapshot (feature_flags::daemon_features).
+cmux-features.workspace = true
 # `cmux agent hooks` and the hook paths the Claude wrapper reads.
 cmux-tui-hooks.workspace = true
 cmux-tui-cdp.workspace = true

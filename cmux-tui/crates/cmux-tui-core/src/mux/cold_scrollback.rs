@@ -16,22 +16,35 @@
 //!   already; reading them would bring them back. A due terminal waits one
 //!   more period instead.
 //! - One deadline per mux: the thread sleeps until the earliest unviewed
-//!   terminal is due. With none it blocks until a view detaches or a cold
-//!   terminal is restored, so an idle daemon wakes for nothing.
-//! - Off by default (daemon feature [`FEATURE`]), and kept off until
+//!   terminal is due. With none it blocks, so an idle daemon wakes for
+//!   nothing, until one of the events that can make a terminal due again:
+//!   a terminal enters the catalog (created, restored or adopted), a view
+//!   detaches, a cold terminal is restored, the persistence mode changes, or
+//!   a terminal the codec refused prints.
+//! - Off by default (daemon feature `coldScrollbackCompression`, read from
+//!   the daemon's [`cmux_features::Snapshot`], so the signed `flags.json`
+//!   `DisabledFeatures` list turns it off), and kept off until
 //!   p07-memory-112 measures a gain of 2x or more over the macOS kernel
 //!   compressor (plans/cmux-next/cold-scrollback-DESIGN.md). Chrome on macOS
 //!   leaves idle pages to the kernel compressor.
 
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 
 use cmux_threads::ThreadQos;
 
 use super::*;
 use crate::surface::{ColdFreeze, ThawWake};
 
-/// The registry name of the feature (schemas/features/features.d).
-pub(crate) const FEATURE: &str = "coldScrollbackCompression";
+/// Wakes the cold-scrollback worker; a send never blocks.
+#[derive(Clone)]
+pub(crate) struct ColdScrollbackWake(Sender<()>);
+
+impl ColdScrollbackWake {
+    pub(crate) fn wake(&self) {
+        // The worker is gone only with its mux.
+        let _ = self.0.send(());
+    }
+}
 
 /// How long a terminal stays unviewed and quiet before it is compressed.
 /// `DaemonBudget::cold_scrollback_after` (p07-memory-089) replaces it.
@@ -141,7 +154,9 @@ impl ColdTracker {
         match outcome {
             ColdFreeze::Frozen { .. } | ColdFreeze::AlreadyCold => entry.cold = true,
             ColdFreeze::Busy | ColdFreeze::Viewed => entry.since = now,
-            ColdFreeze::Refused(_) => entry.refused_at = Some(last_output),
+            ColdFreeze::Refused(_) | ColdFreeze::InactiveScreenScrolled => {
+                entry.refused_at = Some(last_output);
+            }
         }
     }
 
@@ -189,32 +204,64 @@ fn idle_since(since: Instant, candidate: &ColdCandidate<'_>) -> Instant {
 struct Observed {
     terminal_id: TerminalPublicId,
     surface: Arc<Surface>,
+    /// The placements that show it (their scroll anchors cross a restore).
+    views: Vec<Arc<Surface>>,
     viewed: bool,
     attach_epoch: u64,
     last_output: Option<Instant>,
 }
 
 impl Mux {
-    /// Start this owner's cold-scrollback worker when the feature is on.
-    pub(super) fn start_cold_scrollback(self: &Arc<Self>) -> std::io::Result<()> {
-        if !feature_enabled(
-            std::env::var(cmux_features::ENABLE_ENV).ok().as_deref(),
-            std::env::var(cmux_features::DISABLE_ENV).ok().as_deref(),
-        ) {
+    /// Start this owner's cold-scrollback worker when `features` turns
+    /// `coldScrollbackCompression` on. Call it once the mux is built: a
+    /// terminal that enters the catalog later (an adoption that finishes on
+    /// its own thread, a create) wakes the worker.
+    pub fn start_cold_scrollback(
+        self: &Arc<Self>,
+        features: &cmux_features::Snapshot,
+    ) -> std::io::Result<()> {
+        if !features.is_enabled(cmux_features::feature::COLD_SCROLLBACK_COMPRESSION) {
             return Ok(());
         }
-        let (wake, wakes) = mpsc::channel::<()>();
-        if self.cold_scrollback_wake.set(wake.clone()).is_err() {
-            return Ok(());
-        }
-        self.control_clients.add_detach_waker(move || {
-            let _ = wake.send(());
-        });
+        self.start_cold_scrollback_with(ColdPolicy::daemon())
+    }
+
+    pub(crate) fn start_cold_scrollback_with(
+        self: &Arc<Self>,
+        policy: ColdPolicy,
+    ) -> std::io::Result<()> {
+        let Some(wakes) = self.install_cold_scrollback_wake() else { return Ok(()) };
         let mux = Arc::downgrade(self);
         cmux_threads::spawn("mux-cold-scrollback", ThreadQos::Utility, move || {
-            run_cold_scrollback(&mux, &wakes);
+            run_cold_scrollback(&mux, &wakes, policy);
         })?;
         Ok(())
+    }
+
+    /// Route every event that can make a terminal due to one channel; `None`
+    /// when this mux has one already. The catalog hook is set under the state
+    /// lock, so a terminal is either in the catalog the first pass reads or
+    /// its insert wakes the worker.
+    pub(crate) fn install_cold_scrollback_wake(self: &Arc<Self>) -> Option<Receiver<()>> {
+        let (sender, wakes) = mpsc::channel::<()>();
+        let wake = ColdScrollbackWake(sender);
+        self.cold_scrollback_wake.set(wake.clone()).ok()?;
+        // Every clone of the state shares this cell, so it is set once.
+        let _ = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .catalog_insert_wake
+            .set(wake.clone());
+        self.control_clients.add_detach_waker(move || wake.wake());
+        Some(wakes)
+    }
+
+    /// Wake the worker, when there is one.
+    pub(crate) fn wake_cold_scrollback(&self) {
+        if let Some(wake) = self.cold_scrollback_wake.get() {
+            wake.wake();
+        }
     }
 
     /// One pass at `now`: compress every due terminal, and return when the
@@ -247,8 +294,24 @@ impl Mux {
                 for terminal in
                     observed.iter().filter(|terminal| due.contains(&terminal.terminal_id))
                 {
-                    if let Some(outcome) = terminal.surface.freeze_cold_terminal(&thawed) {
-                        tracker.settle(&terminal.terminal_id, outcome, now, terminal.last_output);
+                    let Some(outcome) =
+                        terminal.surface.freeze_cold_terminal(&terminal.views, &thawed)
+                    else {
+                        continue;
+                    };
+                    tracker.settle(&terminal.terminal_id, outcome, now, terminal.last_output);
+                    let refused = matches!(
+                        outcome,
+                        ColdFreeze::Refused(_) | ColdFreeze::InactiveScreenScrolled
+                    );
+                    // A refused terminal is asked again after it prints; if
+                    // it printed since this pass read it, ask now.
+                    if refused
+                        && self
+                            .output_store
+                            .wake_on_next_output(&terminal.terminal_id, terminal.last_output)
+                    {
+                        self.wake_cold_scrollback();
                     }
                 }
             } else {
@@ -258,27 +321,34 @@ impl Mux {
         tracker.next_deadline(policy.after, &candidates)
     }
 
-    /// Every catalog terminal with its views' attach state and last output.
+    /// Every catalog terminal with its views, their attach state and its last
+    /// output.
     fn cold_scrollback_terminals(&self) -> Vec<Observed> {
-        let terminals: Vec<(TerminalPublicId, Arc<Surface>, Vec<SurfaceId>)> = {
+        type Collected = (TerminalPublicId, Arc<Surface>, Vec<SurfaceId>, Vec<Arc<Surface>>);
+        let terminals: Vec<Collected> = {
             let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             state
                 .terminal_catalog
                 .iter()
                 .map(|(terminal_id, surface)| {
                     let content = ContentPublicId::Terminal(terminal_id.clone());
-                    let mut views = state.placements_of_content(&content).to_vec();
-                    views.push(surface.id);
-                    (terminal_id.clone(), surface.clone(), views)
+                    let placements = state.placements_of_content(&content);
+                    let views: Vec<Arc<Surface>> = placements
+                        .iter()
+                        .filter_map(|id| state.surfaces.get(id).cloned())
+                        .collect();
+                    let mut view_ids = placements.to_vec();
+                    view_ids.push(surface.id);
+                    (terminal_id.clone(), surface.clone(), view_ids, views)
                 })
                 .collect()
         };
         terminals
             .into_iter()
-            .map(|(terminal_id, surface, views)| {
-                let (viewed, attach_epoch) = self.control_clients.attach_observation(&views);
+            .map(|(terminal_id, surface, view_ids, views)| {
+                let (viewed, attach_epoch) = self.control_clients.attach_observation(&view_ids);
                 let last_output = self.output_store.last_output(&terminal_id);
-                Observed { terminal_id, surface, viewed, attach_epoch, last_output }
+                Observed { terminal_id, surface, views, viewed, attach_epoch, last_output }
             })
             .collect()
     }
@@ -288,9 +358,7 @@ impl Mux {
         match self.cold_scrollback_wake.get() {
             Some(wake) => {
                 let wake = wake.clone();
-                Arc::new(move || {
-                    let _ = wake.send(());
-                })
+                Arc::new(move || wake.wake())
             }
             None => Arc::new(|| {}),
         }
@@ -299,12 +367,12 @@ impl Mux {
 
 /// The worker: a pass, then sleep until the next deadline or a wake. It ends
 /// when the mux is gone (every sender lives in the mux).
-fn run_cold_scrollback(mux: &Weak<Mux>, wakes: &Receiver<()>) {
+fn run_cold_scrollback(mux: &Weak<Mux>, wakes: &Receiver<()>, policy: ColdPolicy) {
     let mut tracker = ColdTracker::default();
     loop {
         let Some(owner) = mux.upgrade() else { break };
         let now = Instant::now();
-        let next = owner.cold_scrollback_pass(&mut tracker, now, ColdPolicy::daemon());
+        let next = owner.cold_scrollback_pass(&mut tracker, now, policy);
         drop(owner);
         let woke = match next {
             None => wakes.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -317,14 +385,6 @@ fn run_cold_scrollback(mux: &Weak<Mux>, wakes: &Receiver<()>) {
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
-}
-
-/// Whether `CMUX_ENABLE_FEATURES` names the feature and
-/// `CMUX_DISABLE_FEATURES` does not (the registry default is off).
-fn feature_enabled(enable: Option<&str>, disable: Option<&str>) -> bool {
-    let names =
-        |list: Option<&str>| list.is_some_and(|list| list.split(',').any(|n| n.trim() == FEATURE));
-    names(enable) && !names(disable)
 }
 
 /// The kernel's level now: `kern.memorystatus_vm_pressure_level` on macOS

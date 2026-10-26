@@ -1,6 +1,8 @@
 //! The cold-scrollback policy (p07-memory-041): when a terminal is due, the
 //! one deadline, and what keeps a terminal hot.
 
+use std::sync::atomic::AtomicUsize;
+
 use super::*;
 
 const HOUR: Duration = Duration::from_secs(60 * 60);
@@ -173,11 +175,121 @@ fn cold_scrollback_pass_compresses_nothing_under_memory_pressure() {
 }
 
 #[test]
-fn cold_scrollback_feature_is_off_unless_enabled_and_disable_wins() {
-    assert!(!feature_enabled(None, None));
-    assert!(!feature_enabled(Some("daemonRequestQos"), None));
-    assert!(feature_enabled(Some("daemonRequestQos, coldScrollbackCompression"), None));
-    assert!(!feature_enabled(Some(FEATURE), Some(FEATURE)));
+fn cold_scrollback_feature_snapshot_starts_the_worker_and_the_kill_switch_stops_it() {
+    use cmux_features::{Channel, Snapshot};
+    const NAME: &str = "coldScrollbackCompression";
+    let started = |features: Snapshot| {
+        let mux = Mux::new_for_test("cold-scrollback-feature", SurfaceOptions::default());
+        mux.start_cold_scrollback(&features).unwrap();
+        mux.cold_scrollback_wake.get().is_some()
+    };
+    for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
+        assert!(!started(Snapshot::defaults(channel)), "off by default on {channel:?}");
+    }
+    assert!(started(Snapshot::from_env(Channel::Release, Some(NAME), None)));
+    assert!(!started(Snapshot::from_env(Channel::Release, Some(NAME), Some(NAME))));
+    // flags.json `DisabledFeatures` wins over the person's enable list.
+    assert!(!started(Snapshot::from_env(Channel::Release, Some(NAME), None).with_disabled([NAME])));
+}
+
+#[test]
+fn cold_scrollback_terminal_created_after_an_empty_pass_wakes_the_worker() {
+    let mux = Mux::new_for_test("cold-scrollback-catalog-wake", SurfaceOptions::default());
+    let wakes = mux.install_cold_scrollback_wake().unwrap();
+    let policy = ColdPolicy { after: HOUR, pressure: normal };
+    let mut tracker = ColdTracker::default();
+    let start = Instant::now();
+    assert_eq!(mux.cold_scrollback_pass(&mut tracker, start, policy), None, "nothing to track");
+    assert!(wakes.try_recv().is_err());
+
+    let _surface = mux.new_workspace(None, None).unwrap();
+    assert!(wakes.try_recv().is_ok(), "a terminal entering the catalog wakes the worker");
+    while wakes.try_recv().is_ok() {}
+    let woke_at = start + Duration::from_secs(1);
+    assert_eq!(mux.cold_scrollback_pass(&mut tracker, woke_at, policy), Some(woke_at + HOUR));
+}
+
+#[cfg(unix)]
+#[test]
+fn cold_scrollback_worker_compresses_a_terminal_created_while_it_blocks() {
+    let quiet = SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..Default::default() };
+    let mux = Mux::new_for_test("cold-scrollback-worker", quiet);
+    let after = Duration::from_millis(50);
+    mux.start_cold_scrollback_with(ColdPolicy { after, pressure: normal }).unwrap();
+    // The worker's first pass finds no terminal and blocks with no deadline.
+    let surface = mux.new_workspace(None, None).unwrap();
+
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !surface.terminal_is_cold() {
+        assert!(Instant::now() < deadline, "the worker never compressed the new terminal");
+        std::thread::sleep(after);
+    }
+}
+
+#[test]
+fn cold_scrollback_refused_terminal_reports_its_next_output() {
+    let mux = Mux::new_for_test("cold-scrollback-refusal", SurfaceOptions::default());
+    let store = &mux.output_store;
+    let terminal = id(7);
+    let generation: Arc<str> = Arc::from("g1");
+    assert!(store.append(&terminal, &generation, b"first"), "a new log reports its first output");
+    assert!(!store.append(&terminal, &generation, b"second"));
+
+    let seen = store.last_output(&terminal);
+    assert!(!store.wake_on_next_output(&terminal, seen), "armed");
+    assert!(store.append(&terminal, &generation, b"after the refusal"));
+    assert!(!store.append(&terminal, &generation, b"once"));
+
+    assert!(store.wake_on_next_output(&terminal, seen), "it printed since the pass read it");
+}
+
+#[test]
+fn cold_scrollback_pass_keeps_a_placement_scrolled_back_across_a_restore() {
+    let mux = Mux::new_for_test("cold-scrollback-view", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    surface.with_terminal(|term| {
+        for line in 0..1_000 {
+            term.vt_write(format!("line {line}\r\n").as_bytes());
+        }
+    });
+    let scrolled = surface.view_scroll_delta(-100).unwrap().unwrap();
+    let policy = ColdPolicy { after: HOUR, pressure: normal };
+    let mut tracker = ColdTracker::default();
+    let start = Instant::now();
+    mux.cold_scrollback_pass(&mut tracker, start, policy);
+    mux.cold_scrollback_pass(&mut tracker, start + HOUR, policy);
+    assert!(surface.terminal_is_cold());
+
+    assert_eq!(surface.view_scrollbar(), Some(scrolled), "the view jumped after a restore");
+}
+
+#[cfg(unix)]
+#[test]
+fn cold_scrollback_checkpoint_leaves_cold_terminals_cold() {
+    let root = std::env::temp_dir().join(format!(
+        "cmux-cold-scrollback-checkpoint-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let quiet = SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..Default::default() };
+    let mux = Mux::open_persistent("cold-scrollback-checkpoint", quiet, &root).unwrap();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().unwrap().clone();
+    mux.output_store.append(&terminal, &Arc::from("g1"), b"printed before the freeze\r\n");
+    let thaws = Arc::new(AtomicUsize::new(0));
+    let counter = thaws.clone();
+    let wake: ThawWake = Arc::new(move || _ = counter.fetch_add(1, Ordering::Relaxed));
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
+
+    mux.output_store.write_now(&mux);
+    mux.create_journal_checkpoint("client_test", "cold_scrollback_checkpoint").unwrap();
+    assert!(surface.terminal_is_cold(), "a checkpoint restored a cold terminal");
+    assert_eq!(thaws.load(Ordering::Relaxed), 0);
+
+    drop(surface);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

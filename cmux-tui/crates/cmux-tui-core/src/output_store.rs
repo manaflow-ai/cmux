@@ -204,6 +204,9 @@ struct LogState {
     /// Content digest at the last stored segment frame.
     segment_digest: Option<u64>,
     last_output: Instant,
+    /// The cold-scrollback worker waits for this terminal's next output:
+    /// it refused to compress it, or (a new log) it has not seen it print.
+    wake_on_output: bool,
     /// Full mode: bytes not yet in a segment file, from `pending_start`.
     pending: Vec<u8>,
     pending_start: u64,
@@ -329,6 +332,7 @@ impl OutputStore {
                 snapshot_at: None,
                 segment_digest: None,
                 last_output: Instant::now(),
+                wake_on_output: true,
                 pending: Vec::new(),
                 pending_start: start,
             }),
@@ -338,15 +342,16 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path.
+    /// IO and no syscall on this path. True when the cold-scrollback worker
+    /// asked to hear about this output ([`Self::wake_on_next_output`]).
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &Arc<str>,
         bytes: &[u8],
-    ) {
+    ) -> bool {
         if bytes.is_empty() {
-            return;
+            return false;
         }
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -366,6 +371,7 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
+        let wake_cold = std::mem::take(&mut state.wake_on_output);
         if self.full.enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
@@ -375,7 +381,7 @@ impl OutputStore {
                 state.dirty = true;
                 drop(state);
                 self.writer.mark_dirty(Duration::ZERO);
-                return;
+                return wake_cold;
             }
         }
         if !state.dirty {
@@ -383,6 +389,28 @@ impl OutputStore {
             drop(state);
             self.mark_dirty();
         }
+        wake_cold
+    }
+
+    /// Ask [`Self::append`] to report the terminal's next output. False and
+    /// armed when it last printed at `seen`; true when it printed since (the
+    /// caller acts now). A terminal with no log yet reports its first output.
+    pub(crate) fn wake_on_next_output(
+        &self,
+        terminal_id: &TerminalPublicId,
+        seen: Option<Instant>,
+    ) -> bool {
+        let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        else {
+            return false;
+        };
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if seen != Some(state.last_output) {
+            return true;
+        }
+        state.wake_on_output = true;
+        false
     }
 
     /// Ask the writer for a pass after the mode's interval.

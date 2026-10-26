@@ -455,7 +455,6 @@ impl Mux {
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
         mux.output_store.start(&mux)?;
-        mux.start_cold_scrollback()?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         // Set before adoption: a host that adopts on its own thread names its

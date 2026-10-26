@@ -19,7 +19,9 @@ impl PtySurface {
         (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
         bytes: &[u8],
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
+        if mux.output_store.append(&terminal_id, &self.journal_generation, bytes) {
+            mux.wake_cold_scrollback();
+        }
     }
 
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {

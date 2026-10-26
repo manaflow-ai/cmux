@@ -70,11 +70,11 @@ fn cold_scrollback_read_is_byte_identical_after_compression() {
     };
     let (wake, thaws) = counting_wake();
 
-    let outcome = surface.freeze_cold_terminal(&wake).unwrap();
+    let outcome = surface.freeze_cold_terminal(&[], &wake).unwrap();
     let ColdFreeze::Frozen { held_bytes } = outcome else { panic!("not frozen: {outcome:?}") };
     assert!(surface.terminal_is_cold());
     assert!(held_bytes as u64 * 4 < hot, "{held_bytes} compressed bytes of {hot} resident");
-    assert_eq!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::AlreadyCold));
+    assert_eq!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::AlreadyCold));
     assert_eq!(thaws.load(Ordering::Relaxed), 0);
 
     let after = reads(&surface);
@@ -91,7 +91,7 @@ fn cold_scrollback_read_is_byte_identical_after_compression() {
 fn cold_scrollback_output_and_attach_restore_first() {
     let (_mux, surface) = terminal_with_history(500);
     let (wake, thaws) = counting_wake();
-    assert!(matches!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::Frozen { .. })));
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
 
     surface.apply_local_pty_output_for_test(b"\r\nafter the restore").unwrap();
     assert!(!surface.terminal_is_cold());
@@ -100,7 +100,7 @@ fn cold_scrollback_output_and_attach_restore_first() {
     assert!(total >= 450, "history survived output after a restore: {total} rows");
     assert!(viewport.contains("after the restore"), "{viewport:?}");
 
-    assert!(matches!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::Frozen { .. })));
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
     let attach = surface.attach_stream().unwrap();
     assert!(!surface.terminal_is_cold(), "an attach restores the terminal first");
     assert_eq!(thaws.load(Ordering::Relaxed), 2);
@@ -111,7 +111,7 @@ fn cold_scrollback_output_and_attach_restore_first() {
     // A resize restores first too; the terminal keeps its history.
     drop(attach);
     let (cols, rows) = (surface.size().0, surface.size().1);
-    assert!(matches!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::Frozen { .. })));
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
     surface.resize(cols + 4, rows).unwrap();
     assert!(!surface.terminal_is_cold());
     assert!(reads(&surface).0 > 0);
@@ -123,7 +123,7 @@ fn cold_scrollback_viewer_keeps_the_terminal_hot() {
     let (wake, thaws) = counting_wake();
     let attach = surface.attach_stream().unwrap();
 
-    assert_eq!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::Viewed));
+    assert_eq!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Viewed));
     assert!(!surface.terminal_is_cold());
     assert_eq!(thaws.load(Ordering::Relaxed), 0);
     drop(attach);
@@ -136,7 +136,7 @@ fn cold_scrollback_busy_terminal_is_left_alone() {
     let pty = surface.as_pty().unwrap();
     let held = pty.term.lock().unwrap();
 
-    assert_eq!(surface.freeze_cold_terminal(&wake), Some(ColdFreeze::Busy));
+    assert_eq!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Busy));
     drop(held);
     assert!(!surface.terminal_is_cold());
 }
@@ -145,12 +145,57 @@ fn cold_scrollback_busy_terminal_is_left_alone() {
 fn cold_scrollback_memory_read_leaves_the_terminal_cold() {
     let (_mux, surface) = terminal_with_history(1_000);
     let (wake, thaws) = counting_wake();
-    let Some(ColdFreeze::Frozen { held_bytes }) = surface.freeze_cold_terminal(&wake) else {
+    let Some(ColdFreeze::Frozen { held_bytes }) = surface.freeze_cold_terminal(&[], &wake) else {
         panic!("not frozen");
     };
 
     assert_eq!(surface.scrollback_memory(), Some(ScrollbackMemory::Cold(held_bytes as u64)));
     assert_eq!(surface.scrollback_memory(), Some(ScrollbackMemory::Cold(held_bytes as u64)));
+    assert!(surface.terminal_is_cold());
+    assert_eq!(thaws.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn cold_scrollback_view_scrolled_back_keeps_its_offset_across_a_restore() {
+    let (_mux, surface) = terminal_with_history(1_000);
+    let scrolled = surface.view_scroll_delta(-100).unwrap().unwrap();
+    assert_eq!(scrolled.offset, scrolled.total - scrolled.len - 100);
+    let (wake, thaws) = counting_wake();
+
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
+    assert_eq!(surface.view_scrollbar(), Some(scrolled), "the view moved across a restore");
+    assert_eq!(thaws.load(Ordering::Relaxed), 1);
+
+    // The anchor still follows its row: output after a restore grows the
+    // history below it, and the view keeps showing the same rows.
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
+    surface.apply_local_pty_output_for_test(b"\r\none\r\ntwo\r\nthree").unwrap();
+    let after = surface.view_scrollbar().unwrap();
+    assert_eq!(after.offset, scrolled.offset, "{scrolled:?} then {after:?}");
+    assert!(after.total > scrolled.total);
+}
+
+#[test]
+fn cold_scrollback_view_scrolled_on_the_inactive_screen_keeps_the_terminal_hot() {
+    let (_mux, surface) = terminal_with_history(500);
+    surface.view_scroll_delta(-50).unwrap().unwrap();
+    surface.apply_local_pty_output_for_test(b"\x1b[?1049h").unwrap();
+    let (wake, thaws) = counting_wake();
+
+    assert_eq!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::InactiveScreenScrolled));
+    assert!(!surface.terminal_is_cold());
+    assert_eq!(thaws.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn cold_scrollback_hot_only_read_leaves_a_cold_terminal_cold() {
+    let (_mux, surface) = terminal_with_history(500);
+    let cols = surface.size().0;
+    assert_eq!(surface.try_with_hot_terminal(|term| term.cols()).unwrap(), Some(cols));
+    let (wake, thaws) = counting_wake();
+    assert!(matches!(surface.freeze_cold_terminal(&[], &wake), Some(ColdFreeze::Frozen { .. })));
+
+    assert_eq!(surface.try_with_hot_terminal(|term| term.cols()).unwrap(), None);
     assert!(surface.terminal_is_cold());
     assert_eq!(thaws.load(Ordering::Relaxed), 0);
 }

@@ -190,6 +190,7 @@ use deadline_fanout::{
     bounded_deadline_map,
 };
 mod cold_scrollback;
+pub(crate) use cold_scrollback::ColdScrollbackWake;
 mod column_move;
 mod dock_columns;
 #[cfg(test)]
@@ -769,7 +770,7 @@ pub struct Mux {
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
-    cold_scrollback_wake: OnceLock<std::sync::mpsc::Sender<()>>,
+    cold_scrollback_wake: OnceLock<ColdScrollbackWake>,
     /// Hosts of closed terminals that were asked to exit.
     terminal_host_closes: Arc<host_close::TerminalHostCloses>,
     /// Reap grace period for unplaced terminals, in milliseconds.
