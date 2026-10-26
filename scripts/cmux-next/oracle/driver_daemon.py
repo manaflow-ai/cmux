@@ -66,6 +66,16 @@ on fails the case; one with no listener (connect is refused) is a file the daemo
 the result reports as daemon debt. When a worker did not finish (it hung or crashed), the session ends
 its tree by SIGTERM and falls back to one marker scan of the process table for that case.
 
+Invariant I16 (the daemon panic log is empty at teardown). A session refuses a binary without the lock-rank
+checker of cmux-tui-core/src/lock_rank.rs (invariants.lock_ranks_compiled_in): it builds only with debug
+assertions, which the oracle profile keeps, so no case runs on a build that hides a lock-order bug. A case
+refuses an environment whose owner or acpmux panic log would resolve outside its state root
+(`panic_log_dirs`, the daemons' own resolution), so it reads its own panics and no other case's. After the
+worker (every case process has exited, a panic during shutdown included) and before the root is removed,
+the session reads every panic log under the root (invariants.read_panic_log): each line fails a passing case
+with its message and location, and a Crash or Timeout keeps its status and gains the panic text, which
+usually says why the daemon died. A traced case's trace gets the lines as `teardown.panicLog`.
+
 Chrome reference (chromium/src):
 - base/test/launcher/test_launcher.cc: each test child runs in its own process group and the launcher
   kills what remains of that group when the test ends (KillSpawnedTestProcesses), so a leaked process
@@ -73,6 +83,9 @@ Chrome reference (chromium/src):
   stands in for the group here.
 - chrome/test/base/in_process_browser_test.cc: a fresh temporary user data dir per test
   (temp_user_data_dir_), the per-case state root's model.
+- base/task/common/checked_lock_impl.cc: CheckedLock's acquisition-order DCHECKs, kept in an optimized build by
+  dcheck_always_on, as [profile.oracle] keeps lock_rank.rs; third_party/blink/tools/blinkpy/web_tests/port/
+  driver.py fails a test on the content shell's crash output even when its text output matched (I16).
 
 Usage:
   driver_daemon.py run-case --binary CMUX_TUI CASE.json [--state-base DIR] [--snapshot-schema S]
@@ -131,6 +144,7 @@ for _path in (str(HERE), str(SDK)):
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
 import hermetic_env  # noqa: E402 - sibling of this file (p15-oracle-200), the only place env is built
 from invariants import TRACE_SCHEMA, first_difference  # noqa: E402 - JSON-typed equality, a bool never equals a number
+from invariants import lock_ranks_compiled_in, panic_message, read_panic_log  # noqa: E402 - invariant I16
 from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer, without_pointers  # noqa: E402,F401 - shared with driver_app_v0.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
@@ -274,8 +288,9 @@ def restore_preview_at(facet: Any, command: Callable[..., Mapping[str, Any]],
 def case_trace(case_id: str, steps: Sequence[Mapping[str, Any]],
                captures: Sequence["Capture"]) -> Optional[Dict[str, Any]]:
     """The `cmux.oracle.trace/v1` document (invariants.py) of the case's steps that captured: their raw
-    checkpoints and restore previews, for `invariants.py check`. Replies, layout counters and the teardown
-    are not in it yet. None when no step captured."""
+    checkpoints and restore previews, for `invariants.py check`; the session adds the teardown's panicLog
+    (apply_panic_log). Replies, layout counters and the rest of the teardown are not in it yet. None when no
+    step captured."""
     by_step: Dict[str, Dict[str, Any]] = {}
     for capture in captures:
         record = by_step.setdefault(capture.step, {"checkpoints": {}, "restorePreviews": {}})
@@ -417,6 +432,55 @@ def stable_token(text: str) -> str:
 
 def host_platform() -> str:
     return "linux" if sys.platform.startswith("linux") else "mac"
+
+
+def panic_log_dirs(case_env: hermetic_env.CaseEnv) -> List[Path]:
+    """Where the case's daemon processes write their panic logs, resolved as their Rust code does: the owner
+    beside its sessions dir (diagnostics/owner_panic_log.rs over workspace_state_dir, which the case's state dir
+    sets), acpmux in ACPMUX_HOME, else HOME/.acpmux (acpmux config.rs home)."""
+    acpmux = case_env.env.get("ACPMUX_HOME")
+    return [case_env.state_dir.parent, Path(acpmux) if acpmux else case_env.home / ".acpmux"]
+
+
+def panic_logs_outside(case_env: hermetic_env.CaseEnv, root: Path) -> Optional[str]:
+    """None when both panic logs of the case resolve under its root, else why not (I16 reads only the root)."""
+    base = os.path.abspath(root)
+    outside = [str(d) for d in panic_log_dirs(case_env) if os.path.commonpath([base, os.path.abspath(d)]) != base]
+    return f"panic logs would land outside the case root {root}: {', '.join(outside)}" if outside else None
+
+
+def require_lock_ranks(binary: str) -> None:
+    """Refuses a cmux-tui built without the lock-rank checker (debug assertions off), as a session refusal."""
+    try:
+        present = lock_ranks_compiled_in(Path(binary))
+    except OSError as error:
+        raise ValueError(f"cannot read --binary {binary}: {error}") from None
+    if not present:
+        raise ValueError(f"--binary {binary} has no lock-rank checker (built without debug assertions), so I16 "
+                         "cannot see a lock-order bug: build it with scripts/cmux-next/oracle/linux_run.sh build "
+                         "(--profile oracle) or a debug build")
+
+
+def apply_panic_log(result: Dict[str, Any], root: Path) -> None:
+    """Invariant I16 on a finished case's result, from the panic logs under its root: each line fails a Pass with
+    its message and location; a Crash or Timeout keeps its status and gains the text."""
+    try:
+        log = read_panic_log(root)
+    except OSError as error:
+        if result.get("status") == "Pass":
+            result["status"] = "Crash"
+        result["message"] = "; ".join(filter(None, [result.get("message"),
+                                                    f"I16 not checked: cannot read the panic logs: {error}"]))
+        return
+    trace = result.get("trace")
+    if isinstance(trace, dict):
+        trace["teardown"] = {**(trace.get("teardown") or {}), "panicLog": log}
+    if not log:
+        return
+    result["panic_log"] = log
+    if result.get("status") == "Pass":
+        result["status"] = "Failure"
+    result["message"] = "; ".join(filter(None, [result.get("message"), *(f"I16 {panic_message(e)}" for e in log)]))
 
 
 def case_environment(paths: CasePaths, seed: str, isolation: hermetic_env.Isolation) -> hermetic_env.CaseEnv:
@@ -1084,6 +1148,9 @@ class CaseRun:
         problems: List[str] = []
         try:
             try:
+                refusal = panic_logs_outside(self.case_env, self.paths.root)
+                if refusal:
+                    raise CaseError("Crash", f"I16: {refusal}", "setup")
                 self.case_env.prepare()
                 self.daemon.start("setup")
                 if self.trace:
@@ -1593,6 +1660,7 @@ class DaemonSession:
             raise ValueError("the daemon driver needs --binary (the cmux-tui that linux_run.sh build prints)")
         if not os.access(str(binary), os.X_OK):
             raise ValueError(f"--binary {binary} is not an executable")
+        require_lock_ranks(str(binary))
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
         if session_ctx.get("facets") not in (None, "v0", "v1"):
@@ -1626,6 +1694,7 @@ class DaemonSession:
             return {"status": error.status, "message": error.message, "checkpoints": []}
         scale = float(case_ctx.get("timeout_multiplier") or 1)
         result, finished = self.run_worker(case, {**case_ctx, "state_root": str(paths.root)}, scale)
+        apply_panic_log(result, paths.root)
         proof = prove_clean(paths, result.pop("sockets", ()), finished, self.scan, EXIT_S * scale)
         if proof.problems:
             result["message"] = "; ".join(filter(None, [result.get("message"), *proof.problems]))

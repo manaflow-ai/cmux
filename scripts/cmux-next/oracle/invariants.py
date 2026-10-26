@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206) and I17-I18
-(p15-oracle-188) over one case trace.
+"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206), I16 (p15-oracle-236)
+and I17-I18 (p15-oracle-188) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
 plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
-I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
+I8 (204) and I11-I15 (217) to INVARIANTS and Checker.run.
 
 | Id | Rule                                                                  | Reads                          |
 | I1 | each mutation gives exactly one receipt or one typed error            | step replies                   |
@@ -16,6 +16,7 @@ I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 | I7 | a hidden-workspace change does no view work                           | step layoutCounters + topology |
 | I9 | journal restore_preview == live daemon facet on the restorable sections | restorePreviews + daemon facet |
 | I10| a same-key retry: same result, replayed, same journal head and facets | replies + retry before/settled |
+| I16| the daemon panic log is empty at teardown (no panic, no lock-rank panic) | teardown panicLog              |
 | I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
 | I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
 
@@ -60,6 +61,18 @@ Chromium's session restore
 check (chrome/browser/sessions/session_restore_browsertest.cc restores the commands SessionService wrote and
 compares the restored windows and tabs with the ones that wrote them), run on every checkpoint instead of
 once per test. A preview at another sequence, or with no journal checkpoint yet, is not checked.
+I16 reads the panic logs the case's daemon processes wrote, after they exited (`read_panic_log` on the case
+root). The session owner appends one JSON line per panic, a caught one too, to `owner-panics-<session>.jsonl`
+beside its sessions directory (cmux-tui-core/src/diagnostics/owner_panic_log.rs); the acpmux daemon writes
+`$ACPMUX_HOME/panics.jsonl` (crates/acpmux/src/daemon.rs). Both use the cmux-panic-log line (message,
+location file:line:col, thread, test, backtrace). Every line is a violation naming its message and location;
+a line that is not a record is one too. A lock-rank panic is the lock-order assertion of
+cmux-tui-core/src/lock_rank.rs, which builds only with debug assertions: the oracle profile keeps them
+(cmux-tui/Cargo.toml [profile.oracle]), and `lock_ranks_compiled_in` proves a binary has the checker before a
+driver runs cases on it. This is Chrome's CheckedLock (base/task/common/checked_lock_impl.cc), whose
+acquisition-order DCHECKs dcheck_always_on keeps in an optimized build, and blinkpy's driver
+(third_party/blink/tools/blinkpy/web_tests/port/driver.py), which fails a test on crash output even when its
+text output matched.
 I18 compares the owned-object counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown
 checkpoint with those at the case's first checkpoint, the fixture baseline. `subscriptions` and `tasks`
 are timing state (armed observations, pending deadlines), not owned objects: a difference there is
@@ -85,7 +98,9 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
                 "layoutCounters"?: {"before": {name: n}, "after": {name: n}},  (debug.layout_counters)
                 "restorePreviews"?: {"before"?|"turn"?|"settled"?: oracle-restore-preview reply}}],
      "allow_crashes"?: [case-v1 allowCrash],
-     "teardown"?: {"processes": [{"pid", "command"}], "sockets": [path],
+     "teardown"?: {"processes"?: [{"pid", "command"}], "sockets"?: [path],
+                   "panicLog"?: [{"log", "line", "message", "location", "thread", "test", "lockRank"}]
+                                                  (read_panic_log of the case root, after the daemon exited),
                    "checkpoint"?: snapshot-v1 (raw, after the case's teardown and a settle)}}
 Step fields missing from the trace come from the case (`--case`), matched by step id; so does
 `allow_crashes` when the trace has none.
@@ -93,9 +108,11 @@ Step fields missing from the trace come from the case (`--case`), matched by ste
 Not run by oracle.py yet: its driver protocol (017) returns canonical checkpoints only. `driver_daemon.py
 run-case --trace TRACE.json` writes a partial trace (each step's id, op, raw checkpoints and I9's
 restorePreviews, through the facet's journalHead after a journal checkpoint at setup), so I9 runs on daemon
-cases. Replies, layoutCounters and teardown are in no driver trace yet. A follow-up of 017, 023 and 047
-carries them in the driver result and makes `perform_run` turn a violation into a case Failure; until then
-`invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
+cases, with a `teardown` that holds I16's panicLog only. Replies, layoutCounters and the rest of the teardown
+are in no driver trace yet. A follow-up of 017, 023 and 047 carries them in the driver result and makes
+`perform_run` turn a violation into a case Failure; until then `invariants.py check` runs on a trace file and
+`--selftest` on synthetic traces. The daemon driver applies I16 to its case results itself
+(driver_daemon.apply_panic_log).
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
 "in": "snapshot"|"step"|"teardown", "pointer", "message"}], "notChecked": [{"invariant", "step",
@@ -106,6 +123,8 @@ passed.
 
 Usage:
   invariants.py check TRACE.json [--case CASE.json] [--json]   exit 0 clean, 1 violations, 2 bad input
+  invariants.py panic-log CASE_ROOT [--json]                   I16 on a case root: exit 0 clean, 1 panics, 2 bad input
+  invariants.py lock-ranks BINARY                              exit 0 when the binary has the lock-rank checker, else 1
   invariants.py --list                                         the invariants, their rule and pointer
   invariants.py --selftest                                     synthetic violation of each invariant
 """
@@ -114,9 +133,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fnmatch
+import io
 import json
+import os
 import re
 import sys
+import tempfile
 import unittest
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -156,6 +179,14 @@ TIMING_LIVE_KINDS = frozenset({"subscriptions", "tasks"})
 BOOKKEEPING_FACETS = frozenset({"intents", "switches", "liveObjects", "crashes", "invariants"})
 # The crash kinds of the crashes facet and case-v1 `crashKind`, in schema order.
 CRASH_KINDS = ("renderer", "gpu", "browser", "utility", "daemon", "holder")
+# The panic logs cmux-panic-log users write (owner_panic_log.rs, acpmux daemon.rs panic_log_path). The memory
+# and hang logs beside them (`owner-memory-*`, `owner-hangs-*`) are not panics.
+PANIC_LOG_NAMES = ("owner-panics-*.jsonl", "panics.jsonl")
+# The literal start of lock_rank.rs's panic message: a lock-rank panic line starts with it, and a binary whose
+# rank checker is compiled in holds it as bytes.
+LOCK_RANK_PANIC_PREFIX = "lock order violation: acquiring "
+# The longest panic message a violation repeats; the line itself stays in the log with its backtrace.
+MAX_PANIC_MESSAGE_CHARS = 2000
 # debug.layout_counters values that count view work (DebugLayoutCounters.swift). Left out:
 # topology_sends (the control topology, a model), indicator_resyncs (the sidebar shows hidden
 # workspaces' rows), pane_count_changes and sources (not counters).
@@ -206,6 +237,8 @@ INVARIANTS: Tuple[Invariant, ...] = (
               "step: /replies/0/... of the retry (/replies/0/result/replayed: the flag); snapshot: /daemon/journalHead "
               "or the first facet value that differs",
               "p15-oracle-206"),
+    Invariant("I16", "the daemon panic log is empty at teardown: no panic, no lock-rank panic",
+              "teardown: /panicLog/<n>", "p15-oracle-236"),
     Invariant("I17", "0 unexpected child exits unless allow_crashes covers the kind",
               "snapshot: /crashes/exits/<n> (an exit the app saw) or /crashes/counts/<kind>", "p15-oracle-188"),
     Invariant("I18", "live-object counts return to the fixture baseline after teardown",
@@ -892,8 +925,8 @@ class Checker:
     # I6 -----------------------------------------------------------------------------------------------
     def i6(self) -> None:
         teardown = self.trace.teardown
-        if teardown is None:
-            self.skip("I6", None, "the trace has no teardown record")
+        if teardown is None or not {"processes", "sockets"} & set(teardown):
+            self.skip("I6", None, "the trace has no teardown process or socket record")
             return
         self.checked("I6")
         for i, process in enumerate(teardown.get("processes") or []):
@@ -1189,9 +1222,19 @@ class Checker:
                     continue
                 self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
+    # I16 ----------------------------------------------------------------------------------------------
+    def i16(self) -> None:
+        log = (self.trace.teardown or {}).get("panicLog")
+        if not isinstance(log, list):
+            self.skip("I16", None, "the trace has no teardown panic log")
+            return
+        self.checked("I16")
+        for i, entry in enumerate(log):
+            self.violate("I16", None, None, f"/panicLog/{i}", panic_message(entry), "teardown")
+
     def run(self) -> Report:
-        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i17,
-                      self.i18):
+        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i16,
+                      self.i17, self.i18):
             check()
         return self.report
 
@@ -1331,9 +1374,86 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7, I9, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+    """I1-I7, I9, I10 and I16-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
     return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
+
+
+# ---------------------------------------------------------------------------------------------- I16 inputs
+
+
+def find_panic_logs(case_root: Path) -> List[Path]:
+    """Every panic log under the case root, a directory's own before its subdirectories', each in name order.
+    Symlinks are never followed: the case root is the driver's own directory, and a link out of it would read
+    another case's log."""
+    found = []
+    for directory, dirs, files in os.walk(case_root, followlinks=False):
+        dirs.sort()
+        for name in sorted(files):
+            path = Path(directory) / name
+            if any(fnmatch.fnmatchcase(name, pattern) for pattern in PANIC_LOG_NAMES) and not path.is_symlink():
+                found.append(path)
+    return found
+
+
+def read_panic_log(case_root: Path) -> List[Dict[str, Any]]:
+    """The teardown `panicLog` of a case root whose daemon processes have exited: one entry per log line,
+    `{log (relative to the root), line (1-based), message, location, thread, test, lockRank}`. A line that is
+    not a JSON object is an entry whose message says so. Raises OSError when the root cannot be read."""
+    if not case_root.is_dir():
+        raise FileNotFoundError(f"case root {case_root} is not a directory")
+    entries = []
+    for log in find_panic_logs(case_root):
+        relative = log.relative_to(case_root).as_posix()
+        text = log.read_bytes().decode("utf-8", errors="replace")
+        for number, raw in enumerate(text.splitlines(), start=1):
+            if not raw.strip():
+                continue
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                record = None
+            if not isinstance(record, dict):
+                record = {"message": f"not a panic log record: {raw[:200]!r}"}
+            message = str(record.get("message") or "(no message)")
+            if len(message) > MAX_PANIC_MESSAGE_CHARS:
+                message = message[:MAX_PANIC_MESSAGE_CHARS] + "..."
+            thread = record.get("thread")
+            entries.append({"log": relative, "line": number, "message": message,
+                            "location": str(record.get("location") or ""),
+                            "thread": thread if isinstance(thread, str) else None,
+                            "test": record.get("test") is True,
+                            "lockRank": message.startswith(LOCK_RANK_PANIC_PREFIX)})
+    return entries
+
+
+def panic_message(entry: Any) -> str:
+    """One panicLog entry as a failure text: kind, location, message, thread, and its log line."""
+    if not isinstance(entry, Mapping):
+        return f"panic log entry is not an object: {entry!r:.200}"
+    kind = "lock-rank panic" if entry.get("lockRank") else "panic"
+    where = f" at {entry['location']}" if entry.get("location") else ""
+    details = [f"thread {entry['thread']!r}" if entry.get("thread") else "",
+               "debug test trigger" if entry.get("test") else "",
+               f"{entry.get('log', '?')}:{entry.get('line', '?')}"]
+    return f"{kind}{where}: {entry.get('message', '(no message)')} ({', '.join(d for d in details if d)})"
+
+
+def lock_ranks_compiled_in(binary: Path, chunk_size: int = 1 << 20) -> bool:
+    """True when the binary holds lock_rank.rs's panic text, so its rank checker is built in. A build without
+    debug assertions compiles the checker out (`#[cfg(debug_assertions)] mod held`) and the text with it; the
+    oracle profile keeps them. Raises OSError when the binary cannot be read."""
+    needle = LOCK_RANK_PANIC_PREFIX.encode()
+    tail = b""
+    with binary.open("rb") as handle:
+        while True:
+            chunk = handle.read(max(chunk_size, len(needle)))
+            if not chunk:
+                return False
+            window = tail + chunk
+            if needle in window:
+                return True
+            tail = window[-(len(needle) - 1):]
 
 
 # ---------------------------------------------------------------------------------------------- self test
@@ -1345,8 +1465,21 @@ def _example() -> Dict[str, Any]:
 
 def _trace(*steps: Dict[str, Any], teardown: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     doc: Dict[str, Any] = {"schema": TRACE_SCHEMA, "case": "selftest/case", "steps": list(steps)}
-    doc["teardown"] = {"processes": [], "sockets": []} if teardown is None else teardown
+    doc["teardown"] = {"processes": [], "sockets": [], "panicLog": []} if teardown is None else teardown
     return doc
+
+
+LOCK_RANK_MESSAGE = (
+    "lock order violation: acquiring mux.state (MuxState) while this thread holds pty.term (Terminal); "
+    "the order is workspace.registry > journal.writer > mux.state > pty.term > leaf (see PtyTerminalRuntime)"
+)
+
+
+def _panic_line(message: str, location: str, thread: str = "mux-worker", test: bool = False) -> str:
+    """One line in the cmux-panic-log record shape (cmux-tui/crates/cmux-panic-log/src/lib.rs)."""
+    return json.dumps({"session": "oracle", "owner_pid": 4242, "message": message, "location": location,
+                       "thread": thread, "at_ms": 1, "test": test,
+                       "backtrace": "   0: std::backtrace::Backtrace::force_capture\n"})
 
 
 WS = "ws_000000000000000000000000000000b1"
@@ -1496,7 +1629,8 @@ class InvariantsSelfTest(unittest.TestCase):
         return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
 
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18"])
+        self.assertEqual([inv.id for inv in INVARIANTS],
+                         [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I16", "I17", "I18"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
@@ -1909,6 +2043,98 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual(self.i10(report), ([], []))
         self.assertEqual(report.checked["I10"], 0)
 
+    # I16
+    def case_root(self) -> Path:
+        """A case root laid out as hermetic_env.daemon_case makes it: CMUX_TUI_STATE_DIR is <root>/state, so the
+        owner's panic log sits in the root itself, and ACPMUX_HOME defaults to <root>/home/.acpmux."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "c00001"
+        (root / "state").mkdir(parents=True)
+        (root / "home" / ".acpmux").mkdir(parents=True)
+        return root
+
+    def test_i16_a_panic_line_fails_with_its_message_and_location(self) -> None:
+        root = self.case_root()
+        (root / "owner-panics-oracle-abc123.jsonl").write_text(
+            _panic_line("index out of bounds: the len is 2 but the index is 5", "crates/cmux-tui-core/src/layout.rs:812:17")
+            + "\n" + _panic_line(LOCK_RANK_MESSAGE, "crates/cmux-tui-core/src/mux.rs:301:28", test=True) + "\n")
+        log = read_panic_log(root)
+        self.assertEqual([(e["log"], e["line"], e["lockRank"]) for e in log],
+                         [("owner-panics-oracle-abc123.jsonl", 1, False), ("owner-panics-oracle-abc123.jsonl", 2, True)])
+        report = self.check(_trace({"id": "s", "op": "settle"},
+                                   teardown={"processes": [], "sockets": [], "panicLog": log}))
+        self.assertEqual([(v.invariant, v.where, v.pointer) for v in report.violations],
+                         [("I16", "teardown", "/panicLog/0"), ("I16", "teardown", "/panicLog/1")])
+        self.assertEqual(report.violations[0].message,
+                         "panic at crates/cmux-tui-core/src/layout.rs:812:17: index out of bounds: the len is 2 but the "
+                         "index is 5 (thread 'mux-worker', owner-panics-oracle-abc123.jsonl:1)")
+        self.assertTrue(report.violations[1].message.startswith(
+            "lock-rank panic at crates/cmux-tui-core/src/mux.rs:301:28: lock order violation: acquiring mux.state"))
+        self.assertIn("debug test trigger", report.violations[1].message)
+
+    def test_i16_reads_every_log_of_the_root_and_nothing_else(self) -> None:
+        root = self.case_root()
+        self.assertEqual(read_panic_log(root), [])
+        (root / "owner-panics-oracle.jsonl").write_text("\n")
+        (root / "owner-memory-oracle.jsonl").write_text('{"memory_bytes": 1}\n')
+        (root / "owner-hangs-oracle.jsonl").write_text('{"message": "busy"}\n')
+        self.assertEqual(read_panic_log(root), [])
+        (root / "home" / ".acpmux" / "panics.jsonl").write_text(_panic_line("acp", "c.rs:3:3") + "\n")
+        (root / "owner-panics-oracle.jsonl").write_text('{"message": "cut\n')
+        log = read_panic_log(root)
+        self.assertEqual([(e["log"], e["location"]) for e in log],
+                         [("owner-panics-oracle.jsonl", ""), ("home/.acpmux/panics.jsonl", "c.rs:3:3")])
+        self.assertTrue(log[0]["message"].startswith("not a panic log record: "), log[0])
+        with self.assertRaises(FileNotFoundError):
+            read_panic_log(root / "missing")
+
+    def test_i16_does_not_follow_a_symlink_out_of_the_root(self) -> None:
+        root = self.case_root()
+        other = root.parent / "other-case"
+        other.mkdir()
+        (other / "owner-panics-x.jsonl").write_text(_panic_line("not ours", "x.rs:1:1") + "\n")
+        (root / "owner-panics-x.jsonl").symlink_to(other / "owner-panics-x.jsonl")
+        (root / "linked").symlink_to(other, target_is_directory=True)
+        self.assertEqual(read_panic_log(root), [])
+
+    def test_i16_without_a_panic_log_is_not_checked_and_does_not_check_i6(self) -> None:
+        report = self.check(_trace({"id": "s", "op": "settle"}, teardown={"processes": [], "sockets": []}))
+        self.assertEqual(report.violations, [])
+        self.assertIn(("I16", "the trace has no teardown panic log"),
+                      [(n.invariant, n.reason) for n in report.not_checked])
+        report = self.check(_trace({"id": "s", "op": "settle"}, teardown={"panicLog": []}))
+        self.assertEqual(report.checked["I16"], 1)
+        self.assertEqual(report.checked["I6"], 0)
+        self.assertEqual([n.invariant for n in self.core(report)], ["I6"])
+
+    def test_i16_lock_ranks_compiled_in_finds_the_text_across_chunks(self) -> None:
+        needle = LOCK_RANK_PANIC_PREFIX.encode()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "cmux-tui"
+        for split in range(1, len(needle)):
+            binary.write_bytes(b"\0" * (64 - split) + needle + b"{name} (")
+            self.assertTrue(lock_ranks_compiled_in(binary, chunk_size=64), split)
+        binary.write_bytes(b"\0" * 200 + needle[:-1] + b"\0")
+        self.assertFalse(lock_ranks_compiled_in(binary, chunk_size=64))
+
+    def test_i16_cli(self) -> None:
+        root = self.case_root()
+        out, err = io.StringIO(), io.StringIO()
+        self.assertEqual(main(["panic-log", str(root)], out, err), 0)
+        (root / "owner-panics-oracle.jsonl").write_text(_panic_line("boom", "a.rs:1:1") + "\n")
+        out = io.StringIO()
+        self.assertEqual(main(["panic-log", str(root), "--json"], out, err), 1)
+        [row] = json.loads(out.getvalue())
+        self.assertEqual((row["location"], row["message"], row["lockRank"]), ("a.rs:1:1", "boom", False))
+        self.assertEqual(main(["panic-log", str(root / "missing")], io.StringIO(), err), 2)
+        binary = root / "cmux-tui"
+        binary.write_bytes(b"\x7fELF release")
+        self.assertEqual(main(["lock-ranks", str(binary)], io.StringIO(), err), 1)
+        binary.write_bytes(b"\x7fELF oracle " + LOCK_RANK_PANIC_PREFIX.encode())
+        self.assertEqual(main(["lock-ranks", str(binary)], io.StringIO(), err), 0)
+
     # I17
     def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,
                     exits: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -2172,6 +2398,35 @@ def print_report(report: Report, out: Any) -> None:
     print(f"{report.case}: {len(report.violations)} violation(s); checked {checked}", file=out)
 
 
+def print_panic_log(case_root: Path, as_json: bool, out: Any, err: Any) -> int:
+    try:
+        log = read_panic_log(case_root)
+    except OSError as error:
+        print(f"invariants.py: {error}", file=err)
+        return 2
+    if as_json:
+        print(json.dumps(log, sort_keys=True), file=out)
+    else:
+        for entry in log:
+            print(f"I16 {panic_message(entry)}", file=out)
+        if not log:
+            print(f"I16 holds: no daemon panic log lines under {case_root}", file=out)
+    return 1 if log else 0
+
+
+def print_lock_ranks(binary: Path, out: Any, err: Any) -> int:
+    try:
+        present = lock_ranks_compiled_in(binary)
+    except OSError as error:
+        print(f"invariants.py: {error}", file=err)
+        return 2
+    if present:
+        print(f"{binary}: lock-rank checker present", file=out)
+        return 0
+    print(f"{binary}: no lock-rank checker (built without debug assertions; use linux_run.sh build)", file=out)
+    return 1
+
+
 def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
@@ -2184,6 +2439,11 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
     check.add_argument("--case", type=Path, help="the corpus case, for step fields the trace leaves out")
     check.add_argument("--schema", type=Path, default=SNAPSHOT_SCHEMA)
     check.add_argument("--json", action="store_true", help="print the report as JSON")
+    panics = sub.add_parser("panic-log", help="I16 on a case root whose daemon processes have exited")
+    panics.add_argument("case_root", type=Path)
+    panics.add_argument("--json", action="store_true", help="print the panicLog entries as JSON")
+    ranks = sub.add_parser("lock-ranks", help="whether a cmux-tui binary has the lock-rank checker")
+    ranks.add_argument("binary", type=Path)
     args = parser.parse_args(argv)
     if args.selftest:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(InvariantsSelfTest)
@@ -2192,6 +2452,10 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
         for inv in INVARIANTS:
             print(f"{inv.id}\t{inv.rule}\t{inv.pointer}\t{inv.task}", file=out)
         return 0
+    if args.command == "panic-log":
+        return print_panic_log(args.case_root, args.json, out, err)
+    if args.command == "lock-ranks":
+        return print_lock_ranks(args.binary, out, err)
     if args.command != "check":
         parser.print_usage(err)
         return 2
