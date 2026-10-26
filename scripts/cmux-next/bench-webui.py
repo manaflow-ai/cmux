@@ -1090,6 +1090,8 @@ def parse(argv):
                         help="pages10: hide all ten pages, then measure page renderer and GPU wakeups (task 037, MQ5)")
     parser.add_argument("--page-code-cache", action="store_true",
                         help="task 052's A/B: Chromium with the code cache spike's switches (Debug development bundles)")
+    parser.add_argument("--enable-feature", action="append", default=[], metavar="NAME",
+                        help="a feature to turn on for the run (CMUX_ENABLE_FEATURES), repeatable: an off feature's arm")
     parser.add_argument("--out")
     opts = parser.parse_args(argv)
     for name in ("settle", "measure", "hide_settle", "discard_settle", "open_timeout", "priority_wait"):
@@ -1105,8 +1107,11 @@ def parse(argv):
 
 
 def launch_env(opts, tunables):
-    """The app's environment: the React page tunables file, and with --page-code-cache task 052's switches."""
+    """The app's environment: the React page tunables file, --enable-feature's features, and with --page-code-cache
+    task 052's switches."""
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.enable_feature:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(opts.enable_feature)
     if opts.page_code_cache:
         env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = ":".join(CODE_CACHE_SWITCHES)
     return env

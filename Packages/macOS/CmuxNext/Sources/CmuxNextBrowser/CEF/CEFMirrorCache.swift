@@ -121,6 +121,7 @@ final class CEFMirrorCache {
         case .passwordReplaceAvailable: return .int(shim.passwordReplaceAvailable())
         case .passkeysAvailable: return .int(shim.passkeysAvailable())
         case .passwordCoreAvailable: return .int(shim.passwordCoreAvailable())
+        case .extLoadLaterSupported: return .int(shim.extLoadLaterSupported())
         case .windowID: return .int(shim.tabWindowID(id))
         case .devToolsBrowser: return .int(shim.devToolsBrowser(id))
         case .navigationEntries: return shim.tabNavigationEntries(id).map(CEFMirrorValue.string)
