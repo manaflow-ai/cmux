@@ -206,7 +206,7 @@ import Testing
 
         try await runtime.start(layout: nil, environment: [:], trigger: "restoredTab")
         try await runtime.start(layout: nil, environment: [:], trigger: "tab")
-        runtime.firstPagePainted()
+        runtime.firstPagePainted(shown: true)
 
         #expect(log.names == ["cef.initialize_started", "cef.initialize_ended",
                               "cef.first_page_paint", "cef.first_page_paint.trigger.restoredTab"])

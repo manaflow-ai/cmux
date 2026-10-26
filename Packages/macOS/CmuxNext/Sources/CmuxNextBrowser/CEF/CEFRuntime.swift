@@ -171,8 +171,10 @@ final class CEFRuntime {
     private(set) var loadDuration: Duration?
     private(set) var initializeDuration: Duration?
     private(set) var readyAfterLaunch: Double?
-    /// Chromium's start as the App's launch marks (``CEFLaunchMarks``, ``CEFEngine/installLaunchMarks(_:)``).
+    /// Chromium's start as the App's launch marks (``CEFLaunchMarks``); the engine gives the receiver (``adoptLaunchMarks(_:)``).
     var launchMarks = CEFLaunchMarks()
+    /// Whether the launch still runs (``CEFLaunchMarkHooks/isStarting``); nil (tests): always.
+    var launchIsStarting: (() -> Bool)?
 
     /// The App's browser stores, handed over by the engine before it starts or makes a tab
     /// (`adopt`); in memory until then (a spy runtime in tests).
@@ -314,9 +316,23 @@ final class CEFRuntime {
         }
     }
 
-    /// The first Chromium page painted content (`CEFFirstPaintBridge`): `cef.first_page_paint` and the
-    /// trigger of this start, once per process.
-    func firstPagePainted() {
+    /// The engine's launch marks hooks (`CEFEngine.init`): the receiver and the launch's end.
+    func adoptLaunchMarks(_ hooks: CEFLaunchMarkHooks) {
+        launchMarks.receiver = hooks.receive
+        launchIsStarting = hooks.isStarting
+    }
+
+    /// A Chromium page's main frame first painted content (`CEFFirstPaintBridge`); `shown` when its tab is
+    /// the one its pane shows, in a visible window. As Chrome's `Startup.FirstWebContents.NonEmptyPaint3`
+    /// (chrome/browser/metrics/first_web_contents_profiler.cc) counts only the visible startup tab: a hidden
+    /// tab's paint sends nothing, a shown one after the launch completed ends the mark with no value
+    /// (Chrome's abandon), and otherwise `cef.first_page_paint` and the trigger of this start go out, once.
+    func firstPagePainted(shown: Bool) {
+        guard shown else { return }
+        guard launchIsStarting?() ?? true else {
+            launchMarks.abandonFirstPagePaint()
+            return
+        }
         launchMarks.firstPagePainted(trigger: trigger ?? "tab")
     }
 
