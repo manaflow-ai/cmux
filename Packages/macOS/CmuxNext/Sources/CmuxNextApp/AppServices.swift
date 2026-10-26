@@ -471,8 +471,8 @@ final class AppServices {
     let energyMonitor: EnergyMonitor
     /// Pushes the monitor's inputs to the consumers below the App and ``energy``'s policy driver (`startEnergy`).
     var energyLink: MainActorHandlerRegistration<EnergyInputs>?
-    /// Stills ambient motion loops while the saver is on (`DesignSettings.followEnergy`, p14-energy-027).
-    var energyMotion: EnergyPolicyObservation?
+    /// Stills ambient motion loops while the saver is on (`MotionEnergyLink`, p14-energy-027).
+    var energyMotion: MotionEnergyLink?
     /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
@@ -762,7 +762,7 @@ final class AppServices {
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
         energy.start(inputs: energyMonitor)
-        energyMotion = design.followEnergy(mainWork.energy)
+        energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             keepAwake.setOnBattery(inputs.onBattery)

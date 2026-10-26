@@ -119,25 +119,25 @@ import Testing
         #expect(normal["flash"].map { Array($0.dropLast()) } == [0, 1, 0, 1, 0], "the flash verb blinks twice")
     }
 
-    /// The composition root's link: the source's saver reaches the gates now and on each change, and a
+    /// The composition root's link (MotionEnergyLink): the source's saver reaches the gates now and on each change, and a
     /// change raises the motion signal so hosts outside Observation (the video wallpaper) follow.
-    @Test func followEnergyCarriesTheSaverToTheGates() {
+    @Test func theLinkCarriesTheSaverToTheGates() {
         let design = DesignSettings(display: { AppearanceSignals.DisplayOptions() })
         let source = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
         var motionSignals = 0
         let watch = design.signals.subscribe([.motion], owner: "MotionEnergySaverTests") { motionSignals += 1 }
-        var observation: EnergyPolicyObservation? = design.followEnergy(source)
-        #expect(design.energySaver, "the saver at the time of follow")
+        var link: MotionEnergyLink? = MotionEnergyLink(source, design: design)
+        #expect(design.energySaver, "the saver when the link is made")
         #expect(Motion.basePolicy(of: design).energySaver && !Motion.basePolicy(of: design).animatesLoops)
         source.update(.normal)
         #expect(!design.energySaver && Motion.basePolicy(of: design).energySaver == false)
         source.update(EnergyPolicy(saverReason: .battery, onBattery: true))
         #expect(design.energySaver)
         #expect(motionSignals == 3, "one motion signal per saver change, got \(motionSignals)")
-        observation = nil
+        link = nil
         source.update(.normal)
-        #expect(design.energySaver, "a released observation wrote the saver off")
+        #expect(design.energySaver, "a released link wrote the saver off")
         #expect(source.observerCount == 0)
-        _ = (watch, observation)
+        _ = (watch, link)
     }
 }
