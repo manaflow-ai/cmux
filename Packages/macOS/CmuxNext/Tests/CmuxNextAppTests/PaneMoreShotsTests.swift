@@ -56,8 +56,8 @@ import Testing
 
     @Test func bothMoreButtonsRenderToTheContactSheet() throws {
         _ = NSApplication.shared
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var shots: [(String, CGImage)] = []
         for theme in Self.themes {
             for glass in [false, true] {
@@ -86,7 +86,7 @@ import Testing
         let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         root.wantsLayer = true
         window.contentView = root
-        _ = ThemeStore.shared.apply(try input(theme))
+        _ = ThemeScope.app.store.apply(try input(theme))
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(theme), input: try input(theme), animated: false)
         scope.root(root)

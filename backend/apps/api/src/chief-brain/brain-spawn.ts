@@ -7,6 +7,7 @@ import type { BrainConfig } from "./brain-store.ts"
 import { replyTarget } from "./brain-text.ts"
 import { effectRefusal } from "./effect-policy.ts"
 import { readRun, readSteps } from "./brain-runs.ts"
+import { workspaceNote, type OpenedWorkspace } from "./brain-spawn-workspace.ts"
 
 /**
  * `spawn(tasks[])`: subagents of a Cloud Chief, with no hand (unii parity gap 4, hq-1f SPAWN-HANDOFF).
@@ -118,6 +119,8 @@ export interface SpawnHost {
   enqueue(items: ReadonlyArray<ChildStart>): Promise<{ running: number; waiting: number }>
   /** The live "N subagents" line changed. */
   changed(conversation: string): void
+  /** A cloud workspace on the Chief's VM for one child (a655); absent in a host without hands. */
+  workspace?(name: string): Promise<OpenedWorkspace>
 }
 
 export const spawnTool = (host: SpawnHost): ToolRegistration<typeof Args> => ({
@@ -160,6 +163,11 @@ export const spawnTool = (host: SpawnHost): ToolRegistration<typeof Args> => ({
       host.sql.exec(`UPDATE cb_spawn SET state = 'enqueued' WHERE call = ? AND state = 'queued'`, call)
       if (r.waiting > 0) note = ` ${r.waiting} wait for a free slot (at most ${spawnMax(host.env)} run at once).`
     }
+    // One workspace per child started by this call (a replayed call has none queued, so none repeats).
+    const fresh = new Set(items.map((i) => i.n))
+    const links: Array<string> = []
+    if (host.workspace) for (const r of rows) if (fresh.has(r.n)) links.push(`${r.name}: ${workspaceNote(await host.workspace(r.task.split("\n")[0]!.slice(0, 48)))}`)
+    if (links.length > 0) note += ` Workspaces: ${links.join("; ")}. Link each one when you tell the person about it.`
     host.changed(turn.conversation)
     return text(`Started ${rows.length} subagent${rows.length === 1 ? "" : "s"}: ${rows.map((r) => r.name).join(", ")}.${note} Each report comes back to you as a work message "[Name] ..."; do not wait for them.`)
   }

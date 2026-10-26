@@ -59,6 +59,13 @@ export interface AppVersion {
   yanked?: boolean;
 }
 
+/** One thing an app puts in cmux (the manifest's `contributes`): its kind and its title. */
+export interface AppContribution {
+  /** `section`, `command`, `statusItem`; another kind shows as its name. */
+  kind: string;
+  title: string;
+}
+
 /** `cmux.apps.catalog.get`. */
 export interface AppDetail extends CatalogApp {
   scopes: ScopeRequest[];
@@ -66,6 +73,8 @@ export interface AppDetail extends CatalogApp {
   repository?: string;
   screenshots: string[];
   notices?: string[];
+  /** "What it adds" on the app's page; absent until the owner sends it. */
+  contributes?: AppContribution[];
 }
 
 /** One row of `cmux.apps.installed.list`. */

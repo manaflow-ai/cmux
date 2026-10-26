@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextFilesUI
 
 /// The App's ``FileExplorerEffects``: cmux viewers through the link opener
 /// (beside the active window's focused pane), the rest through NSWorkspace's

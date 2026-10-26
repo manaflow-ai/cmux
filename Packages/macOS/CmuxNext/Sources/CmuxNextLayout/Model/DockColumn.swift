@@ -26,9 +26,10 @@ public nonisolated struct DockColumn: Hashable, Sendable {
     public var mode: DockMode
     public var role: DockRole?
     /// `pinned-dock-v1`: the Home dock. Its first tab shows no close button
-    /// and its strip no new-tab button unless ``allowsTabs``.
+    /// and its strip no new-tab button: what Home opens goes beside it.
     public var isPinned: Bool
-    /// `pinned-dock-v1`: a pinned column takes more tabs.
+    /// `pinned-dock-v1`: a pinned column takes more tabs (the app turns it on
+    /// for Home's dock: tabs drag into and out of it).
     public var allowsTabs: Bool
 
     public init(edge: DockEdge = .right, mode: DockMode = .docked, role: DockRole? = nil,
@@ -42,4 +43,10 @@ public nonisolated struct DockColumn: Hashable, Sendable {
 
     /// Whether the column takes a tab other than its pinned one.
     public var takesTabs: Bool { !isPinned || allowsTabs }
+
+    /// Whether a pane of this column shows no tab bar while it shows `shownTabs` tabs: a pinned
+    /// column (the Home Chief pane) holding only its pinned tab has no strip (Lawrence 2026-10-23:
+    /// "home chief should have no tabbar"). A tab dragged into it (`allowsTabs`) brings the strip
+    /// back while it is there, so it stays reachable. plans/cmux-next/home-chief-pane.md H1.
+    public func hidesTabBar(shownTabs: Int) -> Bool { isPinned && shownTabs <= 1 }
 }

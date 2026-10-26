@@ -58,6 +58,9 @@ pub struct HeadlessSource {
     pub(crate) policies: Mutex<crate::headless_policy::Policies>,
     /// The isolated host's egress listener, for the policy listeners.
     pub(crate) egress: Option<std::net::SocketAddr>,
+    /// The browser runs headless: nobody sees its tabs (a headful one is a
+    /// Cloud user's window). Sessions learn it as the `headless` capability.
+    headless: bool,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -121,6 +124,7 @@ impl HeadlessSource {
             linger_wake: Condvar::new(),
             policies: Mutex::default(),
             egress: options.egress_listener,
+            headless: options.headless,
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -669,6 +673,11 @@ impl TabSource for SharedHeadless {
         let mut capabilities = self.0.driver.capabilities();
         // Incognito tabs (private data P1, headless_configure.rs).
         capabilities.push("incognito");
+        // Tabs nobody sees: the REPL's agent pointer skips the human path
+        // there (js/runtime-core.js Session).
+        if self.0.headless {
+            capabilities.push("headless");
+        }
         capabilities
     }
 }
