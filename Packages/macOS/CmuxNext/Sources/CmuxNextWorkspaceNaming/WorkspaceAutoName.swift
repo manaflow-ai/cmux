@@ -68,8 +68,10 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
                                 allowsLegacyDefaults: allowsLegacyDefaults) else { return nil }
         // Only a chat's real title lasts: a first prompt, a terminal's title (`vim foo`, a folder) or a
         // page's title is transient, so those stay live labels.
-        guard case let .chat(_, _, generatedTitle)? = front else { return nil }
-        return NewWorkspaceName.clean(generatedTitle)
+        guard case let .chat(_, _, generatedTitle)? = front,
+              let generated = NewWorkspaceName.clean(generatedTitle),
+              generated != NewWorkspaceName.clean(name) else { return nil }
+        return generated
     }
 
     /// Whether a rename decided earlier may still go out now that the
@@ -83,8 +85,9 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// Whether the user named the workspace: a title, or a name the daemon did not give.
     public static func isUserNamed(name: String, title: String?, nameSource: WorkspaceNameSource = .auto,
                                    nameRevision: UInt64 = 0, allowsLegacyDefaults: Bool = true) -> Bool {
-        !(title ?? "").isEmpty || (nameSource == .user && (nameRevision > 0 || !allowsLegacyDefaults))
-            || !NewWorkspaceName.isDefaultWorkspaceName(name)
+        guard (title ?? "").isEmpty else { return true }
+        guard nameSource == .user else { return false }
+        return nameRevision > 0 || !allowsLegacyDefaults || !NewWorkspaceName.isDefaultWorkspaceName(name)
     }
 
     /// The name `front` gives, one line and at most `NewWorkspaceName.maxLength` characters.
