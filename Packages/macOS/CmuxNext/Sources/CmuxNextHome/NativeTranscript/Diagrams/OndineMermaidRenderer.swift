@@ -224,9 +224,9 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
         let now = elapsed()
         let loaded = state.withLock { state -> Bool in
             state.warming = false
-            let loaded = Self.loadContext(&state, script: script, code: code, at: now)
+            let didLoad = Self.loadContext(&state, script: script, code: code, at: now)
             publish(state.answers, critical: state.limit.isCritical)
-            return loaded
+            return didLoad
         }
         if loaded { armIdleRelease(after: idleAfter) }
     }
@@ -255,9 +255,9 @@ public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Asyn
             // The script is read only when the context must load, and with the lock free; a pass with it never asks again.
             let code = readScript()
             outcome = state.withLock { state in
-                let outcome = Self.pass(&state, key: key, script: script, code: code, at: now)
+                let found = Self.pass(&state, key: key, script: script, code: code, at: now)
                 publish(state.answers, critical: state.limit.isCritical)
-                return outcome
+                return found
             }
         }
         guard case .done(let result, let loadedContext) = outcome else { return nil }

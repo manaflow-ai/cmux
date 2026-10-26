@@ -32,13 +32,19 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
     }
 }
 
-/// A renderer whose engine loads only in ``prewarm()``; it counts the warm checks and layouts, and
-/// reports each prewarm, with whether it ran on the main thread, on ``warmed``.
-final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
-    // @unchecked Sendable: the counters are behind `counts`; the prewarm runs off the test's thread.
+/// A renderer whose engine loads only in ``prewarm()``; it counts the warm checks and the layouts
+/// asked of it while cold (each would load the engine on the caller's thread), and reports each
+/// prewarm, with whether it ran on the main thread, on ``warmed``.
+final class ColdDiagrams: HomeDiagramRendering {
     let warmed: AsyncStream<Bool>
     private let signal: AsyncStream<Bool>.Continuation
-    private let counts = OSAllocatedUnfairLock(initialState: (loaded: false, warmChecks: 0, layouts: 0))
+    private let counts = OSAllocatedUnfairLock(initialState: Counts())
+
+    private struct Counts {
+        var loaded = false
+        var warmChecks = 0
+        var coldLayouts = 0
+    }
 
     init() {
         let made = AsyncStream<Bool>.makeStream()
@@ -48,7 +54,8 @@ final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
 
     /// How often the transcript asked whether to warm (``needsPrewarm``).
     var warmChecks: Int { counts.withLock { $0.warmChecks } }
-    var layouts: Int { counts.withLock { $0.layouts } }
+    /// Layouts asked before the engine loaded.
+    var coldLayouts: Int { counts.withLock { $0.coldLayouts } }
 
     var isReady: Bool { counts.withLock { $0.loaded } }
     var needsPrewarm: Bool {
@@ -64,7 +71,7 @@ final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
     }
 
     func layout(mermaid source: String, maxWidth: CGFloat) -> CGSize? {
-        counts.withLock { $0.layouts += 1 }
+        counts.withLock { if !$0.loaded { $0.coldLayouts += 1 } }
         return source.hasPrefix("graph") ? CGSize(width: 150, height: 90) : nil
     }
 
@@ -118,7 +125,7 @@ final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
         let text = "Here is the flow:\n```mermaid\ngraph TD\nA-->B\n```\nDone."
         let parts = mapped(text)
         #expect(parts.allSatisfy { Self.isDiagram($0) == nil }, "a cold engine maps the fence as text")
-        #expect(cold.layouts == 0, "no layout on the calling thread: it would load the engine there")
+        #expect(cold.coldLayouts == 0, "no layout on the calling thread: it would load the engine there")
         #expect(await warmed.next() == false, "the engine loads off the main thread")
         if provider.readiness.loads == loads {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -138,7 +145,7 @@ final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
         CustomRows.register(HomeDiagramRowProvider(renderer: cold))
         #expect(mapped(text).allSatisfy { Self.isDiagram($0) == nil })
         #expect(cold.warmChecks == 0, "no warm for a text with no Mermaid fence")
-        #expect(cold.layouts == 0)
+        #expect(cold.coldLayouts == 0)
     }
 
     /// The window that shows a fence mapped as text maps again when the engine loads (HomeProjection.observeDiagrams).
@@ -158,11 +165,10 @@ final class ColdDiagrams: HomeDiagramRendering, @unchecked Sendable {
         }
         #expect(await rig.post("\(HomeChatRig.tag) flow:\n```mermaid\ngraph TD\nA-->B\n```", key: IdempotencyKey("run_diagram")))
         rig.frame()
-        #expect(drawn() == 0, "the cold engine maps the fence as text")
-        #expect(cold.layouts == 0)
-        #expect(await warmed.next() == false)
+        #expect(await warmed.next() == false, "the engine loads off the main thread")
         await HomeChatRig.until { drawn() == 1 }
         #expect(drawn() == 1, "the loaded engine's diagram replaced the text")
+        #expect(cold.coldLayouts == 0, "the mapping never laid a fence out on the cold engine")
     }
 
     @Test func aFenceBetweenTextIsItsOwnBubble() {

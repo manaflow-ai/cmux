@@ -119,6 +119,8 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
             warm()
             return nil
         }
+        // Fences deferred while a critical limit kept the engine from warming map again now that a row loaded it.
+        warm()
         guard renderer.layout(mermaid: source, maxWidth: Fixture.maxTextWidth) != nil,
               let custom = try? CustomPart(kind: Self.kind, version: Self.version(source), value: Payload(source: source))
         else { return nil }
