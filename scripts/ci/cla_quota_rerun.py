@@ -101,17 +101,17 @@ def budget(rate: dict[str, Any]) -> tuple[int, dt.datetime | None, str]:
     return min(MAX_RERUNS, allowed), reset, f"{remaining} of {limit} left (floor {floor}{at})"
 
 
-def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, int]:
-    """Head SHA -> number of each open pull request into BASES (read per base, so other bases
-    never use up the pages). Matching on the head SHA covers fork pull requests, whose runs
+def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, set[int]]:
+    """Head SHA -> numbers of the open pull requests into BASES at it (read per base, so other
+    bases never use up the pages). Matching on the head SHA covers fork pull requests, whose runs
     list no pull request."""
-    heads: dict[str, int] = {}
+    heads: dict[str, set[int]] = {}
     for base in BASES:
         for page in range(1, MAX_PULL_PAGES + 1):
             pulls = gh.request("GET", f"/repos/{gh.repo}/pulls?state=open&base={base}&per_page=100&page={page}") or []
             for pull in pulls:
                 if (pull.get("base") or {}).get("ref") == base and (pull.get("head") or {}).get("sha"):
-                    heads[pull["head"]["sha"]] = int(pull.get("number") or 0)
+                    heads.setdefault(pull["head"]["sha"], set()).add(int(pull.get("number") or 0))
             if len(pulls) < 100:
                 break
         else:
@@ -120,16 +120,22 @@ def open_heads(gh: GitHub, log: Callable[[str], None]) -> dict[str, int]:
     return heads
 
 
-def eligible(run: dict[str, Any], heads: dict[str, int]) -> bool:
-    """The run's head is an open pull request's head into BASES. A same-repository run names
-    its pull requests: one of them must be into BASES and still at the run's head (a force
-    push since leaves it stale, even when another pull request has that SHA now)."""
-    head = run.get("head_sha")
-    if head not in heads:
-        return False
+def pull_number(run: dict[str, Any], heads: dict[str, set[int]]) -> int | None:
+    """The open pull request into BASES this run is for, at the head it still has; None when
+    there is none. A same-repository run names its pull requests, and one of them must be
+    among the open ones at that head: a closed one, or one force-pushed since, does not count
+    even when another open pull request has that SHA now. A fork's run names none, so its
+    head SHA alone decides."""
+    head = run.get("head_sha") or ""
+    numbers = heads.get(head) or set()
     prs = run.get("pull_requests") or []
-    return not prs or any((pr.get("base") or {}).get("ref") in BASES and (pr.get("head") or {}).get("sha") == head
-                          for pr in prs)
+    if not prs:
+        return min(numbers) if numbers else None
+    for pr in prs:
+        number = int(pr.get("number") or 0)
+        if number in numbers and (pr.get("head") or {}).get("sha") == head:
+            return number
+    return None
 
 
 def when(stamp: str | None) -> dt.datetime | None:
@@ -149,7 +155,7 @@ def workflow_runs(gh: GitHub, workflow: str) -> list[dict[str, Any]]:
     return gh.request("GET", f"/repos/{gh.repo}/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
 
 
-def latest_failures(runs: list[dict[str, Any]], heads: dict[str, int], now: dt.datetime) -> list[dict[str, Any]]:
+def latest_failures(runs: list[dict[str, Any]], heads: dict[str, set[int]], now: dt.datetime) -> list[dict[str, Any]]:
     """Each pull request head's newest run, when that run failed at the head an open pull
     request into BASES still has. An older failure whose head was re-run since (passed,
     running or failed again) is never replayed: its event's base can be stale."""
@@ -158,9 +164,9 @@ def latest_failures(runs: list[dict[str, Any]], heads: dict[str, int], now: dt.d
         head = run.get("head_sha") or ""
         if head and int(run.get("id") or 0) > int(newest.get(head, {}).get("id") or 0):
             newest[head] = run
-    return [run | {"number": heads[run["head_sha"]]} for run in newest.values()
+    return [run | {"number": pull_number(run, heads)} for run in newest.values()
             if run.get("status") == "completed" and run.get("conclusion") == "failure"
-            and recent(run, now) and eligible(run, heads) and int(run.get("run_attempt") or 1) < MAX_ATTEMPT]
+            and recent(run, now) and pull_number(run, heads) is not None and int(run.get("run_attempt") or 1) < MAX_ATTEMPT]
 
 
 def failed_job(gh: GitHub, run: dict[str, Any]) -> tuple[str, dt.datetime | None]:

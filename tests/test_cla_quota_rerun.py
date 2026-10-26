@@ -160,6 +160,12 @@ class Tests(unittest.TestCase):
         self.sweep(fake)
         self.assertEqual(fake.posts, [])
 
+    def test_a_closed_pull_requests_run_is_left_alone_when_an_open_one_shares_its_sha(self):
+        head = "a" * 40
+        fake = FakeGitHub([run(1, head, number=12)], [], {1: LIMITED_LOG}, pulls=[pull(13, head)])
+        self.sweep(fake)
+        self.assertEqual(fake.posts, [])
+
     def test_assistant_failures_cannot_take_the_guards_slots(self):
         limited = [run(i, f"{i:040x}", number=i, updated="2026-10-26T04:00:00Z") for i in range(1, 11)]
         guard = run(50, "e" * 40, number=50, name=GUARD)
@@ -222,7 +228,7 @@ class Tests(unittest.TestCase):
 
     def test_a_rate_limited_assistant_outside_the_window_is_not_evidence(self):
         guard_head, other_head = "b" * 40, "c" * 40
-        fake = FakeGitHub([run(5, other_head, updated="2026-10-26T03:00:00Z")], [run(2, guard_head, name=GUARD)],
+        fake = FakeGitHub([run(5, other_head, number=9, updated="2026-10-26T03:00:00Z")], [run(2, guard_head, name=GUARD)],
                           {2: GUARD_LOG, 5: LIMITED_LOG}, pulls=[pull(1, guard_head), pull(9, other_head)],
                           finished={2: "2026-10-26T04:00:00Z", 5: "2026-10-26T03:00:00Z"})
         self.sweep(fake)
@@ -230,8 +236,8 @@ class Tests(unittest.TestCase):
 
     def test_other_failures_closed_or_superseded_heads_old_runs_and_spent_attempts_are_left_alone(self):
         fake = FakeGitHub(
-            [run(1, "a" * 40), run(3, "c" * 40), run(4, "e" * 40, updated="2026-10-24T00:00:00Z"),
-             run(5, "f" * 40, attempt=rerun.MAX_ATTEMPT)],
+            [run(1, "a" * 40), run(3, "c" * 40, number=3), run(4, "e" * 40, number=4, updated="2026-10-24T00:00:00Z"),
+             run(5, "f" * 40, number=5, attempt=rerun.MAX_ATTEMPT)],
             [run(2, "a" * 40, attempt=rerun.MAX_GUARD_ATTEMPT, name=GUARD)],
             {1: "##[error]Committers of this pull request have not signed the CLA", 3: LIMITED_LOG, 4: LIMITED_LOG,
              5: LIMITED_LOG},
