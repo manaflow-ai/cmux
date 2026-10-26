@@ -208,8 +208,14 @@ Decision: `[profile.release]` keeps the default `panic = "unwind"`.
 - `catch_unwind` and tokio's `JoinError::is_panic` need unwinding. With
   `abort`, any panic left (third-party code, a missed path) would end the
   whole owner: every terminal and every connection, instead of one task.
-- A panic inside an `extern "C"` function aborts anyway (Rust 1.81+), so the
-  FFI edges cannot unwind into C; they wrap calls in `catch_unwind` already.
+- A panic inside an `extern "C"` function aborts the process (Rust 1.81+). In
+  the CCmuxAppFFI staticlib that process is the app, so every export needs a
+  catch boundary. Most exports do not have one yet (2026-10-25): cmux-rd-ffi has
+  61 `extern "C" fn` and 28 `catch_unwind` lines, cmux-layout-reducer-ffi 19 and
+  9, cmux-palette-ranker 5 and 3, cmux-app-ffi `motion.rs` 17 and 0.
+  [stability-DESIGN.md](stability-DESIGN.md) task 152 wraps every export in
+  `ffi_boundary` (catch_unwind, record, return the documented error value)
+  through the FFI pin lander (153); done check 9 counts them.
 - The cost of unwinding is a poisoned lock. The target is that every
   `lock()` recovers from poison (rule 1; most of the 1434 cmux-tui-core
   unwraps today are `lock().unwrap()`), so one panicked request cannot turn every later request
@@ -244,15 +250,25 @@ output as before.
 
 ## 7. Fuzzing
 
+The plan of record for fuzzing, sanitizers, Miri and loom is now
+[stability-DESIGN.md](stability-DESIGN.md) (PL-stability, 2026-10-25): its
+tasks 017-021, 176, 181 and 183 build the targets and the corpus store, its
+lab runs them per tip through `cmux-ci` (report only, no CI job), and done
+check 15 sets the target counts. The toolchain changes for two folders: `cmux-tui/fuzz/`
+and `cmux-tui/sanitize/` each pin a nightly Rust toolchain of their own,
+because cargo-fuzz, `-Zsanitizer` and Miri need nightly. Every other part of
+the workspace stays on the pinned stable toolchain.
+
 `cmux-tui/fuzz` is its own Cargo workspace (its own Cargo.lock, so it never
-needs the Cargo.lock slot), built with the pinned stable toolchain and
+needs the Cargo.lock slot), built with its pinned nightly toolchain and
 libFuzzer through `libfuzzer-sys` with sanitizer coverage flags, overflow
 checks and debug assertions on. One target per parser of outside bytes:
 terminal output (ghostty-vt), terminal input, socket and host frames, pane
 and remote protocol frames, relay and STUN packets, ACP and stream-json
-lines, config files (JSONC), journal and output-store records. CI runs each
-target for a bounded time on a pull request that touches its crate and longer
-nightly; a crash input becomes a corpus file and a fix.
+lines, config files (JSONC), journal and output-store records. The stability
+lab runs each target for 5 minutes on each new tip and longer on the newest
+tip (no GitHub CI job, Lawrence 2026-10-23); a crash input becomes a corpus
+file and a fix.
 
 ## 8. Migration order and status
 

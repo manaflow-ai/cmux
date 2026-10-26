@@ -3687,8 +3687,8 @@ def check_import_with_a_fake_trace_processor():
         assert not ok and "daemon spans (pid 2 tid 9) is not a thread" in report["problems"][0], report["problems"]
 
 
-# The `key.flow` hops TypingLatencyProbe emits for one terminal key press, in order (Mark.hopName for the marks,
-# `hop("app.key.terminal")` in TerminalSurfaceView.keyDown, closeAtCommit's app.frame.commit). app.key.dispatched
+# The `key.flow` hops TypingLatencyProbe emits for one terminal key press, in order (Mark.hop for the marks,
+# keyReachedTerminal() in TerminalSurfaceView.keyDown, closeAtCommit's app.frame.commit). app.key.dispatched
 # and app.key.commit are emitted too and are not FLOW_HOPS: the assembly must ignore them.
 APP_KEY_HOPS = ("app.key.dispatch", "app.key.terminal", "app.key.dispatched", "app.key.commit", "app.io_write", "app.send")
 APP_ECHO_HOPS = ("app.output.decoded", "app.output.received", "app.output.parsed", "app.frame.contents", "app.frame.commit")

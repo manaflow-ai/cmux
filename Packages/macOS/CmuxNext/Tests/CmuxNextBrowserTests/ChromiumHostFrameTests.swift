@@ -1,8 +1,10 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 @testable import CmuxNextBrowser
 import Testing
 
 /// The wire between cmux and the Chromium host app: the same golden frame as
-/// CEFShim/tests/chromium_host_wire_test.cpp, so the Swift and C++ sides agree.
+/// ChromiumHost/tests/chromium_host_wire_test.cpp (scripts/cmux-next/tests/chromium-host-wire.test.sh).
 @Suite struct ChromiumHostFrameTests {
     static let golden: [UInt8] = hexBytes(
         "05000000030000000a000000feffffffffffff7f0300000004000000ffffffff"
@@ -68,3 +70,4 @@ import Testing
         #expect(decoded.kind == nil)
     }
 }
+#endif
