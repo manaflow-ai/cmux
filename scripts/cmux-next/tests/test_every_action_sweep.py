@@ -1691,8 +1691,9 @@ class FakeProcess:
         return self.code
 
 
-def blocking_reply(sites, mode="record", overflow=0):
-    return {"mode": mode, "overflow": overflow,
+def blocking_reply(sites, mode="record", overflow=0, pool_mode=None, compiled_in=True):
+    """BlockingControl.report's shape (CmuxNextControl/Diagnostics/BlockingControl.swift)."""
+    return {"compiled_in": compiled_in, "mode": mode, "pool_mode": pool_mode or mode, "overflow": overflow,
             "sites": [{"kind": kind, "location": location, "count": count} for kind, location, count in sites]}
 
 
@@ -1749,7 +1750,7 @@ class BlockingReportTests(unittest.TestCase):
         reads = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([
                      ("file-io", "CmuxNextApp/Foo.swift:12", 3), ("file-io", "CmuxNextApp/Foo.swift:40", 1),
                      ("sync-wait", "CmuxNextApp/Foo.swift:12", 2), ("file-io", "CmuxNextTerminal/Pty.swift:9", 1)])},
-                 {"session": "stress", "launch": 2, "exit": None, "reply": {"mode": "record", "overflow": 0, "sites": [
+                 {"session": "stress", "launch": 2, "exit": None, "reply": {"compiled_in": True, "mode": "record", "overflow": 0, "sites": [
                      {"kind": "file-io", "location": "CmuxNextApp/Foo.swift:12", "count": 5, "context": "main"},
                      {"kind": "file-io", "location": "CmuxNextApp/Foo.swift:12", "count": 1, "context": "pool"}]}}]
         section = sweep_mod.blocking_section("record", reads, [])
@@ -1761,8 +1762,19 @@ class BlockingReportTests(unittest.TestCase):
         self.assertEqual([(t["id"], len(t["sites"])) for t in section["tasks"]], [("p02-threads-R1", 3), ("p02-threads-R2", 1)])
         self.assertEqual(section["tasks"][1]["files"], ["Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Pty.swift"])
         self.assertEqual(section["tasks"][0]["machine_queue"], "MQ-10")
-        self.assertEqual(section["contexts"]["pool"], 1)
+        self.assertEqual(section["contexts"], {"cpu-lane": 0, "main": 3, "pool": 1})
+        self.assertEqual(section["kinds"], {"file-io": 3, "sync-wait": 1})
+        self.assertEqual(section["unread"], [])
         self.assertNotIn("run1", section)  # a record run's sites are its output, not a failure
+
+    def test_a_record_run_on_a_build_without_the_detector_reads_no_sites_and_says_so(self):
+        reads = [{"session": "light", "launch": 1, "exit": None,
+                  "reply": blocking_reply([("file-io", "CmuxNextApp/Foo.swift:12", 1)], compiled_in=False)}]
+        section = sweep_mod.blocking_section("record", reads, [])
+        self.assertEqual(section["groups"], [])
+        self.assertEqual(len(section["unread"]), 1)
+        self.assertIn("no blocking detector", section["unread"][0])
+        self.assertIn("Launches whose sites do not count:", "\n".join(sweep_mod.blocking_lines(section)))
 
     def test_a_trap_run_is_clean_only_with_every_launch_read_in_trap_mode_and_nothing_found(self):
         clean = [{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([], mode="trap")}]
@@ -1772,6 +1784,12 @@ class BlockingReportTests(unittest.TestCase):
             "a site": ([{"session": "light", "launch": 1, "exit": None,
                          "reply": blocking_reply([("lock-wait", "CmuxNextCompat/Mutex.swift:3", 1)], mode="trap")}], []),
             "record mode": ([{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([])}], []),
+            # RUN-1 needs both switches: a main trap with the pool still recording never trips on a pool site.
+            "pool records": ([{"session": "light", "launch": 1, "exit": None,
+                               "reply": blocking_reply([], mode="trap", pool_mode="record")}], []),
+            # A bench build answers with no detector and no sites: that is no evidence, not a clean run.
+            "no detector": ([{"session": "light", "launch": 1, "exit": None,
+                              "reply": blocking_reply([], mode="trap", compiled_in=False)}], []),
             "SIGTRAP": ([{"session": "light", "launch": 1, "exit": -sweep_mod.signal.SIGTRAP, "reply": {"error": "exited"}}], []),
             "unread": ([{"session": "light", "launch": 1, "exit": None, "reply": {"error": "timed out", "unreachable": True}}], []),
             "overflow": ([{"session": "light", "launch": 1, "exit": None, "reply": blocking_reply([], mode="trap", overflow=2)}], []),

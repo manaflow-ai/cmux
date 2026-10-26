@@ -173,8 +173,9 @@ BLOCKING_ENV = {"record": {"CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL":
 # out the record mode's log line of the same words. The words between "on" and "at" name the context ("the main
 # thread" is main; a pool trap names its pool).
 BLOCKING_TRAP_LINE = re.compile(r"Fatal error: blocking (?P<kind>[\w-]+) on (?P<where>[^:\n]+?) at (?P<file>[^\s:]+):(?P<line>\d+):")
-# The contexts RUN-1 counts (plans/cmux-next/chrome-parity/p02-threads.md section 5); a site of any context fails it.
-BLOCKING_CONTEXTS = ("main", "pool", "lane-sync", "wrong-lane", "cpu-intensive", "priority-inversion", "lock-wait")
+# The violation contexts debug.blocking reports (BlockingContext's raw values; lane and dedicated may block). RUN-1
+# (plans/cmux-next/chrome-parity/p02-threads.md section 5) fails on a site of any context or kind.
+BLOCKING_CONTEXTS = ("main", "pool", "cpu-lane")
 # Why a row was skipped (`skip_kind`), set where the skip is decided, never read back from the reason's words:
 #   gap       no fixture: plan() or argument_values() found a context the sweep does not set up, a target kind or
 #             argument it has no value for; or a context the sweep does set up did not hold (the base pane showed no tab of
@@ -2552,7 +2553,7 @@ def blocking_site_groups(reads):
     groups = {}
     for read in reads:
         reply = read.get("reply")
-        if not isinstance(reply, dict) or error_of(reply):
+        if blocking_read_problem(reply, None):
             continue
         for site in reply.get("sites") or []:
             location = str(site.get("location") or "?")
@@ -2594,29 +2595,42 @@ def blocking_tasks(groups):
     return tasks
 
 
+def blocking_read_problem(reply, mode):
+    """Why a debug.blocking reply cannot count as a launch's sites, or None: an error, a build without the detector
+    (a bench build answers compiled_in false with no sites, which is not "no blocking"), or, when `mode` is "trap",
+    a detector whose main or pool mode is not trap (RUN-1 needs both)."""
+    if not isinstance(reply, dict):
+        return f"no reply ({reply!r})"
+    if error_of(reply):
+        return str(error_of(reply))
+    if reply.get("compiled_in") is not True:
+        return "the build has no blocking detector (compiled_in is not true)"
+    if mode == "trap" and (reply.get("mode"), reply.get("pool_mode")) != ("trap", "trap"):
+        return f"the detector ran in mode {reply.get('mode')!r}, pool_mode {reply.get('pool_mode')!r}, not trap"
+    return None
+
+
 def blocking_section(mode, reads, traps, partial=False):
-    """The report's `blocking` section: the reads, the traps, the site groups and their tasks, and the RUN-1 verdict of
-    a trap run (`run1`: problems, empty when clean). A record run has no verdict (its sites are its output)."""
+    """The report's `blocking` section: the reads (`unread`: the launches whose reply cannot count), the traps, the
+    site groups and their tasks, and the RUN-1 verdict of a trap run (`run1`: problems, empty when clean). A record
+    run has no verdict (its sites are its output)."""
     groups = blocking_site_groups(reads)
     overflow = sum(int((r.get("reply") or {}).get("overflow") or 0) for r in reads if isinstance(r.get("reply"), dict))
-    section = {"mode": mode, "reads": reads, "traps": traps, "groups": groups, "tasks": blocking_tasks(groups),
-               "sites": sum(len(g["lines"]) or 1 for g in groups), "overflow": overflow,
+    unread = [f"{r.get('session')} launch {r.get('launch')}: {why}" for r in reads
+              if (why := blocking_read_problem(r.get("reply"), mode))]
+    section = {"mode": mode, "reads": reads, "unread": unread, "traps": traps, "groups": groups,
+               "tasks": blocking_tasks(groups), "sites": sum(len(g["lines"]) or 1 for g in groups), "overflow": overflow,
                "contexts": {c: sum(1 for g in groups if g["context"] == c) for c in
-                            sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})}}
+                            sorted(set(BLOCKING_CONTEXTS) | {g["context"] for g in groups})},
+               "kinds": {k: sum(1 for g in groups if g["kind"] == k) for k in sorted({g["kind"] for g in groups})}}
     if mode != "trap":
         return section
     problems = []
     if not reads:
         problems.append("no launch was read")
-    for read in reads:
-        reply = read.get("reply")
-        where = f"{read.get('session')} launch {read.get('launch')}"
-        if read.get("exit") == -signal.SIGTRAP:
-            problems.append(f"{where} exited on SIGTRAP")
-        elif not isinstance(reply, dict) or error_of(reply):
-            problems.append(f"{where} not read: {error_of(reply) if isinstance(reply, dict) else reply}")
-        elif reply.get("mode") != "trap":
-            problems.append(f"{where} ran the detector in mode {reply.get('mode')!r}, not trap")
+    problems += [f"{r.get('session')} launch {r.get('launch')} exited on SIGTRAP" for r in reads
+                 if r.get("exit") == -signal.SIGTRAP]
+    problems += [f"not read: {why}" for why in unread]
     if traps:
         problems.append(f"{len(traps)} trap(s): " + ", ".join(f"{t['location']} {t['kind']}" for t in traps[:10]))
     if groups:
@@ -2638,7 +2652,10 @@ def blocking_lines(section):
         lines += [f"RUN-1 ({'whole catalog' if run1['whole_catalog'] else 'partial run, not RUN-1'}): {verdict}", ""]
     lines.append(f"{len(section['reads'])} launch(es) read, {len(section['groups'])} site group(s), {section['sites']} "
                  f"site(s), {len(section['traps'])} trap(s), overflow {section['overflow']}; by context: "
-                 + ", ".join(f"{c} {n}" for c, n in section["contexts"].items()))
+                 + ", ".join(f"{c} {n}" for c, n in section["contexts"].items())
+                 + "; by kind: " + (", ".join(f"{k} {n}" for k, n in section.get("kinds", {}).items()) or "none"))
+    if section.get("unread"):
+        lines += ["", "Launches whose sites do not count:", ""] + [f"- {why}" for why in section["unread"]]
     if section["groups"]:
         lines += ["", "| task | module | fileID | lines | kind | context | count | sessions |", "|---|---|---|---|---|---|---|---|"]
         for task in section["tasks"]:
