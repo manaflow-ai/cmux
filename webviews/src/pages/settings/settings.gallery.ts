@@ -2,6 +2,7 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
+import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
@@ -76,6 +77,24 @@ const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
 });
+/** The Active Team menu and the Teams group over sample teams, after `edit` (a gesture or a flag). */
+const activeTeamRow = (teams: MockTeams): NonNullable<AccountsState["teams"]> => ({
+  title: "Active Team",
+  help: "Cloud machines, CodeRouter and phone access use this team.",
+  options: teams.teams.map((team) => ({ id: team.id, name: team.name, active: team.id === teams.active })),
+  disabled: false,
+  note: null,
+  error: null,
+});
+const withTeams = (edit: (teams: MockTeams) => void = () => {}): AccountsState => {
+  const teams = new MockTeams();
+  teams.teams = teams.teams.map((team) => ({
+    ...team,
+    name: team.role === "admin" ? "Sample team" : "Another sample team",
+  }));
+  edit(teams);
+  return accounts({}, { teams: activeTeamRow(teams), teamList: teams.state() });
+};
 const host: Partial<HostLists> = {
   machines: [
     {
@@ -880,6 +899,57 @@ Object.assign(variants, {
     }),
     note: "Empty credential form; fixtures never contain credentials.",
   }),
+  "accounts-team-roles": variant("accounts", {
+    accounts: withTeams(),
+    note: "Teams: each team with your role (Admin or Member), the active one marked, and New Team.",
+  }),
+  "accounts-team-roles-unknown": variant("accounts", {
+    accounts: withTeams((teams) => (teams.rolesUnknown = true)),
+    note: "Only the sign-in service answered: roles read Role unknown.",
+  }),
+  "accounts-team-admin": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-personal" })),
+    note: "Details as an admin: your role, member count and plan, members (You marked), pending invitations, Rename and Delete.",
+  }),
+  "accounts-team-member": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.details", team: "team-acme" })),
+    note: "Details as a member: read-only, no invitations, no Rename or Delete.",
+  }),
+  "accounts-team-rename": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.rename", team: "team-personal" });
+    }),
+    note: "Rename Team: the field starts at the current name, up to 64 characters.",
+  }),
+  "accounts-team-delete": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+    }),
+    note: "Delete Team asks first and names the team.",
+  }),
+  "accounts-team-delete-blocked": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.teams = teams.teams.map((team) => ({ ...team, subscribed: team.id === "team-personal" }));
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "A team with an active subscription cannot be deleted: the confirmation says why.",
+  }),
+  "accounts-team-create": variant("accounts", {
+    accounts: withTeams((teams) => teams.run({ action: "team.new" })),
+    note: "New Team: you become its admin and it becomes your active team.",
+  }),
+  "accounts-team-deleted": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.run({ action: "team.details", team: "team-personal" });
+      teams.run({ action: "team.delete", team: "team-personal" });
+      teams.run({ action: "team.confirmDelete", team: "team-personal" });
+    }),
+    note: "After deleting the active team, the other team is active and the notice says so.",
+  }),
   "accounts-teams": variant("accounts", {
     accounts: accounts(
       {},
@@ -895,6 +965,7 @@ Object.assign(variants, {
           note: null,
           error: null,
         },
+        teamList: null,
       },
     ),
     note: "The active team switcher: one row with a pop-up menu of the teams, the active one checked.",

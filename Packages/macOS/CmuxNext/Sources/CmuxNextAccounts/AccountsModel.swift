@@ -19,6 +19,8 @@ public final class AccountsModel {
     /// Why the last team switch failed, until the next switch or refresh.
     public private(set) var teamError: String?
     @ObservationIgnored public let services: any AccountsServices
+    /// Roles, team details and the create, rename and delete forms.
+    public let teamsModel: AccountsTeamsModel
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     /// Providers whose login was started here; re-detected on activation.
@@ -29,6 +31,7 @@ public final class AccountsModel {
 
     public init(services: any AccountsServices) {
         self.services = services
+        teamsModel = AccountsTeamsModel(services: services)
         rows = AIProvider.allCases.map(AccountRowState.init(provider:))
     }
 
@@ -63,6 +66,8 @@ public final class AccountsModel {
             let loading = Task { await Self.loadLinked(services) }
             // Membership re-reads on its own; the team list updates when it lands.
             if let active = services.activeTeam { Task { await active.refresh() } }
+            // Roles (and the open team's details) re-read on their own too.
+            if let teamsModel = self?.teamsModel { Task { await teamsModel.reload() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
             for detection in found { self.apply(.detected(detection), to: detection.provider) }
