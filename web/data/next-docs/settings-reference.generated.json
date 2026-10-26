@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 497,
+  "count": 498,
   "sections": [
     {
       "id": "general",
@@ -1220,10 +1220,10 @@
         },
         {
           "key": "updates.downloadAutomatically",
-          "title": "Download Updates Automatically",
-          "help": "Off: a found update waits, and one click downloads and installs it.",
+          "title": "Download and Install Updates Automatically",
+          "help": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1231,7 +1231,7 @@
           "title": "Install Within",
           "help": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
           "kind": "number",
-          "default": 900,
+          "default": 600,
           "group": "Updates",
           "range": {
             "min": 60,

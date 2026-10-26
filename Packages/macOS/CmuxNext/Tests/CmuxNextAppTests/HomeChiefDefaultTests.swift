@@ -254,10 +254,11 @@ struct HomeChiefDefaultTests {
         #expect(TopHomePageView.followUp(chief: nil, shown: hosted, followed: "conv_hosted", composing: false,
                                          rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local",
                 "with no New Message page it moves, so the test above fails for its own reason")
-        // Nor when this Mac's Chief arrives while the page is still being written on.
+        // Nor when this Mac's Chief arrives while the page is still being written on. The page did
+        // not open that Chief, so it does not follow it either: what it was following stays, and
+        // the Chief replaces that when the person leaves New Message and it is shown again.
         #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: true,
-                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_local"),
-                "the arriving Chief is followed from now on, but nothing closes New Message for it")
+                                         rows: Self.cloudLedRows, home: home) == .init(open: nil, followed: "conv_hosted"))
         #expect(TopHomePageView.followUp(chief: "conv_local", shown: hosted, followed: "conv_hosted", composing: false,
                                          rows: Self.cloudLedRows, home: home).open?.rawValue == "conv_local")
     }
