@@ -68,6 +68,8 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
+//   CmuxNextInput -> InputCore, Signposts, Wakeups (the input pipeline's AppKit side: InputLatencyTracker, Chrome's
+//     EventLatency over CommitBoundary and PresentationClock; plans/cmux-next/chrome-parity/p04-input.md section 3)
 //   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
 //     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
 //     reader; setup stays in the App)
@@ -652,6 +654,27 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextActions", "CmuxNextDesign", "CmuxNextSignposts"],
             resources: [
                 .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The input pipeline's AppKit side (p04-input section 3): InputLatencyTracker opens an input latency slot
+        // per tracked event and closes it at the turn's commit with a presented estimate (PresentationClock).
+        .target(
+            name: "CmuxNextInput",
+            dependencies: [
+                "CmuxNextInputCore",
+                "CmuxNextSignposts",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextInputTests",
+            dependencies: [
+                "CmuxNextInput",
+                "CmuxNextInputCore",
+                "CmuxNextSignposts",
+                .product(name: "Atomics", package: "swift-atomics"),
             ],
             swiftSettings: uiSwiftSettings
         ),

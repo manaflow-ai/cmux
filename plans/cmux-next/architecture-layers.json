@@ -87,6 +87,7 @@
     "CmuxNextHome": {"layer": "ui"},
     "CmuxNextFilesUI": {"layer": "ui"},
     "CmuxNextFocusUI": {"layer": "ui"},
+    "CmuxNextInput": {"layer": "ui", "note": "input pipeline UI side: InputLatencyTracker (EventLatency over CommitBoundary and PresentationClock), later the input tap and frame coalescer (p04-input 3)"},
     "CmuxNextSettingsWindow": {"layer": "ui"},
     "CmuxNextOnboarding": {"layer": "ui"},
     "CmuxNextServer": {"layer": "ui"},
