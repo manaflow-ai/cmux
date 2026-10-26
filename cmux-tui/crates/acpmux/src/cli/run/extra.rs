@@ -98,7 +98,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Fork { session, name, cwd } => {
+        Command::Fork { session, name, cwd, force_admit } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": {}}});
@@ -107,6 +107,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             if let Some(n) = name {
                 p["_meta"]["acpmux"]["name"] = json!(n);
+            }
+            if force_admit {
+                p["_meta"]["acpmux"]["forceAdmit"] = json!(true);
             }
             let v = client.request(method::SESSION_FORK, p).await?;
             if json_out {
