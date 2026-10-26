@@ -466,7 +466,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            state = waits::wait(&self.changed, state).recover_poison();
         }
     }
 

@@ -59,6 +59,11 @@ const START_TIMEOUT: Duration = Duration::from_secs(45);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 pub(crate) const MAX_RUNTIMES_PER_CLIENT: usize = 4;
 pub(crate) const MAX_RUNTIMES_TOTAL: usize = 16;
+/// Status reads queued or running, per connection and in the daemon: a
+/// connection that sends status lines back to back gets a refusal past it,
+/// so it cannot fill the files lane (as the trust calls' `CallSlot`).
+pub(crate) const MAX_STATUS_READS_PER_CLIENT: usize = 4;
+pub(crate) const MAX_STATUS_READS_TOTAL: usize = 16;
 const MAX_URL_BYTES: usize = 8 * 1024;
 const LOG_TAIL_BYTES: u64 = 2 * 1024;
 const THREAD_STACK_BYTES: usize = 256 * 1024;
@@ -77,6 +82,8 @@ struct State {
     runtimes: HashMap<u64, Runtime>,
     /// Starts in progress by connection (they count against the limits).
     starting: HashMap<u64, usize>,
+    /// Status reads queued or running, by connection ([`StatusRead`]).
+    status_reads: HashMap<u64, usize>,
 }
 
 impl State {
@@ -132,7 +139,7 @@ impl BrowserRuntimes {
     fn installed(&self) -> Option<(String, PathBuf)> {
         let version = files::canonicalize(self.root()?.join("current")).ok()?;
         let executable = executable_in(&version);
-        if !executable.is_file() {
+        if !files::metadata(&executable).is_ok_and(|metadata| metadata.is_file()) {
             return None;
         }
         Some((version.file_name()?.to_string_lossy().into_owned(), executable))
@@ -262,13 +269,50 @@ pub(super) fn try_handle(
     }
 }
 
+/// A status read queued or running for `client`; its drop (the item ran,
+/// or shutdown dropped it unrun) frees the slot.
+struct StatusRead {
+    mux: Arc<Mux>,
+    client: u64,
+}
+
+impl StatusRead {
+    /// A slot, or `None` past the per-connection or daemon-wide bound.
+    fn take(mux: &Arc<Mux>, client: u64) -> Option<Self> {
+        let mut state = mux.control_clients.browser_runtimes.lock();
+        let own = state.status_reads.get(&client).copied().unwrap_or(0);
+        let total: usize = state.status_reads.values().sum();
+        if own >= MAX_STATUS_READS_PER_CLIENT || total >= MAX_STATUS_READS_TOTAL {
+            return None;
+        }
+        state.status_reads.insert(client, own + 1);
+        Some(Self { mux: mux.clone(), client })
+    }
+}
+
+impl Drop for StatusRead {
+    fn drop(&mut self) {
+        let mut state = self.mux.control_clients.browser_runtimes.lock();
+        if let Some(count) = state.status_reads.get_mut(&self.client) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                state.status_reads.remove(&self.client);
+            }
+        }
+    }
+}
+
 /// `browser-runtime-status`: the install is on disk, so a work item reads
-/// it and answers; the reader thread goes on to the next line.
+/// it and answers; the reader thread goes on to the next line. At most
+/// [`MAX_STATUS_READS_PER_CLIENT`] reads per connection wait at a time.
 fn status(mux: &Arc<Mux>, client: u64, id: Option<Value>, writer: &MessageWriter) -> bool {
-    let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+    let Some(slot) = StatusRead::take(mux, client) else {
+        return fail(writer, id, "browser-runtime.limit", "too many browser runtime status reads");
+    };
+    let (worker_writer, worker_id) = (writer.clone(), id.clone());
     let posted =
         mux.work.post(Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown, move || {
-            let runtimes = &worker_mux.control_clients.browser_runtimes;
+            let runtimes = &slot.mux.control_clients.browser_runtimes;
             let installed = runtimes.installed().map(|(version, _)| version);
             let state = runtimes.lock();
             let mut own: Vec<(u64, u16)> = state
@@ -278,6 +322,9 @@ fn status(mux: &Arc<Mux>, client: u64, id: Option<Value>, writer: &MessageWriter
                 .map(|(id, runtime)| (*id, runtime.port))
                 .collect();
             drop(state);
+            // Free the slot before the answer, so a client that waits for
+            // each answer never meets the bound.
+            drop(slot);
             own.sort_unstable();
             let rows: Vec<Value> =
                 own.into_iter().map(|(id, port)| json!({"runtime": id, "port": port})).collect();
@@ -387,6 +434,7 @@ fn launch(
         &log,
     )
     .map_err(|error| format!("cannot create {}: {error}", log.display()))?;
+    // mq14-allow: the start thread spawns the host, never the reader thread.
     let mut command = Command::new(executable);
     command.args(["--serve", "--listen", "127.0.0.1:0", "--lifeline"]);
     if let Some(url) = url {

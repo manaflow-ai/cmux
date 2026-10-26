@@ -45,6 +45,7 @@ pub(super) fn serve_line_connection(
     let writer_close = writer.clone();
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
+            // mq14-allow: the writer thread waits for its own queue (a checked wait).
             while let Some(item) = writer_outbound.recv() {
                 if write_line_outbound_item(&mut *write_half, item).is_err() {
                     writer_outbound.close();

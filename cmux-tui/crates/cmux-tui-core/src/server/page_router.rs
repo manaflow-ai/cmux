@@ -73,12 +73,18 @@ pub(super) fn try_handle(
     };
     // The owner waits on another process: a work item asks it and answers,
     // so this request thread answers the next line at once (Chrome posts
-    // such a wait to a MayBlock task runner, base/task/task_traits.h).
+    // such a wait to a MayBlock task runner, base/task/task_traits.h). A
+    // half-done ask is harmless and its connection closes at shutdown, so
+    // shutdown never waits for it.
     let (worker_writer, worker_id) = (writer.clone(), id.clone());
-    let posted =
-        mux.work.post(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, move || {
+    let posted = mux.work.post(
+        Priority::UserBlocking,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || {
             respond(&worker_writer, worker_id, job());
-        });
+        },
+    );
     Some(match posted {
         Ok(()) => true,
         Err(_) => respond(

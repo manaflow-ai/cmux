@@ -11,6 +11,7 @@
 //! per-connection queue and reports `_acpmux/lagged`.
 
 use cmux_threads::checked::ipc_reply;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -119,8 +120,8 @@ impl AcpmuxLink {
             self.forget(id);
             return Err(LinkError::Closed);
         }
-        let result =
-            ipc_reply(|| receiver.recv_timeout(timeout)).unwrap_or(Err(LinkError::Timeout));
+        let result = ipc_reply(|| waits::recv_timeout(&receiver, timeout))
+            .unwrap_or(Err(LinkError::Timeout));
         self.forget(id);
         result
     }

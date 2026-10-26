@@ -363,6 +363,7 @@ fn handle_websocket_connection_with_permit(
     let Ok(writer_thread) =
         std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
             let mut writer_stream = writer_stream;
+            // mq14-allow: the writer thread waits for its own queue (a checked wait).
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
                     OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),

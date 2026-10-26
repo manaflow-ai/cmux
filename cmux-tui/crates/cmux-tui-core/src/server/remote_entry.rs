@@ -139,7 +139,7 @@ pub(super) fn serve_remote_entry_with(
         })?;
         files::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
     }
-    if path.exists() {
+    if files::metadata(path).is_ok() {
         match UnixStream::connect(path) {
             Ok(_) => anyhow::bail!("remote entry {} is already in use", path.display()),
             Err(_) => files::remove_file(path)?,

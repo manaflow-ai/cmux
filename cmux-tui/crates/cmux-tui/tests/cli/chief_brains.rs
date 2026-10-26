@@ -17,7 +17,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-/// Records the start (`n`), its env, the `claude` its PATH finds, argv and
+/// Records the start (`n`), its env, the engine file it would read
+/// (`engine.$n`), the `claude` its PATH finds, argv and
 /// pid in `$MUX_HOME`, then runs
 /// until SIGTERM. The first start exits 0 at once when the Chief home had
 /// an `exit-first` file before its pid file was written.
@@ -29,6 +30,7 @@ echo "$n" > "$MUX_HOME/starts"
 quit=0
 if [ "$n" = 1 ] && [ -e "$CMUX_CHIEF_HOME/exit-first" ]; then quit=1; fi
 env > "$MUX_HOME/env.$n"
+cat "$MUX_HOME/optchat/engine.json" > "$MUX_HOME/engine.$n" 2>/dev/null
 command -v claude > "$MUX_HOME/claude.$n" 2>/dev/null
 echo "$@" > "$MUX_HOME/argv.$n"
 echo "$$" > "$MUX_HOME/pid.tmp" && mv "$MUX_HOME/pid.tmp" "$MUX_HOME/pid.$n"
@@ -1007,11 +1009,18 @@ fn a_chiefs_engine_is_written_where_its_brain_reads_it() {
         &[("CMUX_TUI_CHIEF_BRAINS", brains.as_str())],
     );
     let server = &owned;
-    let read = |path: &std::path::Path| -> Value {
-        serde_json::from_slice(
-            &fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display())),
-        )
-        .unwrap()
+    // The daemon answers from memory and writes the file after the answer
+    // (its brain supervisor, or a work item): wait (bounded) for it.
+    let wait_json = |path: &std::path::Path, expected: Value| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let read = fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+            if read.as_ref() == Some(&expected) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "{}: {read:?}, not {expected}", path.display());
+            std::thread::sleep(Duration::from_millis(25));
+        }
     };
 
     let made = chief_cli(
@@ -1023,25 +1032,38 @@ fn a_chiefs_engine_is_written_where_its_brain_reads_it() {
     let scout =
         serde_json::from_slice::<Value>(&made.stdout).unwrap()["id"].as_str().unwrap().to_owned();
     let file = brain_dir(&chief_home, &scout).join("optchat/engine.json");
-    assert_eq!(read(&file), json!({"harness": "codex", "model": "m1"}));
+    wait_json(&file, json!({"harness": "codex", "model": "m1"}));
     #[cfg(unix)]
     assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
 
     // The brain's own fields stay; the record's three replace the file's.
     fs::write(&file, r#"{"harness": "codex", "model": "m1", "speed": "fast"}"#).unwrap();
     assert_success(&chief_cli(server, &["edit", &scout, "--model", "m2", "--effort", "high"], ""));
-    assert_eq!(
-        read(&file),
-        json!({"harness": "codex", "model": "m2", "effort": "high", "speed": "fast"})
-    );
+    wait_json(&file, json!({"harness": "codex", "model": "m2", "effort": "high", "speed": "fast"}));
     // A rename leaves the engine, and so the file, as it is.
     fs::write(&file, r#"{"harness": "claude"}"#).unwrap();
     assert_success(&chief_cli(server, &["edit", &scout, "--name", "Scout Two"], ""));
-    assert_eq!(read(&file), json!({"harness": "claude"}));
+    wait_json(&file, json!({"harness": "claude"}));
+
+    // An engine change with a prompt change restarts the running brain, and
+    // the new brain reads the new engine: the supervisor writes the file
+    // before it restarts it (p02-threads 220 review).
+    let (ops, brain) = make_chief_with_brain(server, "Ops", "Release captain");
+    assert_eq!(brain, json!({"state": "started"}), "{brain}");
+    let ops_home = brain_dir(&chief_home, &ops);
+    let ops_pid: i32 = wait_file(&ops_home.join("pid.1")).parse().unwrap();
+    assert_success(&chief_cli(
+        server,
+        &["edit", &ops, "--harness", "opencode", "--instructions", "Watch the release."],
+        "",
+    ));
+    wait_file(&ops_home.join("pid.2"));
+    wait_gone(ops_pid, "after the engine and prompt change");
+    wait_json(&ops_home.join("engine.2"), json!({"harness": "opencode"}));
 
     // The default Chief's engine file is the Chief home root's.
     assert_success(&chief_cli(server, &["edit", "agent_mux", "--effort", "low"], ""));
-    assert_eq!(read(&chief_home.join("optchat/engine.json")), json!({"effort": "low"}));
+    wait_json(&chief_home.join("optchat/engine.json"), json!({"effort": "low"}));
 
     // A change the brain took through chief.engine.set is the record's too.
     let socket = brain_dir(&chief_home, &scout).join("optchat/tools.sock");

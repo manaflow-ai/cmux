@@ -2,7 +2,8 @@
 
 use super::*;
 
-/// How long shutdown waits for block work items (each one short save).
+/// How long shutdown waits for the work items it waits for: block items (one
+/// short save each) and started skip items (short disk reads).
 const WORK_SHUTDOWN_WAIT: Duration = Duration::from_secs(2);
 
 impl Mux {
@@ -124,8 +125,9 @@ impl Mux {
         self.stop_journal_maintenance();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
-        // Block work items (one short save each, such as a Chief engine file)
-        // finish; queued skip and continue items are dropped (work.rs).
+        // Block items (a Chief engine file save) and started skip items (a
+        // browser-runtime status read) finish; queued skip items and every
+        // continue item (an acpmux ask) are not waited for (work.rs).
         let work = self.work.shutdown_until(Instant::now() + WORK_SHUTDOWN_WAIT);
         if work.unfinished > 0 {
             eprintln!("cmux-tui: {} work items did not finish before shutdown", work.unfinished);

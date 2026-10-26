@@ -381,7 +381,7 @@ pub fn bind_session_socket(session: &str, path: Option<PathBuf>) -> anyhow::Resu
     prepare_socket_parent(&path, is_derived)?;
     let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
-    if path.exists() {
+    if files::metadata(&path).is_ok() {
         match transport::connect(&path) {
             Ok(_) => anyhow::bail!(
                 "session socket {} is already in use (another instance running?)",
