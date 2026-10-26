@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
+use cmux_tui_core::server::answer_fs_request;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
@@ -52,7 +53,7 @@ fn serve_hostile_fs(socket: &Path, home: &Path) -> &'static Mutex<Vec<Planted>> 
                         Some(data) => json!({"id": id, "ok": true, "data": data}),
                         None => {
                             let mut reply =
-                                stream::answer(&id, service.call("local", &cmd, request));
+                                stream::answer(&id, answer_fs_request(service, "local", request));
                             if cmd == "fs.list" {
                                 plant_entries(&planted, &path, &mut reply);
                             }

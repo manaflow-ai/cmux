@@ -503,7 +503,14 @@
       "update-workspace-group",
       "vt-state",
       "wait-for",
-      "zoom-pane"
+      "zoom-pane",
+      "fs.stat",
+      "fs.list",
+      "fs.read",
+      "fs.write",
+      "fs.mkdir",
+      "fs.rename",
+      "fs.delete"
     ],
     "frontend": [
       "sidebar-plugin",
@@ -641,7 +648,37 @@
       "agent-session-children",
       "agent-session-media",
       "agent-session-start",
-      "agent-session-trust"
+      "agent-session-trust",
+      "script-run",
+      "script-repl-open",
+      "script-repl-eval",
+      "script-repl-close",
+      "agent-transfer-receive",
+      "agent-transfer-write",
+      "agent-transfer-finish",
+      "agent-transfer-receive-abort",
+      "agent-transfer-begin",
+      "agent-transfer-source",
+      "agent-transfer-read",
+      "agent-transfer-commit",
+      "agent-transfer-abort",
+      "access-request",
+      "access-request-status",
+      "access-request-list",
+      "access-request-answer",
+      "agent-update-plan",
+      "agent-update-apply",
+      "browser-runtime-status",
+      "browser-runtime-start",
+      "browser-runtime-stop",
+      "loopback-open",
+      "loopback-data",
+      "loopback-credit",
+      "loopback-shutdown",
+      "loopback-close",
+      "loopback-status",
+      "client-hello",
+      "machine-catalog-publish"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -1181,6 +1218,36 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "script-log",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-data",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-credit",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-eof",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-closed",
       "streams": [
         "control"
       ]

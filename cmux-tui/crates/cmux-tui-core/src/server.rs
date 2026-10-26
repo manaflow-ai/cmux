@@ -157,7 +157,9 @@ mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
-use line_connection::{handle_connection_with_permit, serve_line_connection};
+use line_connection::{
+    handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
+};
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
@@ -238,7 +240,7 @@ mod websocket_listener;
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
-pub use fs_wire::FsGate;
+pub use fs_wire::{FsGate, answer_fs_request};
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,

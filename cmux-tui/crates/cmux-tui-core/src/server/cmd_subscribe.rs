@@ -6,6 +6,7 @@
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::SHARED_SIZING_CAPABILITY;
+use super::connection_scheduler::REQUEST_THREAD_QOS;
 use super::machine_usage_json;
 use super::size_state_event_json;
 use super::tree_delta_json;
@@ -70,7 +71,7 @@ pub(super) fn subscribe_command(
     let writer = writer.clone();
     // Its events share the reply FIFO (spec/transports.md "Reply and event order").
     let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
-    std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+    cmux_threads::spawn("mux-events-out", REQUEST_THREAD_QOS, move || {
         let mut transport_overflow = false;
         for challenge in pending_pairings {
             let value = json!({

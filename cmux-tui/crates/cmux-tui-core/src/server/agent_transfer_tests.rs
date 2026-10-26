@@ -148,6 +148,30 @@ fn every_verb(surface: u64, cwd: &str) -> Vec<Value> {
     ]
 }
 
+// MARK: Decoding
+
+/// The verbs decode through the one `cmd`-tagged enum spec/sdk-schema.json
+/// types (p05-ipc-019): each well-formed verb, receive-abort included, is
+/// read; an unknown verb, an unknown param and a mistyped one are not.
+#[test]
+fn every_verb_decodes_by_its_cmd_and_nothing_else_does() {
+    let mut frames = every_verb(7, "/home/u/work/p");
+    frames.push(json!({"id":9,"cmd":"agent-transfer-receive-abort","receive_id":"rcv_1"}));
+    for frame in frames {
+        let mut object = frame.as_object().unwrap().clone();
+        object.remove("id");
+        assert!(super::Verb::parse(object).is_some(), "{frame}");
+    }
+    for frame in [
+        json!({"cmd":"agent-transfer-nope"}),
+        json!({"cmd":"agent-transfer-source","surface":7,"extra":1}),
+        json!({"cmd":"agent-transfer-source","surface":true}),
+        json!({"cmd":"agent-transfer-receive-abort"}),
+    ] {
+        assert!(super::Verb::parse(frame.as_object().unwrap().clone()).is_none(), "{frame}");
+    }
+}
+
 // MARK: Capability and trust
 
 #[test]

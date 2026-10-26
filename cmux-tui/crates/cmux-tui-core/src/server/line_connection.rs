@@ -21,6 +21,26 @@ pub(super) fn handle_connection_with_permit(
     );
 }
 
+/// The class of a connection's reader thread (mux-conn, mux-remote-conn)
+/// until its client class is known. It runs request handlers inline, some of
+/// which spawn git, hook and plugin children that inherit its class, and it
+/// serves automation clients too. So it stays at the class those children
+/// start at until children reset their class (p02-threads task 223) and the
+/// app's UI connection is raised after its hello (task 224).
+pub(super) const CONNECTION_READER_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Default;
+
+/// Starts connection reader thread `name` at [`CONNECTION_READER_QOS`] with
+/// blocking disallowed (each blocking request site is recorded, MQ-13).
+pub(super) fn spawn_connection_reader(
+    name: &str,
+    serve: impl FnOnce() + Send + 'static,
+) -> std::io::Result<JoinHandle<()>> {
+    cmux_threads::spawn(name, CONNECTION_READER_QOS, move || {
+        cmux_threads::disallow_blocking();
+        serve();
+    })
+}
+
 /// One JSON line per message. `admission` sees every line before anything
 /// parses or dispatches it, and may answer it instead (the remote entry).
 pub(super) fn serve_line_connection(
@@ -43,20 +63,18 @@ pub(super) fn serve_line_connection(
     );
     let writer_outbound = outbound;
     let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {
-            // mq14-allow: the writer thread waits for its own queue (a checked wait).
-            while let Some(item) = writer_outbound.recv() {
-                if write_line_outbound_item(&mut *write_half, item).is_err() {
-                    writer_outbound.close();
-                    let _ = write_half.shutdown(Shutdown::Both);
-                    break;
-                }
+    let Ok(writer_thread) = crate::echo_thread::spawn("mux-line-out", move || {
+        // mq14-allow: the writer thread waits for its own queue (a checked wait).
+        while let Some(item) = writer_outbound.recv() {
+            if write_line_outbound_item(&mut *write_half, item).is_err() {
+                writer_outbound.close();
+                let _ = write_half.shutdown(Shutdown::Both);
+                break;
             }
-            writer_close.close();
-            let _ = write_half.shutdown(Shutdown::Both);
-        })
-    else {
+        }
+        writer_close.close();
+        let _ = write_half.shutdown(Shutdown::Both);
+    }) else {
         writer.close();
         return;
     };
@@ -147,3 +165,7 @@ pub(super) fn serve_line_connection(
     let _ = waits::join(writer_thread);
     drop(connection_permit);
 }
+
+#[cfg(all(test, unix))]
+#[path = "echo_thread_rows_tests.rs"]
+mod echo_thread_rows_tests;

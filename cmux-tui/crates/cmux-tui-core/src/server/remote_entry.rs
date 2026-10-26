@@ -201,7 +201,7 @@ fn accept_loop(
         let Some(permit) = claim_connection(&connections) else { continue };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
-        let _ = std::thread::Builder::new().name("mux-remote-conn".into()).spawn(move || {
+        let _ = spawn_connection_reader("mux-remote-conn", move || {
             serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, config);
         });
     }

@@ -1338,6 +1338,24 @@ cmux_threads::spawn(UserInteractive) + disallow_blocking(); their own descriptor
 own_fd_write. Acceptance: server.threads rows user-interactive; record-mode suite lists other sites (MQ-13);
 no other behavior change; crate deny attributes added when the crate queue is empty. Test: T1r; T3
 bench-typing.
+As landed: terminal-host-client (the host's output writer) is also an echo thread; its handshake may
+block, its output loop writes through own_fd_write with blocking disallowed. mux-conn and
+mux-remote-conn are registered at Default with blocking disallowed, not raised: they run request
+handlers inline that spawn children (223 not landed) and serve automation clients (224 raises the UI
+connection). Own-descriptor I/O covers the terminal-host sockets only (client-input, client output,
+host_frames).
+
+**210b Echo-thread PTY and control-socket I/O through the own-descriptor path.** Files:
+R/cmux-tui-platform/src/platform/transport.rs (an `as_fd` on `Stream`),
+R/cmux-tui-core/src/server/{line_connection, bounded_outbound}.rs, R/cmux-tui/src/pty_input.rs,
+R/cmux-tui-core/src/terminal_host_runtime/shared/{host_start, host_serve}.rs, R/cmux-tui-core/src/surface/spawn.rs.
+Change: each echo thread registers the descriptor it owns before disallow_blocking and does its reads or
+writes through own_fd_read / own_fd_write_all: mux-conn's socket read_line, mux-line-out's socket writes,
+terminal-host-pty's and surface-{id}-reader's PTY reads (and their readiness polls), mux-pty-input's PTY
+writes. A shared, locked PTY writer (client-input's `command_host.writer`) is not an own descriptor: it
+moves to the owning thread or stays a recorded site. Acceptance: with fd reads and writes checked, the
+record-mode suite shows no site on an echo thread's own descriptor. Depends 210. Test: T1r; T3
+bench-typing.
 
 **211 Request dispatch threads.** As in the design (dispatch, ws and events writers UserInitiated, accept
 Utility, disallow in dispatch; record default from 201). Test: T1r.

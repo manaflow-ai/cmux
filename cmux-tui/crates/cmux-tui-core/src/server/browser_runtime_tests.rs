@@ -342,3 +342,28 @@ fn browser_runtime_reports_why_a_host_did_not_start() {
     client.close();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// The SDK schema (spec/sdk-schema.json, p05-ipc-016) describes every
+/// command this module serves: local-admin (Unix only), the capability
+/// `identify` advertises, and a method id in the `browser` family. The
+/// names come from serde's own list of the variants, so a new one is
+/// checked at once.
+#[test]
+fn every_browser_runtime_command_is_in_the_sdk_schema() {
+    let error = serde_json::from_value::<super::RuntimeCommand>(json!({"cmd": "__none__"}))
+        .err()
+        .expect("an unknown command is refused")
+        .to_string();
+    let list = error.split("expected one of ").nth(1).expect("serde lists the variants");
+    let names: Vec<&str> = list.split(", ").map(|name| name.trim().trim_matches('`')).collect();
+    assert_eq!(names, ["browser-runtime-status", "browser-runtime-start", "browser-runtime-stop"]);
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
+    let family = schema["families"]["browser"]["id"].as_u64().expect("the browser family");
+    for name in names {
+        let command = &schema["commands"][name];
+        assert_eq!(command["authority"], "local-admin", "{name}");
+        assert_eq!(command["capability"], BROWSER_RUNTIME_CAPABILITY, "{name}");
+        assert_eq!(command["method_id"].as_u64().expect("a method id") >> 8, family, "{name}");
+    }
+}
