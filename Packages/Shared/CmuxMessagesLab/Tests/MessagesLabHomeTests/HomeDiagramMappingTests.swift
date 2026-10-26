@@ -30,6 +30,23 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
     }
 }
 
+/// A renderer whose engine stays cold; each ``prewarm()`` is reported on ``warmed``.
+final class ColdDiagrams: HomeDiagramRendering {
+    let warmed: AsyncStream<Void>
+    private let signal: AsyncStream<Void>.Continuation
+
+    init() {
+        let made = AsyncStream<Void>.makeStream()
+        warmed = made.stream
+        signal = made.continuation
+    }
+
+    var needsPrewarm: Bool { true }
+    func prewarm() { signal.yield() }
+    func layout(mermaid source: String, maxWidth: CGFloat) -> CGSize? { nil }
+    func image(mermaid source: String, maxWidth: CGFloat, style: HomeDiagramStyle, scale: CGFloat) -> CGImage? { nil }
+}
+
 /// Home chat draws ```mermaid fences as diagram bubbles (user msg 2481 follow-up): the text
 /// around a fence stays text, a source the renderer refuses stays as written, and the bubble's
 /// size is known before its pixels.
@@ -50,6 +67,18 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
     static func isDiagram(_ part: Part) -> String? {
         guard case .custom(let c) = part, c.kind == HomeDiagramRowProvider.kind else { return nil }
         return HomeDiagramRowProvider.source(c)
+    }
+
+    /// p07-memory-082: the engine loads only for a transcript that holds a Mermaid fence; a fence still
+    /// streaming in warms a cold renderer off the main thread, so the closed fence does not wait for it.
+    @Test(.timeLimit(.minutes(1))) func aStreamingFenceWarmsAColdRenderer() async {
+        let cold = ColdDiagrams()
+        CustomRows.unregister(HomeDiagramRowProvider.kind)
+        CustomRows.register(HomeDiagramRowProvider(renderer: cold))
+        var warmed = cold.warmed.makeAsyncIterator()
+        let parts = mapped("Here is the flow:\n```mermaid\ngraph TD\nA-->")
+        #expect(parts.allSatisfy { Self.isDiagram($0) == nil }, "an open fence stays text")
+        #expect(await warmed.next() != nil)
     }
 
     @Test func aFenceBetweenTextIsItsOwnBubble() {

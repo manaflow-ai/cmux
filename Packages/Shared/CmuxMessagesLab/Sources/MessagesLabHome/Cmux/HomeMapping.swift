@@ -198,7 +198,10 @@ enum HomeMapping {
     /// becomes a diagram (the text then maps as it always did).
     static func diagramParts(_ text: String, diagrams: HomeDiagramRowProvider, _ textParts: (String) -> [Part]) -> [Part]? {
         let segments = HomeMermaidSplitter().segments(in: text)
-        guard segments.contains(where: { if case .mermaid = $0 { return true } else { return false } }) else { return nil }
+        guard segments.contains(where: { if case .mermaid = $0 { return true } else { return false } }) else {
+            if text.range(of: "mermaid", options: .caseInsensitive) != nil { diagrams.warm() }
+            return nil
+        }
         var out: [Part] = []
         var pending = ""
         var drew = false

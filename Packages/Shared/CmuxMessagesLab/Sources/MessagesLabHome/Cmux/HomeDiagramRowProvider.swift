@@ -52,13 +52,24 @@ final class HomeDiagramRowProvider: TranscriptCustomRowProvider {
     static var installed: HomeDiagramRowProvider? { CustomRows.provider(kind) as? HomeDiagramRowProvider }
 
     /// Registers `renderer` for Home's diagram bubbles (once per renderer: registering clears the
-    /// registry's measure cache) and warms it off the main thread.
+    /// registry's measure cache). The renderer loads its engine only for a transcript that holds a
+    /// Mermaid fence (``warm()``, or the first ``part(_:)``), so a Home with no diagram never holds it.
     static func install(_ renderer: any HomeDiagramRendering) {
         guard installed?.renderer !== renderer else { return }
         CustomRows.register(HomeDiagramRowProvider(renderer: renderer))
-        Task.detached(priority: .utility) {
-            _ = renderer.layout(mermaid: "graph TD\nA-->B", maxWidth: Fixture.maxTextWidth)
-        }
+    }
+
+    /// Loads the renderer's engine off the main thread when it is cold, for a text that mentions
+    /// Mermaid before its fence closes (a reply still streaming its diagram): the closed fence's
+    /// ``part(_:)`` then does not wait for it.
+    func warm() {
+        guard renderer.needsPrewarm else { return }
+        let renderer = renderer
+        Task(priority: .utility) { await Self.prewarm(renderer) }
+    }
+
+    @concurrent private static func prewarm(_ renderer: any HomeDiagramRendering) async {
+        renderer.prewarm()
     }
 
     /// The bubble for `source`, or nil when the renderer refuses it (it then stays text).

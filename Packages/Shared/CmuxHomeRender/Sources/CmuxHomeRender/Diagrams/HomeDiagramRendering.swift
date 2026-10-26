@@ -45,4 +45,19 @@ public protocol HomeDiagramRendering: AnyObject, Sendable {
     ///   - scale: device pixels per point; the image is the laid-out size times this.
     /// - Returns: the image, or `nil` when the source does not render.
     func image(mermaid source: String, maxWidth: CGFloat, style: HomeDiagramStyle, scale: CGFloat) -> CGImage?
+
+    /// Whether the renderer's engine is not loaded and no ``prewarm()`` is loading it, so the
+    /// first diagram would wait for it. The transcript asks when a text mentions Mermaid.
+    var needsPrewarm: Bool { get }
+
+    /// Loads the renderer's engine now, so the next diagram does not wait for it. Synchronous and
+    /// slow: call it off the main thread. Does nothing when it is loaded or loading.
+    func prewarm()
+}
+
+extension HomeDiagramRendering {
+    /// A renderer with no engine to load never needs a prewarm.
+    public var needsPrewarm: Bool { false }
+
+    public func prewarm() {}
 }
