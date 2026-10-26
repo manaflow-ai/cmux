@@ -21,14 +21,18 @@ struct ChiefPendingRemoveTests {
         """.utf8)
     }
 
+    /// A confirmed Chief at the end of the top rows, its label hidden.
+    static let hiddenLabelChief = #", {"id": "itm_chief", "section": "sec_top", "order": "c", "shows_label": false, "body": {"type": "builtin", "id": "chief"}}"#
+
     /// The App's services and actions over a loaded document whose daemon never answers, made the current one
     /// (`end` puts the previous one back).
-    static func pending(document: Data = Self.document(), refusingRemoves: Bool = false) async throws -> (AppServices, SidebarDocStore, end: () -> Void) {
+    static func pending(document: Data = Self.document(), refusingRemoves: Bool = false,
+                        remote: (any SidebarDocRemote)? = nil) async throws -> (AppServices, SidebarDocStore, end: () -> Void) {
         _ = NSApplication.shared // the services read NSApp
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let remote: any SidebarDocRemote = refusingRemoves ? RefusingRemoves(document: document)
-            : SidebarGroupDragRailTests.Remote(document: document)
+        let remote: any SidebarDocRemote = remote ?? (refusingRemoves ? RefusingRemoves(document: document)
+            : SidebarGroupDragRailTests.Remote(document: document))
         let store = SidebarDocStore(remote: remote)
         store.refresh()
         await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { store.isActive }
@@ -86,10 +90,12 @@ struct ChiefPendingRemoveTests {
         #expect(Self.offersLabel(bridge, LayoutItemID("itm_home")), "a confirmed item lost its label edit")
         try Self.expectNoLabelEdit(store, chief)
 
+        // The daemon's echo: its key in the `sidebar_doc` marker, as session.events sends it.
         store.receive(batch: Data("""
-        {"revision": "2", "previous_revision": "1", "idempotency_key": "\(try #require(store.lastIntentKey))",
-         "changes": [{"kind": "state_upsert", "resource": "sidebar_item", "id": "itm_chief",
-           "value": {"id": "itm_chief", "section": "sec_top", "order": "c", "body": {"type": "builtin", "id": "chief"}}}]}
+        {"changes": [{"kind": "state_upsert", "resource": "sidebar_doc", "id": "doc",
+                      "value": {"revision": "2", "previous_revision": "1", "idempotency_key": "\(try #require(store.lastIntentKey))"}},
+                     {"kind": "state_upsert", "resource": "sidebar_item", "id": "itm_chief",
+                      "value": {"id": "itm_chief", "section": "sec_top", "order": "c", "body": {"type": "builtin", "id": "chief"}}}]}
         """.utf8))
         #expect(!store.isPending(chief.id), "the echoed Chief still counts as pending")
         #expect(Self.offersLabel(bridge, chief.id), "the echoed Chief's menu still leaves its label edit out")
@@ -98,7 +104,7 @@ struct ChiefPendingRemoveTests {
     /// A confirmed Chief with its label hidden, removed and added again (label shown) before either echo: the drawn
     /// Chief is the new add's, and its edit waits for that add's echo, not for the old Chief's record.
     @Test func aChiefRemovedAndAddedAgainIsTheNewAddsUntilItsEcho() async throws {
-        let (services, store, end) = try await Self.pending(document: Self.document(chief: #", {"id": "itm_chief", "section": "sec_top", "order": "c", "shows_label": false, "body": {"type": "builtin", "id": "chief"}}"#))
+        let (services, store, end) = try await Self.pending(document: Self.document(chief: Self.hiddenLabelChief))
         defer { end() }
         let bridge = try Self.bridge(services)
         try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
@@ -110,18 +116,41 @@ struct ChiefPendingRemoveTests {
         try Self.expectNoLabelEdit(store, chief)
     }
 
-    /// No top section yet: the add makes one with the Chief in it, and the Chief draws there before the echo, not in a
-    /// machine list that does not exist.
-    @Test func aChiefWhoseAddMakesItsSectionDrawsInIt() async throws {
+    /// No top section yet: the add makes one with the Chief in it (or an undo puts both back, the label hidden), and the
+    /// Chief draws there, as the change has it, before the echo, not in a machine list that does not exist.
+    @Test(arguments: [false, true])
+    func aChiefWhoseChangeMakesItsSectionDrawsInIt(undo: Bool) async throws {
         let (_, store, end) = try await Self.pending(document: Data(#"{"revision": "1", "sections": [], "items": []}"#.utf8))
         defer { end() }
         let empty = SidebarLayoutDocument(sections: [])
         let add = try #require(empty.addToTopOp(.builtIn(.chief), newItem: SidebarLayoutDocument.chiefItemID))
-        let ops = try store.docOps(for: [add], layout: empty)
-        try #require(ops.contains { $0["op"] as? String == "section.add" }, "Add to Top with no top section made none: \(ops)")
+        let ops = undo ? [["op": "section.put", "section": ["id": "sec_new", "kind": ["type": "custom"], "region": "top", "scroll": "fixed", "order": "a"]],
+                          ["op": "item.put", "item": ["id": "itm_chief", "section": "sec_new", "order": "a", "shows_label": false,
+                                                      "body": ["type": "builtin", "id": "chief"]] as [String: Any]]]
+            : try store.docOps(for: [add], layout: empty)
+        try #require(undo || ops.contains { $0["op"] as? String == "section.add" }, "Add to Top with no top section made none: \(ops)")
         try store.sendChecked(ops: ops, title: "Add", undoable: false)
         let section = store.projection(live: [])?.layout.sections.first { $0.items.contains { $0.ref == .builtIn(.chief) } }
-        #expect(section?.region == .top, "the Chief added with its section draws in \(String(describing: section?.region))")
+        #expect(section?.region == .top, "the Chief put back with its section draws in \(String(describing: section?.region))")
+        #expect(section?.items.first?.showsLabel == !undo, "the Chief does not draw its change's label")
+    }
+
+    /// The daemon answered the add, then a reload (a reconnect) holds it before its echo: the load settles it, and the
+    /// Chief is the document's again, its label edit offered.
+    @Test func aReloadThatHoldsTheAnsweredAddSettlesIt() async throws {
+        let remote = AnsweringRemote(document: Self.document())
+        let (services, store, end) = try await Self.pending(remote: remote)
+        defer { end() }
+        let bridge = try Self.bridge(services)
+        try store.sendChecked(ops: Self.addChief, title: "Add", undoable: false)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.answered > 0 }
+        try #require(remote.answered == 1 && store.isPending(SidebarLayoutDocument.chiefItemID), "the add was not answered, or not pending")
+        remote.document = Self.document(chief: Self.hiddenLabelChief)
+        store.refresh()
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { !store.isPending(SidebarLayoutDocument.chiefItemID) }
+        #expect(!store.isPending(SidebarLayoutDocument.chiefItemID), "the reload that holds the answered add left the Chief pending")
+        #expect(Self.drawn(store).first { $0.ref == .builtIn(.chief) }?.showsLabel == false, "the Chief does not draw the document's record")
+        #expect(Self.offersLabel(bridge, SidebarLayoutDocument.chiefItemID), "the settled Chief's menu leaves its label edit out")
     }
 
     static func expectNoLabelEdit(_ store: SidebarDocStore, _ chief: LayoutItem) throws {
@@ -167,6 +196,24 @@ struct ChiefPendingRemoveTests {
         _ = services.registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string("chief")], origin: .user))
         #expect(store.lastIntentKey == sent, "a second add was sent for the Chief still placed")
         #expect(Self.drawn(store).filter { $0.ref == .builtIn(.chief) }.count == 1, "two Chiefs draw")
+    }
+
+    /// A daemon that answers every change (with an inverse) and echoes none; its document is the test's.
+    @MainActor final class AnsweringRemote: SidebarDocRemote {
+        var document: Data
+        var answered = 0
+        init(document: Data) { self.document = document }
+        var isAvailable: Bool { true }
+        func get() async throws -> Data { document }
+        func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { answer() }
+        func pin(_ items: [String], key: String) async throws -> SidebarDocReply { answer() }
+        func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { answer() }
+        func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { answer() }
+        func apply(ops: Data, key: String) async throws -> SidebarDocReply { answer() }
+        private func answer() -> SidebarDocReply {
+            answered += 1
+            return SidebarDocReply(revision: 2, inverse: Data(#"[{"op": "item.remove", "id": "itm_chief"}]"#.utf8))
+        }
     }
 
     /// A daemon that refuses every change that removes, and answers nothing else.
