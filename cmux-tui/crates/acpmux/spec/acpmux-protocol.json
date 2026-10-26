@@ -303,6 +303,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mcp/reconnect",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subagent_stop",
       "params": true,
       "result": true
@@ -2667,6 +2673,53 @@
       },
       "type": "object"
     },
+    "RetryReason": {
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
+      "enum": [
+        "capacity",
+        "transport",
+        "agent_exited"
+      ],
+      "type": "string"
+    },
+    "RetrySummary": {
+      "description": "An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`\nof `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same\nsession, for the cut turn `turnId`.",
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nextAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "of": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "nextAt",
+        "of",
+        "promptId",
+        "reason",
+        "turnId"
+      ],
+      "type": "object"
+    },
     "SessionChanged": {
       "description": "To watchers when a session changed: its new summary (only its id when\npurged), the coarse `kind` and the log record behind it.",
       "properties": {
@@ -2938,6 +2991,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
         "rules": {
           "description": "The session has its own permission rules.",
@@ -3374,6 +3438,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
         "rules": {
           "description": "The session has its own permission rules.",

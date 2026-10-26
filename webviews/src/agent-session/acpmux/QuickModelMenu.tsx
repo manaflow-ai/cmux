@@ -45,7 +45,8 @@ export type QuickMenu = {
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
-  /// The chat's agent CLI has an update (hq#2569 #12): the last row starts it.
+  /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
+  /// from the model choices and their held height.
   update?: { text: string; run(): void };
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
@@ -124,7 +125,7 @@ export type TabExtent = { rows: number; separators: number };
 /// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
 export function tabExtent(
   family: QuickFamily,
-  menu: Pick<QuickMenu, "account" | "fast" | "update"> & { families: QuickFamilies; levels: number },
+  menu: Pick<QuickMenu, "account" | "fast"> & { families: QuickFamilies; levels: number },
 ): TabExtent {
   const chat = family.id === menu.families.current;
   const models = Math.min(family.models.length, FILTER_ROWS);
@@ -138,10 +139,6 @@ export function tabExtent(
   if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
   if ((chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
   if (chat && menu.fast) {
-    rows += 1;
-    separators += 1;
-  }
-  if (menu.update) {
     rows += 1;
     separators += 1;
   }
@@ -391,7 +388,6 @@ export function QuickModelMenu({
         levels: levels.length,
         account,
         fast,
-        update: menu.update,
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
@@ -438,7 +434,6 @@ export function QuickModelMenu({
         { label: t("picker.moreModels"), sub: true },
         ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
         ...(fast ? [{ label: t("picker.fastMode") }] : []),
-        ...(menu.update ? [{ label: menu.update.text, value: t("harness.update") }] : []),
       ]
     : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
@@ -696,15 +691,6 @@ export function QuickModelMenu({
           </MenuCheckboxItem>
         </>
       )}
-      {!query && menu.update && (
-        <>
-          <MenuSeparator />
-          <MenuItem className="acpmux-quick-item acpmux-quick-update" onSelect={() => menu.update?.run()}>
-            <span className="acpmux-menu-label min-w-0 flex-1 truncate">{menu.update.text}</span>
-            <span className="acpmux-quick-value">{t("harness.update")}</span>
-          </MenuItem>
-        </>
-      )}
     </>
   );
   return (
@@ -783,6 +769,20 @@ export function QuickModelMenu({
           </div>
         ) : (
           list
+        )}
+        {menu.update && (
+          <div className="acpmux-quick-update">
+            <span>{menu.update.text}</span>
+            <MenuItem
+              className="acpmux-quick-update-action"
+              onSelect={() => {
+                menu.update?.run();
+                onOpenChange(false);
+              }}
+            >
+              {t("harness.update")}
+            </MenuItem>
+          </div>
         )}
       </MenuPopup>
     </Menu>

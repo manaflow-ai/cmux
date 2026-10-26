@@ -278,3 +278,32 @@ async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion(
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }
+
+/// The documented rule (acpmux skill §6): `--policy approve-all` at a remote start passes
+/// when the peer serves this daemon as a peer (`servedAs` in `acpmux --json host ls`), and
+/// only then. What `host ls` shows and what the peer decides agree over a real link: a peer
+/// on a build from before #24442 showed `servedAs: peer` and still refused it (cosmic-gray to
+/// gcp-agent-lane-1, 2026-10-25), which `acpmux host update` fixes.
+#[tokio::test]
+async fn approve_all_at_a_remote_start_passes_exactly_when_host_ls_shows_served_as_peer() {
+    for (tag, as_peer) in [("served-peer", true), ("served-remote", false)] {
+        let root = scratch(tag);
+        let (a, b) = pair(tag, as_peer, &root).await;
+        let served = a.peers()[0]["servedAs"].clone();
+        assert_eq!(served, if as_peer { "peer" } else { "remote" }, "{:?}", a.peers());
+        let mut ca = C::open(&a, Origin::Local);
+        let name = format!("lane-{tag}");
+        let meta = json!({"peer": "b", "harness": "fake", "name": name, "policy": "approve-all"});
+        let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
+        if as_peer {
+            assert!(r["result"]["sessionId"].is_string(), "{r}");
+            let on_b = b.resolve(&name).unwrap_or_else(|e| panic!("{name} on b: {e:?} ({r})"));
+            assert_eq!(on_b.meta().permission_policy.as_deref(), Some("approve-all"), "{r}");
+        } else {
+            assert_eq!(reason(&r), "remote.policy_refused", "{r}");
+            assert_eq!(r["error"]["data"]["servedAs"], served, "{r}");
+            assert!(b.resolve(&name).is_err(), "a refused start leaves no session on b");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}

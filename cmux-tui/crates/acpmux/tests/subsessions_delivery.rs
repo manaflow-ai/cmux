@@ -3,7 +3,8 @@
 //! by default a message goes into the child's running turn (read at its next
 //! tool step, as Claude Code reads a person's mid-turn message), and to a
 //! child whose agent cannot take one mid-turn it queues; either way the
-//! answer says which, with the queue's length. While the child works,
+//! answer says which, with the queue's length. A child's message to its
+//! working parent steers the same way. While the child works,
 //! `get_session` says what it does right now: its plan step and latest tool.
 //!
 //! Stand-in agents (fake_agent.py): `fake` takes no prompt mid-turn, `steer`
@@ -113,6 +114,21 @@ impl Client {
         }
         panic!("{id} never reported its activity");
     }
+
+    /// `id`'s transcript once it shows `needle`: a steer reaches the agent
+    /// after the send's answer.
+    async fn transcript_with(&mut self, id: &str, needle: &str) -> String {
+        for _ in 0..200 {
+            let page =
+                self.ok("_acpmux/events", json!({"sessionId": id, "kinds": "transcript"})).await;
+            let text = page.to_string();
+            if text.contains(needle) {
+                return text;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+        panic!("{id}'s transcript never showed {needle:?}");
+    }
 }
 
 fn fifo(root: &Path, name: &str) -> PathBuf {
@@ -160,20 +176,38 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(row["state"], "working", "{row}");
     assert_eq!(row["doing"], "Fix the queue · Run cargo test", "{row}");
 
-    // A message queues behind its running turn by default, and says where it waits.
-    let sent = p.ok(SEND, json!({"sessionId": s, "text": "echo after"})).await;
+    // A message goes into its running turn by default, read at the agent's next tool step.
+    let sent = p.ok(SEND, json!({"sessionId": s, "text": "also check the docs"})).await;
+    assert_eq!(sent["delivery"], "next_step", "{sent}");
+    assert_eq!(sent["queued"], false, "{sent}");
+    assert_eq!(sent["steering"], true, "{sent}");
+    // after_turn queues it behind the running turn instead, and says where it waits.
+    let sent =
+        p.ok(SEND, json!({"sessionId": s, "text": "echo after", "deliver": "after_turn"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
     assert_eq!(sent["position"], 1, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
-    assert_eq!(sent["steering"], true, "{sent}");
-    // next_step puts it into the running turn instead.
-    let sent = p
-        .ok(SEND, json!({"sessionId": s, "text": "also check the docs", "deliver": "next_step"}))
-        .await;
+    let row = p.ok(GET, json!({"sessionId": s})).await;
+    assert_eq!(row["queued"], 1, "{row}");
+    // A sub-session's message to its working parent steers too: a steer never cancels
+    // the parent's tool call, and the parent reads it at its next tool step.
+    let mut ps = Client::as_session(&hub, &s).await;
+    let g =
+        ps.ok(START, json!({"prompt": "echo grandchild", "name": "grandchild"})).await["sessionId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+    let mut pg = Client::as_session(&hub, &g).await;
+    let sent = pg.ok(SEND, json!({"sessionId": s, "text": "echo report"})).await;
     assert_eq!(sent["delivery"], "next_step", "{sent}");
     assert_eq!(sent["queued"], false, "{sent}");
     let row = p.ok(GET, json!({"sessionId": s})).await;
     assert_eq!(row["queued"], 1, "{row}");
+    // Both steers reached the agent inside its running turn (the stand-in echoes
+    // "steer: <text>"), and the turn is still working on its tool.
+    p.transcript_with(&s, "steer: also check the docs").await;
+    p.transcript_with(&s, "steer: echo report").await;
+    assert_eq!(p.ok(GET, json!({"sessionId": s})).await["state"], "working");
     // A contradictory request is refused.
     let e = p
         .refused(
@@ -185,11 +219,15 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     let e = p.refused(SEND, json!({"sessionId": s, "text": "x", "deliver": "soon"})).await;
     assert!(e["message"].as_str().unwrap().contains("next_step"), "{e}");
     std::fs::write(&gate, b"go").unwrap();
-    p.ok(
-        "_acpmux/wait",
-        json!({"sessions": [s], "until": ["ready"], "all": true, "timeoutMs": 20000}),
-    )
-    .await;
+    let waited = p
+        .ok(
+            "_acpmux/wait",
+            json!({"sessions": [s], "until": ["ready"], "all": true, "timeoutMs": 20000}),
+        )
+        .await;
+    assert_ne!(waited["timedOut"], true, "{waited}");
+    // The steered turn was not cancelled: its tool finished and the turn said its own last word.
+    p.transcript_with(&s, "worked").await;
 
     // A child whose agent takes no prompt mid-turn gets it when the turn
     // ends: the answer says it queued, and that it cannot steer.
@@ -213,7 +251,10 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(sent["steering"], false, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
     std::fs::write(&gate, b"go").unwrap();
-    p.ok("_acpmux/wait", json!({"sessions": [q], "until": ["ready"], "timeoutMs": 20000})).await;
+    let waited = p
+        .ok("_acpmux/wait", json!({"sessions": [q], "until": ["ready"], "timeoutMs": 20000}))
+        .await;
+    assert_ne!(waited["timedOut"], true, "{waited}");
     // A finished turn says nothing about what it does.
     let row = p.ok(GET, json!({"sessionId": q})).await;
     if row["turn"].is_null() {
