@@ -251,3 +251,40 @@ async fn a_wait_that_ends_with_a_cut_turn_answers_with_its_retry() {
     assert_eq!(w["timedOut"], false, "{w}");
     assert_eq!(w["resolved"][0]["retry"], Value::Null, "{w}");
 }
+
+/// No row of a chat whose turn a capacity error cut off reads that turn as settled without its
+/// retry: from the turn's end until the retry's wait is set, the row says `retryDeciding`, read
+/// in one step with `retry` (Codex review: a row read between the two showed neither).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn no_row_of_a_cut_turn_reads_settled_before_its_retry_is_set() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![60_000]);
+    let id = new_session(&mut c, "cap-rows").await;
+    let session = hub.resolve(&id).unwrap();
+    let reader = {
+        let hub = hub.clone();
+        tokio::spawn(async move {
+            let mut bad = Vec::new();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            while tokio::time::Instant::now() < deadline {
+                let row = hub.session_summary(&session);
+                if row["retry"].is_object() {
+                    return (bad, row);
+                }
+                let settled = row["lastTurn"]["status"] == "failed"
+                    && row["turn"].is_null()
+                    && row["retryDeciding"] != true;
+                if settled {
+                    bad.push(row);
+                }
+                tokio::task::yield_now().await;
+            }
+            (bad, Value::Null)
+        })
+    };
+    cap_fail(&mut c, &id, "p-rows").await;
+    let (bad, retried) = reader.await.unwrap();
+    assert!(retried["retry"].is_object(), "the retry was never set");
+    assert_eq!(retried["retryDeciding"], Value::Null, "{retried}");
+    assert!(bad.is_empty(), "{} rows read the cut turn as settled with no retry: {}", bad.len(), bad[0]);
+}
