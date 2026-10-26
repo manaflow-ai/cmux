@@ -237,11 +237,15 @@ public actor DaemonUpdatePolicy {
     private func attempt(_ pending: Pending, local: DaemonBuildCommit, ledger: inout DaemonUpdateLedger) async -> Pending? {
         let deps = dependencies
         let target = pending.target
-        guard ledger.targets[target.id] == nil, settled[target.id] != local.hash else { return await dropped(pending) }
+        guard !ledger.attempted(target.id), settled[target.id] != local.hash else { return await dropped(pending) }
         // Read at its turn: the machine may have gone, or reached this build meanwhile.
         let urgent = await target.urgent
         let current = DaemonBuildCommit(await target.currentBuild())
         if let current, local.sameCommit(current.hash) { return await dropped(pending) }
+        if let current, current.dirty || current.isNewer(than: local) {
+            Self.logger.info("\(target.displayName, privacy: .public) runs \(current.hash, privacy: .public)\(current.dirty ? " with local changes" : ", newer than this app's build", privacy: .public); left alone")
+            return await dropped(pending)
+        }
         guard current != nil || urgent else { return await dropped(pending) }
         // Busy for ``Dependencies/updateBusyAfter`` or longer (at once when it is zero): this update
         // does not wait for an idle moment.
