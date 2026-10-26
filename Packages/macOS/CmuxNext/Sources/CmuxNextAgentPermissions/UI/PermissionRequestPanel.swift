@@ -42,9 +42,11 @@ public final class PermissionRequestPanel: NSPanel {
     /// (the screen of cmux's key window, else the main screen), then shows it
     /// without activating cmux.
     public func present(on screen: NSScreen?) {
+        // sync-layout: fittingSize below measures the laid-out card.
         card.layoutSubtreeIfNeeded()
         let size = NSSize(width: PermissionRequestCardView.width, height: ceil(card.fittingSize.height))
         surface.frame = NSRect(origin: .zero, size: size)
+        // sync-layout: the card's frame below is the glass content view's laid-out bounds.
         surface.layoutSubtreeIfNeeded()
         card.frame = surface.contentView.bounds
         setContentSize(size)

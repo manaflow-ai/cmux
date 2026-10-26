@@ -162,6 +162,7 @@ final class DragLiftView: NSView {
         let capStart = liftCap.map { $0.mask.position }
         Motion.withoutAnimation {
             self.frame = frame
+            // sync-layout: the additive springs below read each layer's new position and bounds.
             layoutSubtreeIfNeeded()
         }
         // The cut's fading edge rides on the card's bottom, on the same spring (it moves past the rows when the

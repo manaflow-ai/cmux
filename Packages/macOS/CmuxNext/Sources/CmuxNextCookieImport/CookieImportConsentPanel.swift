@@ -22,6 +22,9 @@ final class CookieImportConsentPanel {
     private let panel: NSPanel
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
+    /// The panel's size, measured once when it shows: its text never changes after, so a window
+    /// resize or move only moves it.
+    private var size: CGSize = .zero
     private var observers: [MainActorObservation] = []
     private var finish: ((CookieImportAnswer) -> Void)?
     /// Answers Deny once ``limit`` passes without an answer.
@@ -172,6 +175,9 @@ final class CookieImportConsentPanel {
         parent = window
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
+        // sync-layout: fittingSize below measures the wrapping labels at their laid-out width.
+        body.layoutSubtreeIfNeeded()
+        size = body.fittingSize
         place()
         // Draws the person's eye without activating cmux (a Dock bounce while another app is in front).
         NSApp.requestUserAttention(.informationalRequest)
@@ -188,8 +194,6 @@ final class CookieImportConsentPanel {
 
     private func place() {
         guard let parent else { return }
-        body.layoutSubtreeIfNeeded()
-        let size = body.fittingSize
         let frame = parent.frame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.midY - size.height / 2, width: size.width, height: size.height),
                        display: true)

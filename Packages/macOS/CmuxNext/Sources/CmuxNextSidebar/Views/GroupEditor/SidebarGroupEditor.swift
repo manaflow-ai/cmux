@@ -319,6 +319,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             self.parent?.removeChildWindow(self)
             parent.addChildWindow(self, ordered: .above)
         }
+        // sync-layout: fittingSize below measures the card.
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
         let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,

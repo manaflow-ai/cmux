@@ -362,6 +362,7 @@ public final class HomeNativeTranscriptView: NSView {
         if transcript.frame != place {
             let resized = transcript.frame.size != place.size
             transcript.frame = place
+            // sync-layout: headerHeight and fieldTop below read the resized transcript.
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size

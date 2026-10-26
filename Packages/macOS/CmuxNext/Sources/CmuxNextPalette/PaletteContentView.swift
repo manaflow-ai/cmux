@@ -222,8 +222,10 @@ final class PaletteContentView: NSView {
         // Fading out counts as hidden, so a reopen retargets the fade.
         let wasHidden = actionsMenuView.isHidden || actionsMenuFadingOut
         needsLayout = true
+        guard wasHidden else { return }
+        // sync-layout: the open scales the menu about the center of its laid-out frame (scaled(_:)).
         layoutSubtreeIfNeeded()
-        if wasHidden { animateActionsMenu(appearing: true) }
+        animateActionsMenu(appearing: true)
     }
 
     // MARK: Layout
@@ -313,6 +315,7 @@ final class PaletteContentView: NSView {
     /// restarting from zero.
     func animateIn() {
         guard let layer else { return }
+        // sync-layout: panelScale below scales about the laid-out panel's center.
         layoutSubtreeIfNeeded()
         let closing = layer.animation(forKey: "opacity") != nil
         Motion.overlays.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: closing ? nil : Float(0))
