@@ -113,10 +113,10 @@ public final class HomeNativeTranscriptView: NSView {
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
-    public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
+    public var debugTranscriptOffset = CGPoint.zero { didSet { if debugTranscriptOffset != oldValue { needsLayout = true } } }
     /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
     /// change, as a divider drag or a live resize makes it). Zero in the product.
-    public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
+    public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { if debugTranscriptWidthTrim != oldValue { needsLayout = true } } }
     /// A click on a header panel toggle (``setHeaderPanels(_:)``), by its id.
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
@@ -176,15 +176,14 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
         firstRun.switchCard.onHide = { [weak self] in
-            self?.firstRun.switchCard.apply(nil)
-            self?.firstRun.needsLayout = true
+            self?.firstRun.hideSwitchCard()
             self?.onHideSwitchKeys()
         }
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         // A long draft grows the field with no size change: refit the panel and the notice above it.
-        transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
+        transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true } // invalidate: told only when the field's height changed
         settingsWatch = followSettings(on: mainWork)
         applyTheme()
         updateFirstRun()
@@ -350,7 +349,6 @@ public final class HomeNativeTranscriptView: NSView {
     /// MessagesLab transcript owns its own text and field metrics.
     func applyTextScale(_ scale: CGFloat) {
         firstRun.applyScale(scale)
-        needsLayout = true
     }
 
     public override func layout() {
