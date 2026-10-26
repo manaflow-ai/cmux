@@ -629,11 +629,14 @@ those MQ10 hits == 0; one WKProcessPool() in Sources; a fleet trace shows page b
 Test: CmuxNextPagesTests, compile-check --package CmuxNext.
 
 **011 Fork page groups.** Files: fork include/cef_cmux.h, libcef/browser/chrome/chrome_content_browser_client_cef.cc,
-the cmux page scheme table. Change: the mechanism that spike 091 proved: either cmux-page as an additional WebUI
-scheme with the last-label lock rule (option B), or the lock override with an explicit commit allowlist
-(option A). Export `cmux_shim_page_scheme_set_group(id, group)` before CefInitialize ends. `solo` and `secrets`
-keep one process per page. The per-site main-frame cap for cmux-page sites is the entry in PL-memory's sharing
-switch (085), not a second switch. Acceptance: fork test opens 3 origins of one group: 1 RenderProcessHost,
+the cmux page scheme table. Change: the mechanism that spike 091 proved. Spike 091 names option B
+(webui-DESIGN.md section 5.1, on the condition that its fork test run gives 1 renderer and 0 kills): cmux-page as an
+additional WebUI scheme with the last-label lock rule, and existing-process reuse for grouped hosts
+(`ShouldTryToUseExistingProcessHost`, as top-chrome WebUI). Option A cannot share (the lock comes from the real
+URL). Export `cmux_shim_page_scheme_set_group(id, group)` before CefInitialize ends. `solo` and `secrets`
+keep one process per page. The agent group's main-frame cap is the entry in PL-memory's sharing switch (085), not
+a second switch; the `privileged` and `viewer` groups share through `GetExistingProcessHost`, which has no cap, so
+011 adds the same cap of 8 to that reuse. Acceptance: fork test opens 3 origins of one group: 1 RenderProcessHost,
 0 bad-message kills after localStorage, fetch and postMessage on each; a 9th frame gets a second process; a
 secrets page gets its own; API number from the train reservation (086). Tell PL-memory. Test: fork browser
 tests; pin a dev dist for 012.
