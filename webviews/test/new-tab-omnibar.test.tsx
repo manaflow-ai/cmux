@@ -266,6 +266,34 @@ test("Down past the last row and Up past the top row come back to the field", as
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
 
+// Lucas 2026-10-26: in a prompt of several lines ↑ cycled the rows, so the caret could not go up a
+// line. As in the chat's composer, ↑ and ↓ move the caret while there is a line to go to, and the
+// rows take them only from the first (↑) or last (↓) line.
+test("Up and Down move the caret between the lines of a prompt before they step the rows", async () => {
+  await render([]);
+  const field = await type("first line\nsecond line");
+  const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  const press = async (key: string) => {
+    const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+    await act(async () => field.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  expect(rows().length).toBeGreaterThan(1);
+  expect(highlighted()).toBe(0);
+
+  field.setSelectionRange(field.value.length, field.value.length); // the second line
+  expect(await press("ArrowUp")).toBe(false); // the caret goes up: the browser moves it
+  expect(highlighted()).toBe(0);
+  expect(await press("ArrowDown")).toBe(true); // the last line: the rows step
+  expect(highlighted()).toBe(1);
+
+  field.setSelectionRange(3, 3); // the first line
+  expect(await press("ArrowDown")).toBe(false);
+  expect(highlighted()).toBe(1);
+  expect(await press("ArrowUp")).toBe(true);
+  expect(highlighted()).toBe(0);
+});
+
 // Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside
 // and Escape close them and keep the typed text; a second Escape leaves the field.
 function pressOutside() {

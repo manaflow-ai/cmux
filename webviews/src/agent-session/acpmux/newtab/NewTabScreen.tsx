@@ -921,7 +921,9 @@ export function NewTabScreen(props: Props) {
       pick(stepSelection(current, 1, rows.length));
       return;
     }
-    const step = listStep(event);
+    // In a prompt of several lines ↑ and ↓ move the caret first, as in the chat's composer; the
+    // rows take them from the caret's first (↑) or last (↓) line.
+    const step = movesCaretInPrompt(event, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
       pick(stepSelection(current, step, rows.length));
@@ -1623,6 +1625,15 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
   if (event.key === "n") return 1;
   if (event.key === "p") return -1;
   return undefined;
+}
+
+/// Whether ↑ or ↓ (no modifier) has a line of the prompt to move the caret to: one above the caret
+/// for ↑, one below it for ↓ (Composer.tsx's rule for a recalled prompt).
+function movesCaretInPrompt(event: React.KeyboardEvent, field: HTMLTextAreaElement): boolean {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+  if (event.key === "ArrowUp") return field.value.slice(0, field.selectionStart).includes("\n");
+  if (event.key === "ArrowDown") return field.value.slice(field.selectionEnd).includes("\n");
+  return false;
 }
 
 /// A control that takes typed keys itself: a text field, or a menu or list with type-ahead.
