@@ -712,7 +712,7 @@ impl TerminalReaper {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = cmux_threads::checked::sync::join(thread);
         }
     }
 
@@ -751,11 +751,7 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
             drop(mux);
             let wait =
                 schedule.next_deadline().map(|at| at.saturating_duration_since(Instant::now()));
-            let event = match wait {
-                Some(wait) => thread_events.recv_timeout(wait),
-                None => thread_events.recv().map_err(|_| RecvTimeoutError::Disconnected),
-            };
-            match event {
+            match thread_events.wait_event(wait) {
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {
                     // Coalesce a burst of topology events into one scan. A
                     // disconnect surfaces at the next wait.

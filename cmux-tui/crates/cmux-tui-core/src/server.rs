@@ -222,6 +222,7 @@ use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod column_move;
 mod command_history;
+mod deferred_commands;
 mod page_credential;
 pub(crate) mod page_files;
 mod page_listener;
@@ -2595,10 +2596,10 @@ pub(crate) use resource_clients::resource_session_snapshot_at_cut;
 use resource_clients::{
     browser_cells_for_pixels, browser_pixels_for_cells, prepare_resource_client_detach,
     resource_browser_surface, resource_browser_viewer_release, resource_browser_viewer_resize,
-    resource_client_cell_pixels_set, resource_client_get, resource_client_list,
-    resource_client_metadata_update, resource_client_sizing_release, resource_client_sizing_set,
-    resource_session_id, resource_session_snapshot, resource_terminal_surface,
-    resource_terminal_viewer_release, resource_terminal_viewer_resize,
+    resource_client_get, resource_client_list, resource_client_metadata_update,
+    resource_client_sizing_release, resource_client_sizing_set, resource_session_id,
+    resource_session_snapshot, resource_terminal_surface, resource_terminal_viewer_release,
+    resource_terminal_viewer_resize, start_resource_client_cell_pixels_set,
 };
 mod resource_attach;
 #[cfg(test)]

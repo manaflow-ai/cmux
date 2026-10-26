@@ -61,7 +61,7 @@ pub(crate) struct BatchCloseRequest<'a> {
 /// group in the close's transaction; `result` is the request's result.
 /// `bare` are the space's workspaces with no tab: they close in the same plan.
 pub(crate) struct RoomClose<'a> {
-    pub before_patch: &'a dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
+    pub before_patch: crate::workspace_registry::RegistryTransactionWrite<'a>,
     pub result: Value,
     pub bare: Vec<WorkspaceId>,
 }

@@ -121,8 +121,9 @@ impl Mux {
             if now >= deadline {
                 return true;
             }
-            guard =
-                wake.wait_timeout(guard, deadline - now).unwrap_or_else(PoisonError::into_inner).0;
+            guard = cmux_threads::checked::sync::wait_timeout(wake, guard, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 

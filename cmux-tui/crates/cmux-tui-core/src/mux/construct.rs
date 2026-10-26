@@ -338,6 +338,7 @@ impl Mux {
             cell_pixels: Mutex::new((8, 16)),
             pending_cell_pixels: Mutex::new(None),
             cell_pixel_retries: Mutex::new(CellPixelRetryQueue::default()),
+            cell_pixel_sets: Arc::default(),
             #[cfg(test)]
             cell_pixel_before_publish: Mutex::new(None),
             #[cfg(test)]
@@ -370,7 +371,7 @@ impl Mux {
             notification_posts: Mutex::new(HashMap::new()),
             feed_local,
             presentation: Mutex::new(Arc::new(presentation)),
-            git_heads: Mutex::new(HashMap::new()),
+            git_heads: Arc::default(),
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
@@ -422,6 +423,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            mux_work: mux_work::MuxWork::default(),
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
@@ -467,6 +469,7 @@ impl Mux {
         if cmux_panic_log::hang::installed() {
             mux.request_watchdog.watch_for_process();
         }
+        mux.mux_work.bind(Arc::downgrade(&mux));
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
@@ -526,6 +529,7 @@ impl Mux {
         crate::journal_hooks::start(&mux)?;
         mux.start_journal_maintenance()?;
         crate::state::project_watch::start(&mux);
+        mux.warm_git_heads();
         Ok(mux)
     }
 
