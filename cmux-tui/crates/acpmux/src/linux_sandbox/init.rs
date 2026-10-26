@@ -97,7 +97,7 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
         let header = control.as_mut_ptr().cast::<libc::cmsghdr>();
         (*header).cmsg_level = libc::SOL_SOCKET;
         (*header).cmsg_type = libc::SCM_RIGHTS;
-        (*header).cmsg_len = libc::CMSG_LEN(fd_bytes as u32) as usize;
+        (*header).cmsg_len = libc::CMSG_LEN(fd_bytes as u32) as _;
         ptr::copy_nonoverlapping(
             listeners.as_ptr().cast::<u8>(),
             libc::CMSG_DATA(header),
@@ -107,7 +107,7 @@ fn send_handoff(fd: RawFd, listeners: &[RawFd], proxy: u16, api: Option<u16>) ->
         message.msg_iov = &mut iov;
         message.msg_iovlen = 1;
         message.msg_control = control.as_mut_ptr().cast();
-        message.msg_controllen = control_len;
+        message.msg_controllen = control_len as _;
         let sent = libc::sendmsg(fd, &message, libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT);
         if sent < 0 {
             return Err(io::Error::last_os_error());

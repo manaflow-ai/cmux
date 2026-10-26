@@ -440,6 +440,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 }
 
 include!("agent_session_observe_tests.rs");
+include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
 
 // MARK: Capability and trust

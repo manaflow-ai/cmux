@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "cmux Pro påkrævet",
-      "message": "Cloud VM'er kræver en cmux Pro-plan.",
-      "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
+      "title": "cmux {plan} påkrævet",
+      "message": "Cloud VM'er kræver en cmux {plan}-plan.",
+      "action": "Opgrader til cmux {plan} på {upgradeUrl} for at oprette Cloud VM'er."
     },
     "displayName": {
       "title": "Ugyldigt maskinnavn",

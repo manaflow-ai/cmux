@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "cmux Pro gerekli",
-      "message": "Cloud VM'ler için cmux Pro planı gerekir.",
-      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+      "title": "cmux {plan} gerekli",
+      "message": "Cloud VM'ler için cmux {plan} planı gerekir.",
+      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux {plan}'ya yükseltin."
     },
     "displayName": {
       "title": "Geçersiz makine adı",

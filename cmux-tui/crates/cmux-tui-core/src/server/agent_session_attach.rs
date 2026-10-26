@@ -49,6 +49,9 @@ pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
+/// The most bytes of a question's `answers` (as JSON) one permission answer
+/// carries; acpmux bounds each item itself.
+const MAX_ANSWERS_BYTES: usize = 64 * 1024;
 /// Permission ids remembered per attachment (announced, not yet answered).
 const MAX_PERMISSIONS: usize = 64;
 /// Record kinds or categories one page may ask for: the agent pane asks for all
@@ -329,6 +332,15 @@ struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
     option_id: String,
+    /// A question's answers (a JSON object, acpmux `hub/questions.rs`):
+    /// passed to acpmux unchanged; the decision proof covers them.
+    #[serde(default)]
+    answers: Option<Value>,
+    /// A question's annotations beside its answers (Claude Code's chosen
+    /// preview and notes, acpmux `questions::check_annotations`): passed to
+    /// acpmux unchanged; the decision proof covers them too.
+    #[serde(default)]
+    annotations: Option<Value>,
     /// The person's decision proof for this answer (acpmux `hub/person.rs`,
     /// cx-0q7o): passed to acpmux unchanged, and acpmux decides.
     #[serde(default)]
@@ -826,12 +838,24 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
             option_id,
+            answers,
+            annotations,
             decision_nonce,
             person_decision,
             answered_by,
             ..
         }) => {
             if option_id.is_empty() || option_id.len() > 256 {
+                return Err(Refusal::BadRequest);
+            }
+            let answers = answers.filter(|a| !a.is_null());
+            let annotations = annotations.filter(|a| !a.is_null());
+            let bad = |v: &Option<Value>| {
+                v.as_ref()
+                    .is_some_and(|a| !a.is_object() || a.to_string().len() > MAX_ANSWERS_BYTES)
+            };
+            // Annotations go only beside answers.
+            if bad(&answers) || bad(&annotations) || (annotations.is_some() && answers.is_none()) {
                 return Err(Refusal::BadRequest);
             }
             if !decision_nonce.as_deref().is_none_or(is_hex64)
@@ -847,6 +871,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
+            if let Some(answers) = answers {
+                params["answers"] = answers;
+            }
+            if let Some(annotations) = annotations {
+                params["annotations"] = annotations;
+            }
             let mut meta = serde_json::Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
