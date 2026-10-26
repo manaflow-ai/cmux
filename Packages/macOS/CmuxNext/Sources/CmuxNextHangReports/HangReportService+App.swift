@@ -47,7 +47,8 @@ extension HangReportService {
             fieldData = sources
             captureBlackBox = { await sources.captureBlackBox() }
         }
-        let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox)
+        let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking, captureBlackBox: captureBlackBox,
+                                            keepsThreadHangs: builder.wireSchema.carriesThreadHangs)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion

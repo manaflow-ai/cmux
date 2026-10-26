@@ -8,8 +8,9 @@ import CmuxNextWakeups
 /// Favorites, Downloads, design mode, profile, theme, DevTools and More. Engine-neutral: the states come from
 /// `BrowserToolbarPolicy` over the bound tab, and a press only reports the
 /// button (`onPress`); the App runs the button's catalog action. Holds no
-/// key handling: shortcuts go through the action registry.
-public final class BrowserToolbarButtonsView: NSStackView {
+/// key handling: shortcuts go through the action registry. The shown buttons
+/// sit in a line by frame layout (`ButtonLineLayout`), leading first.
+public final class BrowserToolbarButtonsView: NSView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
     /// The display text of an action's shortcut, for the tooltips.
@@ -50,6 +51,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private var buttons: [BrowserToolbarButton: ChromeIconButton] = [:]
+    /// The buttons in toolbar order (`BrowserToolbarButton.allCases`).
+    private var ordered: [ChromeIconButton] = []
     private var states: [BrowserToolbarButton: BrowserToolbarButtonState] = [:]
     private weak var tab: (any BrowserTab)?
     private var observation: ObservationLoop?
@@ -61,16 +64,14 @@ public final class BrowserToolbarButtonsView: NSStackView {
 
     public init() {
         super.init(frame: .zero)
-        orientation = .horizontal
-        translatesAutoresizingMaskIntoConstraints = false
-        setHuggingPriority(.required, for: .horizontal)
         for button in BrowserToolbarButton.allCases {
             let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
             view.setAccessibilityIdentifier(button.identifier)
             view.rightClickPresses = button.opensMenu
             view.tag = BrowserToolbarButton.allCases.firstIndex(of: button) ?? 0
             buttons[button] = view
-            addArrangedSubview(view)
+            ordered.append(view)
+            addSubview(view)
         }
         render()
         applyVisibility()
@@ -181,13 +182,48 @@ public final class BrowserToolbarButtonsView: NSStackView {
     }
 
     private func applyVisibility() {
-        for (button, view) in buttons { view.isHidden = !button.isShown(at: collapse, facts, pinned: pinned) }
+        var changed = false
+        for (button, view) in buttons {
+            let hidden = !button.isShown(at: collapse, facts, pinned: pinned)
+            guard view.isHidden != hidden else { continue }
+            view.isHidden = hidden
+            changed = true
+        }
+        guard changed else { return }
+        // The line and its width changed: this view places its buttons again, the toolbar row this view.
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        superview?.needsLayout = true
     }
 
     /// Width of the buttons shown at collapse `level`.
     func width(collapse level: Int) -> CGFloat {
         let count = BrowserToolbarButton.allCases.filter { $0.isShown(at: level, facts, pinned: pinned) }.count
-        return CGFloat(count) * OmnibarStyle.buttonSize + CGFloat(max(0, count - 1)) * OmnibarStyle.buttonSpacing
+        return Self.lineLayout(count: count, height: OmnibarStyle.buttonSize).width
+    }
+
+    /// The width of the buttons shown now (the toolbar row's trailing group).
+    var shownWidth: CGFloat { Self.lineLayout(count: ordered.filter { !$0.isHidden }.count, height: OmnibarStyle.buttonSize).width }
+
+    private static func lineLayout(count: Int, height: CGFloat) -> ButtonLineLayout {
+        ButtonLineLayout(count: count, button: OmnibarStyle.buttonSize, spacing: OmnibarStyle.buttonSpacing, height: height)
+    }
+
+    public override var intrinsicContentSize: NSSize { NSSize(width: shownWidth, height: OmnibarStyle.buttonSize) }
+
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    /// The shown buttons from the leading edge, mirrored in a right-to-left layout.
+    public override func layout() {
+        super.layout()
+        let shown = ordered.filter { !$0.isHidden }
+        let frames = Self.lineLayout(count: shown.count, height: bounds.height).frames
+        let mapping = chromeFrameMapping
+        for (button, rect) in zip(shown, frames) { button.setChromeFrame(mapping.map(rect)) }
     }
 
     @objc private func pressed(_ sender: NSButton) {

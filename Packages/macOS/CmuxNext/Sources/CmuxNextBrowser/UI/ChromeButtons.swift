@@ -31,7 +31,6 @@ final class ChromeIconButton: NSButton {
         isToolbar = toolbar
         showsToolTip = toolTip
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
@@ -42,12 +41,15 @@ final class ChromeIconButton: NSButton {
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
-        NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-        ])
+        // A fixed square: frame layout reads `intrinsicContentSize`, a stack view keeps it.
+        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            setContentHuggingPriority(.chromeFixedSize, for: orientation)
+            setContentCompressionResistancePriority(.chromeFixedSize, for: orientation)
+        }
         density.update { [weak self] in
             guard let self else { return }
+            let side = isToolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight
+            if side != self.side { self.side = side; invalidateIntrinsicContentSize() }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
         }
@@ -58,6 +60,9 @@ final class ChromeIconButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    private var side: CGFloat = 0 // the toolbar's button size, or the overlay control height
+    override var intrinsicContentSize: NSSize { NSSize(width: side, height: side) }
 
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
@@ -259,16 +264,18 @@ class ChromeTextButton: NSButton {
     init(title: String, prominent: Bool, action: Selector?, target: AnyObject?) {
         self.prominent = prominent
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
         bezelStyle = .regularSquare
         self.action = action
         self.target = target
         wantsLayer = true
-        density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
+        // The control height: frame layout reads `intrinsicContentSize`, a stack view keeps it.
+        setContentHuggingPriority(.chromeFixedSize, for: .vertical)
+        setContentCompressionResistancePriority(.chromeFixedSize, for: .vertical)
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
+            controlHeight = BrowserMetrics.controlHeight
             layer?.cornerRadius = BrowserMetrics.controlCornerRadius
             applyTitle()
             invalidateIntrinsicContentSize()
@@ -294,9 +301,10 @@ class ChromeTextButton: NSButton {
         }
     }
 
+    private var controlHeight: CGFloat = 0 // read in the density binding, so a change applies
     override var intrinsicContentSize: NSSize {
         let size = attributedTitle.size()
-        return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: BrowserMetrics.controlHeight)
+        return NSSize(width: ceil(size.width) + BrowserMetrics.overlayPadding * 2, height: controlHeight)
     }
 
     override func viewDidHide() {
@@ -341,75 +349,9 @@ class ChromeTextButton: NSButton {
     }
 }
 
-/// Plain single-line field with no bezel, no focus ring, and a gray
-/// selection instead of the accent-colored one.
-class ChromeTextField: NSTextField {
-    private let density = DensityBinding()
-    private var placeholderText = ""
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        isBordered = false
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        cell?.isScrollable = true
-        cell?.wraps = false
-        density.update { [weak self] in
-            guard let self else { return }
-            font = BrowserMetrics.bodyFont
-            applyPlaceholder()
-        }
-        density.start(in: self)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func setPlaceholder(_ text: String) {
-        placeholderText = text
-        applyPlaceholder()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
-        applyPlaceholder()
-        applyEditorColors()
-    }
-
-    private func applyPlaceholder() {
-        guard !placeholderText.isEmpty else { return }
-        performWithTheme {
-            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
-                .font: font ?? BrowserMetrics.bodyFont,
-            ]))
-        }
-    }
-
-    private func applyEditorColors() {
-        guard let editor = currentEditor() as? NSTextView else { return }
-        performWithTheme {
-            editor.insertionPointColor = Palette.caret
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-        }
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted { applyEditorColors() }
-        return accepted
-    }
+extension NSLayoutConstraint.Priority {
+    /// The content priority of a chrome button's fixed size: high enough that a
+    /// stack view keeps the size, below required, so a host that places the button
+    /// by frame (required autoresizing-mask constraints) never conflicts with it.
+    static let chromeFixedSize = NSLayoutConstraint.Priority(999)
 }

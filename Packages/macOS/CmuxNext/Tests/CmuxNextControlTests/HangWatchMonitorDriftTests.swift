@@ -257,7 +257,7 @@ private struct Rig {
 
     func monitor() -> HangMonitor {
         HangMonitor(source: HangMonitor.Source(watch: watch, crashKeys: nil), log: hangs, janks: janks, logger: nil,
-                    fieldMetrics: fieldMetrics)
+                    fieldMetrics: fieldMetrics, intervalNanos: 0, deliver: { _ in })
     }
 
     func histogram(_ id: HistogramID) -> MetricsDelta.Histogram? {

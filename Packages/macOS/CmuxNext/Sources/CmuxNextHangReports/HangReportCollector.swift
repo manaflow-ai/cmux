@@ -59,6 +59,8 @@ public final class HangReportCollector: Sendable {
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
     /// Nil when the report's wire schema has no black box: then no trigger takes one.
     private let captureBlackBox: CaptureBlackBox?
+    /// False when the report's wire schema has no watched threads' hangs: then none is kept.
+    private let keepsThreadHangs: Bool
     /// Runs a black-box capture; the default is a utility task. Tests keep the job and await it.
     private let scheduleCapture: @Sendable (@escaping @Sendable () async -> Void) -> Void
 
@@ -69,9 +71,12 @@ public final class HangReportCollector: Sendable {
     ///   ``HangReportBuilder/frames(blocking:)`` when its builder's schema carries them.
     /// - Parameter captureBlackBox: Nil (the default) takes no black box, for a report whose wire schema has
     ///   none (``HangReport/WireSchema/carriesFieldData``).
+    /// - Parameter keepsThreadHangs: False (the default) keeps no watched thread's hang, for a report whose wire
+    ///   schema has none (``HangReport/WireSchema/carriesThreadHangs``).
     public init(resolve: @escaping Resolve,
                 resolveBlocking: ResolveBlocking? = nil,
                 captureBlackBox: CaptureBlackBox? = nil,
+                keepsThreadHangs: Bool = false,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
@@ -83,6 +88,7 @@ public final class HangReportCollector: Sendable {
         self.resolve = resolve
         self.resolveBlocking = resolveBlocking
         self.captureBlackBox = captureBlackBox
+        self.keepsThreadHangs = keepsThreadHangs
         self.schedule = schedule
         self.scheduleCapture = scheduleCapture
     }
@@ -142,6 +148,19 @@ public final class HangReportCollector: Sendable {
         if ms >= Self.blackBoxHangMs { startBlackBoxCapture() }
         guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsHangSample(durationMs: ms) }) else { return }
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task), addresses: addresses)
+    }
+
+    /// One watched thread still in its hang-watch scope 2 s past its budget (watchdog thread, from the watchdog's
+    /// `onThreadHang`): kept in its own slots apart from the main thread's hangs (``StallAggregate/threadHangs``),
+    /// longest first, as a ``HangSample/Source/hangWatch`` sample that names `thread`; nothing when the wire schema
+    /// has none. `durationNanos` is how far past its budget the scope was when its stack was sampled. The scope has
+    /// run 2 s past its budget, a hang by any measure: it takes the black box as a main-thread hang does.
+    public func noteThreadHang(durationNanos: UInt64, addresses: [UInt], thread: HangSample.WatchedThread) {
+        guard isEnabled, keepsThreadHangs else { return }
+        startBlackBoxCapture()
+        let ms = Self.milliseconds(durationNanos)
+        guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
+        keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
     }
 
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
@@ -222,8 +241,9 @@ public final class HangReportCollector: Sendable {
     /// Adds a saved aggregate (the previous launch's) to what is recorded now.
     public func merge(_ saved: StallAggregate) {
         var saved = saved
-        // A build whose schema had blocking samples saved them; this one cannot send them.
+        // A build whose schema had blocking samples or thread hangs saved them; this one cannot send them.
         if resolveBlocking == nil { saved.dropBlocking() }
+        if !keepsThreadHangs { saved.dropThreadHangs() }
         guard isEnabled, !saved.isEmpty else { return }
         state.withLock { $0.aggregate.merge(saved) }
     }

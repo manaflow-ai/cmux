@@ -103,15 +103,11 @@ final class OmnibarPillView: NSView {
             if let glass {
                 glass.style = style
             } else {
+                // The glass fills the bar and follows its size (frame layout, no constraints).
                 let panel = GlassPanelView(style: style, cornerRadius: 0)
-                panel.translatesAutoresizingMaskIntoConstraints = false
+                panel.frame = bounds
+                panel.autoresizingMask = [.width, .height]
                 addSubview(panel, positioned: .below, relativeTo: nil)
-                NSLayoutConstraint.activate([
-                    panel.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    panel.trailingAnchor.constraint(equalTo: trailingAnchor),
-                    panel.topAnchor.constraint(equalTo: topAnchor),
-                    panel.bottomAnchor.constraint(equalTo: bottomAnchor),
-                ])
                 glass = panel
             }
         } else {

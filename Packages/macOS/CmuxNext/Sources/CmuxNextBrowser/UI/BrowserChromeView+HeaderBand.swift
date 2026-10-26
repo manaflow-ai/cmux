@@ -37,18 +37,39 @@ extension BrowserChromeView: PaneHeaderBandHosting {
 
     /// The empty band between the toolbar rows and the page (under them, or
     /// above them with the toolbar at the bottom); 0 high until a pane opens it.
-    func installHeaderBand(beside bar: NSView) {
+    /// The rows are framed (`BrowserChromeLayout`); the guide stays a layout
+    /// guide because the pane pins its strip to it, so its offset from the
+    /// toolbar's edge follows the rows (`syncHeaderBand`).
+    func installHeaderBand() {
         let guide = headerBand.guide
         addLayoutGuide(guide)
         let height = guide.heightAnchor.constraint(equalToConstant: 0)
         headerBand.height = height
-        toolbarEdge.top.append(guide.topAnchor.constraint(equalTo: bar.bottomAnchor))
-        toolbarEdge.bottom.append(guide.bottomAnchor.constraint(equalTo: bar.topAnchor))
+        headerBand.top = guide.topAnchor.constraint(equalTo: topAnchor)
+        headerBand.bottom = guide.bottomAnchor.constraint(equalTo: bottomAnchor)
         NSLayoutConstraint.activate([
             guide.leadingAnchor.constraint(equalTo: leadingAnchor),
             guide.trailingAnchor.constraint(equalTo: trailingAnchor),
             height,
         ])
+        syncHeaderBand(animated: false)
+    }
+
+    /// Puts the band after the toolbar and accessory rows, from the toolbar's
+    /// edge. `animated`: inside the toolbar's hide or show animation, so a
+    /// strip pinned to the band moves with the rows.
+    func syncHeaderBand(animated: Bool) {
+        guard let top = headerBand.top, let bottom = headerBand.bottom else { return }
+        let atTop = toolbarPosition == .top
+        let (active, inactive) = atTop ? (top, bottom) : (bottom, top)
+        if inactive.isActive { inactive.isActive = false }
+        let offset = BrowserChromeLayout.bandOffset(toolbarHeight: toolbarRowHeight, accessoryHeight: shownAccessoryHeight)
+        let constant = atTop ? offset : -offset
+        if active.constant != constant {
+            // Outside a window no display runs the animation, so the constant is set directly.
+            (animated && window != nil ? Motion.animator(active, in: self) : active).constant = constant
+        }
+        if !active.isActive { active.isActive = true }
     }
 
     /// Constraints from the pane to the band end before this view leaves
@@ -77,10 +98,13 @@ extension BrowserChromeView: PaneHeaderBandHosting {
     }
 }
 
-/// The band's guide, height constraint and release callback.
+/// The band's guide, its constraints and release callback.
 final class BrowserHeaderBand {
     let guide = NSLayoutGuide()
     var height: NSLayoutConstraint?
+    /// The guide's offset from the view's top (toolbar on top) or bottom (toolbar at the bottom).
+    var top: NSLayoutConstraint?
+    var bottom: NSLayoutConstraint?
     var onRelease: (() -> Void)?
     var onReattach: (() -> Void)?
 }

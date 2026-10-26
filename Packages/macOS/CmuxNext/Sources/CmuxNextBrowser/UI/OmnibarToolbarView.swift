@@ -43,42 +43,18 @@ public final class OmnibarToolbarView: ArrowCursorView {
         forward = navigation ? ChromeIconButton(icon: .browserToolbarForward, label: Strings.forward, action: nil, target: nil, toolbar: true, toolTip: false) : nil
         reload = navigation ? ChromeIconButton(icon: .browserToolbarReload, label: Strings.reload, action: nil, target: nil, toolbar: true, toolTip: false) : nil
         super.init(frame: .zero)
-        // The bar lays itself out with constraints (it turns off autoresizing), so the row places
-        // it the same way, as the browser toolbar does.
         addSubview(addressBar)
-        let withButtons = navigation
-        NSLayoutConstraint.activate([
-            density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
-            density.bind(addressBar.topAnchor.constraint(equalTo: topAnchor)) { [weak self] in
-                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2, withButtons: withButtons)
-            },
-            density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
-        ])
-        guard let back, let forward, let reload else {
-            density.bind(addressBar.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset }.isActive = true
-            return
-        }
+        density.update { [weak self] in self?.applyMetrics() }
+        density.start(in: self)
+        guard let back, let forward, let reload else { return }
         back.setAccessibilityIdentifier(Self.backIdentifier)
         forward.setAccessibilityIdentifier(Self.forwardIdentifier)
         reload.setAccessibilityIdentifier(Self.reloadIdentifier)
         for (button, action) in [(back, #selector(goBack)), (forward, #selector(goForward)), (reload, #selector(reloadPage))] {
             button.target = self
             button.action = action
+            addSubview(button)
         }
-        // The browser toolbar's navigation group (BrowserChromeView.buildLayout): leading, on the
-        // omnibar's vertical center, one bar margin before the field.
-        let navigationGroup = NSStackView(views: [back, forward, reload])
-        navigationGroup.translatesAutoresizingMaskIntoConstraints = false
-        navigationGroup.setHuggingPriority(.required, for: .horizontal)
-        addressBar.setContentHuggingPriority(.init(1), for: .horizontal)
-        addSubview(navigationGroup)
-        navigationGroup.spacing = OmnibarStyle.buttonSpacing
-        density.update { navigationGroup.spacing = OmnibarStyle.buttonSpacing }
-        NSLayoutConstraint.activate([
-            density.bind(navigationGroup.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset },
-            navigationGroup.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
-            density.bind(addressBar.leadingAnchor.constraint(equalTo: navigationGroup.trailingAnchor)) { OmnibarStyle.barMargin },
-        ])
         setNavigation(canGoBack: false, canGoForward: false, canReload: false)
     }
 
@@ -95,6 +71,21 @@ public final class OmnibarToolbarView: ArrowCursorView {
 
     /// Re-applies the metrics when the density changes (`DensityBinding`).
     private let density = DensityBinding()
+    /// The row's token sizes (`applyMetrics`).
+    private var metrics: ToolbarRowLayout.Metrics? {
+        didSet { if metrics != oldValue { needsLayout = true } }
+    }
+
+    /// The browser toolbar's sizes: the bar at its top padding and side insets, the buttons at
+    /// the browser's place and size, one bar margin before the field.
+    private func applyMetrics() {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        metrics = ToolbarRowLayout.Metrics(
+            inset: OmnibarStyle.toolbarInset, barMargin: OmnibarStyle.barMargin, buttonSpacing: OmnibarStyle.buttonSpacing,
+            buttonSize: OmnibarStyle.buttonSize, barTop: OmnibarStyle.barTop(scale: scale, withButtons: hasButtons),
+            barHeight: OmnibarStyle.barHeight
+        )
+    }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -112,8 +103,29 @@ public final class OmnibarToolbarView: ArrowCursorView {
         density.reapply()
     }
 
+    public override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        if changed { needsLayout = true }
+    }
+
+    /// The row's frames for its size now (the browser toolbar's `ToolbarRowLayout`, no trailing group).
+    var rowLayout: ToolbarRowLayout? {
+        guard let metrics else { return nil }
+        return ToolbarRowLayout(ToolbarRowLayout.Input(
+            size: bounds.size, position: .top, navigationButtons: navigationButtons.count, trailing: nil, metrics: metrics
+        ))
+    }
+
+    private var navigationButtons: [ChromeIconButton] { [back, forward, reload].compactMap { $0 }.filter { !$0.isHidden } }
+
     public override func layout() {
         super.layout()
+        if let row = rowLayout {
+            let mapping = chromeFrameMapping
+            for (button, rect) in zip(navigationButtons, row.navigation) { button.setChromeFrame(mapping.map(rect)) }
+            addressBar.setChromeFrame(mapping.map(row.address))
+        }
         addressBar.followLayout()
     }
 }
