@@ -14,7 +14,8 @@ public import AppKit
 ///   relayout, a strip scrollbar update),
 /// - every key-window change, and every `debug.mouse` pointer (DEBUG).
 ///
-/// The layout's divider hover (`ScreenDividers`) reads the same pointer.
+/// The layout's divider hover (`ScreenDividers`) reads the same pointer: the enter or exit's own
+/// point while one is handled, the window's cursor sample otherwise.
 @MainActor
 public final class PointerHover: NSObject {
     /// Whether the pointer is over the view now (as of the last refresh).
@@ -71,11 +72,11 @@ public final class PointerHover: NSObject {
     // point, as Chromium's `ui/views/widget/root_view.cc` hit-tests a move's `event.location()`.
     @objc(mouseEntered:) public func mouseEntered(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window, at: EventPointer(event))
+        Self.refresh(in: view?.window, at: event)
     }
     @objc(mouseExited:) public func mouseExited(with event: NSEvent) {
         Self.index.place(self)
-        Self.refresh(in: view?.window, at: EventPointer(event))
+        Self.refresh(in: view?.window, at: event)
     }
 
     /// Recomputes this target only (its eligibility changed).
@@ -84,7 +85,7 @@ public final class PointerHover: NSObject {
         update(at: nil)
     }
 
-    private func update(at event: EventPointer?) {
+    private func update(at event: NSEvent?) {
         let hovering = computeHovering(at: event)
         guard hovering != isHovering else { return }
         isHovering = hovering
@@ -103,7 +104,7 @@ public final class PointerHover: NSObject {
         return window
     }
 
-    private func computeHovering(at event: EventPointer?) -> Bool {
+    private func computeHovering(at event: NSEvent?) -> Bool {
         guard let view, let window = view.window, !view.isHiddenOrHasHiddenAncestor, isHoverable(),
               let pointer = Self.pointer(in: window, requireKey: requiresKeyWindow, event: event) else { return false }
         let local = view.convert(pointer, from: nil)
@@ -113,19 +114,6 @@ public final class PointerHover: NSObject {
     }
 
     // MARK: The pointer
-
-    /// The point of the enter or exit being handled, in its window's coordinates: the refresh it
-    /// starts reads it for that window's targets instead of the live cursor.
-    fileprivate struct EventPointer {
-        let window: NSWindow
-        let point: NSPoint
-
-        init?(_ event: NSEvent) {
-            guard let window = event.window else { return nil }
-            self.window = window
-            point = event.locationInWindow
-        }
-    }
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG (`debug.mouse`, tests): the pointer synthesized per window, in
@@ -172,16 +160,18 @@ public final class PointerHover: NSObject {
         pointer(in: window, requireKey: requireKey, event: nil)
     }
 
-    /// As `pointer(in:requireKey:)`, from `event`'s point while its window is the one asked about.
-    /// Outside an event (a layout pass, a scroll, a hide under a still pointer) there is none, and
-    /// the window's own cursor sample is read, as Chromium's `Widget::SynthesizeMouseMoveEvent`
-    /// replays the last mouse location after a layout change.
-    private static func pointer(in window: NSWindow, requireKey: Bool, event: EventPointer?) -> NSPoint? {
+    /// As `pointer(in:requireKey:)`, from `event`'s point while its window is the one asked about:
+    /// the handler of an enter or exit passes its event. Outside an event (a layout pass, a scroll,
+    /// a hide under a still pointer) there is none, and the window's own cursor sample is read, as
+    /// Chromium's `Widget::SynthesizeMouseMoveEvent` replays the last mouse location after a layout
+    /// change.
+    public static func pointer(in window: NSWindow, requireKey: Bool, event: NSEvent?) -> NSPoint? {
         #if DEBUG
         if let synthetic = debugPointer(in: window) { return synthetic }
         #endif
         guard window.isVisible, !requireKey || window.isKeyWindow else { return nil }
-        if let event, event.window === window { return event.point }
+        if let event, event.window === window { return event.locationInWindow }
+        // global-input-allow: no event (a layout, scroll or hide under a still pointer); the window's own cursor sample.
         return window.mouseLocationOutsideOfEventStream
     }
 
@@ -190,7 +180,8 @@ public final class PointerHover: NSObject {
     /// point). A window server round trip: ask only when a view is under the
     /// pointer.
     public static func isTopmost(_ window: NSWindow, passThrough: Set<Int> = []) -> Bool {
-        isTopmost(window, at: window.mouseLocationOutsideOfEventStream, passThrough: passThrough)
+        // global-input-allow: no event at hand; the window's own cursor sample, as `pointer(in:requireKey:)` reads.
+        return isTopmost(window, at: window.mouseLocationOutsideOfEventStream, passThrough: passThrough)
     }
 
     /// As `isTopmost(_:passThrough:)` at `point` (`window`'s coordinates), the same sample the
@@ -220,7 +211,7 @@ public final class PointerHover: NSObject {
     }
 
     /// As `refresh(in:)`; `event` is the enter or exit that started it, read for its window.
-    private static func refresh(in window: NSWindow?, at event: EventPointer?) {
+    private static func refresh(in window: NSWindow?, at event: NSEvent?) {
         guard let window else { return }
         guard !refreshing else {
             if !pending.contains(where: { $0 === window }) { pending.append(window) }

@@ -124,12 +124,14 @@ final class DividerMouseCatcherView: NSView {
         trackingArea = area
     }
 
-    /// Whether a pointer at `point` (screen points) is over this catcher now: its panel shows,
-    /// takes the mouse, and holds the point. A seam for tests.
-    lazy var isPointerOver: (NSPoint) -> Bool = { [weak self] point in
+    /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
+    /// the pointer. Read on the turn after an enter, outside its dispatch. A seam for tests, which
+    /// have no screen pointer.
+    lazy var isPointerOver: () -> Bool = { [weak self] in
         guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
               !self.isHiddenOrHasHiddenAncestor else { return false }
-        return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: point))
+        // global-input-allow: next turn, outside dispatch; the pointer may have left before its exit is handled.
+        return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
     }
     /// The cursor set queued after an enter, while it is pending (tests await it).
     private(set) var pendingCursorSet: Task<Void, Never>?
@@ -144,15 +146,13 @@ final class DividerMouseCatcherView: NSView {
         // part outside it (the sidebar's resize band reaches over the sidebar), AppKit puts the
         // arrow back for the key window later in this event's turn, and this panel, never key,
         // gets no cursor update or move after that. Set the cursor once more on the next turn,
-        // only if no exit came and the panel still shows under the enter's point (a panel parked,
-        // hidden or moved meanwhile gets no exit; a pointer that moved off it does). One-shot:
-        // nothing repeats or stays scheduled.
-        let entered = (event.window ?? window)?.convertPoint(toScreen: event.locationInWindow) ?? event.locationInWindow
+        // only if no exit came and the panel still shows under the pointer (a panel parked,
+        // hidden or moved meanwhile gets no exit). One-shot: nothing repeats or stays scheduled.
         pendingCursorSet?.cancel()
         pendingCursorSet = Task { @MainActor [weak self] in
             guard let self else { return }
             self.pendingCursorSet = nil
-            guard !Task.isCancelled, self.isEntered, self.isPointerOver(entered) else { return }
+            guard !Task.isCancelled, self.isEntered, self.isPointerOver() else { return }
             self.cursor.set()
         }
         onHover?(true)

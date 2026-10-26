@@ -240,6 +240,7 @@ final class ChiefPetView: NSView {
             return NSMenu.popUpContextMenu(menu, with: event, for: self)
         }
         let start = event.screenLocation
+        // The hit test reads the same point as the drag's start.
         let local = convert(window?.convertPoint(fromScreen: start) ?? start, from: nil)
         press = (start, window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
