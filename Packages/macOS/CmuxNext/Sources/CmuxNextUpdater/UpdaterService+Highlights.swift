@@ -27,6 +27,8 @@ extension UpdaterService {
                                           fromBuild: record.fromBuild, notes: notes, appcast: record.changelog)
         }
         highlights.changelog = UpdateHighlights.Changelog(from: record.fromVersion, to: record.toVersion)
+        // A record saved before `builtAt`: the staged appcast item's date.
+        if highlights.builtAt == nil { highlights.builtAt = record.changelog.date.flatMap(UpdateHighlights.instant) }
         return highlights
     }
 

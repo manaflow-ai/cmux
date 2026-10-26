@@ -51,6 +51,22 @@
   padding-bottom: 6px;
   border-bottom: 1px solid var(--page-separator);
 }
+/* The build line under the eyebrow (Leo 2026-10-26): the hairline moves below it. */
+.wn-card-eyebrow:has(+ .wn-card-build) {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+.wn-card-build {
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--page-separator);
+}
 .wn-card-close {
   position: absolute;
   top: 7px;

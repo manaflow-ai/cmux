@@ -31,6 +31,11 @@ export interface UpdateHighlights {
   fromVersion: string;
   fromBuild: string;
   date?: string | null;
+  /** When the build was made, an ISO instant ("2026-10-26T19:38:52Z"); absent from an older host or
+      notes, and then only `date` is known. */
+  builtAt?: string | null;
+  /** The commit the build was cut from (the notes' `head`); absent from older notes. */
+  head?: string | null;
   source: "whatsNew" | "highlights" | "summary" | "appcast" | "none";
   language: string;
   /** At most 3, in display order. */

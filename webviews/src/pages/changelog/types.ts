@@ -15,6 +15,8 @@ export interface IndexEntry {
   shortVersion: string;
   date: string;
   highlights: number;
+  /** The commit the build was cut from; older indexes lack it. */
+  head?: string;
 }
 
 export interface ListResult {

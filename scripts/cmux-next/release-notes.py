@@ -506,6 +506,9 @@ def build(args):
     if digest is not None:
         notes["whatsNew"] = digest
         write_community_summary(digest, args)
+    # When the build was made, to the second: the Updated card names the build by it ("Nightly · Oct 26,
+    # 7:38 PM" in the person's time zone; Leo 2026-10-26: "it just says updated to nightly").
+    notes["builtAt"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, f"{args.build}.json")
     with open(path, "w", encoding="utf-8") as out:

@@ -11,7 +11,7 @@ import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
-import type { ReleaseNotes } from "./types";
+import type { IndexEntry, ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 import "../shared/pageBase.css";
@@ -68,6 +68,7 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
         <UpdatedCard
           data={data}
           span={spans?.notes(data.changelog)}
+          builds={spans?.builds}
           strings={strings}
           actions={actions}
           closeButton={false}
@@ -104,6 +105,9 @@ class SpanNotes {
   private key = "";
   private store: ChangelogStore | null = null;
   private settled: ReleaseNotes[] | undefined;
+  /** The channel's published builds (the notes index), newest first, once listed: the card says how
+      far the installed build is from the newest. */
+  builds: IndexEntry[] | undefined;
 
   constructor(
     private readonly client: PageClient,
@@ -127,6 +131,8 @@ class SpanNotes {
       .then(() => {
         if (this.store !== store) return;
         const snapshot = store.getSnapshot();
+        this.builds = snapshot.builds.length ? snapshot.builds : undefined;
+        if (this.builds) this.onChange();
         const notes = snapshot.inSpan.flatMap((build) => snapshot.loaded[build] ?? []);
         if (notes.length === 0) return;
         this.settled = notes.sort((a, b) => compareVersions(b.shortVersion, a.shortVersion));
