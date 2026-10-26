@@ -60,6 +60,25 @@ assert.equal(
   }),
   41.25,
 );
+// Mixed prepend plus a removal below the anchor has a net shift that is not the anchor shift.
+const mixedOld = Array.from({ length: 200 }, (_, index) => row(`mixed-${index}`));
+const mixedNew = [
+  ...Array.from({ length: 120 }, (_, index) => row(`older-${index}`)),
+  ...mixedOld.slice(0, 140),
+  ...mixedOld.slice(180),
+];
+const mixedTop = layout(200).tops[100]!;
+assert.equal(
+  preserveScrollAnchorTop({
+    oldLayout: layout(mixedOld.length),
+    newLayout: layout(mixedNew.length),
+    oldRows: mixedOld,
+    newRows: mixedNew,
+    liveTop: mixedTop,
+    anchorTop: mixedTop,
+  }),
+  mixedTop + 120 * 41.25,
+);
 for (const growth of [1, 2, 3, 4, 20]) {
   const node = { scrollHeight: 1000, clientHeight: 600, scrollTop: 400 };
   node.scrollHeight += growth;

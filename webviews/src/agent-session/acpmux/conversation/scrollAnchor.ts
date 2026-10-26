@@ -29,14 +29,20 @@ function firstVisible(tops: Float64Array, top: number): number {
 
 // A prepend moves old rows by the count added; a stream keeps their indices. Check both in O(1),
 // then a bounded neighborhood for an update that changed both ends in the same commit.
-function movedIndex(rows: readonly Pick<AcpmuxRow, "id">[], id: string, at: number, shift: number): number {
+function movedIndex(
+  rows: readonly Pick<AcpmuxRow, "id">[],
+  id: string,
+  at: number,
+  shift: number,
+  indexById?: Map<string, number>,
+): number {
   if (rows[at]?.id === id) return at;
   if (rows[at + shift]?.id === id) return at + shift;
   for (let delta = 1; delta <= 32; delta++) {
     for (const index of [at - delta, at + delta, at + shift - delta, at + shift + delta])
       if (rows[index]?.id === id) return index;
   }
-  return -1;
+  return indexById?.get(id) ?? -1;
 }
 
 /** The offset to correct from for one placement pass. */
@@ -71,11 +77,18 @@ export function preserveScrollAnchorTop({
 }): number | undefined {
   const first = firstVisible(oldLayout.tops, liveTop);
   // A row's own resize must not move its top edge. The first visible row is
-  // therefore the anchor; rows below it are irrelevant to this correction.
+  // therefore the anchor; rows below it are irrelevant to this correction. A simple prepend or
+  // stream resolves in constant time. Build an id index only after that fast path misses, which
+  // handles a mixed prepend/removal without making normal token updates scan every row.
+  let indexById: Map<string, number> | undefined;
   for (let oldIndex = first; oldIndex < Math.min(oldRows.length, first + 32); oldIndex += 1) {
     const id = oldRows[oldIndex]?.id;
     if (!id) continue;
-    const newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length);
+    let newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length);
+    if (newIndex < 0) {
+      indexById ??= new Map(newRows.map((row, index) => [row.id, index]));
+      newIndex = movedIndex(newRows, id, oldIndex, newRows.length - oldRows.length, indexById);
+    }
     if (newIndex < 0) continue;
     return anchorTop + newLayout.tops[newIndex]! - oldLayout.tops[oldIndex]!;
   }
