@@ -107,7 +107,7 @@ struct CreateTabTimingTests {
 }
 
 /// The records a test runtime's stub writes, in order.
-private final class CreateRecordLog: Sendable {
+private nonisolated final class CreateRecordLog: Sendable {
     private let state = Mutex<[TraceRuntime.StubRecord]>([])
 
     func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }

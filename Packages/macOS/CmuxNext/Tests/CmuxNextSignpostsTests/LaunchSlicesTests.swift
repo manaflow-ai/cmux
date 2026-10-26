@@ -23,7 +23,7 @@ struct LaunchSlicesTests {
         #expect(milestoneNames.allSatisfy { $0.traceCategory == .launch && !$0.opensThreadSlice })
     }
 
-    private static let milestoneCases: [(String, LaunchSlices.Milestone)] = [
+    nonisolated private static let milestoneCases: [(String, LaunchSlices.Milestone)] = [
         ("main_start", .processToMain), ("first_window_presented", .firstWindow),
         ("first_window_frame_committed", .firstFrame), ("daemon.handshake_end", .daemonReady),
         ("first_terminal_content", .firstTerminalOutput),
