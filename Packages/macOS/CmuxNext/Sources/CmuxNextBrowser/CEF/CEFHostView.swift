@@ -102,10 +102,6 @@ final class CEFHostView: NSView {
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? { childWindowPage.clipShape().path }
 
-    /// The chrome's rects plus the window's interactive overlays over this
-    /// view, in this view's coordinates.
-    var allOcclusionRects: [CGRect] { childWindowPage.occlusionRects() }
-
     /// `rects` without those inside another (one of equal rects stays): a
     /// hole inside a hole, such as the error page's in the New Tab page's,
     /// would cancel it in an even-odd mask and show the page there again.
@@ -122,11 +118,6 @@ final class CEFHostView: NSView {
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         childWindowPage.windowDidChange()
-    }
-
-    /// The window asks its pages to re-apply their geometry (`ChildWindowPageGeometry.pagesNeedUpdate`).
-    func pagesNeedUpdate(force: Bool) {
-        childWindowPage.pagesNeedUpdate(force: force)
     }
 
     /// Tells the tracker about moves AppKit does not report (layer

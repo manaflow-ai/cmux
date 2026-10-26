@@ -105,7 +105,7 @@ final class ChildWindowPageGeometry {
         let path: CGPath?
         /// `path` for the fork; nil when the page is a plain rect, and when it
         /// shows nothing: a page clipped away entirely is hidden by an occlusion
-        /// hole over all of it (`occlusionRects`), the fork's documented way
+        /// hole over all of it (`occlusionRects()`), the fork's documented way
         /// to keep a page from showing.
         let bezier: NSBezierPath?
     }

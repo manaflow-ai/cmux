@@ -14,7 +14,7 @@ nonisolated enum CEFClipShape {
 
     /// Everything `path` is worked out from for one view: equal inputs give
     /// the same shape, so a reader keeps the last shape while they hold
-    /// (`CEFHostView.clipShape`).
+    /// (`ChildWindowPageGeometry.clipShape`).
     nonisolated struct Inputs: Equatable, Sendable {
         var bounds: CGRect
         var clips: [RoundedRect]
