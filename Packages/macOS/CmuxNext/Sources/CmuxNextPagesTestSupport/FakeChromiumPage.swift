@@ -159,6 +159,15 @@ public final class FakeChromiumPage: PageChromiumPage {
         return true
     }
 
+    /// Every ``answerUnresponsive(terminate:)``, in order (true: terminate).
+    public private(set) var hangAnswers: [Bool] = []
+
+    /// Records `terminate` in ``hangAnswers``; a closed page records nothing.
+    public func answerUnresponsive(terminate: Bool) {
+        guard !closed else { return }
+        hangAnswers.append(terminate)
+    }
+
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {
         closed = true

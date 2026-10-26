@@ -751,6 +751,10 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(dirs) = cmux_tui_core::first_party_dir::apps_dirs() {
         command.env(cmux_tui_core::first_party_dir::DIRS_ENV, dirs);
     }
+    // So is the owning app's pid (startup_env.rs): only that owner gets it.
+    if let Some(pid) = crate::startup_env::owner_app_pid() {
+        command.env(crate::startup_env::OWNER_APP_PID_ENV, pid);
+    }
     #[cfg(unix)]
     let (ready, ready_writer) = ready_pipe(&mut command)?;
     #[cfg(unix)]

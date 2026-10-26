@@ -4,7 +4,7 @@ each naming kind, process and thread. `--queue` is the Q8 work list: locations a
 browser-process thread (CrBrowserMain, ThreadPool workers) or in a renderer, GPU, network, storage, audio or utility
 process; locations below it, in the probe's tracing service or an extension renderer, and Safe Browsing, CRLSet
 and the probe's own DevTools work stay out. Seed-list locations name their candidate and switch. The browser main
-thread's task rate sits beside the pump counters. Runs anywhere (no app, no Chromium).
+thread's task rate sits beside the pump counters. `--queue` needs a window >= 50 s (default 100 s). Runs anywhere (no app, no Chromium).
 Run: python3 -I scripts/cmux-next/tests/test_cef_idle_probe.py"""
 import importlib.util, io, json, os, subprocess, sys, tempfile, unittest
 from contextlib import redirect_stdout
@@ -194,6 +194,29 @@ class PostedTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
         posted = [json.loads(line.split(" ", 1)[1]) for line in run.stdout.splitlines() if line.startswith("CEF-IDLE-POSTED ")]
         self.assertEqual([(r["kind"], r["thread"]) for r in posted], [(k, t) for k, _, t, _, _ in QUEUE])
+
+    def test_queue_window_defaults_long_enough_to_resolve_the_threshold(self):
+        self.assertEqual(probe.window_seconds(None, True), 100.0)
+        self.assertEqual(probe.window_seconds(None, False), 10.0)
+        self.assertEqual(probe.window_seconds(60.0, True), 60.0)
+        self.assertIsNone(probe.queue_window_error(probe.window_seconds(None, True), "--window"))
+        self.assertIsNone(probe.queue_window_error(50.0, "--window"))
+        self.assertIn("--window >= 50", probe.queue_window_error(49.0, "--window"))
+
+    def test_cli_app_queue_refuses_a_short_window(self):
+        # Refused by the parser before any app launch, so the app path need not exist.
+        run = subprocess.run([sys.executable, "-I", PROBE, "--app", os.path.join(self.dir.name, "missing.app"),
+                              "--queue", "--window", "10", "--out", self.dir.name],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("--queue needs --window >= 50", run.stderr)
+
+    def test_cli_trace_queue_refuses_a_short_window(self):
+        run = subprocess.run([sys.executable, "-I", PROBE, "--trace", self.trace, "--seconds", "10", "--queue"],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 2, run.stdout + run.stderr)
+        self.assertIn("--queue needs --seconds >= 50", run.stderr)
+        self.assertNotIn("CEF-IDLE-POSTED", run.stdout)
 
     def test_cli_trace_needs_seconds(self):
         run = subprocess.run([sys.executable, "-I", PROBE, "--trace", self.trace],

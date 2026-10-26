@@ -1,3 +1,4 @@
+import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
 import Foundation
@@ -297,6 +298,111 @@ extension PageWebViewChromiumTests {
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
         #expect(page.evaluations.last == call.params["expression"] as? String)
+        view.close()
+    }
+}
+
+/// The "Page unresponsive" card of a Chromium page (p13-webui-057): a tab-scoped cmux dialog while the
+/// renderer hangs and the page shows, answered through the page and never waited on.
+extension PageWebViewChromiumTests {
+    /// A page whose Chromium page attached, with no deadline.
+    private func attachedPage(_ hosting: FakeChromiumHosting) async throws -> (PageWebView, FakeChromiumPage) {
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        return (view, try #require(hosting.made.first))
+    }
+
+    @Test func aShownPageThatHangsShowsTheCardAndWaitAnswersIt() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await attachedPage(hosting)
+        view.setEngineVisible(true)
+        page.onEvent?(.unresponsive)
+        let record = try #require(hosting.dialogs.records.first)
+        #expect(hosting.dialogs.records.count == 1)
+        #expect(record.scope == "tab")
+        #expect(record.spec.identifier == PageHangNotice.identifier)
+        #expect(record.spec.cancelButton?.id == PageHangNotice.waitButton)
+        #expect(hosting.dialogHost.shown.count == 1)
+        #expect(page.hangAnswers.isEmpty)
+
+        #expect(hosting.dialogs.press(record.id, button: PageHangNotice.waitButton))
+        #expect(page.hangAnswers == [false])
+        #expect(hosting.dialogs.records.isEmpty)
+        // Chromium reports the hang again while the renderer still hangs: the card comes back.
+        page.onEvent?(.responsive)
+        page.onEvent?(.unresponsive)
+        #expect(hosting.dialogs.records.count == 1)
+        view.close()
+        #expect(hosting.dialogs.records.isEmpty)
+        #expect(page.hangAnswers == [false])
+    }
+
+    @Test func exitEndsTheRendererAndTheCrashTakesOver() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await attachedPage(hosting)
+        view.setEngineVisible(true)
+        page.onEvent?(.unresponsive)
+        let record = try #require(hosting.dialogs.records.first)
+        #expect(hosting.dialogs.press(record.id, button: PageHangNotice.exitButton))
+        #expect(page.hangAnswers == [true])
+        #expect(hosting.dialogs.records.isEmpty)
+        page.onEvent?(.crashed)
+        #expect(hosting.dialogs.records.isEmpty)
+        view.close()
+    }
+
+    @Test func aHiddenPageShowsTheCardOnlyWhenItShows() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await attachedPage(hosting)
+        // No window: the page attached hidden.
+        page.onEvent?(.unresponsive)
+        #expect(hosting.dialogs.records.isEmpty)
+        view.setEngineVisible(true)
+        #expect(hosting.dialogs.records.count == 1)
+        // Hidden again: the card goes, unanswered, and comes back with the page.
+        view.setEngineVisible(false)
+        #expect(hosting.dialogs.records.isEmpty)
+        #expect(page.hangAnswers.isEmpty)
+        view.setEngineVisible(true)
+        #expect(hosting.dialogs.records.count == 1)
+        view.close()
+        #expect(page.hangAnswers.isEmpty)
+    }
+
+    @Test func aRendererThatAnswersAgainTakesTheCardDownUnanswered() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await attachedPage(hosting)
+        view.setEngineVisible(true)
+        page.onEvent?(.unresponsive)
+        #expect(hosting.dialogs.records.count == 1)
+        page.onEvent?(.responsive)
+        #expect(hosting.dialogs.records.isEmpty)
+        #expect(hosting.dialogHost.shown.isEmpty)
+        #expect(page.hangAnswers.isEmpty)
+        // A hidden page that hung and answered again shows nothing when it shows.
+        view.setEngineVisible(false)
+        page.onEvent?(.unresponsive)
+        page.onEvent?(.responsive)
+        view.setEngineVisible(true)
+        #expect(hosting.dialogs.records.isEmpty)
+        view.close()
+    }
+
+    @Test func aClosedTabEndsTheCardWithoutAnAnswer() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await attachedPage(hosting)
+        view.setEngineVisible(true)
+        page.onEvent?(.unresponsive)
+        let dialog = try #require(hosting.dialogHost.shown.first)
+        hosting.dialogHost.closeScope(of: dialog)
+        #expect(hosting.dialogs.records.isEmpty)
+        #expect(page.hangAnswers.isEmpty)
         view.close()
     }
 }

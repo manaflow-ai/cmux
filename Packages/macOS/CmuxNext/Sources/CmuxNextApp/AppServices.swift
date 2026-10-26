@@ -415,7 +415,7 @@ final class AppServices {
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
-    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
+    private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, deadlines: mainDeadlines)
     /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
     /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
     private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
@@ -447,7 +447,8 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work),
+                keyRouter: keyRouter, work: work, dialogs: .shared,
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput)
         host.scriptFrames = pageScriptFrame
@@ -718,7 +719,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
@@ -804,7 +805,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
-        registry.dispatchingInputEvent = { inputDispatch.event }
+        (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in

@@ -29,8 +29,9 @@ cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
 cmux-memory.workspace = true
-# The daemon's feature lists (CMUX_ENABLE_FEATURES): `memoryAcpmuxPressure`.
-cmux-features.workspace = true
+# The daemon's features and their sources, shared with the cmux-tui owner (the leftover
+# daemon idle exit, src/daemon_lifecycle.rs), and `memoryAcpmuxPressure`.
+cmux-features = { workspace = true, features = ["sources"] }
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true

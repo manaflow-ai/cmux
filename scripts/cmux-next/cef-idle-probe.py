@@ -19,8 +19,8 @@ with a DevTools port, lets it settle, then with no input:
      Then CEF-IDLE-POSTED-PUMP sets the browser main thread's task rate beside the cmux pump counters.
 Writes OUT/cef-idle.json and prints CEF-IDLE lines.
 
-  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10] [--queue]
-  cef-idle-probe.py --trace OUT/chromium-trace.json --seconds 10 [--queue]   (a recorded trace, no app)
+  cef-idle-probe.py --app APP [--out DIR] [--settle 60] [--window 10] [--queue]   (--queue: window 100 s, >= 50 s)
+  cef-idle-probe.py --trace OUT/chromium-trace.json --seconds 10 [--queue]   (a recorded trace, no app; --queue: >= 50 s)
 """
 import argparse, collections, json, os, sys, time
 
@@ -49,6 +49,11 @@ PAGE_PROBE = r"""(async () => {
 
 # A posting location at or above this rate in an idle session is one Q8 item (p14-energy.md, section 6).
 QUEUE_MIN_PER_S = 0.02
+# One run in the window is 1/window per second, so a window shorter than 1/QUEUE_MIN_PER_S lists any location that ran
+# once and cannot tell a location at the threshold from one that did not run. The queue's default window sees two runs.
+QUEUE_MIN_WINDOW_S = 1 / QUEUE_MIN_PER_S
+QUEUE_WINDOW_S = 2 * QUEUE_MIN_WINDOW_S
+IDLE_WINDOW_S = 10.0
 TASK_EVENTS = ("ThreadControllerImpl::RunTask", "ThreadPool_RunTask")
 # The browser process's UI thread (content/browser/browser_main_loop.cc names it); in-process CEF runs it on the app's
 # main thread, driven by the external pump that debug.cef counts.
@@ -177,6 +182,21 @@ def queue_rows(tasks, seconds, renderer_urls=None):
             if row["kind"] in QUEUE_KINDS and "stays" not in row]
 
 
+def window_seconds(window, queue):
+    """The app-mode window: --window if given, else 100 s with --queue and 10 s without."""
+    if window is not None:
+        return window
+    return QUEUE_WINDOW_S if queue else IDLE_WINDOW_S
+
+
+def queue_window_error(seconds, flag):
+    """The parser error for a --queue window too short to resolve QUEUE_MIN_PER_S, or None."""
+    if seconds >= QUEUE_MIN_WINDOW_S:
+        return None
+    return (f"--queue needs {flag} >= {QUEUE_MIN_WINDOW_S:g} (1/{QUEUE_MIN_PER_S}/s): one run in {seconds:g} s "
+            f"is {1 / seconds:.3g}/s, so the queue cannot tell a {QUEUE_MIN_PER_S}/s location from one that did not run")
+
+
 def pump_comparison(posted, pump_per_s, early_passes):
     """The browser main thread's posted tasks per second beside the pump's work runs and requests per second."""
     main_tasks = sum(row["per_s"] for row in posted if row["kind"] == "browser" and row["thread"] == BROWSER_MAIN_THREAD)
@@ -239,16 +259,24 @@ def main():
                              "browser-process thread or in a renderer, GPU, network, storage, audio or utility process")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "artifacts", "cef-idle"))
     parser.add_argument("--settle", type=float, default=60)
-    parser.add_argument("--window", type=float, default=10)
+    parser.add_argument("--window", type=float,
+                        help=f"idle window in seconds (default {IDLE_WINDOW_S:g}, {QUEUE_WINDOW_S:g} with --queue)")
     opts, _ = parser.parse_known_args()
     if opts.trace:
         if not opts.seconds or opts.seconds <= 0:
             parser.error("--trace needs --seconds > 0")
+        if opts.queue and (error := queue_window_error(opts.seconds, "--seconds")):
+            parser.error(error)
         summary = chromium_summary(opts.trace, opts.seconds)
         print_posted(summary["task_counts"], opts.seconds, opts.queue, {}, None, summary["renderer_urls"])
         return
     if not opts.app:
         parser.error("--app is required unless --trace is given")
+    opts.window = window_seconds(opts.window, opts.queue)
+    if opts.window <= 0:
+        parser.error("--window needs a value > 0")
+    if opts.queue and (error := queue_window_error(opts.window, "--window")):
+        parser.error(error)
     os.makedirs(opts.out, exist_ok=True)
     from bench_launch import BenchApp
     from ext_e2e import cdp

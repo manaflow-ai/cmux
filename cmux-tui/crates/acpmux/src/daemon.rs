@@ -40,10 +40,9 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
-/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
-/// a panic in a request task ends only that task and used to leave just
-/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
-/// app sends new lines to Sentry.
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log): a panic in a request task
+/// ends only that task and used to leave just two lines in `daemon.log` (the 2026-10-14 sort
+/// panic). The cmux-next app sends new lines to Sentry.
 pub fn panic_log_path() -> std::path::PathBuf {
     home().join("panics.jsonl")
 }
@@ -524,6 +523,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     tokio::select! {
         r = unix => { r??; }
         _ = shutdown => {}
+        _ = crate::daemon_lifecycle::run_for_daemon(hub.clone()) => {}
     }
     tracing::info!("shutting down");
     hub.stop_idle_reaper();

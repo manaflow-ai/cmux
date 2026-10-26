@@ -110,10 +110,19 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     override func sendEvent(_ event: NSEvent) {
         let outerDelivered = dispatchDelivered
         dispatchDelivered = false
-        defer { dispatchDelivered = outerDelivered }
+        inputTap?.sendEventBegan(event)
+        defer { dispatchDelivered = outerDelivered; inputTap?.sendEventEnded() }
         if let turnMeter { turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) } } else { tapped(event, dispatchedNanos: nil) }
         // Every path, outside the turn meter's input span and the tap's dispatch scope.
         inputTap?.deliverDispatchEnd(event, outcome: dispatchDelivered ? .delivered : .consumed)
+    }
+
+    /// A menu item's action: its tracking event answers it (`InputEventTap.actionEvent`), in or out of a dispatch.
+    override func sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        guard sender is NSMenuItem, let inputTap else { return super.sendAction(action, to: target, from: sender) }
+        inputTap.menuActionBegan()
+        defer { inputTap.menuActionEnded() }
+        return super.sendAction(action, to: target, from: sender)
     }
 
     private func tapped(_ event: NSEvent, dispatchedNanos: UInt64?) {

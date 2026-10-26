@@ -1,5 +1,6 @@
 // Chat-load benchmark, page stage (perf100). The shipped agent pane bundle
-// (scripts/cmux-next/build-agent-pane-web.sh --out DIR), served over loopback, in headless
+// (scripts/cmux-next/build-agent-pane-web.sh --out DIR --pages-out PAGES), served over loopback
+// with the pages' shared chunks it imports (PAGES/_shared at /_shared/, shared-origin.mjs), in headless
 // Chromium or WebKit, opens each fixture chat (fixture.ts) from a real acpmux daemon
 // (daemon_bench.py --keep-pidfile), and the mock chat of the in-page mock daemon.
 //
@@ -17,13 +18,14 @@
 //   daemon_cpu_ms    the acpmux daemon's CPU time during the open (from /proc).
 // Then (--scroll) it scrolls to the first message and reports the time and bytes it took.
 //
-//   node browser_bench.mjs --pane DIR --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P --token T
-//        --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
+//   node browser_bench.mjs --pane DIR --shared PAGES/_shared --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P
+//        --token T --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
 //        [--mock-turns 100,1000,10000] [--port 4319]
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import pw from "playwright";
+import { builtPageBody, builtPageFile } from "../../pages/shared-origin.mjs";
 
 const arg = (name, fallback) => {
   const index = process.argv.indexOf(`--${name}`);
@@ -31,6 +33,7 @@ const arg = (name, fallback) => {
 };
 const has = (name) => process.argv.includes(`--${name}`);
 const paneDir = arg("pane");
+const sharedDir = arg("shared");
 const fixture = arg("fixture") ? JSON.parse(fs.readFileSync(arg("fixture"), "utf8")) : { sessions: [] };
 const endpoint = arg("endpoint");
 const token = arg("token");
@@ -43,15 +46,15 @@ const mockTurns = (arg("mock-turns", "") || "").split(",").filter(Boolean).map(N
 const onlySessions = arg("sessions") ? new Set(arg("sessions").split(",").map(Number)) : undefined;
 
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json" };
+if (!paneDir || !sharedDir) throw new Error("--pane DIR and --shared PAGES/_shared are required");
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, "http://x");
-  const file = path.join(paneDir, decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname));
-  if (!file.startsWith(paneDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  const file = builtPageFile(new URL(req.url, "http://x").pathname, { page: paneDir, shared: sharedDir });
+  if (!file) {
     res.writeHead(404).end();
     return;
   }
   res.writeHead(200, { "Content-Type": TYPES[path.extname(file)] ?? "application/octet-stream" });
-  fs.createReadStream(file).pipe(res);
+  res.end(builtPageBody(file));
 });
 await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
 const origin = `http://127.0.0.1:${port}`;
