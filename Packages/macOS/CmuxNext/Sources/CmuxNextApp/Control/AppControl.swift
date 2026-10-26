@@ -96,6 +96,7 @@ final class AppControl {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
                                                  frameSource: frames, watchdog: watchdog, mainWork: mainWork)
         self.service = service
+        AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild)
