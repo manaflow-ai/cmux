@@ -56,8 +56,8 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        dir.display()
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
     );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
@@ -77,6 +77,24 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
 }
 
 /// Every namespace owner above an acpmux state directory must be this user
@@ -157,8 +175,8 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        path.display()
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
     );
     refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
@@ -325,20 +343,63 @@ pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    let cwd = std::env::current_dir().ok();
+    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
-        &home(),
+        &home,
         uid,
     ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return absolute(
-            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
-        );
+        return absolute(configured.map(PathBuf::from).unwrap_or_else(|| home.join("acpmux.sock")));
     }
     absolute(resolved)
+}
+
+/// The configured socket and the home [`socket_path`] derives the socket from.
+#[cfg(unix)]
+fn socket_inputs(
+    configured: Option<&str>,
+    home: &Path,
+    cwd: Option<&Path>,
+) -> (Option<String>, PathBuf) {
+    // Both absolute before the short alias is derived from them: a started daemon gets them
+    // absolute (`daemon/login_placement.rs` `daemon_env`) and must derive the same one.
+    let absolute = |p: &Path| match cwd {
+        Some(cwd) if p.is_relative() => cwd.join(p),
+        _ => p.to_path_buf(),
+    };
+    let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
+    (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod socket_input_tests {
+    use super::*;
+
+    /// A daemon a command starts is handed its home and socket absolute
+    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
+    /// the same socket, short alias included, or it waits on one the daemon never binds.
+    #[test]
+    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
+        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
+        let long = "x".repeat(80);
+        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
+            let (configured, home) = socket_inputs(configured, home, Some(cwd));
+            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
+        };
+        let elsewhere = Path::new("/elsewhere");
+        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
+        let sock = format!("{long}/a.sock");
+        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
+        assert_eq!(
+            alias(Some(&sock), Path::new("/h"), cwd),
+            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
+        );
+    }
 }
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon

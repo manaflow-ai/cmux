@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "ត្រូវការ cmux Pro",
-      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
-      "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+      "title": "ត្រូវការ cmux {plan}",
+      "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux {plan}។",
+      "action": "ដំឡើងកំណែទៅ cmux {plan} នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
     },
     "displayName": {
       "title": "ឈ្មោះម៉ាស៊ីនមិនត្រឹមត្រូវ",
