@@ -347,6 +347,7 @@ fn list_on(
             super::resolve::Failure::Resource(error) | super::resolve::Failure::Local { error, .. },
         ) => Err(error.get("message").and_then(Value::as_str).unwrap_or("failed").to_owned()),
         Err(super::resolve::Failure::Transport(message)) => Err(message),
+        Err(super::resolve::Failure::Refused) => Err("session is busy".into()),
         Err(super::resolve::Failure::AppAction { .. }) => Err("unexpected app action".into()),
     }
 }
