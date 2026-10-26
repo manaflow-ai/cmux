@@ -64,9 +64,9 @@ public struct URLSessionSocketConnection: DeviceHubSocketConnection {
     }
 }
 
-/// The device's socket to its User DO: pushes in, `{type:'ping'}` out on an
-/// interval, and a reconnect with jittered backoff whenever it drops. While
-/// a socket is open nothing else wakes it but frames and the ping.
+/// The device's socket to its User DO: pushes in, `{type:'ping'}` out after an
+/// interval of silence, and a reconnect with jittered backoff whenever it drops.
+/// While a socket is open nothing else wakes it but frames and the ping.
 public final class DeviceHubSocket: Sendable {
     public enum State: Sendable, Equatable {
         case disconnected
@@ -137,18 +137,17 @@ public final class DeviceHubSocket: Sendable {
         await handler(.state(.disconnected))
     }
 
-    /// Reads frames and pings until the socket fails or the task is cancelled.
+    /// Reads frames until the socket fails or the task is cancelled, with the keepalive armed.
     private func serve(_ connection: any DeviceHubSocketConnection, _ handler: @escaping @Sendable (Event) async -> Void) async throws {
+        let keepalive = DemandTimer(owner: "DeviceHubSocket.ping", clock: clock)
+        defer { keepalive.cancel() }
         try await withTaskCancellationHandler {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask { try await self.ping(connection) }
-                group.addTask { try await Self.read(connection, handler) }
-                // The first to end (a failed read or ping) ends both: closing the socket ends the read.
-                defer {
-                    group.cancelAll()
-                    connection.close()
-                }
-                _ = try await group.next()
+            armPing(keepalive, connection)
+            // wakeup-allow: bounded by the socket: each pass waits for the next frame, and a closed socket throws.
+            while !Task.isCancelled {
+                let text = try await connection.receive()
+                armPing(keepalive, connection)
+                if let push = DeviceHubPush(text: text) { await handler(.push(push)) }
             }
         } onCancel: {
             // receive() does not end on cancellation by itself; closing the socket ends it.
@@ -156,22 +155,18 @@ public final class DeviceHubSocket: Sendable {
         }
     }
 
-    private static func read(_ connection: any DeviceHubSocketConnection, _ handler: @escaping @Sendable (Event) async -> Void) async throws {
-        // wakeup-allow: each pass waits for the next frame; it ends when the socket throws.
-        while !Task.isCancelled {
-            let text = try await connection.receive()
-            if let push = DeviceHubPush(text: text) { await handler(.push(push)) }
-        }
-    }
-
-    private func ping(_ connection: any DeviceHubSocketConnection) async throws {
-        // A keepalive has no exact due time: it sleeps with WakeLeeway's tolerance for the interval.
-        let tolerance = WakeLeeway.window(delay: pingInterval).tolerance
-        // wakeup-allow: periodic DeviceHubSocket.ping (PROTOCOL.md's keepalive; the server answers without waking its object)
-        while !Task.isCancelled {
-            // poll-allow: a keepalive is due every interval by protocol; it waits for no condition, so no event exists.
-            try await clock.sleep(for: pingInterval, tolerance: tolerance) // wakeup-allow: periodic DeviceHubSocket.ping
-            try await connection.send(#"{"type":"ping"}"#)
+    /// PROTOCOL.md's keepalive, sent only after ``pingInterval`` with no frame from the server (any
+    /// frame, the pong too, re-arms it), as Chromium sends its HTTP/2 connection-check PING only
+    /// after a read silence (net/spdy/spdy_session.cc, `SendPrefacePingIfNoneInFlight`). A failed
+    /// send closes the socket, which ends the read.
+    private func armPing(_ keepalive: DemandTimer, _ connection: any DeviceHubSocketConnection) {
+        // wakeup-allow: periodic DeviceHubSocket.ping (only after an interval of silence; the server answers without waking its object)
+        keepalive.schedule(after: pingInterval) { [weak keepalive, self] in
+            do { try await connection.send(#"{"type":"ping"}"#) } catch {
+                connection.close()
+                return
+            }
+            if let keepalive { armPing(keepalive, connection) }
         }
     }
 }

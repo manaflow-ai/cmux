@@ -241,7 +241,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                                              allowForeign: true, deadline: .seconds(2))
                 return try AcpmuxStatus(result).endpoint()
             } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
-                try await socketRetryWait(&backoff, until: deadline)
+                try await socketRetryWait(&backoff, remaining: deadline - ContinuousClock.now)
             }
         }
     }
@@ -306,7 +306,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             do {
                 return try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             } catch AcpmuxStatusClient.Failure.unreachable where ContinuousClock.now < deadline {
-                do { try await socketRetryWait(&backoff, until: deadline) } catch { return nil }
+                do { try await socketRetryWait(&backoff, remaining: deadline - ContinuousClock.now) } catch { return nil }
             } catch {
                 logger.error("acpmux status after a start failed error=\(String(describing: error), privacy: .public)")
                 return nil

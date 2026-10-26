@@ -111,13 +111,19 @@ nonisolated enum AcpmuxVersionHandoff {
 /// Waits for a process to exit through the kernel's exit event (no polling).
 public nonisolated struct AgentPaneProcessExit: Sendable {
     public let pid: Int32
+    /// The clock of the wait's deadline; tests pass a `ManualClock`.
+    private let clock: any Clock<Duration>
 
-    public init(pid: Int32) { self.pid = pid }
+    public init(pid: Int32, clock: any Clock<Duration> = ContinuousClock()) {
+        self.pid = pid
+        self.clock = clock
+    }
 
     private final class Once: Sendable {
         let done = Mutex(false)
         /// The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
-        let deadline = DemandTimer(owner: "agent-pane.process-exit")
+        let deadline: DemandTimer
+        init(clock: any Clock<Duration>) { deadline = DemandTimer(owner: "agent-pane.process-exit", clock: clock) }
         func first() -> Bool {
             done.withLock { flag in
                 defer { flag = true }
@@ -129,8 +135,9 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
     /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
     public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
+        let clock = clock
         return await withCheckedContinuation { continuation in
-            let once = Once()
+            let once = Once(clock: clock)
             let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             let finish: @Sendable (Bool) -> Void = { exited in
