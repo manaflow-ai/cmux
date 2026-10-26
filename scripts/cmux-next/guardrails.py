@@ -1951,6 +1951,34 @@ RULES = (
 )
 
 
+# ---------------------------------------------------------------- sync-layout (p03-rendering-066, PL-guardrails)
+# A forced layout or display pass, or a CATransaction flush, does on the caller's turn what the frame does once
+# per display refresh (plans/cmux-next/chrome-parity/p03-rendering.md R4, DC11). Blink names the reason of every
+# forced lifecycle update (`Document::UpdateStyleAndLayout(DocumentUpdateReason)`,
+# third_party/blink/renderer/core/dom/document.cc); here the reason is the `// sync-layout: <why>` comment, on the
+# hit's line or the line directly above it, the same pattern and window as render-done-checks.py's MQ-sync-layout
+# queue and DC11, so a push that passes this rule never grows that queue. Added lines only, base debt per file as
+# the other line rules; a fault in the rule turns off only it (check()'s fail open per rule).
+# The block owns its lines from here to `RULES += SYNC_LAYOUT_RULES`.
+SYNC_LAYOUT = re.compile(r"layoutSubtreeIfNeeded|displayIfNeeded|\.display\(\)|CATransaction\.flush")
+SYNC_LAYOUT_ALLOW = re.compile(r"//\s*sync-layout:\s*\S")
+SYNC_LAYOUT_RULES = (
+    Rule("sync-layout", "A forced synchronous layout, display or flush (`layoutSubtreeIfNeeded`, `displayIfNeeded`, "
+         "`.display()`, `CATransaction.flush`) without a reason",
+         "it runs layout, drawing or a commit on the caller's turn instead of once in the next frame: a forced pass "
+         "per change or per animation frame is a main-thread stall and a dropped frame (CLAUDE.md: one frame per "
+         "display refresh; p03-rendering.md R4, DC11)",
+         "set `needsLayout` / `needsDisplay` (behind a changed value) and let the frame lay out and draw; read "
+         "geometry from the model, not from a fresh layout; when the next statement truly needs the laid-out "
+         "result (a measured size before a window opens, a snapshot), say why on the line or the line directly "
+         "above",
+         "// sync-layout: <why this turn needs the layout now>",
+         matcher_rule(Matcher(SYNC_LAYOUT, SYNC_LAYOUT_ALLOW, window=ratchet.allow_lines))),
+)
+RULES += SYNC_LAYOUT_RULES
+# ---------------------------------------------------------------- end of sync-layout (p03-rendering-066)
+
+
 # ---------------------------------------------------------------- input-monitor (p04-input, PL-typing)
 # One input tap (plans/cmux-next/chrome-parity/p04-input.md (A)): `CmuxApplication.sendEvent` is the only place
 # that sees raw NSEvents, and CmuxNextInput's InputEventTap hands them to typed subscriptions (class, phase,
