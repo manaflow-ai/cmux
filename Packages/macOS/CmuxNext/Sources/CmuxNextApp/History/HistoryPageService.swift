@@ -6,7 +6,6 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextDaemon
-import CmuxNextFeatures
 import CmuxNextHistory
 import CmuxNextMacScreen
 import CmuxNextRemoteView
@@ -150,13 +149,6 @@ extension TabContentCache {
     /// Replaces a page with the history page.
     func showHistoryPage(in tab: TabModel) { showAppPage(HistoryPageAddress.url, in: tab) }
 
-    /// Tab `key`'s cmux page built again from `address` after a discard (`BrowserRestoreState.page`);
-    /// nil when the tab is gone or the address is no cmux page.
-    func appPage(rebuilding address: URL, key: String) -> (any BrowserTab)? {
-        guard let tab = tabModel(key) else { return nil }
-        return makeAppPage(address, for: tab)
-    }
-
     /// Replaces a page with the app page at `url`.
     func showAppPage(_ url: URL, in tab: TabModel) {
         guard let page = makeAppPage(url, for: tab) else { return }
@@ -178,7 +170,8 @@ extension TabContentCache {
         #endif
     }
 
-    private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
+    /// The page at app page address `url` for `tab` (a hibernated one's wake too); nil for another address.
+    func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
@@ -219,7 +212,6 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
-            if services.features.isEnabled(.memoryDiscardRemoteTabs) { page.wakeAddress = url }
             return page
         }
         if VaultPageAddress.matches(url) {

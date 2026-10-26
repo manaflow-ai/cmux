@@ -1,6 +1,5 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
-import CmuxNextFeatures
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -41,7 +40,6 @@ struct MachineBrowserPages {
                 guard let cache else { return }
                 MachineBrowserPages(cache: cache).openLocally(key, machine: record.machine, url: url)
             })
-        page.isDiscardable = services.features.isEnabled(.memoryDiscardRemoteTabs)
         #if DEBUG
         page.onStart = { [weak cache, weak page] in
             guard let cache, let page else { return }
@@ -129,9 +127,13 @@ struct MachineBrowserPages {
         return makePage(record, key: key, engine: .webkit, profile: profile)
     }
 
-    /// A new page's machine chip: none on a machine browser page (it runs there).
+    /// A new page's machine chip: none on a machine browser page (it runs there), also while it
+    /// hibernates (its streamed page closed; it wakes on the machine).
     func wireChip(_ entry: BrowserEntry, page: any BrowserTab, key: String) {
         var onMachine = page is MachineBrowserPageTab
+        if let asleep = page as? HibernatedBrowserTab, case let .appPage(saved) = asleep.restoreState {
+            onMachine = MachineBrowserRecord.matches(saved.url)
+        }
         #if DEBUG
         onMachine = onMachine || RemoteBrowserPages.runsOnMachine(key)
         #endif

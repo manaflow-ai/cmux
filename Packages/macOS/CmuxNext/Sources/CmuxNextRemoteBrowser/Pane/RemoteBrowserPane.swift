@@ -68,8 +68,15 @@ public final class RemoteBrowserPane {
     /// Decoding now (started and not paused or stopped).
     public var isDecoding: Bool { pipelineTask != nil }
 
-    /// The frame on screen, kept while the pane is paused: a hidden tab's picture.
+    /// The frame on screen, kept while the pane is paused.
     public var lastFrame: RemoteDecodedFrame? { presenter.shownFrame }
+
+    /// The page as drawn with its last frame in the video (a hidden tab's picture); nil before the
+    /// first frame, or while the page shows why it failed (then `cacheDisplay` draws it all).
+    public func picture() async -> CGImage? {
+        guard let frame = lastFrame, view.failureMessage == nil, let image = await frame.picture() else { return nil }
+        return view.video.composite(image, in: view)
+    }
 
     private func frameShown() {
         guard awaitsFirstFrame else { return }

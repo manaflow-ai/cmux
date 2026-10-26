@@ -85,6 +85,12 @@ final class BrowserHibernation {
     /// A frozen page whose memory grows goes with its opener group (`FrozenGrowthRule`, feature
     /// `frozenGrowthDiscard`, set by the App); `growthDeadline` is its next one-shot reading.
     var discardsGrowingFrozenPages = false
+    /// cmux pages in browser tabs (`BrowserAppPage`) hibernate as web pages do (feature
+    /// `memoryDiscardPageTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsAppPages = false
+    /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
+    /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -652,10 +658,6 @@ final class BrowserHibernation {
             var mayAsk = false
             if user {
                 exemption = self.flatMap { HibernationPlanner.hibernateTabRefusal($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting) }
-            } else if tab is any BrowserAddressPage {
-                // A cmux page has no page script to ask (it would never answer): the planner's facts decide.
-                exemption = self.flatMap { PageProbe().keepReason($0.candidate(key, entry: entry, hiddenFor: 0), setting: $0.setting,
-                                                                  for: HibernationPlanner.discardReason(at: $0.pressure), doubted: false) }
             } else {
                 let probe = await Self.probe(tab)
                 if probe.audible { self?.audible?.heard(key) }
@@ -668,8 +670,9 @@ final class BrowserHibernation {
                                                             doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }
-            // A page that stays needs no picture (each replan probes it again).
-            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
+            // A page that stays needs no picture (each replan probes it again); a cmux page saves its view state too.
+            let (snapshot, viewState): (HibernationSnapshots.Picture?, BrowserAppPageState?) = exemption == nil
+                ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
             // and about to go, and at most once while it stays hidden (`askedBeforeUnload`).
@@ -693,7 +696,7 @@ final class BrowserHibernation {
                 self.probeKeptAt[key] = .now
                 return
             }
-            guard let state = source.hibernationState() else {
+            guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
                 self.exemptions[key] = .unsupported
                 return
             }
@@ -701,10 +704,6 @@ final class BrowserHibernation {
             cache.applyLifecycle(cache.lifecycle.send(.hibernate(key)))
         }
     }
-
-    /// Builds a discarded cmux page again from its address (`BrowserAddressPage`); nil builds it
-    /// as the tab's record does (`TabContentCache.appPage(rebuilding:key:)`). A seam for tests.
-    var buildPage: ((_ key: String, _ address: URL) -> (any BrowserTab)?)?
 
     /// Takes a hidden page's picture (a seam for tests).
     var capture: (any BrowserTab) async -> CGImage? = { tab in
@@ -758,8 +757,4 @@ final class BrowserHibernation {
         case go, stale
         case keep(HibernationPlanner.Exemption)
     }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

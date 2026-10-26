@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDesign
-import CmuxNextFeatures
 import CmuxNextSettings
 import Foundation
 #if DEBUG
@@ -164,8 +163,9 @@ enum RemoteBrowserPages {
                 if localHosts[port] === localHost { localHosts[port] = nil }
             }
         }
-        if localHost == nil, services.features.isEnabled(.memoryDiscardRemoteTabs) {
-            tab.makeWakeAddress = { page in
+        // A host this app started for the tab ends with it: such a tab cannot be built again.
+        if localHost == nil {
+            tab.wakeRecord = { page in
                 let first = page.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil } ?? record.initialURL
                 return RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: first, secretFile: record.secretFile, machine: record.machine).url
             }

@@ -16,7 +16,7 @@ public final class RemoteViewPageSession {
     public static let mockHost = "mock"
 
     #if DEBUG
-    private let pane: RemoteDesktopPane
+    let pane: RemoteDesktopPane
     private let source: any RemoteViewStreamSource
     /// The real host's source and how to make a new transport; nil for the mock.
     private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
@@ -113,14 +113,17 @@ public final class RemoteViewPageSession {
     public var view: NSView { pane.view }
     public var focusTarget: NSView { pane.view.focusView }
 
-    /// The frame on screen, kept while the session is paused: a hidden tab's picture.
-    public var lastFrame: RemoteDecodedFrame? { pane.lastFrame }
+    /// The pane as drawn with its last frame (`RemoteDesktopPane.picture()`): a hidden tab's picture.
+    public func picture() async -> CGImage? { await pane.picture() }
 
-    /// Runs when a resumed stream presents its first frame.
-    public var onFirstFrame: (() -> Void)? {
-        get { pane.onFirstFrame }
-        set { pane.onFirstFrame = newValue }
+    /// Runs when a resumed stream shows its own content: its first frame, or why it ended.
+    public var onOwnContent: (() -> Void)? {
+        get { pane.onOwnContent }
+        set { pane.onOwnContent = newValue }
     }
+
+    /// The person stopped the session or it ended: it stays so until the pane's Reconnect.
+    public var isEnded: Bool { rdStopped || pane.state.isEnded }
 
     /// `debug.remote_view` state of this session: the source, the session
     /// state and the decode counters.
@@ -176,11 +179,12 @@ public final class RemoteViewPageSession {
     #else
     public var view: NSView { NSView() }
     public var focusTarget: NSView { view }
-    public var lastFrame: RemoteDecodedFrame? { nil }
-    public var onFirstFrame: (() -> Void)? {
+    public func picture() async -> CGImage? { nil }
+    public var onOwnContent: (() -> Void)? {
         get { nil }
         set {}
     }
+    public var isEnded: Bool { false }
     public func resume() {}
     public func pause() {}
     #endif

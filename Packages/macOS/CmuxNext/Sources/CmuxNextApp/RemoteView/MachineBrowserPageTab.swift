@@ -38,12 +38,10 @@ final class MachineBrowserPageTab: BrowserTab {
     /// The address the person typed (or the record's first page): it opens
     /// when the machine's browser is ready, or here with Open Locally Instead.
     private(set) var queuedURL: URL?
-    /// The tab may be discarded and built again from its record (`memoryDiscardRemoteTabs`).
-    @ObservationIgnored var isDiscardable = false
-    /// A woken tab's last frame while the machine's browser starts again; the streamed page it
-    /// starts takes it over (`handOverWakeCover`) until its first frame.
+    /// A woken machine tab's last frame while the machine's browser starts again; the streamed
+    /// page it starts takes it over (`handOverWakeCover`) until its first frame. This page itself is
+    /// never discarded: only the streamed page is (`BrowserStreamedPage`).
     @ObservationIgnored private let wakeCover = BrowserWakeCover()
-    @ObservationIgnored private var wakePicture: (image: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>)?
 
     var contentView: NSView { view }
     /// The message shown (debug socket).
@@ -122,13 +120,12 @@ final class MachineBrowserPageTab: BrowserTab {
 
     /// The streamed page that replaces this one keeps the woken tab's last frame until its first.
     func handOverWakeCover(to page: any BrowserTab) {
-        defer {
-            wakeCover.remove()
-            wakePicture = nil
-        }
-        guard wakeCover.isShown, let picture = wakePicture else { return }
-        (page as? any BrowserWakeStandIn)?.showStandIn(picture.image, decoded: picture.decoded, cap: picture.cap, clock: picture.clock)
+        guard let standIn = page as? any BrowserWakeStandIn else { return wakeCover.remove() }
+        wakeCover.handOver(to: standIn)
     }
+
+    /// The last frame covers the page now (tests, debug).
+    var showsWakeCover: Bool { wakeCover.isShown }
 }
 
 extension MachineBrowserPageTab: BrowserWakeStandIn {
@@ -137,19 +134,12 @@ extension MachineBrowserPageTab: BrowserWakeStandIn {
     @discardableResult
     func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
         guard isStarting else { return false }
-        wakePicture = (picture, decoded, cap, clock)
-        wakeCover.show(picture, decoded: decoded, in: view, above: nil, cap: cap, clock: clock)
+        wakeCover.show(picture, decoded: decoded, in: view, cap: cap, clock: clock)
         return true
     }
-}
 
-extension MachineBrowserPageTab: BrowserAddressPage {
-    /// Its record with the waiting address: built again, it shows the same state and starts the
-    /// machine's browser when it can. Never while a start runs (its answer would be dropped).
-    var wakeAddress: URL? {
-        guard isDiscardable, !isStarting else { return nil }
-        return MachineBrowserRecord(machine: record.machine, initialURL: queuedURL).url
-    }
+    /// A start, then the stream's connect: as long as a stream's reconnect.
+    var wakeCoverCap: Duration? { BrowserWakeCover.reconnectCap }
 }
 
 /// The not-ready message, the waiting address and the two buttons.

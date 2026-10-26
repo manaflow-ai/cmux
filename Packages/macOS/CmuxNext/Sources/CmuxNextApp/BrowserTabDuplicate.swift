@@ -45,8 +45,8 @@ struct BrowserTabDuplicate {
                     return nil
                 }
             })
-        case .page:
-            // `history(of:)` gives no address as a history; a cmux page opens its URL.
+        case .appPage:
+            // A cmux page has no history (`history(of:)` gives none): its address opens it.
             pane.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
         }
     }

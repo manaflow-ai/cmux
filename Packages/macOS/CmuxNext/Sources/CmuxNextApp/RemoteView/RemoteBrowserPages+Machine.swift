@@ -1,6 +1,5 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
-import CmuxNextFeatures
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -42,9 +41,8 @@ extension RemoteBrowserPages {
                 answer(String(describing: surface))
             }
         }
-        if services.features.isEnabled(.memoryDiscardRemoteTabs) {
-            tab.makeWakeAddress = { page in MachineBrowserRecord(machine: machine, initialURL: page ?? initialURL).url }
-        }
+        // A discard stops this runtime; the wake starts the machine's browser again at the page shown.
+        tab.wakeRecord = { page in MachineBrowserRecord(machine: machine, initialURL: page ?? initialURL).url }
         machineKeys.insert(key)
         sessions = sessions.filter { $0.value.value != nil }
         sessions[key] = WeakSession(value: session)
