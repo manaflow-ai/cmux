@@ -1366,12 +1366,7 @@ struct ReplayHold<'a> {
 
 impl<'a> ReplayHold<'a> {
     fn start(session: &'a Session, agent: &'a crate::agent::ChildAgent) -> Self {
-        let mut held = session.replaying.lock().unwrap_or_else(|e| e.into_inner());
-        if held.len() >= super::session::REPLAY_HOLDS {
-            held.remove(0);
-        }
-        held.push(agent.generation);
-        drop(held);
+        session.replaying.lock().unwrap_or_else(|e| e.into_inner()).push(agent.generation);
         Self { session, agent }
     }
 

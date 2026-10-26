@@ -29,7 +29,8 @@ pub struct Session {
     /// [`crate::agent::Inbound::ReplayDone`], its agent messages are history, never the chat's
     /// newest reply (`ReplayHold` in `lifecycle.rs`). A start abandoned mid-load leaves its
     /// agent's generation here, so what that agent still had queued stays out even after the
-    /// next agent's load begins. At most [`REPLAY_HOLDS`], the oldest dropped first.
+    /// next agent's load begins. None is ever dropped unended: only such an abandoned start
+    /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
     pub(super) replaying: StdMutex<Vec<u64>>,
     /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
     /// False from a deferred daemon start until the first append or the log load.
@@ -332,7 +333,3 @@ pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
 }
-
-/// The most generations [`Session::replaying`] keeps: one load at a time, and the agents of
-/// starts abandoned mid-load, whose queued output ends within moments.
-pub(super) const REPLAY_HOLDS: usize = 8;
