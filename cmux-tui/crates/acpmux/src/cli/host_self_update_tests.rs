@@ -210,6 +210,8 @@ async fn a_newer_build_is_downloaded_checked_and_installed() {
 async fn an_install_that_never_restarted_is_finished_by_the_next_run() {
     let peer = FakePeer::new("self-unrestarted");
     let new = fake_acpmux(NEW, Some(NEW));
+    let old = peer.read(".local/bin/acpmux");
+    peer.exe(".local/bin/acpmux.prev", &old);
     peer.exe(".local/bin/acpmux", &new);
     assert_eq!(peer.daemon(), OLD);
     let files = serving(&new);
@@ -221,6 +223,9 @@ async fn an_install_that_never_restarted_is_finished_by_the_next_run() {
     assert_eq!(peer.daemon(), NEW);
     assert_eq!(peer.read(".local/bin/acpmux"), new);
     assert!(peer.exists("agents"), "the restart keeps the agents");
+    // Re-review: pushing the installed binary again kept it as the backup
+    // too, so a failed restart had only the new build to go back to.
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is still the old build");
 }
 
 #[tokio::test]
@@ -316,6 +321,11 @@ async fn a_rollback_that_cannot_be_marked_says_the_build_will_be_tried_again() {
     assert!(why.contains("marking the build rolled back failed"), "{why}");
     assert!(why.contains("the next run tries it again"), "{why}");
     assert_eq!(peer.daemon(), OLD, "the previous build answers again");
+    drop(plan);
+    // Re-review: the folder in the mark's place counted as a mark, so the
+    // next run did not try the build again as the row said.
+    let again = prepared(&peer, &serving(&bad)).await;
+    assert!(matches!(&again, Prepared::Ready(_)), "the next run tries it again");
 }
 
 #[tokio::test]
@@ -572,6 +582,14 @@ fn the_timer_units_install_once_and_a_unit_someone_else_wrote_is_left_alone() {
     let (calls, _) = install_units(&home);
     assert!(calls.is_empty(), "{calls:?}");
     assert_eq!(read("acpmux-update.timer"), theirs);
+
+    // Re-review: acpmux's timer is stopped even when the service beside it
+    // is someone else's.
+    std::fs::write(units.join("acpmux-update.timer"), UPDATE_TIMER).unwrap();
+    std::fs::write(units.join("acpmux-update.service"), "[Service]\nExecStart=/bin/true\n")
+        .unwrap();
+    let (calls, _) = install_units(&home);
+    assert_eq!(calls, ["systemctl --user disable --now acpmux-update.timer"]);
     let _ = std::fs::remove_dir_all(&home);
 }
 
