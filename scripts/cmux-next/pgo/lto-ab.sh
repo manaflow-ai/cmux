@@ -15,13 +15,15 @@
 # and the project stay unchanged. Every setting in it is `[config=Release]`, so a Debug
 # build sees nothing; the Debug leaf-edit step proves it (no flag in the Debug log, the
 # same Swift compile count as base). The Release log must show the variant's flags on
-# the CmuxNext modules, otherwise the row says the flags were not applied.
+# the CmuxNext modules (and ThinLTO's on the app executable's own link command),
+# otherwise the row says the flags were not applied.
 #
-# Per variant: clean build time, link time (a relink after removing the app executable
-# and the LTO cache, minus a no-op rebuild), executable and __TEXT bytes, app size,
-# cold and warm first frame (bench-startup.py, the variants interleaved run by run),
-# typing key-to-frame p95 (bench-typing.py, rounds interleaved), and the Debug
-# leaf-edit rebuild time. Writes OUT/results.json and OUT/table.md, prints the table.
+# Per variant: clean build time, link time (the app's per-arch linker outputs and the
+# LTO cache removed, one more build, and its Ld seconds from xcodebuild's Build Timing
+# Summary), executable and __TEXT bytes, app size, cold and warm first frame
+# (bench-startup.py, the variants interleaved run by run), typing key-to-frame p95
+# (bench-typing.py, rounds interleaved), and the Debug leaf-edit rebuild time. Writes
+# OUT/results.json and OUT/table.md, prints the table.
 #
 # Usage (a fleet step; the build modes refuse a laptop):
 #   cmux-ci run --class isolated --script scripts/cmux-next/pgo/lto-ab.sh --ref SHA
@@ -29,9 +31,13 @@
 #             [--typing-samples N] [--leaf FILE] [--skip-runtime] [--skip-debug]
 #   lto-ab.sh --print-xcconfig VARIANT   the variant's xcconfig (no build)
 #   lto-ab.sh --table DIR                render DIR/table.md again from saved results (no build)
+#   lto-ab.sh --check-flags VARIANT LOG EXE   applied|missing F|leaked F for a saved Release log
+#   lto-ab.sh --link-seconds RELINK_LOG NOOP_LOG EXE   link seconds from saved logs (exit 1: why not)
 #
-# Exit: 0 every requested variant built with its flags, benched, and Debug is unchanged;
-# 1 a variant failed, its flags were missing, a bench failed, or Debug changed;
+# Exit: 0 every requested variant built with its flags, linked again, benched, and Debug
+# is unchanged (with --skip-debug, Debug is not checked and no variant is adopted);
+# 1 a variant failed, its flags were missing, the relink did not link the app, a bench
+# failed, a Debug build failed, or Debug changed;
 # 2 usage, or a build mode outside the fleet.
 set -euo pipefail
 
@@ -69,7 +75,7 @@ xcconfig_for() {
 }
 
 # The flags a Release log must show for the variant: "swift:<flag>" on a CmuxNext module's
-# compile, "link:<flag>" on a link line.
+# compile, "link:<flag>" on the app executable's own link command.
 expected_flags() {
   case "$1" in
     base) ;;
@@ -78,6 +84,72 @@ expected_flags() {
   esac
 }
 all_flags=(-lto=llvm-thin -flto=thin -cross-module-optimization)
+
+# The command lines under the per-arch `Ld .../Objects-normal/<arch>/Binary/EXE normal <arch>`
+# headers in LOG: the app executable's link, not a clang compile that also says `-o`.
+exe_link_commands() { # LOG EXE
+  awk -v exe="$2" '
+    /^Ld / { inld = index($0, "/Binary/" exe " normal ") > 0; next }
+    /^$/ || /^[^ \t]/ { inld = 0; next }
+    inld { print }
+  ' "$1"
+}
+
+flag_hits() { # LOG KIND FLAG EXE: lines of that kind in LOG that carry FLAG
+  local log=$1 kind=$2 flag=$3 exe=$4
+  case "$kind" in
+    swift) { grep -F -e '-module-name CmuxNext' "$log" || true; } | grep -c -F -e "$flag" || true ;;
+    link) exe_link_commands "$log" "$exe" | grep -c -F -e "$flag" || true ;;
+    any) grep -c -F -e "$flag" "$log" || true ;;
+  esac
+}
+
+# applied, "missing FLAG" or "leaked FLAG" for VARIANT's Release LOG: base shows none of
+# the flags, a variant shows each of its own where expected_flags says.
+flags_verdict() { # VARIANT LOG EXE
+  local variant=$1 log=$2 exe=$3 kind flag verdict=applied
+  if [[ "$variant" == base ]]; then
+    for flag in "${all_flags[@]}"; do
+      [[ "$(flag_hits "$log" any "$flag" "$exe")" == 0 ]] || verdict="leaked $flag"
+    done
+  else
+    while IFS=: read -r kind flag; do
+      [[ "$(flag_hits "$log" "$kind" "$flag" "$exe")" != 0 ]] || verdict="missing $flag"
+    done < <(expected_flags "$variant")
+  fi
+  printf '%s\n' "$verdict"
+}
+
+exe_ld_tasks() { # LOG EXE: the number of `Ld .../Binary/EXE normal <arch>` tasks in LOG
+  awk -v exe="$2" '/^Ld / && index($0, "/Binary/" exe " normal ") { n++ } END { print n + 0 }' "$1"
+}
+
+ld_summary_seconds() { # LOG: the Ld row of xcodebuild's Build Timing Summary, 0 without one
+  awk '
+    /^Build Timing Summary$/ { s = 1; next }
+    s && /^Ld[ (]/ && $NF == "seconds" { v = $(NF - 1) }
+    END { print (v == "" ? 0 : v) }' "$1"
+}
+
+# The app executable's link seconds: the relink's Ld task seconds (xcodebuild
+# -showBuildTimingSummary, summed over the per-arch links) minus the no-op build's, so a
+# target that links on every build cancels out. The relink must have linked EXE and the
+# no-op must not have; otherwise prints why and returns 1.
+link_seconds() { # RELINK_LOG NOOP_LOG EXE
+  local relink=$1 noop=$2 exe=$3
+  if ! grep -q '^Build Timing Summary$' "$relink" || ! grep -q '^Build Timing Summary$' "$noop"; then
+    echo "a Build Timing Summary is missing from the no-op or relink log"
+  elif [[ "$(exe_ld_tasks "$relink" "$exe")" == 0 ]]; then
+    echo "the relink ran no Ld for $exe"
+  elif [[ "$(exe_ld_tasks "$noop" "$exe")" != 0 ]]; then
+    echo "the no-op build linked $exe too, so the relink measures nothing"
+  else
+    /usr/bin/env python3 -c 'import sys; print(f"{max(0.0, float(sys.argv[1]) - float(sys.argv[2])):.3f}")' \
+      "$(ld_summary_seconds "$relink")" "$(ld_summary_seconds "$noop")"
+    return 0
+  fi
+  return 1
+}
 
 summarize() {
   /usr/bin/env python3 -I - "$1" "$repo_root/scripts/perf-lab/perf_stats.py" <<'PY'
@@ -154,23 +226,42 @@ for v in variants:
     elif row["flags"] != "applied":
         problems.append(f"{v}: flags {row['flags']}")
     elif row["link_s"] is None:
-        problems.append(f"{v}: link time missing (the no-op or relink build failed)")
+        problems.append(f"{v}: link time missing ({facts.get(v, {}).get('link_problem', 'no relink fact')})")
     if runtime and row["status"] == "ok" and (not row["cold_n"] or not row["warm_n"] or row["typing_p95"] is None):
         problems.append(f"{v}: bench samples missing")
 
 base = rows.get("base")
-debug_ran = base is not None and base["debug_leaf_s"] is not None
+# Debug is checked unless the run says --skip-debug; a failed or missing Debug step is a
+# problem, never "unchanged".
+run_facts = facts.get("run", {})
+debug_skipped = run_facts.get("debug") == "skipped"
+debug_ok = {}
+if not debug_skipped:
+    if "debug_failed" in run_facts:
+        problems.append(f"Debug: {run_facts['debug_failed']}")
+    for v, row in rows.items():
+        failed = facts.get(v, {}).get("debug_failed")
+        if failed:
+            problems.append(f"{v}: Debug: {failed}")
+        elif not run_facts.get("debug_failed") and (row["debug_leaf_s"] is None or row["debug_swift_compiles"] is None
+                                                     or row["debug_flag_hits"] is None):
+            problems.append(f"{v}: Debug leaf-edit numbers missing")
+        debug_ok[v] = not failed and None not in (row["debug_leaf_s"], row["debug_swift_compiles"], row["debug_flag_hits"])
 for v, row in rows.items():
     verdict = []
     if base is None or v == "base":
         row["verdict"] = "reference" if v == "base" else "no base"
         continue
-    if debug_ran:
+    if debug_skipped:
+        row["debug_unchanged"] = None
+    elif debug_ok.get(v) and debug_ok.get("base"):
         same = row["debug_flag_hits"] == 0 and row["debug_swift_compiles"] == base["debug_swift_compiles"]
         row["debug_unchanged"] = same
         if not same:
             problems.append(f"{v}: Debug changed (flag hits {row['debug_flag_hits']}, Swift compiles "
                             f"{row['debug_swift_compiles']} vs base {base['debug_swift_compiles']})")
+    else:
+        row["debug_unchanged"] = None
     for mode in ("cold", "warm"):
         change = pct(row[f"{mode}_p50"], base[f"{mode}_p50"])
         row[f"{mode}_change_pct"] = change
@@ -192,7 +283,11 @@ for v, row in rows.items():
         verdict.append("slower " + "/".join(losses) + " first frame")
     if typing_bad:
         verdict.append("typing p95 regressed or missing")
-    if debug_ran and not row.get("debug_unchanged"):
+    if debug_skipped:
+        verdict.append("Debug not checked (--skip-debug)")
+    elif row["debug_unchanged"] is None:
+        verdict.append("Debug not checked (a Debug build failed or gave no numbers)")
+    elif not row["debug_unchanged"]:
         verdict.append("Debug changed")
     if verdict:
         row["verdict"] = "keep base: " + ", ".join(verdict)
@@ -257,6 +352,8 @@ while (( $# )); do
   case "$1" in
     --print-xcconfig) [[ $# -ge 2 ]] || usage; xcconfig_for "$2"; exit $? ;;
     --table) [[ $# -ge 2 ]] || usage; summarize "$2"; exit $? ;;
+    --check-flags) [[ $# -ge 4 ]] || usage; flags_verdict "$2" "$3" "$4"; exit 0 ;;
+    --link-seconds) [[ $# -ge 4 ]] || usage; link_seconds "$2" "$3" "$4"; exit $? ;;
     --out) [[ $# -ge 2 ]] || usage; out="$2"; shift 2 ;;
     --variants) [[ $# -ge 2 ]] || usage; variants_arg="$2"; shift 2 ;;
     --runs) [[ $# -ge 2 ]] || usage; runs="$2"; shift 2 ;;
@@ -294,7 +391,6 @@ printf '%s\n' "${variants[@]}" >"$out/variants.txt"
 fact() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$out/facts.tsv"; }
 now() { /usr/bin/env python3 -c 'import time; print(f"{time.time():.3f}")'; }
 since() { /usr/bin/env python3 -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.argv[1]):.3f}")' "$1" "$(now)"; }
-minus() { /usr/bin/env python3 -c 'import sys; print(f"{max(0.0, float(sys.argv[1]) - float(sys.argv[2])):.3f}")' "$1" "$2"; }
 
 for v in "${variants[@]}"; do xcconfig_for "$v" >"$out/xcconfig/$v.xcconfig"; done
 fact run sha "$sha"
@@ -302,27 +398,20 @@ fact run xcode "$(xcodebuild -version 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
 fact run host "$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
 
 # One reload into the variant's own DerivedData; the elapsed seconds land in $elapsed and
-# the reload log in OUT/logs/STEP.log. Returns reload's status.
+# the reload log in OUT/logs/STEP.log. TIMING=1 adds xcodebuild's Build Timing Summary.
+# Returns reload's status.
 elapsed=""
-reload_step() {
-  local step=$1 variant=$2 config=$3 tag=$4 dd=$5 t0 rc=0
+reload_step() { # STEP VARIANT CONFIG TAG DD [TIMING]
+  local step=$1 variant=$2 config=$3 tag=$4 dd=$5 timing=${6:-0} t0 rc=0
   t0="$(now)"
   XCODE_XCCONFIG_FILE="$out/xcconfig/$variant.xcconfig" CMUX_DEV_BACKEND_MODE=local \
+    CMUX_RELOAD_BUILD_TIMING_SUMMARY="$timing" \
     "$repo_root/scripts/reload.sh" --tag "$tag" --config "$config" --derived-data "$dd" --no-global-cli-links \
     >"$out/logs/$step.out" 2>&1 || rc=$?
   elapsed="$(since "$t0")"
   cp "/tmp/cmux-reload-$tag.log" "$out/logs/$step.log" 2>/dev/null || : >"$out/logs/$step.log"
   echo "lto-ab: $step: exit $rc in ${elapsed}s" >&2
   return "$rc"
-}
-
-flag_hits() { # LOG KIND FLAG: lines of that kind in LOG that carry FLAG
-  local log=$1 kind=$2 flag=$3
-  case "$kind" in
-    swift) { grep -F -e '-module-name CmuxNext' "$log" || true; } | grep -c -F -e "$flag" || true ;;
-    link) { grep -F -e ' -o ' "$log" || true; } | grep -c -F -e "$flag" || true ;;
-    any) grep -c -F -e "$flag" "$log" || true ;;
-  esac
 }
 
 apps=()
@@ -344,32 +433,33 @@ for v in "${variants[@]}"; do
   exe_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
   exe="$app/Contents/MacOS/$exe_name"
 
-  # Flags: base shows none, a variant shows each of its own.
-  flags=applied
-  if [[ "$v" == base ]]; then
-    for flag in "${all_flags[@]}"; do
-      [[ "$(flag_hits "$out/logs/release-$v.log" any "$flag")" == 0 ]] || flags="leaked $flag"
-    done
-  else
-    while IFS=: read -r kind flag; do
-      [[ "$(flag_hits "$out/logs/release-$v.log" "$kind" "$flag")" != 0 ]] || flags="missing $flag"
-    done < <(expected_flags "$v")
-  fi
+  flags="$(flags_verdict "$v" "$out/logs/release-$v.log" "$exe_name")"
   fact "$v" flags "$flags"
 
   fact "$v" exe_bytes "$(stat -f %z "$exe")"
   fact "$v" text_bytes "$(size "$exe" | awk 'NR == 2 { print $1 }')"
   fact "$v" app_kb "$(du -sk "$app" | awk '{ print $1 }')"
 
-  # Link time: a relink (the raw product's executable and any LTO cache removed) minus a
-  # no-op rebuild, so reload's fixed steps (staging, signing, bundling) cancel out.
-  if reload_step "noop-$v" "$v" bench "$tag" "$dd"; then
-    noop_s="$elapsed"
-    rm -f "$dd/Build/Products/Release/$exe_name.app/Contents/MacOS/$exe_name"
+  # Link time: a no-op rebuild, then the app's per-arch linker outputs and the LTO cache
+  # removed so Ld must run, and one more build; both with the Build Timing Summary.
+  # reload.sh replaces the product bundle on every build, so lipo, bundling and signing
+  # run in both and only Ld differs.
+  if reload_step "noop-$v" "$v" bench "$tag" "$dd" 1; then
+    removed="$(find "$dd/Build/Intermediates.noindex" -type f -path "*/Objects-normal/*/Binary/$exe_name" -print -delete | wc -l | tr -d ' ')"
     find "$dd/Build/Intermediates.noindex" -type d -iname '*lto*cache*' -prune -exec rm -rf {} + 2>/dev/null || true
-    if reload_step "relink-$v" "$v" bench "$tag" "$dd"; then
-      fact "$v" link_s "$(minus "$elapsed" "$noop_s")"
+    if [[ "$removed" == 0 ]]; then
+      fact "$v" link_problem "no per-arch Objects-normal/*/Binary/$exe_name to remove"
+    elif reload_step "relink-$v" "$v" bench "$tag" "$dd" 1; then
+      if link="$(link_seconds "$out/logs/relink-$v.log" "$out/logs/noop-$v.log" "$exe_name")"; then
+        fact "$v" link_s "$link"
+      else
+        fact "$v" link_problem "$link"
+      fi
+    else
+      fact "$v" link_problem "the relink build failed"
     fi
+  else
+    fact "$v" link_problem "the no-op build failed"
   fi
   fact "$v" status ok
   apps+=("$app")
@@ -377,7 +467,11 @@ done
 
 # Debug: one cold build, a warm-up leaf edit, then one leaf edit per variant with that
 # variant's xcconfig. Release-only settings leave the Debug build description as it was.
-if (( ! skip_debug )); then
+# A failed Debug step is a fact too, so the summary never reads it as "Debug unchanged".
+if (( skip_debug )); then
+  fact run debug skipped
+else
+  fact run debug ran
   leaf_backup="$(mktemp "${TMPDIR:-/tmp}/lto-ab-leaf.XXXXXX")"
   cp "$leaf" "$leaf_backup"
   trap 'cp "$leaf_backup" "$leaf"; rm -f "$leaf_backup"' EXIT
@@ -393,11 +487,15 @@ if (( ! skip_debug )); then
         fact "$v" debug_swift_compiles "$(grep -c '^SwiftCompile ' "$out/logs/debug-leaf-$v.log" || true)"
         hits=0
         for flag in "${all_flags[@]}"; do
-          hits=$(( hits + $(flag_hits "$out/logs/debug-leaf-$v.log" any "$flag") ))
+          hits=$(( hits + $(flag_hits "$out/logs/debug-leaf-$v.log" any "$flag" "") ))
         done
         fact "$v" debug_flag_hits "$hits"
+      else
+        fact "$v" debug_failed "debug-leaf-$v build failed (logs/debug-leaf-$v.out)"
       fi
     done
+  else
+    fact run debug_failed "debug-cold build failed (logs/debug-cold.out)"
   fi
 fi
 

@@ -438,17 +438,22 @@ configuration plus `-DCMUX_BENCH_HOOKS`, so the benches can drive it) in its own
 | `thinlto` | `LLVM_LTO[config=Release] = YES_THIN`, `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -lto=llvm-thin` |
 | `cmo` | `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -cross-module-optimization` |
 
-The settings reach the build through `XCODE_XCCONFIG_FILE`, so the project, `Package.swift` and `reload.sh`
-do not change for the A/B; they apply to every Swift target, not only CmuxNext's. How a chosen flag reaches only
+The settings reach the build through `XCODE_XCCONFIG_FILE`, so the project and `Package.swift` do not change
+for the A/B (`reload.sh` gains only `CMUX_RELOAD_BUILD_TIMING_SUMMARY=1`, which passes
+`-showBuildTimingSummary` and changes no build setting); they apply to every Swift target, not only CmuxNext's. How a chosen flag reaches only
 the CmuxNext targets in the shipped build is task 048's finding and task 052's change. A variant counts only
 when its Release log shows its flags on the `-module-name CmuxNext*` compiles (and, for ThinLTO, `-flto=thin`
-on a link line), and `base` shows none of them.
+on the app executable's own link command, the lines under `Ld .../Objects-normal/<arch>/Binary/cmux normal
+<arch>`; a clang compile that also says `-o` does not count), and `base` shows none of them.
 
 Measured per variant, on one host:
 
 - size: the executable's bytes, its `__TEXT` bytes (`size`) and the app bundle (`du -sk`);
-- build time: the clean build; link time: a rebuild after the executable and the LTO cache are removed,
-  minus a no-op rebuild (reload's staging and signing cancel out);
+- build time: the clean build; link time: Release is universal, so the per-arch `Ld` writes
+  `Objects-normal/<arch>/Binary/cmux` and only `CreateUniversalBinary` writes the product executable. The
+  script runs a no-op rebuild, removes those per-arch linker outputs and the LTO cache, and rebuilds; link
+  time is the relink's `Ld` seconds from the Build Timing Summary minus the no-op's. The relink must show an
+  `Ld` of `cmux` and the no-op none, or the row records why the link time is missing;
 - first frame: `bench-startup.py --mode cold --mode warm --runs 10`, the three apps interleaved run by run,
   `first_window_frame_committed` p50 and p95; cold purges the file cache when the host has the `purge`
   right, and the table says when it did not;
@@ -456,7 +461,9 @@ Measured per variant, on one host:
   single-phase `key_to_frame_ms` p95;
 - Debug: one cold Debug build, then one leaf edit (a comment appended to `CmuxNextApp/ActionScope.swift`) per
   variant with that variant's xcconfig. Debug is unchanged when no variant flag is in the Debug log and the
-  rebuild compiles as many Swift files as `base`'s does.
+  rebuild compiles as many Swift files as `base`'s does. A failed Debug build, or a variant with no
+  leaf-edit numbers, is a problem and that variant is not adopted; `--skip-debug` is recorded, the run can
+  exit 0, and no variant is adopted without the Debug check.
 
 Decision, per variant against `base`: adopt it when the cold or the warm first-frame p50 is 3 % faster or
 more and Pinpoint's floored rule (`perf_stats.compare`) calls the samples different, neither first frame is
@@ -466,8 +473,8 @@ reruns them together.
 
 Run (fleet, GUI host): `cmux-ci run --class isolated --script scripts/cmux-next/pgo/lto-ab.sh --ref SHA`.
 It writes `artifacts/lto-ab/<sha>/table.md` and `results.json`, and `lto-ab.sh --table DIR` renders the
-table again. Exit 1 when a variant does not build, its flags are missing, a bench gives no samples or Debug
-changed. The fixture test `bash scripts/cmux-next/tests/lto-ab.test.sh` checks the xcconfigs, the fleet guard
+table again. Exit 1 when a variant does not build, its flags are missing, its relink did not link `cmux`, a bench
+gives no samples, a Debug build failed or Debug changed. The fixture test `bash scripts/cmux-next/tests/lto-ab.test.sh` checks the xcconfigs, the fleet guard
 and the verdicts without a build.
 
 Results: not run yet. The fleet run pastes its `table.md` here, with the commit, Xcode and host it names.
