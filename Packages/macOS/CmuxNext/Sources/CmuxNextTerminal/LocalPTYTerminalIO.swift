@@ -213,56 +213,75 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     }
 }
 
-/// Input waiting for a PTY that is not reading. Confined to the write queue.
-private nonisolated final class PendingInput: @unchecked Sendable {
+/// Input waiting for a PTY that is not reading.
+private nonisolated final class PendingInput: Sendable {
     static let limit = 1 << 20
-    private var data = Data()
-    private var offset = 0
-    private var armed = false
-    private var cancelled = false
+    // Lock carve-out: taken only on the PTY's serial write queue (append, flush and cancel all run there), so it
+    // is never contended; it makes that confinement a checked Sendable instead of an unchecked promise.
+    private let state = Mutex(State())
 
     func append(_ bytes: Data) {
-        guard !cancelled, data.count - offset + bytes.count <= Self.limit else { return }
-        data.append(bytes)
+        state.withLock { $0.append(bytes) }
     }
 
     func flush(to fd: Int32, source: any DispatchSourceWrite) {
-        while !cancelled, offset < data.count {
-            let written = data.withUnsafeBytes { raw -> Int in
-                // offset < data.count, so the buffer has a base address; without one, drop the data.
-                guard let base = raw.baseAddress else { return 0 }
-                // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
-                return Darwin.write(fd, base + offset, raw.count - offset)
-            }
-            if written > 0 {
-                offset += written
-            } else if written < 0, errno == EINTR {
-                continue
-            } else if written < 0, errno == EAGAIN {
-                if !armed {
-                    armed = true
-                    source.resume()
-                }
-                return
-            } else {
-                break
-            }
-        }
-        data.removeAll(keepingCapacity: data.count <= 64 * 1024)
-        offset = 0
-        if armed, !cancelled {
-            armed = false
-            source.suspend()
-        }
+        state.withLock { $0.flush(to: fd, source: source) }
     }
 
     func cancel(_ source: any DispatchSourceWrite) {
-        guard !cancelled else { return }
-        cancelled = true
-        // A suspended source must be resumed before it can be cancelled.
-        if !armed { source.resume() }
-        armed = true
-        source.cancel()
+        state.withLock { $0.cancel(source) }
+    }
+
+    /// The bytes not written yet and the write source's state.
+    private nonisolated struct State {
+        var data = Data()
+        var offset = 0
+        var armed = false
+        var cancelled = false
+
+        mutating func append(_ bytes: Data) {
+            guard !cancelled, data.count - offset + bytes.count <= PendingInput.limit else { return }
+            data.append(bytes)
+        }
+
+        mutating func flush(to fd: Int32, source: any DispatchSourceWrite) {
+            while !cancelled, offset < data.count {
+                let written = data.withUnsafeBytes { [offset] raw -> Int in
+                    // offset < data.count, so the buffer has a base address; without one, drop the data.
+                    guard let base = raw.baseAddress else { return 0 }
+                    // concurrency-allow: nonblocking PTY descriptor, on the private write queue.
+                    return Darwin.write(fd, base + offset, raw.count - offset)
+                }
+                if written > 0 {
+                    offset += written
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else if written < 0, errno == EAGAIN {
+                    if !armed {
+                        armed = true
+                        source.resume()
+                    }
+                    return
+                } else {
+                    break
+                }
+            }
+            data.removeAll(keepingCapacity: data.count <= 64 * 1024)
+            offset = 0
+            if armed, !cancelled {
+                armed = false
+                source.suspend()
+            }
+        }
+
+        mutating func cancel(_ source: any DispatchSourceWrite) {
+            guard !cancelled else { return }
+            cancelled = true
+            // A suspended source must be resumed before it can be cancelled.
+            if !armed { source.resume() }
+            armed = true
+            source.cancel()
+        }
     }
 }
 

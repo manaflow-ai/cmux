@@ -58,7 +58,7 @@ public struct TerminalFontScale {
     }
 
     /// Calls `handler` with the view's font scale after each font size change.
-    public func observe(_ handler: @escaping (Double?) -> Void) {
+    public func observe(_ handler: @escaping @MainActor @Sendable (Double?) -> Void) {
         view.bridge.takeUnretainedValue().onFontScaleChange = handler
     }
 
