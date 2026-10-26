@@ -464,6 +464,24 @@ mod tests {
         assert_eq!(kind_of(&closed), Some(kind::AGENT_EXITED));
     }
 
+    /// An agent that cannot start because the disk is full says to free space, with the
+    /// disk's details; any other start failure is still `spawn.failed`.
+    #[test]
+    fn a_full_disk_at_spawn_is_disk_full() {
+        let cwd = std::env::temp_dir();
+        for errno in [libc::ENOSPC, libc::EDQUOT] {
+            let e = anyhow::Error::from(std::io::Error::from_raw_os_error(errno));
+            let typed = spawn_failed(&e, "claude", "claude", &cwd);
+            assert_eq!(kind_of(&typed), Some(kind::DISK_FULL), "{typed:?}");
+            let data = typed.data.as_ref().unwrap();
+            assert!(data["recovery"].as_str().unwrap().starts_with("The disk is full."), "{data}");
+            assert!(data["details"]["freeBytes"].is_u64(), "{data}");
+        }
+        let e = anyhow::Error::from(std::io::Error::from_raw_os_error(libc::ENOENT));
+        let typed = spawn_failed(&e, "claude", "claude", &cwd);
+        assert_eq!(kind_of(&typed), Some(kind::SPAWN_FAILED), "{typed:?}");
+    }
+
     /// A full disk a peer reported names that peer, never this machine's disk.
     #[test]
     fn a_peers_full_disk_names_the_peer_not_this_disk() {
