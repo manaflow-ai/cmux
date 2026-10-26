@@ -1,86 +1,60 @@
 #!/usr/bin/env bash
 # The remote shim's local class (task p01-process-014b), with no build:
-#  1. every cmux_shim_* export with a function-pointer parameter is class local
-#     or policy in plans/cmux-next/chromium-host-ops.json, with a reason; each
-#     local one is defined by hand in ChromiumHost/client (outside generated/)
-#     and the generated client defines none of them (no marshaller);
+#  1. through the generator (gen-chromium-host-wire.py): --check-ops passes
+#     (it refuses a function-pointer argument outside local/policy and a
+#     local/policy export with no reason); the generated client, written fresh
+#     into a temporary tree, mentions no local function-pointer export (no
+#     marshaller); --list-missing names none of them (each is defined by hand
+#     in ChromiumHost/client);
 #  2. client/remote_shim_local.mm against a fake transport
-#     (ChromiumHost/tests/remote_shim_local_test.cpp): one clang++ call.
+#     (ChromiumHost/tests/remote_shim_local_test.cpp): one C++ compiler call.
 # No CI job runs it (lead, 2026-10-23: no new CI tests); whoever changes the
 # local class or a callback export runs it.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+gen="$root/scripts/cmux-next/gen-chromium-host-wire.py"
 host="$root/Packages/macOS/CmuxNext/ChromiumHost"
-shim_include="$root/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim"
-
-python3 -I - "$root" <<'PY'
-import json, re, sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-header = (root / "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h").read_text()
-ops = json.loads((root / "plans/cmux-next/chromium-host-ops.json").read_text())
-client = root / "Packages/macOS/CmuxNext/ChromiumHost/client"
-
-def strip(text):
-    text = re.sub(r"/\*.*?\*/", " ", text, flags=re.S)
-    text = re.sub(r"//[^\n]*", " ", text)
-    return "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
-
-code = strip(header)
-fn_types = set(re.findall(r"typedef\s+[^;()]*\(\s*\*\s*(\w+)\s*\)", code))
-callback_exports = []
-for m in re.finditer(r"CMUX_SHIM_EXPORT\s+[^;{]*?\b(cmux_shim_\w+)\s*\(", code):
-    depth, i = 1, m.end()
-    while depth:
-        depth += {"(": 1, ")": -1}.get(code[i], 0)
-        i += 1
-    params = code[m.end():i - 1]
-    if "(*" in params.replace(" ", "") or any(re.search(rf"\b{t}\b", params) for t in fn_types):
-        callback_exports.append(m.group(1))
-
-entries = {e["name"]: e for e in ops["exports"] + ops.get("optional_exports", [])}
-problems = []
-if len(callback_exports) < 9:  # 9 in the header today: the parser lost some
-    problems.append(f"only {len(callback_exports)} callback exports parsed from the header")
-local = []
-for name in callback_exports:
-    e = entries.get(name)
-    if e is None:
-        problems.append(f"{name}: not in the ops JSON")
-        continue
-    if e["class"] not in ("local", "policy"):
-        problems.append(f"{name}: class {e['class']} (a function pointer is local or policy)")
-    if not e.get("reason", "").strip():
-        problems.append(f"{name}: no reason")
-    if not any(a.get("function_pointer") for a in e.get("args", [])):
-        problems.append(f"{name}: no arg marked function_pointer")
-    if e["class"] == "local":
-        local.append(name)
-
-def defines(text, name):
-    return re.search(rf"\b{name}\s*\([^;{{]*\)\s*\{{", text, flags=re.S) is not None
-
-hand = "\n".join(strip(p.read_text()) for p in sorted(client.glob("*")) if p.suffix in (".mm", ".cc", ".cpp", ".h"))
-generated = client / "generated/remote_shim.inc"
-gen = strip(generated.read_text()) if generated.exists() else ""
-for name in local:
-    if not defines(hand, name):
-        problems.append(f"{name}: local but not defined in {client.relative_to(root)}")
-    if defines(gen, name):
-        problems.append(f"{name}: local but the generated client marshals it")
-for p in problems:
-    print("FAIL", p, file=sys.stderr)
-if problems:
-    sys.exit(1)
-print(f"callback exports: {len(callback_exports)} ({len(local)} local, "
-      f"{len(callback_exports) - len(local)} policy), all hand-written or policy")
-PY
+shimh=Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h
+ops=plans/cmux-next/chromium-host-ops.json
+client_inc=Packages/macOS/CmuxNext/ChromiumHost/client/generated/remote_shim.inc
+fail() { echo "FAIL: $*" >&2; exit 1; }
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/remote-shim-local.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
+
+python3 "$gen" --check-ops >/dev/null
+
+# The local exports with a function-pointer argument (wire kind F), from the
+# generator's own header parse and the ops JSON's classes.
+python3 "$gen" --dump-header >"$work/header.json"
+python3 -I - "$work/header.json" "$root/$ops" >"$work/local" <<'PY'
+import json, sys
+header = json.load(open(sys.argv[1]))
+classes = {e["name"]: e["class"] for e in json.load(open(sys.argv[2]))["exports"]}
+for e in header["exports"]:
+    if "F" in e["wire"] and classes.get(e["name"]) == "local":
+        print(e["name"])
+PY
+want="cmux_shim_browser_text_input_watch cmux_shim_initialize cmux_shim_password_reveal cmux_shim_post_user_input_task cmux_shim_set_drag_source_handler"
+got="$(sort "$work/local" | tr '\n' ' ' | sed 's/ $//')"
+[[ "$got" == "$want" ]] || fail "local function-pointer exports: '$got', expected '$want'"
+
+# A fresh generated client: generated from the header and ops JSON alone, so
+# it does not depend on a committed or stale remote_shim.inc.
+mkdir -p "$work/tree/$(dirname "$shimh")" "$work/tree/$(dirname "$ops")"
+cp "$root/$shimh" "$work/tree/$shimh"
+cp "$root/$ops" "$work/tree/$ops"
+python3 "$gen" --root "$work/tree" >/dev/null
+[[ -s "$work/tree/$client_inc" ]] || fail "the generator wrote no $client_inc"
+python3 "$gen" --list-missing >"$work/missing"
+while read -r name; do
+  ! grep -qE "\\b$name\\b" "$work/tree/$client_inc" || fail "$name: local but the generated client marshals it"
+  ! grep -qE "^$name"$'\t' "$work/missing" || fail "$name: local but not defined by hand in ChromiumHost/client"
+done <"$work/local"
+echo "local function-pointer exports: $(wc -l <"$work/local" | tr -d ' '), hand-written, none in the generated client"
+
 # shellcheck source=../lib/cxx.sh
 source "$root/scripts/cmux-next/lib/cxx.sh"
-"${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 -I"$shim_include" \
+"${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 -pthread -I"$root/$(dirname "$shimh")" \
   -o "$work/test" "$host/tests/remote_shim_local_test.cpp" -x c++ "$host/client/remote_shim_local.mm"
 "$work/test"

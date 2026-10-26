@@ -62,7 +62,8 @@ using DragSourceFn = void (*)(void* context, int browser_id, const void* drag);
 using TextInputFn = void (*)(void* context, int browser_id, const void* state);
 
 // The host's hello arrived: sends go to `transport` (which outlives the
-// matching Detach), and a drag handler set before it is sent again.
+// matching Detach), and the drag handler state the host has not taken (set
+// before it, or refused by the transport) is sent.
 void Attach(const LocalTransport* transport);
 // The host is gone: every pending reveal ends with done(ctx, NULL, 0), every
 // text input watch ends (its browser died with the host), and a later

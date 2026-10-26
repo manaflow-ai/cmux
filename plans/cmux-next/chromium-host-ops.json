@@ -495,7 +495,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context and calls them on main from the host's DRAG_START push (task 051); only installed/removed crosses the wire, and a handler set before attach (or before a restarted host attaches) is sent at attach."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context and calls them on main from the host's DRAG_START push (task 051); only installed/removed crosses the wire, when it differs from what the host last took, so a handler set before attach (or before a restarted host attaches) is sent at attach and a send the transport refused is sent at the next set or attach."
     },
     {
       "name": "cmux_shim_browser_drag_source_ended",

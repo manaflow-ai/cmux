@@ -10,6 +10,9 @@
 
 #if defined(__APPLE__)
 #include <pthread.h>
+#elif defined(__linux__)
+#include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 namespace cmux_remote {
@@ -17,9 +20,12 @@ namespace {
 
 // Like Chrome's DCHECK_CALLED_ON_VALID_SEQUENCE: the state below has no lock
 // because only the main thread touches it.
+// Linux has it too, so the test there refuses a call from another thread.
 void AssertMainThread() {
 #if defined(__APPLE__)
   assert(pthread_main_np() != 0);
+#elif defined(__linux__)
+  assert(syscall(SYS_gettid) == getpid());
 #endif
 }
 
@@ -34,12 +40,13 @@ class LocalClient {
  public:
   void Attach(const LocalTransport* transport) {
     transport_ = transport;
-    if (drag_.fn != nullptr) SendDragSourceHandler(true);
+    SyncDragSourceHandler();
   }
 
   void Detach() {
     transport_ = nullptr;
     initialize_sent_ = false;
+    drag_sent_installed_ = false;
     text_input_.clear();
     // Swapped out first: a reveal that done starts finds no host and returns 0.
     std::unordered_map<uint32_t, Callback<cmux_shim_password_reveal_fn>> ended;
@@ -68,9 +75,8 @@ class LocalClient {
   }
 
   void SetDragSourceHandler(DragSourceFn fn, void* context) {
-    const bool was_installed = drag_.fn != nullptr;
     drag_ = {fn, context};
-    if (was_installed != (fn != nullptr)) SendDragSourceHandler(fn != nullptr);
+    SyncDragSourceHandler();
   }
 
   int PasswordReveal(const char* profile_cache_path, const char* id, cmux_shim_password_reveal_fn done, void* ctx) {
@@ -122,14 +128,19 @@ class LocalClient {
     return transport_ != nullptr && transport_->send_text_input_watch(transport_->context, browser_id, watching);
   }
 
-  bool SendDragSourceHandler(bool installed) {
-    return transport_ != nullptr && transport_->send_drag_source_handler(transport_->context, installed);
+  // Sends installed/removed when it differs from what the host last took; a
+  // refused send leaves the difference, so the next set or Attach sends it.
+  void SyncDragSourceHandler() {
+    const bool installed = drag_.fn != nullptr;
+    if (installed == drag_sent_installed_ || transport_ == nullptr) return;
+    if (transport_->send_drag_source_handler(transport_->context, installed)) drag_sent_installed_ = installed;
   }
 
   const LocalTransport* transport_ = nullptr;
   bool initialize_sent_ = false;
   Callback<cmux_shim_event_fn> event_;
   Callback<DragSourceFn> drag_;
+  bool drag_sent_installed_ = false;  // what the attached host last took
   std::unordered_map<int, Callback<TextInputFn>> text_input_;                     // by browser id
   std::unordered_map<uint32_t, Callback<cmux_shim_password_reveal_fn>> reveals_;  // by token
 };

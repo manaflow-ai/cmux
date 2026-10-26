@@ -1,10 +1,15 @@
 // Checks the remote shim's local class (client/remote_shim_local.mm) against a
 // fake transport: callbacks stay in the client, the host's pushes reach them,
 // and nothing waits (scripts/cmux-next/tests/remote-shim-local.test.sh).
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
+
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "../client/remote_shim_local.h"
 
@@ -132,6 +137,20 @@ void Reveal(void* ctx, const char* password, size_t length) {
   ++reveal_seen.calls;
 }
 
+// True when a text input push delivered on another thread aborts (the main
+// thread assert), in a child process so the abort ends only the child.
+bool OffMainDeliveryAborts() {
+  const pid_t child = fork();
+  if (child == 0) {
+    if (std::freopen("/dev/null", "w", stderr) == nullptr) _exit(2);  // hides the expected assert message
+    int state = 0;
+    std::thread([&] { cmux_remote::DeliverTextInputState(7, &state); }).join();
+    _exit(0);
+  }
+  int status = 0;
+  return child > 0 && waitpid(child, &status, 0) == child && WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT;
+}
+
 int InitializeShim(void* ctx) {
   static const char* const kSwitches[] = {"disable-gpu-shader-disk-cache", "lang=en-US", nullptr};
   return cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, "en-US", "en-US,en", kSwitches, ctx,
@@ -181,6 +200,7 @@ int main() {
   Check(t.sent.size() == before_watch + 1, "replacing a watch sends nothing");
   int state = 0;
   Check(cmux_remote::DeliverTextInputState(7, &state), "TEXT_INPUT_STATE reaches the watch");
+  // During the transport's batch call, once: nothing is deferred past it.
   Check(watch_a.calls == 0, "the replaced watch is not called");
   Check(watch_b.calls == 1 && watch_b.ctx == &other && watch_b.browser_id == 7 && watch_b.state == &state,
         "the newest watch gets its context, the browser and the state");
@@ -211,6 +231,19 @@ int main() {
   cmux_shim_set_drag_source_handler(nullptr, nullptr);
   Check(Last(t) == "drag off", "removing the drag handler is sent");
   Check(!cmux_remote::DeliverDragStart(2, &drag), "no drag handler, no call");
+
+  // A refused drag send is not taken as sent: the next set sends it.
+  t.accept = false;
+  cmux_shim_set_drag_source_handler(Drag, &ctx);
+  t.accept = true;
+  Check(Last(t) == "drag off", "a refused drag install sends nothing");
+  cmux_shim_set_drag_source_handler(Drag, &ctx);
+  Check(Last(t) == "drag on", "the next set sends the install the transport refused");
+  t.accept = false;
+  cmux_shim_set_drag_source_handler(nullptr, nullptr);
+  t.accept = true;
+  cmux_shim_set_drag_source_handler(nullptr, nullptr);
+  Check(Last(t) == "drag off", "the next set sends the removal the transport refused");
 
   // Password reveal: a token on the wire, done exactly once with the REPLY bytes.
   Check(cmux_shim_password_reveal("", "id1", Reveal, &ctx) == 0, "reveal refuses an empty path");
@@ -248,6 +281,22 @@ int main() {
   cmux_remote::Attach(&transport);
   Check(Last(t) == "drag on", "re-attach sends the drag handler again");
   Check(InitializeShim(&ctx) == 1, "the next host initializes");
+
+  // An attach whose drag send is refused sends it at the next set.
+  cmux_remote::Detach();
+  t.sent.clear();
+  t.accept = false;
+  cmux_remote::Attach(&transport);
+  t.accept = true;
+  Check(t.sent.empty(), "a refused attach drag send sends nothing");
+  cmux_shim_set_drag_source_handler(Drag, &ctx);
+  Check(Last(t) == "drag on", "the next set after a refused attach sends the handler");
+
+#if !defined(NDEBUG)
+  // Callbacks run on main: a push delivered on another thread is refused.
+  Check(cmux_shim_browser_text_input_watch(7, WatchA, &ctx) == 1, "watch for the off-main check");
+  Check(OffMainDeliveryAborts(), "a push delivered off main aborts");
+#endif
 
   if (failures == 0) std::printf("remote_shim_local_test: ok\n");
   return failures == 0 ? 0 : 1;
