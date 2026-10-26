@@ -339,6 +339,9 @@ pub struct StartRequest {
     /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
     /// admitted past this host's refusal, logged (`admission.rs`).
     pub force_admit: bool,
+    /// A refusal may name this host and its paths: false for a Web client, here or
+    /// through a peer (`server/requests.rs`).
+    pub local: bool,
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -659,7 +662,7 @@ impl Hub {
                 can_force: req.force_admit,
                 person: false,
                 who: &who,
-                local: true,
+                local: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
             })

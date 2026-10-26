@@ -259,6 +259,13 @@ impl Hub {
         counted(&live, open)
     }
 
+    /// Whether a session already holds the conversation `agent_session_id`: an
+    /// adopt of it attaches there and starts nothing new.
+    pub(crate) fn holds_conversation(&self, agent_session_id: &str) -> bool {
+        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+        sessions.values().any(|s| s.meta().agent_session_id.as_deref() == Some(agent_session_id))
+    }
+
     /// Whether a session named `name` is in the list.
     fn session_named(&self, name: &str) -> bool {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -349,7 +356,11 @@ impl Hub {
         // create would, so `new --reuse` takes the session that won.
         if let Some(name) = &ask.name {
             while held {
+                // Listening before the check: a holder that ends between the two
+                // still wakes this wait.
                 let wake = self.admitting.1.notified();
+                tokio::pin!(wake);
+                wake.as_mut().enable();
                 held = holds(&self.admitting.0.lock().unwrap_or_else(|e| e.into_inner()), name);
                 if held && tokio::time::timeout(NAME_WAIT, wake).await.is_err() {
                     break;
