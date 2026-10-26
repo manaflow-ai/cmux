@@ -14,6 +14,8 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
+import { retrying, retryLabel } from "../subagents/retryState";
+import { Spinner } from "../conversation/icons";
 import {
   SUBSESSION_STATE_LABEL,
   type SubsessionRow,
@@ -44,6 +46,8 @@ export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
 
 export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>): SubagentStatus {
   if (running(agent)) return waiting.has(agent.id) ? "waiting" : "running";
+  // acpmux waits to retry it (subagents/retryState.ts): it is about to run again.
+  if (retrying(agent)) return "running";
   if (agent.state === "completed") return "done";
   return agent.state === "cancelled" || agent.state === "disconnected" ? "stopped" : "failed";
 }
@@ -223,7 +227,8 @@ export function SubagentStatusList({
 /// person for), its unread dot, how many messages wait for it, and its state.
 function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
   const t = useT();
-  const status = SUBSESSION_STATUS[session.state];
+  // While acpmux waits to retry its failed turn, it works again (subagents/retryState.ts).
+  const status = session.retry ? SUBSESSION_STATUS.working : SUBSESSION_STATUS[session.state];
   // What a working one does now, or what one waiting on the person waits for.
   const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
   return (
@@ -253,7 +258,8 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
       <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {t(SUBSESSION_STATE_LABEL[session.state])}
+        {session.retry && <Spinner size={12} loading />}
+        {session.retry ? retryLabel(t, session.retry) : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );

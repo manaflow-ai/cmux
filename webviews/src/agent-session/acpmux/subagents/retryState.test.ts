@@ -100,6 +100,14 @@ describe("the fold keeps a subagent's retry", () => {
     expect(agent.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
   });
 
+  test("a last try that succeeds is no give-up", () => {
+    const fold = new SubagentFold();
+    feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Overview" }] });
+    change(fold, { state: "failed", retry: { attempt: 2, of: 2, reason: "capacity" } });
+    change(fold, { state: "running", retry: null });
+    expect(fold.all()[0]!.retriedOut).toBeUndefined();
+  });
+
   test("a retry cleared before its last try is no give-up", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Overview" }] });
@@ -144,6 +152,9 @@ describe("which rows get which Retry", () => {
     );
     expect(askPrompt({ ...failed, task: "Push relay" }, translate)).toBe(
       'The subagent "Push relay" failed on a transient error. Run it again.',
+    );
+    expect(askPrompt({ ...failed, task: "Push relay\nfor GCP\n\nlane bundles" }, translate)).toBe(
+      'The subagent "Push relay" (Push relay for GCP lane bundles) failed on a transient error. Run it again.',
     );
     expect(askPrompt({ ...failed, child: "s2" }, translate)).toBe(
       'The sub-session "Push relay" failed on a transient error. Send it its last prompt again.',

@@ -59,7 +59,8 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
-  const restart = restartSubagent && canRestart(agent) ? restartSubagent : undefined;
+  // While acpmux waits to retry it, Restart would run it a second time.
+  const restart = restartSubagent && canRestart(agent) && !waiting ? restartSubagent : undefined;
   const parts = waiting
     ? [agent.name, retryLabel(t, waiting)]
     : [
@@ -73,7 +74,8 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
     void retryAgent(live, how).then(
-      (key) => setNote({ version: row.version, ...(key && { key }) }),
+      // A Retry that went stays busy until acpmux's next word on the row (a new version).
+      (key) => setNote({ version: row.version, ...(key ? { key } : { busy: true }) }),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };

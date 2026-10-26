@@ -5399,7 +5399,11 @@ function AcpmuxPane() {
           if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))
             return Promise.resolve(undefined);
           const request = (method: string, params: Record<string, unknown>) => client.retry(method, params);
-          const send = (text: string) => callNative("chat.send", { text });
+          // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
+          const send = (text: string) =>
+            restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession)
+              ? callNative("chat.send", { text })
+              : Promise.resolve();
           return runRetry(agent, owner, { request, send }, translate, how);
         })(restartChat),
       }),
@@ -5724,7 +5728,15 @@ function AcpmuxPane() {
   // streams text redraws neither the pill nor a subagent row.
   const agentsKey = freshAgents
     .map((agent) =>
-      [agent.id, agent.name, agent.state, agent.action ?? "", agent.endedAt ?? "", agent.agentId ?? ""].join("\u0000"),
+      [
+        agent.id,
+        agent.name,
+        agent.state,
+        agent.action ?? "",
+        agent.endedAt ?? "",
+        agent.agentId ?? "",
+        agent.retry ? `${agent.retry.attempt}/${agent.retry.of}` : "",
+      ].join("\u0000"),
     )
     .join("\u0001");
   // eslint-disable-next-line react-hooks/exhaustive-deps -- a new list only when an agent changes

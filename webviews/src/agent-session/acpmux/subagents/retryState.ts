@@ -92,9 +92,11 @@ export function retryActionOf(
 
 /// The line the chat's agent gets when the row asks it to retry.
 export function askPrompt(agent: Pick<Subagent, "name" | "task" | "child">, t: Translate): string {
-  if (agent.child) return t("retry.askSubsession", { name: agent.name });
-  const task = agent.task && agent.task !== agent.name ? agent.task : undefined;
-  return task ? t("retry.askTask", { name: agent.name, task }) : t("retry.ask", { name: agent.name });
+  const line = (text: string) => text.replace(/\s+/g, " ").trim();
+  const name = line(agent.name);
+  if (agent.child) return t("retry.askSubsession", { name });
+  const task = agent.task && line(agent.task) !== name ? line(agent.task) : undefined;
+  return task ? t("retry.askTask", { name, task }) : t("retry.ask", { name });
 }
 
 /// The short note a Retry acpmux refused leaves on its row.

@@ -614,6 +614,8 @@ export class SubagentFold {
       agent.endedAt = state === "running" ? undefined : event.at;
       this.settleReason(agent);
     }
+    // A subagent that runs again, or finished, gave nothing up.
+    if (agent.state === "running" || agent.state === "completed") delete agent.retriedOut;
     this.touch(agent);
   }
 
