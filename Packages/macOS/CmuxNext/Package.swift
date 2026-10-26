@@ -1931,21 +1931,21 @@ let package = Package(
 // The Linux mode (plans/cmux-next/chrome-parity/p15-oracle.md section H): only the Linux tier scripts
 // (scripts/cmux-next/linux/) set CMUX_SWIFTPM_TARGET_LINUX. A build for an Apple platform, here or on a
 // Linux host, never sets it, so the Apple manifest above, its dump-package and Package.resolved are the
-// same with or without this block. The mode keeps the targets linux-tier.json's `generated` part lists
-// (scripts/cmux-next/linux/linux-tier.py writes it from dump-package) and only the packages they use.
+// same with or without this block. The mode keeps the tier's targets and only the packages they use.
+// The tier is a literal in this file, never a file read: SwiftPM's manifest cache is keyed on this text.
 import Foundation
 
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
-    /// linux-tier.json, read once by the manifest.
-    struct LinuxTier: Decodable {
-        struct FFI: Decodable {
+    /// The Linux tier as scripts/cmux-next/linux/linux-tier.py renders it from linux-tier.json.
+    struct LinuxTier {
+        struct FFI {
             let replaces: String
             let target: String
             let library: String
             let libraryDirectory: String
         }
 
-        struct Generated: Decodable {
+        struct Generated {
             let targets: [String]
             let testTargets: [String]
             let products: [String]
@@ -1959,15 +1959,6 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
 
         var zlibTarget: String { "CZlib" }
         var cryptoPackage: String { "swift-crypto" }
-
-        init(packageDirectory: String) {
-            let path = packageDirectory + "/linux-tier.json"
-            do {
-                self = try JSONDecoder().decode(LinuxTier.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
-            } catch {
-                fatalError("\(path): \(error); run scripts/cmux-next/linux/linux-tier.py")
-            }
-        }
 
         /// SwiftPM's identity of a package location: its last path component without `.git`, lowercased.
         func identity(_ location: String) -> String {
@@ -2043,7 +2034,118 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         }
     }
 
-    LinuxTier(packageDirectory: Context.packageDirectory).apply(
+    // BEGIN linux-tier.py: generated from linux-tier.json by scripts/cmux-next/linux/linux-tier.py; do not edit.
+    let linuxTier = LinuxTier(
+        ffi: LinuxTier.FFI(
+            replaces: "CCmuxAppFFI",
+            target: "CCmuxAppFFILinux",
+            library: "cmux_app_ffi",
+            libraryDirectory: ".build-linux/ffi/lib",
+        ),
+        generated: LinuxTier.Generated(
+            targets: [
+                "CmuxNextCompat",
+                "CmuxNextTrace",
+                "CmuxNextMetrics",
+                "CmuxNextFeatures",
+                "CmuxNextSignposts",
+                "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
+                "CmuxNextProcessEnvironment",
+                "CCmuxAppFFILinux",
+                "CmuxNextActions",
+                "CmuxNextDaemon",
+                "CmuxNextFocus",
+                "CmuxNextTerminalGeometry",
+                "CmuxNextCopyMode",
+                "CmuxNextTerminalFind",
+                "CmuxNextHostPressure",
+                "CmuxNextDesignTokens",
+                "CmuxNextErrorJournal",
+                "CmuxNextHangReports",
+                "CmuxNextFiles",
+                "CmuxNextBrowserImport",
+                "CmuxNextImportSuggestions",
+                "CmuxNextChromiumRuntime",
+                "CmuxNextDevices",
+                "CmuxNextVSCodeServer",
+                "CmuxNextRemoteFetch",
+                "CmuxNextBrowserCore",
+                "CmuxNextBridge",
+                "CmuxNextWorkspaceNaming",
+                "CmuxNextCloud",
+                "CmuxNextCodeRouter",
+                "CmuxNextRemote",
+                "CmuxNextMobile",
+                "CmuxNextSettings",
+                "CmuxNextControl",
+                "CmuxNextHibernation",
+                "CmuxNextWorkspaceRepair",
+                "CmuxNextKeepAwake",
+                "CmuxNextRemoteLocalhost",
+                "CmuxNextServerHelper",
+                "CmuxNextCLIInstall",
+                "CZlib",
+            ],
+            testTargets: [
+                "CmuxNextActionsTests",
+                "CmuxNextChromiumRuntimeTests",
+                "CmuxNextCodeRouterTests",
+                "CmuxNextCompatTests",
+                "CmuxNextControlTests",
+                "CmuxNextDaemonTests",
+                "CmuxNextDevicesTests",
+                "CmuxNextErrorJournalTests",
+                "CmuxNextFeaturesTests",
+                "CmuxNextFilesTests",
+                "CmuxNextHangReportsTests",
+                "CmuxNextHostPressureTests",
+                "CmuxNextImportSuggestionsTests",
+                "CmuxNextKeepAwakeTests",
+                "CmuxNextMetricsTests",
+                "CmuxNextMobileTests",
+                "CmuxNextSignpostsTests",
+                "CmuxNextTraceTests",
+                "CmuxNextVSCodeServerTests",
+                "CmuxNextWakeupsTests",
+                "CmuxNextWorkspaceRepairTests",
+            ],
+            products: [],
+            pathDependencies: [
+                "Packages/Shared/CMUXAuthCore",
+                "Packages/Shared/CMUXMobileCore",
+                "Packages/Shared/CmuxAgentBrands",
+                "Packages/Shared/CmuxAuthRuntime",
+                "Packages/Shared/CmuxInstallAuthCore",
+                "Packages/Shared/CmuxIrxTransport",
+                "Packages/Shared/CmuxTheme",
+                "Packages/iOS/CmuxMobileRPC",
+                "Packages/iOS/CmuxMobileSSH",
+            ],
+            remoteDependencies: ["swift-atomics", "swift-crypto"],
+            linuxDependencies: [
+                "CmuxNextBrowserCore": ["Crypto"],
+                "CmuxNextBrowserImport": ["CZlib"],
+                "CmuxNextChromiumRuntime": ["Crypto"],
+                "CmuxNextChromiumRuntimeTests": ["Crypto"],
+                "CmuxNextCloud": ["Crypto"],
+                "CmuxNextCodeRouter": ["Crypto"],
+                "CmuxNextDaemon": ["CZlib", "Crypto"],
+                "CmuxNextDaemonTests": ["Crypto"],
+                "CmuxNextDesignTokens": ["Crypto"],
+                "CmuxNextDevices": ["Crypto"],
+                "CmuxNextDevicesTests": ["Crypto"],
+                "CmuxNextMobile": ["Crypto"],
+                "CmuxNextRemote": ["Crypto"],
+                "CmuxNextRemoteFetch": ["CZlib"],
+                "CmuxNextRemoteLocalhost": ["Crypto"],
+                "CmuxNextSettings": ["Crypto"],
+            ],
+        ),
+    )
+    // END linux-tier.py
+
+    linuxTier.apply(
         to: package,
         crypto: .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
         packageDirectory: Context.packageDirectory

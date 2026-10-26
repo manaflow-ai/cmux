@@ -3,7 +3,10 @@
 
 linux-tier.json says which CmuxNext targets build on Linux (plans/cmux-next/chrome-parity/p15-oracle.md,
 section H). People edit `waves`, `new`, `excludedPackages` and `ffi`; this script writes `generated`, which
-the Linux mode of Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1 on Linux) and the Linux scripts read:
+the Linux scripts read, and copies `ffi` and the lists the manifest uses into the Linux mode of Package.swift
+(CMUX_SWIFTPM_TARGET_LINUX=1 on Linux) as a literal between its `BEGIN linux-tier.py` and `END linux-tier.py`
+lines. The manifest reads no file: SwiftPM keys its manifest cache on the manifest text, so every tier change
+is a manifest change.
 
   targets             the tier's source targets that exist, in wave order, then CZlib when a target needs it
   testTargets         the test targets whose every in-package dependency is a tier target
@@ -20,7 +23,7 @@ The input is `swift package dump-package` of the Apple manifest (the Linux varia
 the same JSON scripts/cmux-next/ci-target-graph.py reads, and the targets' Swift imports. Stdlib only.
 
 Usage: scripts/cmux-next/linux/linux-tier.py [--check] [--dump FILE]
-  --check      exit 1 when the committed `generated` part is stale
+  --check      exit 1 when the committed `generated` part or the Package.swift literal is stale
   --dump FILE  read dump-package JSON from FILE instead of running swift
 """
 
@@ -38,8 +41,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = ROOT / "Packages/macOS/CmuxNext"
 TIER = PACKAGE / "linux-tier.json"
+MANIFEST = PACKAGE / "Package.swift"
 LINUX_VARIABLE = "CMUX_SWIFTPM_TARGET_LINUX"
 HEADER = "Written by scripts/cmux-next/linux/linux-tier.py from swift package dump-package; do not edit."
+BEGIN = "    // BEGIN linux-tier.py: generated from linux-tier.json by scripts/cmux-next/linux/linux-tier.py; do not edit.\n"
+END = "    // END linux-tier.py\n"
+# The generated lists the Linux mode of Package.swift uses, in its LinuxTier.Generated argument order.
+MANIFEST_FIELDS = ("targets", "testTargets", "products", "pathDependencies", "remoteDependencies", "linuxDependencies")
 
 # Imports that need a Linux stand-in: the module, then the dependency the Linux mode adds for it.
 STAND_INS = (
@@ -183,24 +191,70 @@ def render(tier: dict) -> str:
     return json.dumps(tier, indent=2) + "\n"
 
 
-def main(argv: list[str]) -> int:
+def swift_literal(value, indent: str) -> str:
+    """``value`` (a string, a list of strings or a dict of string lists) as a Swift literal, one entry per line."""
+    inner = indent + "    "
+    if isinstance(value, str):
+        return json.dumps(value)
+    if isinstance(value, dict):
+        if not value:
+            return "[:]"
+        entries = (f"{inner}{json.dumps(key)}: {swift_literal(item, inner)}," for key, item in value.items())
+        return "[\n" + "\n".join(entries) + f"\n{indent}]"
+    if not value:
+        return "[]"
+    if all(isinstance(item, str) for item in value) and len(value) <= 3:
+        return "[" + ", ".join(json.dumps(item) for item in value) + "]"
+    return "[\n" + "\n".join(f"{inner}{json.dumps(item)}," for item in value) + f"\n{indent}]"
+
+
+def render_manifest_tier(tier: dict) -> str:
+    """The `let linuxTier = LinuxTier(...)` literal of the Linux mode of Package.swift."""
+    ffi, generated = tier["ffi"], tier["generated"]
+    ffi_fields = ("replaces", "target", "library", "libraryDirectory")
+    lines = ["    let linuxTier = LinuxTier(", "        ffi: LinuxTier.FFI("]
+    lines += [f"            {name}: {json.dumps(ffi[name])}," for name in ffi_fields]
+    lines += ["        ),", "        generated: LinuxTier.Generated("]
+    lines += [f"            {name}: {swift_literal(generated[name], '            ')}," for name in MANIFEST_FIELDS]
+    lines += ["        ),", "    )"]
+    return "\n".join(lines) + "\n"
+
+
+def splice_manifest(manifest: str, tier: dict) -> str:
+    """``manifest`` with the text between its BEGIN and END linux-tier.py lines replaced by the tier literal."""
+    if manifest.count(BEGIN) != 1 or manifest.count(END) != 1 or manifest.index(BEGIN) > manifest.index(END):
+        raise SystemExit(f"{MANIFEST.relative_to(ROOT)}: needs one {BEGIN.strip()!r} line, "
+                         f"then one {END.strip()!r} line")
+    head, rest = manifest.split(BEGIN)
+    _, tail = rest.split(END)
+    return head + BEGIN + render_manifest_tier(tier) + END + tail
+
+
+def main(argv: list[str], graph=None) -> int:
+    """``graph`` is the ci-target-graph module (tests pass one with a stubbed local_packages)."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="fail when the committed `generated` part is stale")
+    parser.add_argument("--check", action="store_true",
+                        help="fail when the committed `generated` part or the Package.swift literal is stale")
     parser.add_argument("--dump", type=Path, help="dump-package JSON to read instead of running swift")
     args = parser.parse_args(argv)
 
     current = TIER.read_text(encoding="utf-8")
+    current_manifest = MANIFEST.read_text(encoding="utf-8")
     tier = json.loads(current)
-    tier["generated"] = build(tier, dump_package(args.dump), graph_module())
+    tier["generated"] = build(tier, dump_package(args.dump), graph or graph_module())
     text = render(tier)
+    manifest = splice_manifest(current_manifest, tier)
     relative = TIER.relative_to(ROOT)
+    pairs = ((TIER, current, text), (MANIFEST, current_manifest, manifest))
+    stale = [str(path.relative_to(ROOT)) for path, old, new in pairs if old != new]
     if args.check:
-        if current != text:
-            print(f"{relative} is stale. Run: scripts/cmux-next/linux/linux-tier.py", file=sys.stderr)
+        if stale:
+            print(f"{', '.join(stale)} stale. Run: scripts/cmux-next/linux/linux-tier.py", file=sys.stderr)
             return 1
-        print(f"{relative} is fresh")
+        print(f"{relative} and its Package.swift literal are fresh")
         return 0
     TIER.write_text(text, encoding="utf-8")
+    MANIFEST.write_text(manifest, encoding="utf-8")
     generated = tier["generated"]
     print(f"wrote {relative}: {len(generated['targets'])} targets, {len(generated['testTargets'])} test targets, "
           f"{len(generated['blockedEdges'])} with blocked edges, {len(generated['absent'])} absent")
