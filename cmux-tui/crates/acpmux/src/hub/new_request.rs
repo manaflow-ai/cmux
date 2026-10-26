@@ -99,6 +99,9 @@ pub struct NewRequest {
     /// meta as `tool:<name>` rows that are off, so every start of its Claude
     /// Code passes `--disallowedTools <name>` (`tools.rs`).
     pub disallowed_tools: Vec<String>,
+    /// A sub-session's folder as its start checked it (`subsession_guard.rs`): its harness
+    /// spawns only while `cwd` still leads to that very folder.
+    pub checked_cwd: Option<super::subsession_guard::CheckedFolder>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:
