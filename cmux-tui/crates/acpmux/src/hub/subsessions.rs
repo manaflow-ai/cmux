@@ -350,6 +350,8 @@ pub struct StartRequest {
 /// runtime.
 struct KeptWorktree {
     folder: PathBuf,
+    /// `folder` as its start checked it, held open (unix): removed from that very folder.
+    held: Option<Arc<std::fs::File>>,
     made: crate::subsession_worktree::Worktree,
     kept: bool,
     /// A decision trusts `folder` (a person's, an agent's own, or cmux's for a folder it made),
@@ -368,8 +370,11 @@ impl KeptWorktree {
 impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
-            let (folder, made) = (self.folder.clone(), self.made.clone());
-            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+            let (folder, held, made) = (self.folder.clone(), self.held.clone(), self.made.clone());
+            std::thread::spawn(move || {
+                let at = crate::subsession_worktree::Dir::held(&folder, held.as_deref());
+                crate::subsession_worktree::remove_worktree(at, &made)
+            });
         }
     }
 }
@@ -667,13 +672,14 @@ impl Hub {
                 name: None,
             })
             .await?;
-        // Its worktree is made only while the folder checked is still at its path (git still runs
-        // by path in it), and its harness spawns only in the folder then resolved and pinned.
+        // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
             let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
             let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
+            // The folder resolved is in the worktree just made, not one that took its place.
+            super::subsession_guard::verify_worktree(&folder, &kept.made, &start).await?;
             (start, Some(kept))
         } else {
             (folder, None)
@@ -772,9 +778,10 @@ impl Hub {
     async fn subsession_worktree(
         &self,
         pm: &SessionMeta,
-        folder: &Path,
+        checked: &super::subsession_guard::CheckedFolder,
         name: &str,
     ) -> Result<KeptWorktree, RpcError> {
+        let folder: &Path = checked;
         let refuse = |why: String| {
             refused(
                 "subsessions.worktree_refused",
@@ -785,12 +792,16 @@ impl Hub {
         if pm.remote_origin {
             return Err(refuse("this session runs on another machine".into()));
         }
-        let (folder2, name2) = (folder.to_path_buf(), name.to_owned());
+        let (folder2, held, name2) = (folder.to_path_buf(), checked.held(), name.to_owned());
         // The guard is made with the worktree, so a start dropped while this
-        // runs (its caller gone) still removes it.
+        // runs (its caller gone) still removes it. Git runs in the very folder
+        // checked, through its open handle, wherever its path leads by now.
         tokio::task::spawn_blocking(move || {
-            crate::subsession_worktree::make_worktree(&folder2, &name2).map(|made| KeptWorktree {
+            let at = crate::subsession_worktree::Dir::held(&folder2, held.as_deref());
+            let made = crate::subsession_worktree::make_worktree(at, &name2)?;
+            Ok::<_, String>(KeptWorktree {
                 folder: folder2,
+                held,
                 made,
                 kept: false,
                 source_decided: false,

@@ -604,6 +604,7 @@ impl Hub {
             supersede: None,
             display_parts: None,
             full_access_device: None,
+            no_queue: false,
         };
         let (hub, session) = (self.clone(), target.clone());
         let run =

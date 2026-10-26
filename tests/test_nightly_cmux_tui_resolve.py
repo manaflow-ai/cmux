@@ -45,7 +45,11 @@ for name in ("commit", "key", "source_commit"):
     check(bool(outputs) and re.search(rf"^      {name}:", outputs.group(1), re.MULTILINE) is not None,
           f"resolve-nightly-cmux-tui-client must output {name}")
 timeout = re.search(r"^    timeout-minutes: (\d+)", job, re.MULTILINE)
-check(bool(timeout) and int(timeout.group(1)) <= 20, "a resolver that never waits needs no 55-minute timeout")
+# It waits on nothing but GitHub's API budget: 60 of its minutes are the hour gh_budget_wait.sh may
+# wait for a rate-limit reset (tests/test_gh_budget_wait.py); its own work stays within 20.
+budget_wait = 60 if "scripts/ci/gh_budget_wait.sh --install" in job else 0
+check(bool(timeout) and int(timeout.group(1)) <= 20 + budget_wait,
+      "a resolver that never waits needs no 55-minute timeout")
 depth = re.search(r"fetch-depth: (\d+)", job)
 check(bool(depth) and (int(depth.group(1)) == 0 or int(depth.group(1)) > 50),
       "the checkout must hold the search window (fetch-depth > 50)")

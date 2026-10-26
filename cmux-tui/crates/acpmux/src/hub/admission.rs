@@ -399,22 +399,7 @@ impl Hub {
         cwd: Option<&Path>,
     ) -> Result<Conversation, RpcError> {
         let cfg = self.config.read().await;
-        self.conversation_in(&cfg, id, harness, preset, model, remote, cwd)
-    }
-
-    /// `adopt_conversation` under the configuration `cfg`.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn conversation_in(
-        &self,
-        cfg: &crate::config::Config,
-        id: &str,
-        harness: Option<String>,
-        preset: &Option<String>,
-        model: Option<&str>,
-        remote: bool,
-        cwd: Option<&Path>,
-    ) -> Result<Conversation, RpcError> {
-        let resolved = self.resolve_new(cfg, harness, preset, model, remote, cwd)?;
+        let resolved = self.resolve_new(&cfg, harness, preset, model, remote, cwd)?;
         let family = crate::config::derive_family(&resolved.agent, &resolved.profile);
         Ok(Conversation { family, id: id.to_owned() })
     }
