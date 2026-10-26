@@ -49,31 +49,54 @@ fn two_updates_of_one_host_never_run_at_once() {
 /// keeps a group's closed descriptors as inheritable copies), so the next
 /// step waited a minute and lost the lock, and every later update found
 /// "another update ... is running". A process a step starts holds neither
-/// lock file, and the next step runs at once. (Linux's shells never leaked
-/// them; the proof on macOS is the red.)
+/// lock file and keeps running, the next step runs at once, and the flock on
+/// `update.lock` is held for the whole of a step, never released before it
+/// ends. (Linux's shells never leaked them; the proof on macOS is the red.)
 #[test]
-fn a_daemon_a_step_starts_holds_neither_lock_file() {
+fn a_daemon_a_step_starts_holds_neither_lock_file_and_a_step_keeps_the_lock() {
     if !std::path::Path::new("/proc/self/fd").is_dir() {
         return;
     }
     let peer = FakePeer::new("step-child");
     let lock = lock_updates(&peer).unwrap().expect("the lock is free");
     let fenced = lock.fence(&peer);
-    let pid = run(&fenced, "sleep 30 </dev/null >/dev/null 2>&1 & echo $!").unwrap();
+    // /bin/sleep: the fake host's own `sleep` exits at once.
+    let pid = run(&fenced, "/bin/sleep 60 </dev/null >/dev/null 2>&1 & echo $!").unwrap();
     let pid = pid.trim().to_owned();
-    let held: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
-        .unwrap()
-        .flatten()
-        .filter_map(|fd| std::fs::read_link(fd.path()).ok())
-        .map(|target| target.display().to_string())
-        .filter(|target| target.ends_with("update.lock") || target.ends_with("update.lease"))
-        .collect();
+    let alive = || {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .is_ok_and(|stat| !stat.split(' ').nth(2).is_some_and(|state| state == "Z"))
+    };
+    let lock_files = || -> Vec<String> {
+        std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .map(|fds| {
+                fds.flatten()
+                    .filter_map(|fd| std::fs::read_link(fd.path()).ok())
+                    .map(|target| target.display().to_string())
+                    .filter(|t| t.ends_with("update.lock") || t.ends_with("update.lease"))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let (alive_then, held) = (alive(), lock_files());
     let started = std::time::Instant::now();
     let next = run(&fenced, "echo next");
+    let waited = started.elapsed();
+    let alive_after = alive();
+    // While a step runs, `update.lock` stays locked: another process cannot take it.
+    let flock =
+        ["/usr/bin/flock", "/bin/flock"].into_iter().find(|p| std::path::Path::new(p).exists());
+    let mid_step = flock.map(|flock| {
+        run(&fenced, &format!("if {flock} -n \"$HOME/.acpmux/update.lock\" true; then echo free; else echo held; fi"))
+    });
     let _ = Command::new("kill").arg(&pid).status();
+    assert!(alive_then && alive_after, "the step's child kept running");
     assert_eq!(held, Vec::<String>::new(), "the step's child holds a lock file");
     assert_eq!(next.unwrap().trim(), "next");
-    assert!(started.elapsed() < std::time::Duration::from_secs(20), "the next step waited");
+    assert!(waited < std::time::Duration::from_secs(20), "the next step waited {waited:?}");
+    if let Some(mid_step) = mid_step {
+        assert_eq!(mid_step.unwrap().trim(), "held", "update.lock was free while a step ran");
+    }
 }
 
 #[test]
