@@ -264,6 +264,7 @@ jobs:
   runner:
     needs: sign
     if: needs.sign.outputs.signed == 'true'
+    environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot (e2e_runner_pool.py's budget)

@@ -107,8 +107,8 @@ for job, label in ((publish, "publish"), (tip, "tip")):
           f"{label} needs verify to succeed with verified 'true'")
 runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n")]
 check("python3 scripts/ci/e2e_runner_pool.py" in runner and "--queue-rounds" not in runner
-      and "glaeda-*) ;;" in runner and "environment:" not in runner,
-      "the placement job offers an owned Mac only when one is free now, and no other label")
+      and "glaeda-*) ;;" in runner and "environment: release" in runner,
+      "the placement job offers an owned Mac only when one is free now, with protected credentials")
 check(runner.count("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1") == 3,
       "only main's own first attempt is offered an owned Mac")
 check("name: owned-pool-watch" in runner and "name: macos-pool-persistent-${{ github.run_id }}" in runner,

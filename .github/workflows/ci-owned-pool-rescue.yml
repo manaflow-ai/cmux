@@ -60,6 +60,9 @@ on:
       # nightly.yml: its app build takes the trusted owned pool on attempt 1
       # of main's push and schedule runs (owned_pool_rescue.NIGHTLY_WORKFLOW_PATH).
       - Nightly macOS build
+      # The DEV publisher's runner job offers verify to an owned Mac on its
+      # first workflow_dispatch attempt; watch it for a queue/refusal rescue.
+      - cmux NEXT DEV daily
     types: [requested]
   workflow_dispatch:
     inputs:
@@ -88,6 +91,7 @@ env:
   SOURCE_WORKFLOW_PATHS: >-
     .github/workflows/ios-screenshots.yml
     .github/workflows/nightly.yml
+    .github/workflows/cmux-next-dev-daily.yml
 
 concurrency:
   group: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'owned-pool-sweeper' || format('owned-pool-rescue-{0}-{1}', inputs.run_id || github.event.workflow_run.id, inputs.run_attempt || github.event.workflow_run.run_attempt) }}
@@ -97,7 +101,7 @@ concurrency:
 jobs:
   rescue:
     name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && 'Sweep runs on persistent pools' || 'Rescue a run stuck on a persistent pool' }}
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event.workflow_run.path != '.github/workflows/nightly.yml' && github.event.workflow_run.path != '.github/workflows/ios-screenshots.yml' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event.workflow_run.event) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_LIGHT_LANE_RUNNER, 'glaeda-side-')) || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/cmux-next-dev-daily.yml' && github.event.workflow_run.event == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/nightly.yml' && (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') && (github.event.workflow_run.head_branch == 'main' && startsWith(vars.CI_SEED_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_TRUSTED_RUNNER, 'glaeda-runner-') || github.event.workflow_run.head_branch == 'nightly-next' && github.event.workflow_run.event == 'push' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') || startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, 'glaeda-trusted-') && startsWith(vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, 'glaeda-runner-')))) && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: polls the Actions API; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
     # A sweeper adopts runs for 300 minutes and gives a rescue 40 more to
     # settle, 15 of them for waits through GitHub rate limits (SWEEP_SECONDS,
