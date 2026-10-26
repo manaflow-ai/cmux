@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -691,16 +692,31 @@ class CheckTests(unittest.TestCase):
             self.assertIn("suite nosuchsuite: unknown suite", out.getvalue())
 
 
+class Unreachable(Exception):
+    """app_reset.ProductUnreachable's shape: the product is gone."""
+
+    unreachable = True
+
+
+class Relaunch(Exception):
+    """app_reset.NeedsRelaunch's shape: the reset has no action for what the case changed."""
+
+    def __init__(self, reason):
+        super().__init__(reason)
+        self.relaunch = reason
+
+
 class ResetSession(FakeSession):
     """A launch-sharing session (task 189): its state is what reset_state returns. A case in `leaks` leaves a key the
     reset cannot remove; `after` maps a case to the case that must run before it in the same launch for it to leak
-    (an order-dependent leak); a case in `reset_raises` makes the next reset raise."""
+    (an order-dependent leak); `reset_raises` maps a case to what the reset after it raises (refused, unreachable or
+    relaunch); a launch number in `fixture_fails` cannot read its fixture; `reset_s` is how long a reset takes."""
 
     def __init__(self, driver, number):
         super().__init__(driver, number)
         self.state = {"windows": ["win_1"], "settings": {"ui": {"animations": {"enabled": False}}}}
         self.ran = []
-        self.raise_next = False
+        self.raise_next = None
 
     def run_case(self, case, ctx):
         cid = ctx["case_id"]
@@ -708,23 +724,34 @@ class ResetSession(FakeSession):
         before = self.driver.after.get(cid)
         if cid in self.driver.leaks or (before is not None and before in self.ran[:-1]):
             self.state = {**self.state, "windows": self.state["windows"] + ["win_" + cid]}
-        self.raise_next = cid in self.driver.reset_raises
+        self.raise_next = self.driver.reset_raises.get(cid)
         return super().run_case(case, ctx)
 
     def reset_state(self):
         with self.driver.mutex:
             self.driver.resets += 1
-        if self.raise_next:
-            raise RuntimeError("socket closed")
+        if not self.ran and self.number in self.driver.fixture_fails:
+            raise RuntimeError("snapshot.get: unavailable, retry")
+        if self.driver.reset_s and self.ran:
+            time.sleep(self.driver.reset_s)  # a slow reset, to tell its time from the case's
+        kind, self.raise_next = self.raise_next, None
+        if kind == "refused":
+            raise RuntimeError("action.run: closeTab refused")
+        if kind == "unreachable":
+            raise Unreachable("snapshot.get: [Errno 61] Connection refused")
+        if kind == "relaunch":
+            raise Relaunch("no action puts back the pane pane_1 tab order")
         return json.loads(json.dumps(self.state))
 
 
 class ResetDriver(FakeDriver):
-    def __init__(self, leaks=(), after=None, reset_raises=(), **kwargs):
+    def __init__(self, leaks=(), after=None, reset_raises=None, fixture_fails=(), reset_s=0.0, **kwargs):
         super().__init__(**kwargs)
         self.leaks = set(leaks)
         self.after = dict(after or {})
-        self.reset_raises = set(reset_raises)
+        self.reset_raises = dict(reset_raises or {})
+        self.fixture_fails = set(fixture_fails)
+        self.reset_s = reset_s
         self.resets = 0
 
     def open_session(self, ctx):
@@ -746,8 +773,11 @@ class ResetCheckTests(unittest.TestCase):
         self.assertEqual(diff({"a": [1, 2]}, {"a": [1, 3]}), ["/a/1"])
         self.assertEqual(diff({"a": [1]}, {"a": [1, 2]}), ["/a"])
         self.assertEqual(diff({"a/b": 1, "c": {}}, {"c": {"d": 0}}), ["/a~1b", "/c/d"])
-        self.assertEqual(diff(1, 1.0), ["/"])
-        self.assertEqual(diff(None, {}), ["/"])
+        # RFC 6901: "" is the whole document, "/" the member named "".
+        self.assertEqual(diff(1, 1.0), [""])
+        self.assertEqual(diff(None, {}), [""])
+        self.assertEqual(diff([1], [1, 2]), [""])
+        self.assertEqual(diff({"": 1}, {"": 2}), ["/"])
 
     def test_leaked_state_names_the_leaking_case_and_relaunches(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -789,15 +819,91 @@ class ResetCheckTests(unittest.TestCase):
             self.assertEqual(receipt["leaked_state"], ["alpha/case-002"])
             self.assertEqual(driver.sessions, 3)
 
-    def test_a_reset_that_raises_is_a_leak_with_its_error(self):
+    def test_a_refused_reset_is_a_leak_with_its_error(self):
         with tempfile.TemporaryDirectory() as raw:
             tmp = Path(raw)
             write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
-            driver = ResetDriver(reset_raises={"alpha/case-001"})
+            driver = ResetDriver(reset_raises={"alpha/case-001": "refused"})
             receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
             leak = receipt["cases"]["alpha/case-001"]["leaked_state"][0]
-            self.assertIn("socket closed", leak["error"])
+            self.assertIn("closeTab refused", leak["error"])
             self.assertEqual(driver.sessions, 2)
+
+    def test_a_product_lost_in_the_reset_is_a_crash_of_the_case_not_a_leak(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(reset_raises={"alpha/case-001": "unreachable"})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(code, 1)
+            case = receipt["cases"]["alpha/case-001"]
+            self.assertEqual((case["result"], case["outcome"]), ("Crash", "unexpected"))
+            self.assertNotIn("leaked_state", case)
+            self.assertEqual(receipt["leaked_state"], [])
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["dirty", "batch-end"])
+            events = [json.loads(line) for line in (tmp / "out" / "events.jsonl").read_text().splitlines()]
+            mine = next(e for e in events if e["case"] == "alpha/case-001")
+            self.assertEqual(mine["step"], "reset")
+            self.assertIn("Connection refused", mine["message"])
+
+    def test_a_crash_in_the_reset_is_retried_like_any_crash(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=2)
+            driver = ResetDriver(reset_raises={"alpha/case-000": "unreachable"})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=1)
+            self.assertGreater(receipt["cases"]["alpha/case-000"]["attempts"], 1)
+
+    def test_a_reset_that_asks_for_a_relaunch_is_no_leak(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=4)
+            driver = ResetDriver(reset_raises={"alpha/case-001": "relaunch"})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual((code, receipt["ok"], receipt["leaked_state"]), (0, True, []))
+            self.assertEqual(receipt["cases"]["alpha/case-001"]["result"], "Pass")
+            logs = receipt["sessions"]
+            self.assertEqual([log["end"] for log in logs], ["relaunch", "batch-end"])
+            self.assertIn("tab order", logs[0]["reason"])
+            self.assertEqual([log["cases"] for log in logs],
+                             [["alpha/case-000", "alpha/case-001"], ["alpha/case-002", "alpha/case-003"]])
+
+    def test_an_unreadable_fixture_is_an_infra_error_of_the_launch_not_a_result_of_the_case(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(fixture_fails={1})
+            receipt, code = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=0)
+            self.assertEqual(code, 1)
+            self.assertEqual(len(receipt["infra_errors"]), 1)
+            self.assertIn("session 0: fixture unreadable before alpha/case-000", receipt["infra_errors"][0])
+            first = receipt["cases"]["alpha/case-000"]
+            self.assertEqual((first["outcome"], first["result"], first["attempts"]), ("not-run", None, 0))
+            self.assertEqual([log["end"] for log in receipt["sessions"]], ["fixture-unreadable", "batch-end"])
+            self.assertEqual(receipt["sessions"][0]["cases"], [])
+            self.assertEqual(receipt["sessions"][1]["cases"], ["alpha/case-001", "alpha/case-002"])
+            self.assertNotIn("alpha/case-000", [c for c, *_ in driver.calls])
+
+    def test_a_case_whose_launch_had_no_fixture_runs_on_the_retry(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=3)
+            driver = ResetDriver(fixture_fails={1})
+            receipt, _ = run_cases(tmp, driver, batch_limit=10, jobs=1, retry_limit=1)
+            first = receipt["cases"]["alpha/case-000"]
+            self.assertEqual((first["result"], first["attempts"]), ("Pass", 1))
+            rows = [json.loads(line) for line in (tmp / "out" / "checkpoints.jsonl").read_text().splitlines()]
+            self.assertEqual({r["attempt"] for r in rows if r["case"] == "alpha/case-000"}, {1})
+
+    def test_ms_is_the_case_alone_and_the_reset_has_its_own_time(self):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            write_corpus(tmp / "corpus", suites=("alpha",), per_suite=2)
+            receipt, _ = run_cases(tmp, ResetDriver(reset_s=0.3), batch_limit=10, jobs=1, retry_limit=0)
+            events = [json.loads(line) for line in (tmp / "out" / "events.jsonl").read_text().splitlines()]
+            for event in events:
+                self.assertLess(event["ms"], 250, event)
+                self.assertGreaterEqual(event["reset_ms"], 300, event)
 
     def test_a_dirty_case_skips_the_reset_check(self):
         with tempfile.TemporaryDirectory() as raw:
