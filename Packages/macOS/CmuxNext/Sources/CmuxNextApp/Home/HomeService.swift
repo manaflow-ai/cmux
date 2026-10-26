@@ -147,7 +147,7 @@ final class HomeService {
             return try await feed.call(path, body, team: team)
         },
         me: { [weak self] in
-            guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
+            guard let auth = self?.services.cloudAuth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
     /// Hide Alerts for the group actions (`groupActions`): a sidebar source over the same owners
@@ -192,7 +192,7 @@ final class HomeService {
         watchReplies()
         chief.start()
         let local = services.machines.local
-        let auth = services.cloud.auth
+        let auth = services.cloudAuth
         let chief = chief
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
