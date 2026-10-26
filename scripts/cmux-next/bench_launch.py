@@ -237,10 +237,13 @@ def info_plist(app):
 BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
 # result-v1's build.measure_version (schemas/perf/result-v1.schema.json): bump it when what BenchApp.record measures,
 # or how, changes, so a step in a series can be told from a harness change. An edit that measures the same is no bump.
-PERF_LAB_MEASURE_VERSION = 1
+# 2: `bench` no longer compiles the blocking detector in (task 147); a version 1 `bench` result had it.
+PERF_LAB_MEASURE_VERSION = 2
 # The configs each kind of bundle can be. A bench-hooks executable is `bench` or `bench-checks` (bench plus
-# CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart.
+# CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart: the Info.plist key below does.
 BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",)}
+# The `scripts/reload.sh --config` name a tagged app was built with (reload.sh stamps it; p08-startup task 006 reads it).
+BUILD_CONFIG_KEY = "CMUXBuildConfiguration"
 
 
 class RecordError(RuntimeError):
@@ -262,18 +265,26 @@ def bundle_kind(app, binary):
 
 
 def build_config(app, binary, stated=None):
-    """result-v1's build config of the bundle. `stated` (the caller's, for example the story runner's) must be one
-    the bundle can be; a bench-hooks bundle needs it, since `bench` and `bench-checks` results never share a series."""
+    """result-v1's build config of the bundle. A tagged bundle names it (Info.plist `CMUXBuildConfiguration`); else
+    `stated` (the caller's, for example the story runner's) must be one the bundle can be, and a bench-hooks bundle
+    needs it, since `bench` and `bench-checks` results never share a series. Every source that names a config must
+    agree with the others and with the executable."""
     kind = bundle_kind(app, binary)
     allowed = BUNDLE_CONFIGS[kind]
-    if stated is None and len(allowed) == 1:
-        return allowed[0]
-    if stated is None:
-        raise RecordError(f"bench-launch: {app} is a bench-hooks build: pass build_config='bench' or 'bench-checks'")
-    if stated not in allowed:
+    stamped = info_plist(app).get(BUILD_CONFIG_KEY)
+    if stamped is not None and stamped not in allowed:
+        raise RecordError(f"bench-launch: {app} says {BUILD_CONFIG_KEY}={stamped!r}, but it is a {kind} bundle "
+                          f"({' or '.join(allowed)})")
+    if stated is not None and stated not in allowed:
         raise RecordError(f"bench-launch: build_config={stated!r}, but {app} is a {kind} bundle "
                           f"({' or '.join(allowed)})")
-    return stated
+    if stated is not None and stamped is not None and stated != stamped:
+        raise RecordError(f"bench-launch: build_config={stated!r}, but {app} was built with --config {stamped}")
+    config = stated or stamped or (allowed[0] if len(allowed) == 1 else None)
+    if config is None:
+        raise RecordError(f"bench-launch: {app} is a bench-hooks build with no {BUILD_CONFIG_KEY}: pass "
+                          "build_config='bench' or 'bench-checks'")
+    return config
 
 
 def build_sha(app, environ=None):

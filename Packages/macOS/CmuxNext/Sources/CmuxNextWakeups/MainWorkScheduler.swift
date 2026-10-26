@@ -10,13 +10,17 @@ public import QuartzCore
 /// ``FrameBatchQueue/init(owner:budgeted:on:)``), so the budget's window opens once per real frame
 /// on this one link, never once per tick of each window's link (two displays at 60 and 120 Hz
 /// would otherwise roll it several times a frame). Its link exists only while one of its clients
-/// has work; an idle app has no frame wakeups from it.
+/// has work or an input response waits for its tick; an idle app has no frame wakeups from it.
 ///
 /// Main-thread work that is not a batch is posted in a class with an owner
 /// (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``,
 /// and ``BackgroundWork/Pending/reply(on:class:owner:file:line:_:)`` for off-main work whose result
 /// comes back): each class has one FIFO queue here, and the board names the posting site of the
 /// task it runs.
+///
+/// It owns the app's ``StartupPhase``: while launching, background work (posts and budgeted
+/// batches) waits in its queue for the reveal; input, frame, visible and automation work never
+/// wait.
 ///
 /// ```swift
 /// // The composition root:
@@ -38,25 +42,41 @@ public final class MainWorkScheduler {
     /// The display-link scheduler the budgeted clients tick on (the main screen's); the daemon
     /// services' drains are frame clients on it, so they tick before the budgeted classes.
     public let frames: FrameScheduler
+    /// The launch's phases: which classes are held until the reveal or the settle.
+    public let startup: StartupPhase
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
     private let renderPasses: RenderPassMeter?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
+    /// Ticks the link while an input response is open (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``
+    /// asks for it), so the tick render that closes the response comes even while no budgeted
+    /// client has work.
+    private let inputResponseTick: FrameClient
 
-    /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
-    ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    public convenience init(budget: MainFrameBudget) {
+    /// - Parameters:
+    ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
+    ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
+    ///     while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///   - startup: The launch's phases. The app's composition root passes a launching phase
+    ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
+    ///     wired; the default is settled, so a scheduler made after launch holds nothing.
+    public convenience init(budget: MainFrameBudget, startup: StartupPhase = .settled()) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
-        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
+        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), startup: startup,
+                  renderPasses: meter)
     }
 
-    private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
+    private init(budget: MainFrameBudget, frames: FrameScheduler, startup: StartupPhase, renderPasses: RenderPassMeter?) {
         self.budget = budget
         board = budget.board
         self.frames = frames
+        self.startup = startup
         self.renderPasses = renderPasses
+        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
+            budget?.isInputResponseOpen ?? false
+        }
+        budget.requestTick = { [weak self] in self?.inputResponseTick.activate() }
         // The link's ticks own the budget's window while it exists; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }
@@ -72,12 +92,14 @@ public final class MainWorkScheduler {
     ///   - budget: The budget (tests inject its clock and input source).
     ///   - clock: The stall deadline's clock.
     ///   - ledger: Where frames are recorded.
+    ///   - startup: The launch's phases (default: already settled, so no class is held).
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
-                               ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
+                               ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
+                               makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),
-                          renderPasses: nil)
+                          startup: startup, renderPasses: nil)
     }
 
     /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when it is shown.
