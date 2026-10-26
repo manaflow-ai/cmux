@@ -3,9 +3,12 @@ import class CmuxNextAgentPane.AgentPaneLaunchTimings
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextLaunch
+import CmuxNextMetrics
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
@@ -21,9 +24,10 @@ import CmuxNextCompat
 enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
-    /// Launch marks from any thread (the daemon start path runs off main), and the startup trace they go
-    /// to when the launch asked for one (`CMUX_TRACE_STARTUP`).
-    private nonisolated static let launchMarks = Mutex<LaunchMarks>(LaunchMarks())
+    /// Launch marks from any thread (the daemon start path runs off main), the startup trace they go
+    /// to when the launch asked for one (`CMUX_TRACE_STARTUP`), and the `launch.*` slices they end.
+    private nonisolated static let launchMarks = Mutex<(marks: LaunchMarks, slices: LaunchSlices)>(
+        (LaunchMarks(), LaunchSlices(processStartNanos: processStart.uptimeNanos)))
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
@@ -43,22 +47,35 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    private nonisolated static let processStart: Date = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
-        let start = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+    /// When the kernel started this process (PROC_PIDTBSDINFO), on the wall clock and the trace clock; now
+    /// when the kernel does not answer.
+    private nonisolated static let processStart: LaunchClock.Instant = {
+        let clock = LaunchClock()
+        return clock.processStart() ?? clock.now()
     }()
+    private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
-    /// bench's pipe when one was passed; and to the startup trace when one is attached.
+    /// bench's pipe when one was passed; and to the startup trace when one is attached. A milestone mark
+    /// ends its `launch.*` slice; ``LaunchSlices/temperatureMark`` reads the page-ins first (Chrome reads them
+    /// before its message-loop start's own work), records `launch.pageins` and writes the slices that waited.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let (ms, trace) = launchMarks.withLock { ($0.record(name, at: date, processStart: processStart), $0.trace) }
+        let milestone = LaunchSlices.Milestone(mark: name)
+        let endNanos = milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date)
+        let samplesTemperature = name == LaunchSlices.temperatureMark
+        let pageins = samplesTemperature ? LaunchClock().pageins() : nil
+        let (ms, trace, slices) = launchMarks.withLock { state -> (Double?, StartupTrace?, [LaunchSlices.Slice]) in
+            guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else { return (nil, state.marks.trace, []) }
+            var slices: [LaunchSlices.Slice] = []
+            if let milestone, let slice = state.slices.reach(milestone, atUptimeNanos: endNanos) { slices.append(slice) }
+            if samplesTemperature { slices += state.slices.sample(pageins: pageins) }
+            return (ms, state.marks.trace, slices)
+        }
         guard let ms else { return }
+        for slice in slices { slice.record(into: .shared) }
+        if samplesTemperature, let pageins { Metrics().record(.launchPageins, Int64(clamping: pageins)) }
         LaunchMarkSink.shared.write(name: name, ms: ms)
         LaunchMarks.forward(name, at: date, to: trace)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -68,8 +85,8 @@ enum DebugTimings {
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
-        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.uptimeNanos(of: processStart)) else { return nil }
-        launchMarks.withLock { $0.attach(trace, processStart: processStart) }
+        guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }
+        launchMarks.withLock { $0.marks.attach(trace, processStart: processStartDate) }
         return trace
     }
 
@@ -141,7 +158,7 @@ enum DebugTimings {
     /// returns its status; `{"close": true}` closes it first. With no trace: `trace_ring_bytes` 0.
     nonisolated static var startupTraceMethod: ControlMethod {
         .async("debug.startup_trace") { call in
-            guard let trace = launchMarks.withLock({ $0.trace }) else { return ["enabled": false, "trace_ring_bytes": 0] }
+            guard let trace = launchMarks.withLock({ $0.marks.trace }) else { return ["enabled": false, "trace_ring_bytes": 0] }
             if call.params["close"]?.boolValue == true { trace.close() }
             let status = await trace.flush()
             return ["enabled": true, "file": .string(status.file.path), "seconds": .number(status.seconds),
@@ -154,9 +171,14 @@ enum DebugTimings {
     private static var report: JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        for mark in launchMarks.withLock({ $0.all }) { launch[mark.name] = round(mark.ms) }
+        let (marks, slices) = launchMarks.withLock { ($0.marks.all, $0.slices) }
+        for mark in marks { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
+            // The launch's clock (p09-observability-034): null until the main run loop's start reads the page-ins.
+            "launch_clock": ["temperature": slices.temperature.map { JSONValue.string($0.name) } ?? .null,
+                             "pageins": slices.pageins.map { JSONValue.number(Double($0)) } ?? .null,
+                             "process_start_uptime_ns": .number(Double(slices.processStartNanos))],
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),
