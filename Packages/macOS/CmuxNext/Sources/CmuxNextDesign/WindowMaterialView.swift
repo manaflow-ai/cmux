@@ -73,9 +73,9 @@ public final class WindowMaterialView: NSView {
     /// The web views lensing this backdrop, told when what they draw changes (`glassSource`).
     let glassFeeds = NSHashTable<GlassBackdropFeed>.weakObjects()
     private let images: BackdropImageStore
-    /// The desktop picture: its color leans the tint (`appearance.wallpaperTint`), and the
-    /// Desktop Wallpaper art reloads when it changes.
-    private let wallpaper: DesktopWallpaperWatch
+    /// The desktop picture (the image store's): its color leans the tint
+    /// (`appearance.wallpaperTint`), and the Desktop Wallpaper art reloads when it changes.
+    private var wallpaper: DesktopWallpaperWatch { images.desktop }
     /// Loads the art the last `apply` asked for when it was not decoded yet; a later `apply`
     /// that needs other art cancels and replaces it. Tests await its `value` to see the art the
     /// load shows.
@@ -97,11 +97,8 @@ public final class WindowMaterialView: NSView {
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
     /// - Parameter videos: Where video wallpapers' players are shared.
-    /// - Parameter wallpaper: The desktop picture the tint and the Desktop Wallpaper art follow.
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
-                wallpaper: DesktopWallpaperWatch = .shared) {
+    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared) {
         self.images = images
-        self.wallpaper = wallpaper
         videoView = BackdropVideoView(frame: frameRect, players: videos)
         super.init(frame: frameRect)
         artView.wantsLayer = true
@@ -131,7 +128,7 @@ public final class WindowMaterialView: NSView {
         // art (and the glass/material stack above art) so losing focus cannot dim or hide that art.
         addSubview(inactiveTintView, positioned: .below, relativeTo: artView)
         setAccessibilityElement(false)
-        wallpaper.register(self)
+        images.desktop.register(self)
     }
 
     @available(*, unavailable)

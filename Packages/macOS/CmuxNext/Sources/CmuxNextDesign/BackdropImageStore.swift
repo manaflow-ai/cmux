@@ -17,12 +17,15 @@ public import CmuxNextDesignTokens
 @MainActor
 public final class BackdropImageStore {
     /// The app's store, with snapshots in the app's caches folder.
-    public static let shared = BackdropImageStore(snapshots: defaultSnapshots)
+    public static let shared = BackdropImageStore(snapshots: defaultSnapshots, desktop: .live())
 
     /// The longest side, in pixels, of a decoded backdrop: by default the largest screen's.
     public let maxPixelSize: Int
     /// Where snapshots of the decoded, textured images live; nil keeps none.
     public let snapshots: URL?
+    /// The desktop picture: the Desktop Wallpaper art reloads when it changes, and its color leans
+    /// the glass tint (``WallpaperTint``). Inert until started.
+    public let desktop: DesktopWallpaperWatch
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 
@@ -62,10 +65,14 @@ public final class BackdropImageStore {
     ///   - maxPixelSize: The longest side of a decoded backdrop; nil for the largest screen's.
     ///   - snapshots: Where to keep snapshots for the next launch; nil keeps none.
     ///   - downloads: Where art that does not ship in the app comes from.
-    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared) {
+    ///   - desktop: The desktop picture the Desktop Wallpaper art and the tint follow; by default
+    ///     one that keeps no color between launches and stays inert until started.
+    public init(maxPixelSize: Int? = nil, snapshots: URL? = nil, downloads: BackdropArtDownloads = .shared,
+                desktop: DesktopWallpaperWatch? = nil) {
         self.maxPixelSize = max(maxPixelSize ?? Self.screenPixelSize(), 64)
         self.snapshots = snapshots
         self.downloads = downloads
+        self.desktop = desktop ?? .live(defaults: nil)
     }
 
     /// The longest side of the largest screen, in pixels.

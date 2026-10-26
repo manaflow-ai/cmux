@@ -182,8 +182,8 @@ import Testing
         let color = OSAllocatedUnfairLock(initialState: Self.blue)
         let watch = DesktopWallpaperWatch(read: { Self.reading(folder.appendingPathComponent("\(color.withLock { $0.red }).png"), folder: folder) },
                                           sample: { _ in color.withLock { $0 } })
-        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: BackdropImageStore(),
-                                      videos: BackdropVideoPlayers(), wallpaper: watch)
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: BackdropImageStore(desktop: watch),
+                                      videos: BackdropVideoPlayers())
         view.apply(WindowBackdrop(backgroundOpacity: 0.6, backgroundBlur: 0), tint: Self.darkGrey)
         let untinted = try #require(view.tintColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
         #expect(abs(untinted.redComponent - untinted.blueComponent) < 0.001, "no sample yet: the theme's grey")
