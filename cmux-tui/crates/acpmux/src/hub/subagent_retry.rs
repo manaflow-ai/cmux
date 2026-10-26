@@ -30,8 +30,8 @@
 //!   to answer (it says to do nothing when the subagent already runs).
 //! - Once its prompt's turn ends with the subagent still failed (the agent did not resume it),
 //!   or it fails again, the next attempt waits; after the configured attempts it is given up
-//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) comes with
-//!   hb-retry-turn's handler, on top of this.
+//!   (`exhausted`). A person's retry (`_acpmux/retry {sessionId, subagentId}`) fires a waiting
+//!   attempt now, or sends one more (`subagent_retry/manual.rs`).
 //! - While a retry waits, the subagent's entry in `_meta.acpmux.subagents` carries
 //!   `retry: {attempt, of, reason, nextAt}` (`nextAt` in Unix ms). `retryable` says whether a
 //!   person's retry can work: true while acpmux knows its agent id and the chat is open, after a
@@ -48,7 +48,7 @@
 use super::{Hub, PromptOptions, Session, SessionStatus};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -76,6 +76,29 @@ struct State {
     /// Retry prompts sent and not answered yet, by chat and prompt id: true once their retry
     /// was skipped, so a prompt that has not started is refused.
     sent: HashMap<(String, String), bool>,
+    /// Each chat's last [`MAX_GONE`] failed subagents that can no longer be retried, oldest
+    /// first, and why: what a person's retry of one answers (`manual.rs`).
+    gone: HashMap<String, VecDeque<Gone>>,
+}
+
+/// A failed subagent no retry can bring back: its id, agent id and why (`resumed`, `replaced`,
+/// `ended`, `forgotten` or `not_retryable`).
+struct Gone {
+    id: String,
+    agent_id: Option<String>,
+    why: &'static str,
+}
+
+/// Most subagents a chat remembers as no longer retryable.
+const MAX_GONE: usize = 64;
+
+/// Remembers in a chat's `gone` that its subagent `id` can no longer be retried, and why.
+fn note_gone(gone: &mut VecDeque<Gone>, id: &str, agent_id: Option<&str>, why: &'static str) {
+    gone.retain(|g| g.id != id);
+    if gone.len() >= MAX_GONE {
+        gone.pop_front();
+    }
+    gone.push_back(Gone { id: id.to_owned(), agent_id: agent_id.map(str::to_owned), why });
 }
 
 #[derive(Default)]
@@ -209,7 +232,9 @@ impl Hub {
         let mut schedule = Vec::new();
         {
             let mut all = self.subagent_retries.lock();
+            let all = &mut *all;
             let subs = all.subs.entry(session.id.clone()).or_default();
+            let gone = all.gone.entry(session.id.clone()).or_default();
             for e in events.iter().filter(|e| e.get("parent").is_some_and(Value::is_null)) {
                 // acpmux's own retry updates (`log_step`) change nothing.
                 if e.get("retryable").is_some() {
@@ -264,12 +289,22 @@ impl Hub {
                             });
                             subs.insert(id.to_owned(), sub);
                             schedule.push(id.to_owned());
+                            gone.retain(|g| g.id != id);
+                        } else {
+                            // A bad request, a sign-in failure, or no agent id to resume it by.
+                            note_gone(gone, id, text("agentId"), "not_retryable");
                         }
                     }
                     // Completed, cancelled or gone: nothing more to retry.
                     _ => {
-                        if let Some(f) = subs.remove(id).and_then(|s| s.failed) {
-                            skipped.push((id.to_owned(), f, "ended", state, false));
+                        match subs.remove(id).and_then(|s| s.failed) {
+                            Some(f) => skipped.push((id.to_owned(), f, "ended", state, false)),
+                            // Resumed earlier, it ended since.
+                            None => {
+                                if let Some(g) = gone.iter_mut().find(|g| g.id == id) {
+                                    g.why = "ended";
+                                }
+                            }
                         }
                     }
                 }
@@ -378,6 +413,7 @@ impl Hub {
             let mut all = self.subagent_retries.lock();
             let mut waits = Vec::new();
             if closed {
+                all.gone.remove(&session.id);
                 // Every failure goes, waiting or not: each entry then says it can't be retried.
                 for (id, sub) in all.subs.remove(&session.id).into_iter().flatten() {
                     if let Some(f) = sub.failed {
@@ -573,29 +609,53 @@ impl Hub {
         let Some((failure, name)) = fired else { return false };
         let provenance = json!({"kind": PROVENANCE_KIND, "subagentId": id,
             "agentId": failure.agent_id, "attempt": wait.attempt});
+        let opts = PromptOptions { provenance: Some(provenance), ..PromptOptions::default() };
+        let result =
+            self.send_attempt(session, id, wait, &failure, name.as_deref(), opts, None).await;
+        if let Err(e) = result {
+            tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
+        }
+        self.end_attempt(session, id, wait)
+    }
+
+    /// The sent `wait`'s prompt answered: no longer refused at its start. Whether the wait is
+    /// still the subagent's (its turn ended with it still failed), taken.
+    fn end_attempt(&self, session: &Session, id: &str, wait: &Wait) -> bool {
+        let sent = (session.id.clone(), wait.prompt_id.clone());
+        self.subagent_retries.lock().sent.remove(&sent);
+        self.take_wait(session, id, wait).is_some()
+    }
+
+    /// Sends fired `wait`'s prompt under `opts` (its rules and provenance) and waits for its
+    /// turn, telling `accepted` once the prompt is recorded: the prompt's outcome.
+    #[allow(clippy::too_many_arguments)]
+    async fn send_attempt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        id: &str,
+        wait: &Wait,
+        failure: &Failure,
+        name: Option<&str>,
+        mut opts: PromptOptions,
+        accepted: Option<Box<dyn FnOnce(Value) + Send>>,
+    ) -> Result<Value, RpcError> {
         // Stop, close or a resume between the fire and the queue: taken back from the queue.
         let (hub, owner, sub, sent) = (self.clone(), session.clone(), id.to_owned(), wait.clone());
-        let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |accepted: Value| {
-            if accepted.get("queued") == Some(&json!(true)) && !hub.is_wait(&owner, &sub, &sent) {
+        let on_accepted: Box<dyn FnOnce(Value) + Send> = Box::new(move |v: Value| {
+            if v.get("queued") == Some(&json!(true)) && !hub.is_wait(&owner, &sub, &sent) {
                 tokio::spawn(async move {
                     hub.remove_queued_because(&owner, &sent.prompt_id, Some(PROVENANCE_KIND));
                 });
             }
+            if let Some(accepted) = accepted {
+                accepted(v);
+            }
         });
-        let opts = PromptOptions {
-            prompt_id: Some(wait.prompt_id.clone()),
-            provenance: Some(provenance),
-            on_accepted: Some(on_accepted),
-            ..PromptOptions::default()
-        };
-        let text = retry_text(name.as_deref(), &failure.agent_id, &failure.error);
+        opts.prompt_id = Some(wait.prompt_id.clone());
+        opts.on_accepted = Some(on_accepted);
+        let text = retry_text(name, &failure.agent_id, &failure.error);
         let blocks = vec![json!({"type": "text", "text": text})];
-        if let Err(e) = self.prompt_with(session, blocks, "acpmux", false, opts).await {
-            tracing::warn!(session = %session.id, subagent = id, "subagent retry: {}", e.message);
-        }
-        let sent = (session.id.clone(), wait.prompt_id.clone());
-        self.subagent_retries.lock().sent.remove(&sent);
-        self.take_wait(session, id, wait).is_some()
+        self.prompt_with(session, blocks, "acpmux", false, opts).await
     }
 
     /// Whether `wait` is still the subagent's.
@@ -652,10 +712,16 @@ impl Hub {
         session: &Arc<Session>,
         id: &str,
         failure: Failure,
-        why: &str,
+        why: &'static str,
         state: &str,
         retryable: bool,
     ) {
+        // Closed, the chat answers for all; superseded, its new failure follows.
+        if !retryable && why != "closed" && why != "superseded" {
+            let mut all = self.subagent_retries.lock();
+            let gone = all.gone.entry(session.id.clone()).or_default();
+            note_gone(gone, id, Some(&failure.agent_id), why);
+        }
         let skipped = failure.wait.as_ref().filter(|wait| {
             wait.wake.notify_one();
             if !wait.fired {
@@ -717,6 +783,9 @@ impl Hub {
         self.append(session, "in", "subagent_state_update", update);
     }
 }
+
+#[path = "subagent_retry_manual.rs"]
+mod manual;
 
 #[cfg(test)]
 #[path = "subagent_retry_tests.rs"]

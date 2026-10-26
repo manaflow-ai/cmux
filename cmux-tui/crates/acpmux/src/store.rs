@@ -505,6 +505,13 @@ pub trait Store: Send + Sync {
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     fn save(&self, meta: &SessionMeta) -> Result<()>;
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
+    /// Flush one session's event log and metadata to stable storage.
+    ///
+    /// The default is sufficient for memory stores and older implementations; local stores
+    /// override it to sync the segment and its containing directories.
+    fn flush_session(&self, _id: &str) -> Result<()> {
+        self.flush()
+    }
     /// Events with `seq > after`, at most `limit`.
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>>;
     /// Visit records with `seq > after` in order until `visit` returns false.
@@ -1007,6 +1014,18 @@ impl Store for LocalStore {
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
     }
 
+    fn flush_session(&self, id: &str) -> Result<()> {
+        let writers = self.writers.lock_or_recover();
+        if let Some(writer) = writers.open.get(id) {
+            writer.file.sync_all()?;
+        }
+        let session = self.dir(id);
+        sync_directory(&session.join("events"))?;
+        sync_directory(&session)?;
+        sync_directory(&self.root)?;
+        Ok(())
+    }
+
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
@@ -1256,6 +1275,23 @@ impl Store for LocalStore {
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
     }
+}
+
+/// Sync a directory entry after a file or subdirectory was created or replaced.
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)?;
+    dir.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 /// Open one event segment for append, owner-only from creation and after an

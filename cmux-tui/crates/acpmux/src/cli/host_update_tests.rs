@@ -408,9 +408,12 @@ impl FakePeer {
     }
 
     fn update(&self, if_idle: bool) -> PeerUpdate {
-        let opts =
-            UpdateOptions { binary_dir: Some(self.home.join("binaries")), if_idle, caller: None };
-        update_peer(self, &opts)
+        self.update_with(if_idle, false)
+    }
+
+    fn update_with(&self, if_idle: bool, keep_newer: bool) -> PeerUpdate {
+        let binary_dir = Some(self.home.join("binaries"));
+        update_peer(self, &UpdateOptions { binary_dir, if_idle, keep_newer, caller: None })
     }
 
     /// `update(true)` run from the session `session` of the daemon `daemon`.
@@ -419,6 +422,7 @@ impl FakePeer {
         let opts = UpdateOptions {
             binary_dir: Some(self.home.join("binaries")),
             if_idle: true,
+            keep_newer: false,
             caller: Some(caller),
         };
         update_peer(self, &opts)
@@ -587,11 +591,63 @@ fn a_current_peer_or_one_without_a_binary_is_left_alone() {
     let peer = FakePeer::new("wrong-platform");
     let other = if cfg!(target_os = "linux") { "Darwin arm64" } else { "Linux x86_64" };
     peer.write("uname", other);
-    let up = update_peer(&peer, &UpdateOptions { binary_dir: None, if_idle: false, caller: None });
+    let opts = UpdateOptions { binary_dir: None, if_idle: false, keep_newer: false, caller: None };
+    let up = update_peer(&peer, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::NeedsBinary, Some("wrongPlatform")));
     let why = up.error.as_deref().unwrap_or("");
     assert!(why.contains("--binary-dir") && why.contains("fake is "), "{why}");
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+#[test]
+#[cfg(unix)]
+fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
+    // A self-update moved the peer past the pushed build (a later day).
+    let peer = FakePeer::new("keep-newer");
+    peer.write("daemon", "fedcba987 2026-10-25");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("newer")), "{up:?}");
+    assert!(!up.outcome.failed());
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987 2026-10-25");
+    // Without --keep-newer it moves back, as before.
+    assert_eq!(peer.update(false).outcome, Outcome::Updated);
+
+    // Someone's own build (local changes) is kept, whatever its date.
+    let peer = FakePeer::new("keep-own");
+    peer.write("daemon", "fedcba987+dirty.0badf00d 2026-10-01");
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
+
+    // Someone's own build is kept also when the pushed binary names no
+    // build (a source-archive build stamped `nogit`).
+    let peer = FakePeer::new("keep-own-unnamed");
+    peer.write("daemon", "fedcba987+dirty.0badf00d 2026-10-01");
+    peer.offer("nogit 2026-10-26", Some("nogit 2026-10-26"));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
+
+    // An older build is still updated.
+    let peer = FakePeer::new("keep-older");
+    peer.offer(NEW, Some(NEW));
+    assert_eq!(peer.update_with(false, true).outcome, Outcome::Updated);
+}
+
+#[test]
+fn a_build_is_kept_over_an_older_days_or_as_someones_own() {
+    let new = Some(NEW);
+    assert_eq!(keeps_over("fedcba987 2026-10-25", new), Some("newer"));
+    assert_eq!(keeps_over("fedcba987+dirty.0badf00d 2026-10-01", new), Some("ownBuild"));
+    assert_eq!(keeps_over(NEW, new), None, "the same day is not newer");
+    assert_eq!(keeps_over(OLD, new), None);
+    assert_eq!(keeps_over("fedcba987", new), None, "no date is not newer");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", Some("a1b2c3d4e")), None);
+    let own = "fedcba987+dirty.0badf00d 2026-10-01";
+    assert_eq!(keeps_over(own, None), Some("ownBuild"), "own, whatever is pushed");
+    assert_eq!(keeps_over("fedcba987 2026-10-25", None), None, "no pushed date: not newer");
 }
 
 #[test]
@@ -1148,6 +1204,7 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
         &UpdateOptions {
             binary_dir: Some(peer.home.join("binaries")),
             if_idle: false,
+            keep_newer: false,
             caller: None,
         },
     );

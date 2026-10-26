@@ -129,12 +129,12 @@ fn tools() -> Value {
         },
         {
             "name": "retry_session",
-            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. Refused while a turn runs (retry.busy), when its last turn did not fail (retry.nothing_failed), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId; use wait_for_sessions to read the result.",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "session": {"type": "string", "description": "The sub-session's sessionId."},
-                    "subagent": {"type": "string", "description": "One of its failed subagents, by agent id. Not supported yet: refused with retry.subagent_unsupported."}
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
                 },
                 "required": ["session"]
             }
