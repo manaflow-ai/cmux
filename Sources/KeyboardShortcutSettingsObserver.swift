@@ -1,4 +1,5 @@
 import Carbon
+import CmuxFoundation
 import Foundation
 import Observation
 
@@ -15,6 +16,11 @@ final class KeyboardShortcutSettingsObserver {
     let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
     private let notificationCenter: NotificationCenter
     private let distributedNotificationCenter: DistributedNotificationCenter
+    private let defaults: UserDefaults
+    @ObservationIgnored
+    private var visibleRightSidebarModes: [RightSidebarMode]
+    @ObservationIgnored
+    private var sidebarDefaultsObserver: NSObjectProtocol?
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
     @ObservationIgnored
@@ -29,10 +35,13 @@ final class KeyboardShortcutSettingsObserver {
     init(
         notificationCenter: NotificationCenter = .default,
         distributedNotificationCenter: DistributedNotificationCenter = .default(),
+        defaults: UserDefaults = .standard,
         shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
     ) {
         self.notificationCenter = notificationCenter
         self.distributedNotificationCenter = distributedNotificationCenter
+        self.defaults = defaults
+        visibleRightSidebarModes = RightSidebarMode.visibleModes(defaults: defaults)
         self.shortcutProvider = shortcutProvider
         globalSearchShortcut = shortcutProvider(.globalSearch)
         rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
@@ -59,6 +68,13 @@ final class KeyboardShortcutSettingsObserver {
                 self?.reloadCachedShortcuts()
             }
         }
+        // A custom name or beta toggle changes positional defaults even when
+        // the sidebar is not mounted. Ignore unrelated preference writes.
+        sidebarDefaultsObserver = notificationCenter.addUserDefaultsObserver { [weak self] in
+            guard let self,
+                  RightSidebarMode.visibleModes(defaults: self.defaults) != self.visibleRightSidebarModes else { return }
+            self.reloadCachedShortcuts()
+        }
         recorderObserver = notificationCenter.addObserver(
             forName: KeyboardShortcutRecorderActivity.didChangeNotification,
             object: nil,
@@ -82,6 +98,9 @@ final class KeyboardShortcutSettingsObserver {
     }
 
     deinit {
+        if let sidebarDefaultsObserver {
+            notificationCenter.removeObserver(sidebarDefaultsObserver)
+        }
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
         }
@@ -97,6 +116,7 @@ final class KeyboardShortcutSettingsObserver {
     }
 
     private func reloadCachedShortcuts() {
+        visibleRightSidebarModes = RightSidebarMode.visibleModes(defaults: defaults)
         globalSearchShortcut = shortcutProvider(.globalSearch)
         revision &+= 1
         rightSidebarModeShortcutMatcher.reload()

@@ -27,41 +27,36 @@ extension RightSidebarMode {
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        var modes = availableModes(
+        availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsAvailable(),
-            devicesEnabled: false
+            devicesEnabled: false,
+            defaults: defaults
         )
-        if CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults),
-           FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil {
-            modes.append(.customSidebar)
-        }
-        return modes
     }
 
     static func availableModes(
         feedEnabled: Bool,
         machinesEnabled: Bool,
-        devicesEnabled: Bool = false
+        devicesEnabled: Bool = false,
+        defaults: UserDefaults = .standard
     ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
                 machinesEnabled: machinesEnabled,
-                devicesEnabled: devicesEnabled
+                devicesEnabled: devicesEnabled,
+                defaults: defaults
             )
         }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        if self == .customSidebar {
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
-                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
-        }
-        return isAvailable(
+        isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             machinesEnabled: CloudMachinesFeature.offMainIsAvailable(),
-            devicesEnabled: false
+            devicesEnabled: false,
+            defaults: defaults
         )
     }
 
@@ -94,7 +89,8 @@ extension RightSidebarMode {
     func isAvailable(
         feedEnabled: Bool,
         machinesEnabled: Bool,
-        devicesEnabled: Bool = false
+        devicesEnabled: Bool = false,
+        defaults: UserDefaults = .standard
     ) -> Bool {
         switch self {
         case .files, .find, .sessions:
@@ -109,8 +105,8 @@ extension RightSidebarMode {
             // Available once the custom-sidebars beta is on AND a right-side
             // sidebar has been picked (right_sidebar set custom <name>); the
             // mode bar then grows a Custom button.
-            return CmuxExtensionSidebarSelection.customSidebarsEnabled
-                && FileExplorerState.persistedCustomSidebarName() != nil
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
+                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
         }
     }
 }
