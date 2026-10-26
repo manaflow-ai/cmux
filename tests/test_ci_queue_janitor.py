@@ -2698,5 +2698,38 @@ class BlacksmithLegTests(unittest.TestCase):
                 self.assertTrue(decision.candidate.app_actor or action == "skip")
 
 
+class InFlightRunListingTests(unittest.TestCase):
+    """A status-filtered runs page can come back short before the last one (2026-10-26: 99, then 85, of 182)."""
+
+    def listing(self, pages, *, total=True):
+        github = janitor.GitHub("token", "manaflow-ai/cmux")
+        asked = []
+
+        def request(method, path, body=None):
+            query = urllib.parse.parse_qs(path.split("?", 1)[1])
+            status, page = query["status"][0], int(query["page"][0])
+            asked.append((status, page))
+            batch = pages.get(status, {}).get(page, [])
+            count = sum(len(rows) for rows in pages.get(status, {}).values())
+            return {"workflow_runs": batch, **({"total_count": count} if total else {})}
+
+        github.request = request
+        return {run["id"] for run in github.in_flight_runs()}, asked
+
+    def test_a_short_first_page_does_not_hide_the_older_queued_runs(self):
+        queued = {1: [{"id": index} for index in range(99)], 2: [{"id": 1000 + index} for index in range(85)]}
+        ids, asked = self.listing({"queued": queued})
+        self.assertEqual(len(ids), 184)
+        self.assertIn(1084, ids)
+        self.assertIn(("queued", 2), asked)
+        self.assertNotIn(("queued", 3), asked)
+
+    def test_an_empty_or_complete_page_ends_the_status_and_no_total_keeps_the_old_rule(self):
+        ids, asked = self.listing({"queued": {1: [{"id": 1}]}})
+        self.assertEqual([page for status, page in asked if status == "queued"], [1])
+        ids, asked = self.listing({"queued": {1: [{"id": 1}], 2: [{"id": 2}]}}, total=False)
+        self.assertEqual(ids, {1})
+
+
 if __name__ == "__main__":
     unittest.main()

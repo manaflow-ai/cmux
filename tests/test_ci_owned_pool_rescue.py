@@ -2472,6 +2472,21 @@ class Sweeper(unittest.TestCase):
         self.assertIn("status=failure", seen[0])
         self.assertIn("created=%3E%3D2026-09-24T12:00:00Z", seen[0])
 
+    def test_failed_runs_reads_past_a_short_page_while_the_total_says_more(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        side = ".github/workflows/cmux-next-base-autofix.yml"
+        pages = {1: [{"id": 9, "path": side, "run_attempt": 1, "updated_at": stamp(0)}],
+                 2: [{"id": 7, "path": side, "run_attempt": 2, "updated_at": stamp(0)}]}
+        seen = []
+
+        def request(method, path, **_):
+            page = int(path.split("&page=")[1].split("&")[0])
+            seen.append(page)
+            return {"workflow_runs": pages.get(page, []), "total_count": 2}
+        api.request = request
+        self.assertEqual(api.failed_runs(2, START, pages=5), [(9, 1), (7, 2)])
+        self.assertEqual(seen, [1, 2])
+
     def test_the_session_label_is_an_owned_pool(self):
         # feat-cmux-next's session role (glaeda#1530): run 39638669325's Mac job asked for it.
         label = "glaeda-session-std-xcode-26.6"
