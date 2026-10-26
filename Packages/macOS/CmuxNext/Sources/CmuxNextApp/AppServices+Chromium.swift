@@ -13,8 +13,29 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
-    /// Starts the launch preload and the likelihood observers.
+    /// Starts the launch preload and the likelihood observers. With the Chromium Host the start costs the main thread
+    /// nothing (the host spawns and attaches off main), so one startup post starts it where ``ChromiumHostLaunchStart``
+    /// puts it, with no idle wait (p08-startup-046); the warm-up, armed in the same post, cannot start it sooner.
     func startChromiumWarmup() {
+        guard chromiumRuntime.source.backend == .host, let launchStartup,
+              let start = ChromiumHostLaunchStart(showsChromiumPane: showsChromiumPane, defaultIsChromium: cache.browserTabs.preference.defaultEngine == .chromium,
+                                                  hasChromiumTab: machines.hasChromiumTab) else { return armChromiumWarmup() }
+        launchStartup.post(start.priority, "ChromiumHost.start", on: .main) { [weak self] in
+            self?.armChromiumWarmup()
+            self?.chromiumWarmup.startWithoutIdleWait(start.reason)
+        }
+    }
+
+    /// A shown window's pane shows a Chromium tab: a restored Chromium page the person sees.
+    private var showsChromiumPane: Bool {
+        windows.controllers.contains { controller in
+            controller.visibility.isVisible
+                && controller.content?.panes.values.contains { $0.selectedTab?.browserEngine == BrowserEngineTag.cef.rawValue } == true
+        }
+    }
+
+    /// Arms the warm-up: its launch timer, the likelihood observers and the spare windows.
+    private func armChromiumWarmup() {
         let machines = machines
         let preference = cache.browserTabs.preference
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile

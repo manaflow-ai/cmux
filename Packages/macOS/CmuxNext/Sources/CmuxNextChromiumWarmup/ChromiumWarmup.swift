@@ -208,13 +208,25 @@ public final class ChromiumWarmup {
         Task { [weak self] in
             await self?.engine.libraryLoadEnded()
             guard let self, !stopped else { return }
-            waitForIdle { [weak self] in
-                // task-owner: one warm start per process; CEFEngine owns its lifetime
-                Task { [weak self] in
-                    await self?.engine.warmStart(reason: reason.rawValue)
-                    self?.warmStarted()
-                }
-            }
+            waitForIdle { [weak self] in self?.warmStart(reason) }
+        }
+    }
+
+    /// Starts Chromium now, with no idle wait: its start costs the main thread nothing (the Chromium Host,
+    /// placed by ``ChromiumHostLaunchStart``, p08-startup-046). Once per process, as ``chromiumLikely(_:)``;
+    /// the first spare window still waits for an idle moment.
+    public func startWithoutIdleWait(_ reason: Reason) {
+        guard self.reason == nil, isAvailable, !engine.isRunning, !stopped else { return }
+        self.reason = reason
+        warmStart(reason)
+    }
+
+    /// Starts Chromium for `reason`, then makes the first spare window at the next idle moment.
+    private func warmStart(_ reason: Reason) {
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { [weak self] in
+            await self?.engine.warmStart(reason: reason.rawValue)
+            self?.warmStarted()
         }
     }
 
