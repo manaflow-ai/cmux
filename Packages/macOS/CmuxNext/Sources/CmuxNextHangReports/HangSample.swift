@@ -69,6 +69,33 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         }
     }
 
+    /// The scheduled main-thread task a watchdog hang caught (``MainTaskBoard``'s running task): its owner and
+    /// class, or both ``unattributed`` when no scheduled task covered the hang (AppKit's own work, an
+    /// unclassified job). Wire schema 3 only (``HangReport/WireSchema/carriesTaskAttribution``); the builder
+    /// keeps only an allow-listed owner and class (``HangReportBuilder/safeTask(_:)``).
+    public struct MainTask: Codable, Sendable, Hashable {
+        /// The owner and class of a hang no scheduled task covered.
+        public static let unattributed = "unattributed"
+        /// The owner the builder writes for a name it may not send.
+        public static let other = "other"
+
+        /// The batch owner, control method or action id that scheduled the task.
+        public var owner: String
+        /// Its ``MainWorkClass`` (`input`, `frame`, `userBlocking`, ...), or ``unattributed``.
+        public var taskClass: String
+
+        private enum CodingKeys: String, CodingKey {
+            case owner
+            case taskClass = "class"
+        }
+
+        /// Makes the value from its parts.
+        public init(owner: String, taskClass: String) {
+            self.owner = owner
+            self.taskClass = taskClass
+        }
+    }
+
     /// The most frames one stack carries.
     public static let maxFrames = 64
 
@@ -84,16 +111,19 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     public var frames: [HangReportFrame]
     /// What a ``Kind/blocking`` sample waited on; nil for every other kind (and absent from its JSON).
     public var blocking: Blocking?
+    /// The task a watchdog hang caught (wire `task`); nil for every other sample, and in schema 2 (absent from its JSON).
+    public var mainTask: MainTask?
 
     /// Makes the value from its parts.
     public init(source: Source, kind: Kind, durationMs: Int, cpuMs: Int? = nil, frames: [HangReportFrame],
-                blocking: Blocking? = nil) {
+                blocking: Blocking? = nil, mainTask: MainTask? = nil) {
         self.source = source
         self.kind = kind
         self.durationMs = max(0, durationMs)
         self.cpuMs = cpuMs.map { max(0, $0) }
         self.frames = Array(frames.prefix(Self.maxFrames))
         self.blocking = blocking
+        self.mainTask = mainTask
     }
 
     /// The detector's sample of one blocking call site: no duration (the detector reports the site,
@@ -103,17 +133,20 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, kind, durationMs, cpuMs, frames
+        case source, kind, durationMs, cpuMs, frames, blocking
+        case mainTask = "task"
     }
 
-    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:)``, so a saved pending file is
-    /// bounded too (nonnegative times, at most ``maxFrames`` frames).
+    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:blocking:mainTask:)``, so a saved pending file
+    /// is bounded too (nonnegative times, at most ``maxFrames`` frames).
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(source: try container.decode(Source.self, forKey: .source),
                   kind: try container.decode(Kind.self, forKey: .kind),
                   durationMs: try container.decode(Int.self, forKey: .durationMs),
                   cpuMs: try container.decodeIfPresent(Int.self, forKey: .cpuMs),
-                  frames: try container.decode([HangReportFrame].self, forKey: .frames))
+                  frames: try container.decode([HangReportFrame].self, forKey: .frames),
+                  blocking: try container.decodeIfPresent(Blocking.self, forKey: .blocking),
+                  mainTask: try container.decodeIfPresent(MainTask.self, forKey: .mainTask))
     }
 }
