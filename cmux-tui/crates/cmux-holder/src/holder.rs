@@ -33,11 +33,12 @@ mod trace;
 use input_flow::InputFlow;
 pub use trace::{ProcessTrace, TraceControl};
 
-/// Output kept per terminal for a daemon that reconnects.
-pub const RING_BYTES: usize = 1 << 20;
+/// Output kept per terminal for a daemon that reconnects: the memory
+/// budget's largest holder ring.
+pub const RING_BYTES: usize = cmux_memory::budget::HOLDER_RING_BYTES_MAX;
 /// Output queued on the link before the holder stops making DATA frames
 /// (the rest waits in the rings).
-const LINK_QUEUE_BYTES: usize = 1 << 20;
+const LINK_QUEUE_BYTES: usize = cmux_memory::budget::HOLDER_LINK_QUEUE_BYTES;
 /// Largest DATA payload.
 const DATA_CHUNK: usize = 256 * 1024;
 /// A frame this small goes ahead of queued bulk output (unless its own

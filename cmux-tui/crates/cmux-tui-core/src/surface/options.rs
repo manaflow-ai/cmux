@@ -16,7 +16,8 @@ pub struct SurfaceOptions {
     pub cols: u16,
     pub rows: u16,
     /// Maximum retained scrollback storage in bytes, matching Ghostty's
-    /// `max_scrollback` API. This is not a line count.
+    /// `max_scrollback` API. This is not a line count. Defaults to
+    /// [`DEFAULT_SCROLLBACK_LIMIT_BYTES`], the memory budget's per-terminal cap.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
@@ -221,5 +222,18 @@ pub(super) fn configure_agent_browser_session(options: &mut SurfaceOptions, term
         // session prevents a command from another workspace from silently
         // reusing the first workspace's page-scoped CDP connection.
         set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+    }
+}
+
+#[cfg(test)]
+mod scrollback_budget_tests {
+    use super::*;
+
+    #[test]
+    fn scrollback_default_is_the_budget_per_terminal_cap() {
+        let per_terminal = cmux_memory::DaemonBudget::default().scrollback_per_terminal;
+        assert_eq!(per_terminal, 10_000_000);
+        assert_eq!(DEFAULT_SCROLLBACK_LIMIT_BYTES, per_terminal);
+        assert_eq!(SurfaceOptions::default().scrollback, per_terminal);
     }
 }
