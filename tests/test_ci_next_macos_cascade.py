@@ -601,8 +601,11 @@ class Wiring(unittest.TestCase):
     NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
     NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
 
-    def nightly_push(self, ready: str, attempt: str = "1", **outputs: str) -> dict:
+    def nightly_push(self, ready: str, attempt: str = "1", fast: tuple[str, str] = ("skipped", ""),
+                     **outputs: str) -> dict:
         context = self.context(attempt, **outputs)
+        # The push's fleet fast check: skipped (no idle gateway), or failed before writing a verdict.
+        context["needs"]["release-compile-fast"] = {"result": fast[0], "outputs": {"verdict": fast[1]}}
         context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
         context["vars"].update(CI_NIGHTLY_NEXT_TRUSTED_POOL=self.NIGHTLY_POOL,
                                CI_NIGHTLY_NEXT_TRUSTED_RUNNER=self.NIGHTLY_RUNNER, CI_NEXT_PROMOTE_POOL=PROMOTE)
@@ -622,15 +625,23 @@ class Wiring(unittest.TestCase):
         whatever placement read about it. The runs-on and the job's own label variable are evaluated, as a
         single label or a label list, across the placement outputs a push can see."""
         job = self.jobs["release-compile"]
+        seen = set()
         for ready in ("true", ""):
             for attempt in ("1", "2"):
-                for outputs in ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "},
-                                {"retry": SMALL}):
-                    context = self.nightly_push(ready, attempt, **outputs)
-                    why = f"ready={ready!r} attempt={attempt} outputs={outputs}"
-                    with self.subTest(ready=ready, attempt=attempt, outputs=outputs):
-                        self.assert_off_the_nightly_runner(evaluate(job["runs-on"], context), why)
-                        self.assert_off_the_nightly_runner(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), why)
+                for fast in (("skipped", ""), ("failure", "")):
+                    for outputs in ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "},
+                                    {"retry": SMALL}):
+                        context = self.nightly_push(ready, attempt, fast, **outputs)
+                        why = f"ready={ready!r} attempt={attempt} fast={fast} outputs={outputs}"
+                        label = evaluate(job["runs-on"], context)
+                        seen.add(tuple(label) if isinstance(label, list) else label)
+                        with self.subTest(ready=ready, attempt=attempt, fast=fast, outputs=outputs):
+                            self.assert_off_the_nightly_runner(evaluate(job["runs-on"], context), why)
+                            self.assert_off_the_nightly_runner(evaluate(job["env"]["CMUX_NEXT_RUNNER"], context), why)
+        # Every route a push can take was evaluated: the cascade's two slots, the owned side label, and the
+        # 6 vCPU literal (no placement runner, or a fast check that died before its verdict).
+        self.assertEqual(seen, {LARGE, SMALL, SIDE})
+        self.assertEqual(evaluate(job["runs-on"], self.nightly_push("", fast=("failure", ""))), SMALL)
 
     def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
         # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
