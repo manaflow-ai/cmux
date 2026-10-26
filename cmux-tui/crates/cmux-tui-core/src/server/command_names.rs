@@ -29,7 +29,9 @@ pub(crate) enum MethodClass {
     TerminalIo,
     /// New terminals, browsers, panes and workspaces; may spawn a process.
     Create,
-    /// Read-only state.
+    /// Read-only state from memory, the registry or a kernel read of a
+    /// known process. A read that runs a child process or opens a network
+    /// connection is `Other`.
     Query,
     /// Browser tabs, the browser host and the profile and bookmark stores.
     Browser,
@@ -38,7 +40,9 @@ pub(crate) enum MethodClass {
     /// cmux Cloud: sessions, inbox, conversations and attachments over the
     /// network.
     Cloud,
-    /// Streams, lifecycle and the rest.
+    /// Streams, lifecycle, machine probes that run child processes or open
+    /// local connections (`machine-listening-tcp`, `terminal-ports`) and the
+    /// rest.
     Other,
 }
 
@@ -154,7 +158,7 @@ command_table! {
     SetClientInfo => "set-client-info", Other;
     ListClients => "list-clients", Query;
     MachineUsage => "machine-usage", Query;
-    MachineListeningTcp => "machine-listening-tcp", Query;
+    MachineListeningTcp => "machine-listening-tcp", Other;
     RegisterBrowserProvider => "register-browser-provider", Browser;
     GetBrowserProvider => "get-browser-provider", Browser;
     UnregisterBrowserProvider => "unregister-browser-provider", Browser;
@@ -200,7 +204,7 @@ command_table! {
     CloseTerminal => "close-terminal", Topology;
     SetTerminalIdlePolicy => "set-terminal-idle-policy", TerminalIo;
     SetTerminalKeep => "set-terminal-keep", TerminalIo;
-    TerminalResumeCommand => "terminal-resume-command", Query;
+    TerminalResumeCommand => "terminal-resume-command", TerminalIo;
     NewTab => "new-tab", Create;
     NewConversationTab => "new-conversation-tab", Create;
     BindConversationTabSession => "bind-conversation-tab-session", Agent;
@@ -261,7 +265,7 @@ command_table! {
     SwapPane => "swap-pane", Topology;
     ZoomPane => "zoom-pane", Topology;
     ProcessInfo => "process-info", Query;
-    TerminalPorts => "terminal-ports", Query;
+    TerminalPorts => "terminal-ports", Other;
     TerminalResources => "terminal-resources", Query;
     MoveTerminal => "move-terminal", Topology;
     MoveTab => "move-tab", Topology;

@@ -83,6 +83,20 @@ fn command_names_known_rows_have_their_class() {
     assert_eq!(class_of("conversation-op"), Some(MethodClass::Agent));
     assert_eq!(class_of("cloud-inbox-list"), Some(MethodClass::Cloud));
     assert_eq!(class_of("wait-for"), Some(MethodClass::Other));
+    assert_eq!(class_of("terminal-resume-command"), Some(MethodClass::TerminalIo));
+}
+
+/// Handlers that wait on a child process or the network must be in a class
+/// that may wait, so the hang watcher lets them mark the wait.
+#[test]
+fn command_names_waiting_commands_may_wait() {
+    // machine-listening-tcp runs ss and netstat; terminal-ports probes up to
+    // 32 loopback ports with a connect timeout each.
+    for wire in ["machine-listening-tcp", "terminal-ports"] {
+        let row = COMMANDS.iter().find(|row| row.wire == wire).expect(wire);
+        assert!(row.class.may_wait(), "{wire} waits but is {}", row.class.as_str());
+        assert_ne!(row.class, MethodClass::Query, "{wire} is not a plain read");
+    }
 }
 
 #[test]
