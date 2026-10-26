@@ -408,12 +408,12 @@ fn linux_secure_path(
     for ancestor in path.ancestors() {
         let metadata = std::fs::symlink_metadata(ancestor)
             .map_err(|e| format!("{}: {e}", ancestor.display()))?;
-        if metadata.uid() != uid && metadata.mode() & 0o022 != 0 {
+        let sticky_exception =
+            sticky_boundary && ancestor == boundary && metadata.mode() & 0o1000 != 0;
+        if metadata.uid() != uid && metadata.mode() & 0o022 != 0 && !sticky_exception {
             return Err(format!("{} is writable by another user", ancestor.display()));
         }
-        if metadata.mode() & 0o022 != 0
-            && !(sticky_boundary && ancestor == boundary && metadata.mode() & 0o1000 != 0)
-        {
+        if metadata.mode() & 0o022 != 0 && !sticky_exception {
             return Err(format!("{} is group- or world-writable", ancestor.display()));
         }
         if ancestor == boundary {
