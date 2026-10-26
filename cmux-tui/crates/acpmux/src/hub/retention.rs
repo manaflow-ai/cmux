@@ -118,10 +118,13 @@ impl Hub {
                 *report.skipped.entry("shutdown").or_default() += 1;
                 break;
             }
-            if let Err(why) = self.retainable(&session, cutoff, &hosted) {
-                *report.skipped.entry(why).or_default() += 1;
-                continue;
-            }
+            let seen = match self.retainable(&session, cutoff, &hosted) {
+                Ok(seen) => seen,
+                Err(why) => {
+                    *report.skipped.entry(why).or_default() += 1;
+                    continue;
+                }
+            };
             let staged = match self.store.stage_compaction(&session.id, mode) {
                 Ok(Some(staged)) => staged,
                 Ok(None) => {
@@ -143,7 +146,7 @@ impl Hub {
             // log longer, and the store refuses it (`commit_compaction`).
             let committed = {
                 let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                if self.untouched(&session) {
+                if self.untouched(&session, seen) {
                     self.store.commit_compaction(&session.id, staged)
                 } else {
                     Ok(false)
@@ -183,13 +186,14 @@ impl Hub {
         }))
     }
 
-    /// Whether `session`'s log may be compacted now; the reason it may not.
+    /// Whether `session`'s log may be compacted now: its `updated_at` then, or the reason it may
+    /// not.
     fn retainable(
         &self,
         session: &Session,
         cutoff: u64,
         hosted: &std::collections::HashSet<String>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<u64, &'static str> {
         let meta = session.meta();
         if meta.status != SessionStatus::Closed {
             return Err("open");
@@ -224,18 +228,25 @@ impl Hub {
         if self.store.compacted_seq(&session.id) == Some(session.seq.load(Ordering::SeqCst)) {
             return Err("compacted");
         }
-        Ok(())
+        Ok(meta.updated_at)
     }
 
     /// Under the chat's append lock, right before the compacted log goes in: still closed, with
     /// no agent, client, move or import, and no import replacing it (`transfer_in.rs` marks the
-    /// chat it replaces, then waits for this lock before it moves the chat's folder aside). A reopen sets its status before it logs it, and so do a
-    /// start, a purge and a move their flags: one that came first is seen here, one that comes
-    /// later logs its first record after the compacted log is in place, as for a chat compacted
-    /// any time before. Only locks that are never held across an append are taken (`meta`, as
-    /// `append_at` does under this one; `child` is only tried).
-    fn untouched(&self, session: &Session) -> bool {
-        session.status() == SessionStatus::Closed
+    /// chat it replaces, then waits for this lock before it moves the chat's folder aside). A
+    /// reopen sets its status before it logs it, and so do a start, a purge and a move their
+    /// flags: one that came first is seen here, one that comes later logs its first record after
+    /// the compacted log is in place, as for a chat compacted any time before. Only locks that
+    /// are never held across an append are taken (`meta`, as `append_at` does under this one;
+    /// `child` is only tried).
+    ///
+    /// `seen` is the chat's `updated_at` when `retainable` let it in. Every status write sets it
+    /// under the meta lock before it logs the status (`write_status`), so a reopen and a close
+    /// since, whose records still wait for this lock, leave it changed: the chat is left whole.
+    fn untouched(&self, session: &Session, seen: u64) -> bool {
+        let meta = session.meta();
+        meta.status == SessionStatus::Closed
+            && meta.updated_at == seen
             && session.child.try_lock().is_ok_and(|child| child.is_none())
             && session.attached.load(Ordering::SeqCst) == 0
             && !session.purged.load(Ordering::SeqCst)
