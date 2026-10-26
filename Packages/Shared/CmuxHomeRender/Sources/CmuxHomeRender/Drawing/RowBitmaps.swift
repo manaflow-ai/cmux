@@ -1,3 +1,6 @@
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 import CoreGraphics
 
 /// Row bitmaps by content, with a bounded cache. The key is the row's kind
@@ -34,7 +37,7 @@ final class RowBitmaps {
     /// In-flight jobs and the installers waiting for each.
     private var jobs: [Key: Task<Void, Never>] = [:]
     private var waiters: [Key: [@MainActor (CGImage) -> Void]] = [:]
-    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var idleWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
 
     init(palette: HomePalette) { self.palette = palette }
 
@@ -82,10 +85,12 @@ final class RowBitmaps {
     /// True while a render job runs.
     var isRendering: Bool { !jobs.isEmpty }
 
-    /// Returns when no render job runs (tests and capture tools).
+    /// Returns when no render job runs (tests and capture tools), or when its waiter is dropped.
     func settled() async {
         guard isRendering else { return }
-        await withCheckedContinuation { idleWaiters.append($0) }
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+            idleWaiters.append(waiter)
+        }
     }
 
     private func key(_ spec: RowSpec) -> Key { Key(kind: spec.kind, height: spec.height, palette: paletteGeneration) }
@@ -116,7 +121,7 @@ final class RowBitmaps {
         guard jobs.isEmpty, !idleWaiters.isEmpty else { return }
         let resumed = idleWaiters
         idleWaiters.removeAll()
-        for c in resumed { c.resume() }
+        for c in resumed { c.resume(returning: ()) }
     }
 
     private func store(_ key: Key, _ image: CGImage) {

@@ -5,6 +5,9 @@ public import Foundation
 import os
 #if CMUX_PGO_PROFILE
 import CmuxNextProfileRuntimeC
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 #endif
 
 /// The profile build's two profiles from one run (p08-startup-103, plans/cmux-next/chrome-parity/p08-startup.md
@@ -172,9 +175,11 @@ public final class ProfileFlush: Sendable {
     }
 
     private func written(_ profile: Profile) async throws(Failure) -> Written {
-        try await withCheckedContinuation { (reply: CheckedContinuation<Result<Written, Failure>, Never>) in
-            post(profile) { reply.resume(returning: $0) }
-        }.get()
+        // A reply dropped without an answer is a write shutdown dropped.
+        try await withOnceContinuation(failingWith: { _ in Failure.abandoned(profile) }) {
+            (reply: OnceContinuation<Written, Failure>) in
+            post(profile) { reply.resume(with: $0) }
+        }
     }
 
     private func post(_ profile: Profile, _ done: @escaping @Sendable (Result<Written, Failure>) -> Void) {
