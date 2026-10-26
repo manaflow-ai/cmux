@@ -32,10 +32,12 @@ extension Signposter {
     }
 
     /// Writes the begin record when `name`'s category is on; returns the slice the end must close, or nil when
-    /// the write recorded nothing. The category is read once, by the write itself.
-    func traceBegin(_ name: SignpostName, id: OSSignpostID, beginNanos: UInt64, arg0: UInt64) -> SignpostInterval.Ring? {
+    /// the write recorded nothing. The category is read once, by the write itself. `arg1` goes in a thread
+    /// slice's begin; an async slice's `arg1` is its id.
+    func traceBegin(_ name: SignpostName, id: OSSignpostID, beginNanos: UInt64, arg0: UInt64,
+                    arg1: UInt64 = 0) -> SignpostInterval.Ring? {
         if name.opensThreadSlice {
-            return trace.begin(name, arg0: arg0) ? .thread : nil
+            return trace.begin(name, arg0: arg0, arg1: arg1) ? .thread : nil
         }
         let asyncID = Self.asyncID(id, beginNanos: beginNanos)
         return trace.asyncBegin(name, id: asyncID, arg0: arg0) ? .async(id: asyncID) : nil

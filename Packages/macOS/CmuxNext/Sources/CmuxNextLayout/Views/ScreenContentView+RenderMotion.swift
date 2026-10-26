@@ -184,6 +184,7 @@ extension ScreenContentView {
         // (its display draws no frames) cannot end the motion before the others start.
         renderSpringsInFlight += 1
         userMotionActive = true
+        context.renderMotionBegan()
         context.userMotionStepped()
         for (pane, move) in panes {
             guard let host = context.hosts[pane] else { continue }

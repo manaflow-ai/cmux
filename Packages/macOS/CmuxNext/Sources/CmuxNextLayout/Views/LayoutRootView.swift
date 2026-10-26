@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextSignposts
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -30,8 +31,8 @@ public final class LayoutRootView: NSView {
     /// ``isInLayoutMotion`` at the last report: its end is reported even when no rect changed.
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
-    /// This window's `motion.frame` and `motion.run` trace points; tests set one on their own runtime.
-    var motionTrace = LayoutMotionTrace()
+    /// This window's `motion.frame` and `motion.run` signposts.
+    let motionTrace: LayoutMotionTrace
     private var observationTask: Task<Void, Never>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
@@ -145,13 +146,17 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
+    /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
+    /// their own trace runtime.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil) {
+                input: InputEventTap? = nil,
+                motionSignposter: Signposter = .motion) {
         self.model = model
         inputTap = input
+        motionTrace = LayoutMotionTrace(signposter: motionSignposter)
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
                                          rendersMotionOnServer: rendersMotionOnServer)
@@ -166,7 +171,10 @@ public final class LayoutRootView: NSView {
         context.userMotionEnded = { [weak self] in
             guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
             self.setLayoutInMotion(false)
+            // The render server's springs landed after the CPU's last frame: the run rests here.
+            if !self.rendersMotion { self.motionTrace.endRun() }
         }
+        context.renderMotionBegan = { [weak self] in self?.motionTrace.beginRun() }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
@@ -442,7 +450,8 @@ public final class LayoutRootView: NSView {
         // re-read their clip shape (their frames may not have moved).
         if let previous, previous.style != snapshot.style { planeHost?.paneShapesDidChange(overlayPlane) }
         if needsFrames || snapshot.gestureActive { driver.start() }
-        // A structural change that starts springs on the CPU: one motion.run until they rest (`advanceFrame`).
+        // A structural change that starts springs on the CPU: one motion.run until they rest (`advanceFrame`). One
+        // the render server took opened it already (`context.renderMotionBegan`).
         if needsFrames, driver.isAttached { motionTrace.beginRun() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
@@ -450,19 +459,29 @@ public final class LayoutRootView: NSView {
 
     // MARK: Frames
 
-    /// One display tick: the window's `motion.frame`, and the end of its `motion.run` in the frame that rests.
+    /// One display tick: the window's `motion.frame`, and the end of its `motion.run` in the frame that rests
+    /// (unless render-server springs still run: their landing ends it, `context.userMotionEnded`).
     ///
     /// - Returns: Whether the window needs another tick.
-    func advanceFrame(_ dt: Double) -> Bool {
-        let moving = motionTrace.frame(dt: dt, movedPanes: springingPaneCount) { stepFrame(dt) }
-        if !moving { motionTrace.endRun() }
+    func advanceFrame(_ dt: Double) -> Bool { // perf-hot: 4ms motion-frame
+        let moving = motionTrace.frame(dt: dt, movedPanes: { movingPaneCount }) { stepFrame(dt) }
+        if !moving, !rendersMotion { motionTrace.endRun() }
         return moving
     }
 
-    /// Panes on a spring in the screens shown (`ScreenContentView.springingPaneCount`).
-    private var springingPaneCount: Int {
-        screenViews.values.reduce(0) { $1.isHidden ? $0 : $0 + $1.springingPaneCount }
+    /// Panes the next frame moves in the screens shown: every pane of a screen whose frame springs (a screen
+    /// switch), else the screen's own (`ScreenContentView.movingPaneCount`).
+    private var movingPaneCount: Int {
+        var count = 0
+        for (id, view) in screenViews where !view.isHidden {
+            let switching = screenFrames[id].map { $0.rect != $0.targetRect || $0.alpha.value != $0.alpha.target } ?? false
+            count += switching ? view.paneFrames.count : view.movingPaneCount
+        }
+        return count
     }
+
+    /// Render-server springs of a screen have not landed (`ScreenContentView.renderSpringsInFlight`).
+    private var rendersMotion: Bool { screenViews.values.contains { $0.renderSpringsInFlight > 0 } }
 
     private func stepFrame(_ dt: Double) -> Bool {
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
