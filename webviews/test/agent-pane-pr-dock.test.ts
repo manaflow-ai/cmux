@@ -265,7 +265,16 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       expect(await changes.locator(".acpmux-chat-inspector-section__value").innerText()).toBe("4");
       await toggle.click();
       await panel.waitFor({ state: "detached" });
-      await dock.locator(".acpmux-pr-dock__disclosure").click();
+      const disclosure = dock.locator(".acpmux-pr-dock__disclosure");
+      await disclosure.click();
+      await page.keyboard.press("Escape");
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
+      await disclosure.click();
+      await page.mouse.click(20, 200);
+      expect(await disclosure.getAttribute("aria-expanded")).toBe("false");
+      await page.waitForFunction(() => document.activeElement?.classList.contains("acpmux-pr-dock__disclosure"));
+      await disclosure.click();
       const link = dock.locator(".acpmux-pr-dock__bar").first();
       await link.focus();
       await page.locator(".acpmux-pr-card").waitFor();
