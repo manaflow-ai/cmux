@@ -122,15 +122,7 @@ final class MessageLayoutCache {
         let body = isAudio ? model.message.bodyText : model.bodyText
         let mentions = isAudio ? [] : model.linkSplit.map { $0.bodyMentions(model.message.mentions) } ?? model.message.mentions
         let runs = isAudio ? [] : model.linkSplit.map { $0.bodyRuns(model.message.textRuns) } ?? model.message.textRuns
-        let links: [ConversationTextLink] = isAudio ? [] : {
-            let offset = model.linkSplit?.bodyOffset ?? 0
-            let count = body.utf16.count
-            return model.message.links.compactMap { link in
-                let location = link.location - offset
-                guard location >= 0, location + link.length <= count else { return nil }
-                return ConversationTextLink(location: location, length: link.length, url: link.url)
-            }
-        }()
+        let links = isAudio ? [] : ConversationTextLink.bubbleLinks(model.message.links, offset: model.linkSplit?.bodyOffset ?? 0, bodyLength: body.utf16.count)
         return (body, mentions, runs, links)
     }
 
