@@ -150,9 +150,15 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
 /// line, or the sign-in explanation). A limit or sign-in failure in either is never continued:
-/// the fallback profile, or the reconciler that reads `lastTurn`, moves that session.
+/// the fallback profile, or the reconciler that reads `lastTurn`, moves that session. Nor is a
+/// refused request ([`is_refused_request`]) in either: an agent that died of one would be
+/// refused the same way again.
 pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
-    if is_limit_error(raw) || is_limit_error(shown) || crate::claude_auth::is_sign_in_failure(shown)
+    if is_limit_error(raw)
+        || is_limit_error(shown)
+        || crate::claude_auth::is_sign_in_failure(shown)
+        || is_refused_request(raw)
+        || is_refused_request(shown)
     {
         return None;
     }
@@ -247,7 +253,8 @@ mod tests {
         let shown = "agent process closed (claude): API Error: 400 invalid_request_error";
         assert_eq!(resume_cause(raw, shown), None);
         // Its last line naming its own process id or port is still a death to continue.
-        assert_eq!(resume_cause(raw, "agent process closed (claude): exited 4003"), Some("agent_exited"));
+        let shown = "agent process closed (claude): exited 4003";
+        assert_eq!(resume_cause(raw, shown), Some("agent_exited"));
     }
 
     #[test]
