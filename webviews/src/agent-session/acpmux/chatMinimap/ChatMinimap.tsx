@@ -55,9 +55,13 @@ type Props = {
 };
 type Source = { rows: readonly AcpmuxRow[]; layout: ConversationLayout };
 
-/// Draws nothing unless the setting is on and the right gutter has room for it.
+/// Draws nothing, and reads no row, unless the setting is on; the rows are tracked only then.
 export function ChatMinimap(props: Props) {
-  const on = useChatMinimap();
+  return useChatMinimap() ? <ChatMinimapOn {...props} /> : null;
+}
+
+/// The setting is on: draws when the right gutter has room for it.
+function ChatMinimapOn(props: Props) {
   const track = Math.floor(props.foot - MINIMAP_TOP - MINIMAP_BOTTOM);
   // The right gutter of the column the chat really draws (Text Width, Full Width): none, no minimap.
   const column = chatColumnOf(useChatWidth(), useChatDisplay());
@@ -71,7 +75,7 @@ export function ChatMinimap(props: Props) {
   const found = useRef<{ rows: readonly AcpmuxRow[]; index: number } | undefined>(undefined);
   const streaming = streamingRow(rows, found.current, props.change);
   found.current = { rows, index: streaming };
-  if (!on || !room || !props.scrolls || track < MIN_TRACK) return null;
+  if (!room || !props.scrolls || track < MIN_TRACK) return null;
   return (
     <Minimap
       source={source}
@@ -116,7 +120,7 @@ const Minimap = memo(function Minimap({
   // prettier-ignore
   const drawn = useRef({
     scale: 0, draws: 0, at: -Infinity, colors: undefined as MinimapColors | undefined,
-    painted: undefined as Source | undefined, boxHeight: "", transform: "", scrolledAt: -Infinity, atLatest: false,
+    painted: undefined as Source | undefined, boxHeight: "", transform: "", scrolledAt: -Infinity, atLatest: false, box: { top: 0, height: 0 },
   });
   type Timer = ReturnType<typeof setTimeout> | 0;
   const pending = useRef({ frame: 0, timer: 0 as Timer, post: 0 as Timer, sized: false });
@@ -129,9 +133,11 @@ const Minimap = memo(function Minimap({
     const { viewportHeight: height, track: rail } = live.current;
     const top = node.scrollTop;
     const at = minimapView(top, height, drawn.current.scale, rail);
-    const transform = `translateY(${Math.round(at.top * 4) / 4}px)`;
+    // Where the box is drawn, which a press hit-tests against (it stays put while a reply streams).
+    drawn.current.box = { top: Math.round(at.top * 4) / 4, height: Math.round(at.height * 4) / 4 };
+    const transform = `translateY(${drawn.current.box.top}px)`;
     if (drawn.current.transform !== transform) box.style.transform = drawn.current.transform = transform;
-    const boxHeight = `${Math.round(at.height * 4) / 4}px`;
+    const boxHeight = `${drawn.current.box.height}px`;
     if (drawn.current.boxHeight !== boxHeight) box.style.height = drawn.current.boxHeight = boxHeight;
   });
 
@@ -338,8 +344,8 @@ const Minimap = memo(function Minimap({
           const scale = drawn.current.scale;
           if (!node || scale <= 0) return;
           const y = local(event);
-          const at = minimapView(node.scrollTop, live.current.viewportHeight, scale, track);
-          // On the box: drag it from where it was grabbed. Off it: jump there, then drag.
+          const at = drawn.current.box;
+          // On the box as drawn: drag it from where it was grabbed. Off it: jump there, then drag.
           const inside = y >= at.top && y <= at.top + at.height;
           const grab = inside ? (y - at.top) / scale : live.current.viewportHeight / 2;
           if (!inside) seek(y);
