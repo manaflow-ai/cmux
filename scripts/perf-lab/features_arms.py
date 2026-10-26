@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Lab feature arms: which perfPath features get an on/off try pair today (task 098, p12-perf-process.md 3.9).
 
-    feature_arms(repo, sha, now) -> Selection          # Selection.inputs is scheduler.plan(arms=...)
-    python3 -I scripts/perf-lab/lab.py feature-arms [--ref SHA] [--now T] [--json]
+    feature_arms(repo, sha, now, base=measured_base(db, now - WINDOW)) -> Selection  # .inputs: plan(arms=...)
+    python3 -I scripts/perf-lab/lab.py feature-arms (--db LAB.sqlite3 | --base SHA) [--ref SHA] [--now T] [--json]
 
 T0 and T1 measure the branch defaults, the configuration "most likely to launch": their jobs carry no feature
 override. Chrome's perf bots run the same way, with `fieldtrial_testing_config.json` and not with each study's
@@ -15,17 +15,22 @@ A feature's watched paths, all read at the measured commit:
 - the file of each of its stories, `scripts/perf-lab/stories.d/<story>.json`;
 - each story's command path (its `command[0]`, the bench script).
 
-Changes are the first-parent history of the measured commit in the window, each merge diffed against its first
-parent, so a branch merged today counts today even when its own commits are older. A feature that is not
-perfPath, or that has no story file at the commit, gets no arm; the second is a problem in the Selection.
+Changes are a tree diff, `git diff <base> <sha>`. `base` is the commit the lab measured at the start of the window:
+`measured_base` gives the commit of the newest waterfall run in the lab store that started at or before
+`now - window`. Commit dates are not used, so a fast-forwarded or foxtrot topic commit with an old date counts when
+it reaches the branch. Without a base there is nothing to diff against: the Selection has no arm and says so in its
+problems. A feature that is not perfPath, or that has no story file at the commit, gets no arm; the second is a
+problem too.
 
 Stdlib only; loads scheduler.py by file path, so it runs under `python3 -I`.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
+import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -60,7 +65,7 @@ Runner = Callable[..., subprocess.CompletedProcess]
 
 
 class ArmsError(RuntimeError):
-    """Git could not read the measured commit or its history."""
+    """Git could not read the measured commit or the base, or the lab store could not be read."""
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,7 @@ class Arm:
 @dataclass(frozen=True)
 class Selection:
     sha: str
+    base: str | None
     since: datetime
     until: datetime
     arms: tuple[Arm, ...]
@@ -100,7 +106,7 @@ class Selection:
 
     def to_document(self) -> dict:
         return {
-            "sha": self.sha, "since": _rfc3339(self.since), "until": _rfc3339(self.until),
+            "sha": self.sha, "base": self.base, "since": _rfc3339(self.since), "until": _rfc3339(self.until),
             "arms": [{"feature": a.feature, "stories": list(a.stories), "changed": list(a.changed)}
                      for a in self.arms],
             "problems": list(self.problems),
@@ -160,14 +166,15 @@ def _rfc3339(moment: datetime) -> str:
     return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _git_time(moment: datetime) -> str:
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+0000")
+def _store_time(moment: datetime) -> str:
+    """store.py's stamp format (fixed-width UTC ISO-8601): it compares with `runs.started_at` as text in time order."""
+    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
 
 
 # ---------- git ----------
 
 class GitTree:
-    """Reads one commit of `repo` with git: its files, and the paths its first-parent history changed."""
+    """Reads one commit of `repo` with git: its files, and the paths that differ from another commit."""
 
     def __init__(self, repo: Path | str, sha: str, *, run: Runner = subprocess.run) -> None:
         self.repo = str(repo)
@@ -184,8 +191,10 @@ class GitTree:
             raise ArmsError(f"git {args[0]} at {self.sha}: {message or f'exit {done.returncode}'}")
         return done.stdout
 
-    def resolve(self) -> str:
-        return self._git("rev-parse", "--verify", "--end-of-options", f"{self.sha}^{{commit}}").decode().strip()
+    def resolve(self, ref: str | None = None) -> str:
+        """The full sha of `ref` (default: this commit); raises ArmsError when it names no commit."""
+        name = self.sha if ref is None else ref
+        return self._git("rev-parse", "--verify", "--end-of-options", f"{name}^{{commit}}").decode().strip()
 
     def list_dir(self, directory: str) -> tuple[str, ...]:
         listed = self._git("ls-tree", "-z", "--name-only", self.sha, "--", f"{directory}/")
@@ -211,13 +220,10 @@ class GitTree:
             at += size + 1
         return contents
 
-    def changed_paths(self, since: datetime, until: datetime) -> frozenset[str]:
-        """Paths changed by the first-parent commits with a commit time in [since, until]; merges against their first
-        parent."""
-        listed = self._git("log", "--first-parent", "--diff-merges=first-parent", "--no-renames", "--name-only",
-                           "-z", "--format=", f"--since={_git_time(since)}", f"--until={_git_time(until)}",
-                           self.sha, "--")
-        return frozenset(name.strip("\n") for name in listed.decode("utf-8").split("\0") if name.strip("\n"))
+    def changed_paths(self, base: str) -> frozenset[str]:
+        """Paths whose content differs between the tree of `base` and the tree of this commit."""
+        listed = self._git("diff", "--name-only", "--no-renames", "-z", base, self.sha, "--")
+        return frozenset(name for name in listed.decode("utf-8").split("\0") if name)
 
 
 def _json_documents(contents: Mapping[str, bytes | None], problems: list[str]) -> dict[str, dict | None]:
@@ -238,15 +244,35 @@ def _json_documents(contents: Mapping[str, bytes | None], problems: list[str]) -
     return documents
 
 
-def feature_arms(repo: Path | str, sha: str, now: datetime, *, window: timedelta = WINDOW,
+def measured_base(db: Path | str, since: datetime) -> str | None:
+    """The commit of the newest waterfall run in the lab store (store.py) that started at or before `since`, or None
+    when the store has no run that old. Opens the store read-only."""
+    if since.tzinfo is None:
+        raise ArmsError(f"since ({since.isoformat()}) has no UTC offset")
+    try:
+        with contextlib.closing(sqlite3.connect(f"{Path(db).resolve().as_uri()}?mode=ro", uri=True)) as connection:
+            row = connection.execute(
+                """SELECT b.sha FROM runs u JOIN builds b ON b.id = u.build_id
+                   WHERE u.kind = 'waterfall' AND u.started_at <= ?
+                   ORDER BY u.started_at DESC, b.commit_pos DESC, u.id DESC LIMIT 1""",
+                (_store_time(since),)).fetchone()
+    except sqlite3.Error as error:
+        raise ArmsError(f"lab store {db}: {error}") from None
+    return None if row is None else str(row[0])
+
+
+def feature_arms(repo: Path | str, sha: str, now: datetime, *, base: str | None, window: timedelta = WINDOW,
                  run: Runner = subprocess.run) -> Selection:
-    """The arms of the commit `sha` (the one the try pairs measure): perfPath features whose watched paths changed
-    in its first-parent history during [now - window, now]. Raises ArmsError when git cannot read it."""
+    """The arms of the commit `sha` (the one the try pairs measure): perfPath features whose watched paths differ
+    between `base`, the commit the lab measured at `now - window`, and `sha`. With no base: no arm and a problem.
+    Raises ArmsError when git cannot read either commit."""
     if now.tzinfo is None:
         raise ArmsError(f"now ({now.isoformat()}) has no UTC offset")
     tree = GitTree(repo, sha, run=run)
     commit = tree.resolve()
     tree = GitTree(repo, commit, run=run)
+    base_commit = None if base is None else tree.resolve(base)
+    since = now - window
     problems: list[str] = []
     registry = [p for p in tree.list_dir(FEATURES_DIR) if p.endswith(".json")]
     features = {p: d for p, d in _json_documents(tree.read(registry), problems).items() if d is not None}
@@ -254,9 +280,12 @@ def feature_arms(repo: Path | str, sha: str, now: datetime, *, window: timedelta
     story_docs = _json_documents(tree.read([story_path(s) for s in story_ids]), problems)
     stories = {s: story_docs.get(story_path(s)) for s in story_ids}
     watched, watch_problems = watched_features(features, stories)
-    since = now - window
-    arms = select(watched, tree.changed_paths(since, now))
-    return Selection(commit, since, now, arms, tuple(problems) + watch_problems)
+    if base_commit is None:
+        problems.append(f"no commit measured at or before {_rfc3339(since)} is known, so there is nothing to diff "
+                        "against: no feature arms")
+        return Selection(commit, None, since, now, (), tuple(problems) + watch_problems)
+    arms = select(watched, tree.changed_paths(base_commit))
+    return Selection(commit, base_commit, since, now, arms, tuple(problems) + watch_problems)
 
 
 # ---------- command (lab.py protocol, task 005) ----------
@@ -270,6 +299,10 @@ def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--root", type=Path, default=REPO_ROOT, help="the repository (default: this checkout)")
     parser.add_argument("--ref", default="HEAD", help="the commit the try pairs measure (default: HEAD)")
     parser.add_argument("--now", help="RFC 3339 time with its UTC offset (default: now)")
+    base = parser.add_mutually_exclusive_group()
+    base.add_argument("--db", type=Path,
+                      help="the lab store; the base is the commit of its newest waterfall run before the window")
+    base.add_argument("--base", help="the commit to diff against: the one the lab measured at the window start")
     parser.add_argument("--hours", type=float, default=WINDOW.total_seconds() / 3600,
                         help="the change window before --now, in hours (default: 24)")
     parser.add_argument("--json", action="store_true", help="print the selection as JSON")
@@ -282,7 +315,9 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
         now = scheduler.parse_time(args.now) if args.now else datetime.now(timezone.utc)
         if args.hours <= 0:
             raise ArmsError(f"--hours {args.hours}: give a positive window")
-        selection = feature_arms(args.root, args.ref, now, window=timedelta(hours=args.hours))
+        window = timedelta(hours=args.hours)
+        base = args.base if args.db is None else measured_base(args.db, now - window)
+        selection = feature_arms(args.root, args.ref, now, base=base, window=window)
     except (ArmsError, scheduler.SchedulerError) as error:
         print(f"feature-arms: {error}", file=err)
         return 2
@@ -290,8 +325,9 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
         json.dump(selection.to_document(), out, indent=1)
         print(file=out)
     else:
-        print(f"feature arms at {selection.sha[:12]}, changes {_rfc3339(selection.since)} .. "
-              f"{_rfc3339(selection.until)}: {len(selection.arms)}", file=out)
+        base = selection.base[:12] if selection.base else "no base"
+        print(f"feature arms at {selection.sha[:12]}, changes since {base} (measured by "
+              f"{_rfc3339(selection.since)}) .. {_rfc3339(selection.until)}: {len(selection.arms)}", file=out)
         for arm in selection.arms:
             print(f"  {arm.feature} [{', '.join(arm.stories)}]: {', '.join(arm.changed)}", file=out)
         for problem in selection.problems:
