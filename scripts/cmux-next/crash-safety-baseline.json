@@ -103,7 +103,6 @@
    "CmuxNextTabs": 5,
    "CmuxNextTerminal": 7,
    "CmuxUpdater": 1,
-   "MessagesLabHome": 14,
    "MessagesLabSidebar": 1
   }
  },
@@ -185,7 +184,7 @@
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 4
+    "MessagesLabHome": 5
    }
   }
  }

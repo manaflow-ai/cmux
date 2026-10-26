@@ -27,16 +27,254 @@
  
      /// O(1) above 8 KB; scans at most 8 KB below.
      static func isLong(_ t: String) -> Bool {
-@@ -337,7 +340,7 @@
-         lock.lock(); defer { lock.unlock() }
-         if let a = drawAttr[outgoing] { return a }
+@@ -88,7 +91,8 @@
+ }
+ 
+ /// Block index of one text (immutable, thread safe).
+-final class LongTextIndex: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): every stored property is a let of a Sendable value.
++final class LongTextIndex: Sendable {
+     let lineage: Int
+     let text: String
+     let count: Int
+@@ -275,8 +279,11 @@
+ }
+ 
+ /// Line breaks of one block (Core Text, the rules of `TextLayout.make`).
+-final class BlockLayout: @unchecked Sendable {
+-    let string: NSString
++/// cmux: checked `Sendable` (p10-stability-055): the string is a shared immutable value and the drawing
++/// attributes a checked lock's state (they were a var under an NSLock in an unchecked class).
++final class BlockLayout: Sendable {
++    var string: NSString { text.value }
++    private let text: HomeShared<NSString>
+     let lines: [NSRange]
+     let widths: [CGFloat]
+     /// A markdown block (MarkdownLong.layout): drawn and hit-tested from this; `string` is its
+@@ -284,12 +291,12 @@
+     let md: MarkdownLayout?
+     /// Its line count in the Fenwick tree (markdown: its height in 16 pt lines, rounded up).
+     let lineCount: Int
+-    private let lock = NSLock()
+-    private var drawAttr: [Bool: NSAttributedString] = [:]
++    // Lock carve-out: the tile renderers read and fill two attributed strings per block; none is built under the lock.
++    private let drawAttr = OSAllocatedUnfairLock(initialState: [Bool: HomeShared<NSAttributedString>]())
+ 
+     init(md: MarkdownLayout, lines n: Int) {
+         self.md = md
+-        string = md.plain as NSString
++        text = HomeShared(md.plain as NSString)
+         lines = []; widths = []
+         lineCount = n
+     }
+@@ -297,7 +304,7 @@
+     /// `reuse`: the same block before text was appended (streaming): its lines before its last
+     /// paragraph are kept and only the rest is typeset (paragraphs break independently).
+     init(string: NSString, column: CGFloat, final: Bool, reuse: BlockLayout? = nil) {
+-        self.string = string
++        text = HomeShared(string)
+         var lines: [NSRange] = [], widths: [CGFloat] = []
+         var from = 0
+         if let r = reuse, r.string.length <= string.length, r.string.length > 0,
+@@ -334,10 +341,9 @@
+ 
+     /// Drawing attributes (the bubble's text colour, kern, links detected in this block).
+     func attributed(outgoing: Bool) -> NSAttributedString {
+-        lock.lock(); defer { lock.unlock() }
+-        if let a = drawAttr[outgoing] { return a }
++        if let a = drawAttr.withLock({ $0[outgoing] }) { return a.value }
          let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
 -        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
 +        let link = outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
          let a = NSMutableAttributedString(string: string as String,
                                            attributes: [.font: Fixture.bodyFont, .foregroundColor: color, .kern: Fixture.bodyKern])
          if string.range(of: "http").location != NSNotFound || string.range(of: "www.").location != NSNotFound {
-@@ -491,7 +494,7 @@
+@@ -348,42 +354,56 @@
+                 a.addAttributes([.foregroundColor: link, .underlineStyle: NSUnderlineStyle.single.rawValue], range: m.range)
+             }
+         }
+-        drawAttr[outgoing] = a
+-        return a
++        // cmux: built outside the lock; when two renderers build the same block at once, both draw the first one stored.
++        let built = HomeShared<NSAttributedString>(a)
++        return drawAttr.withLock { cache -> HomeShared<NSAttributedString> in
++            if let first = cache[outgoing] { return first }
++            cache[outgoing] = built
++            return built
++        }.value
+     }
+     // optional, no try! ; without it no link is underlined.
+     static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+ }
+ 
+ /// Block layouts by (lineage, byte range, column): LRU, 256 blocks.
+-final class BlockLayoutCache: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): the map and its clock are one lock state.
++final class BlockLayoutCache: Sendable {
+     static let shared = BlockLayoutCache()
+     struct Key: Hashable { var lineage: Int; var start: Int; var end: Int; var final: Bool; var column: CGFloat; var md: Bool = false }
+-    private var map: [Key: (BlockLayout, Int)] = [:]
+-    private var tick = 0
+-    private let lock = NSLock()
++    private struct State: Sendable {
++        var map: [Key: (BlockLayout, Int)] = [:]
++        var tick = 0
++    }
++    // Lock carve-out: the measure threads and main look up and insert blocks; the trim sorts at most 320 entries.
++    private let state = OSAllocatedUnfairLock(initialState: State())
+     static let capacity = 256
+     func get(_ k: Key) -> BlockLayout? {
+-        lock.lock(); defer { lock.unlock() }
+-        guard let e = map[k] else { return nil }
+-        tick += 1
+-        map.updateValue((e.0, tick), forKey: k) // dictionary write
+-        return e.0
++        state.withLock { s -> BlockLayout? in
++            guard let e = s.map[k] else { return nil }
++            s.tick += 1
++            s.map.updateValue((e.0, s.tick), forKey: k) // dictionary write
++            return e.0
++        }
+     }
+     func put(_ k: Key, _ v: BlockLayout) {
+-        lock.lock(); defer { lock.unlock() }
+-        tick += 1
+-        map.updateValue((v, tick), forKey: k) // dictionary write
+-        if map.count > BlockLayoutCache.capacity + 64 {
+-            let keep = map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
+-            map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
++        state.withLock { s in
++            s.tick += 1
++            s.map.updateValue((v, s.tick), forKey: k) // dictionary write
++            if s.map.count > BlockLayoutCache.capacity + 64 {
++                let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
++                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
++            }
+         }
+     }
+-    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
++    var count: Int { state.withLock { $0.map.count } }
+ }
+ 
+ /// Line counts of one index at one width: estimates until measured.
+-final class LongTextLayout: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): the counts, the measure bookkeeping, the tile hint, the
++/// prerendered tiles and `retired` are one lock state (they were vars under an NSLock, and `retired` a
++/// plain var the measure queues read, in an unchecked class).
++final class LongTextLayout: Sendable {
+     let index: LongTextIndex
+     let width: CGFloat
+     let column: CGFloat
+@@ -391,22 +411,35 @@
+     let markdown: Bool
+     /// What the row's tiles look like (TiledBody sets it): a streamed tail block is measured and
+     /// its tiles near the end are drawn off main, then both reach the screen in one publish.
+-    struct TileHint { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
+-    var tileHint: TileHint? { get { lock.lock(); defer { lock.unlock() }; return hint } set { lock.lock(); hint = newValue; lock.unlock() } }
+-    private var hint: TileHint?
+-    private var pendingTiles: [(TileCache.Key, CGImage)] = []
+-    private let lock = NSLock()
+-    private var tree: Fenwick
+-    private var exact: [Bool]
+-    private var pending: [Int: Int32] = [:]
+-    private var inFlight = Set<Int>()
+-    private(set) var measured = 0
++    struct TileHint: Sendable { var outgoing: Bool; var width: CGFloat; var scale: CGFloat; var palette: Int }
++    var tileHint: TileHint? {
++        get { state.withLock { $0.hint } }
++        set { state.withLock { $0.hint = newValue } }
++    }
++    /// A tile drawn off main with its block's measurement, put in the TileCache by `applyPending`.
++    private typealias PendingTile = (key: TileCache.Key, image: HomeShared<CGImage>)
++    private struct State: Sendable {
++        var hint: TileHint?
++        var pendingTiles: [PendingTile] = []
++        var tree: Fenwick
++        var exact: [Bool]
++        var pending: [Int: Int32] = [:]
++        var inFlight = Set<Int>()
++        var measured = 0
++        var retired = false
++    }
++    // Lock carve-out: the measure and tail queues report counts and main applies them; no layout under the lock.
++    private let state: OSAllocatedUnfairLock<State>
++    var measured: Int { state.withLock { $0.measured } }
+     /// Replaced by a newer index (streaming) or a scanned one (placeholder).
+-    var retired = false
++    var retired: Bool {
++        get { state.withLock { $0.retired } }
++        set { state.withLock { $0.retired = newValue } }
++    }
+     private let placeholderLines: Int
+     /// Lines from the index estimate alone (deterministic per text and width: the fold
+     /// decision never flips when blocks are measured).
+-    private(set) var estimatedLines = 0
++    let estimatedLines: Int
+ 
+     static let measureQueue: OperationQueue = {
+         let q = OperationQueue()
+@@ -431,34 +464,32 @@
+         var v = (0..<index.blockCount).map { (b: Int) -> Int32 in
+             max(index.pieces[checked: b] ?? 1, Int32(clamping: CrashGuard.int(Double((Float(index.estRef[checked: b] ?? 0) * k).rounded()))))
+         }
++        var hint: TileHint?
+         if let c = carry, c.column == column, c.markdown == self.markdown {
+-            c.lock.lock()
++            // cmux: one consistent copy of the carried layout's counts (its lock was held for these reads).
++            let (cExact, cValues, cHint) = c.state.withLock { ($0.exact, $0.tree.values, $0.hint) }
+             let n = min(c.index.blockCount, index.blockCount)
+             // checked reads and writes.
+-            for b in 0..<n where (c.exact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
++            for b in 0..<n where (cExact[checked: b] ?? false) && c.index.starts[checked: b] == index.starts[checked: b]
+                 && c.index.starts[checked: b + 1] == index.starts[checked: b + 1]
+                 && !(c.index.isFinal(b) != index.isFinal(b)) && c.index.carry(b + 1) == index.carry(b + 1) {
+-                if let vs = v.checkedIndex(b), let es = ex.checkedIndex(b), let kept = c.tree.values[checked: b] { v[vs] = kept; ex[es] = true }
++                if let vs = v.checkedIndex(b), let es = ex.checkedIndex(b), let kept = cValues[checked: b] { v[vs] = kept; ex[es] = true }
+             }
+             if let k = keep, k >= 0, k < index.blockCount {
+-                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? c.tree.values[checked: k] ?? 0 : 0 }
++                if let slot = v.checkedIndex(k) { v[slot] = k < c.index.blockCount ? cValues[checked: k] ?? 0 : 0 }
+                 v.replaceSubrange((k + 1)..<v.count, with: repeatElement(0, count: v.count - k - 1)) // no index writes
+             }
+-            hint = c.hint
+-            c.lock.unlock()
++            hint = cHint
+         }
+-        tree = Fenwick(v)
+         estimatedLines = v.reduce(0) { $0 + Int(truncatingIfNeeded: $1) } // Int32 widens exactly
+-        exact = ex
+-        measured = ex.filter { $0 }.count
++        state = OSAllocatedUnfairLock(initialState: State(hint: hint, tree: Fenwick(v), exact: ex, measured: ex.filter { $0 }.count))
+         placeholderLines = index.ready ? 0 : max(1, CrashGuard.int(Double(index.count) * Double(Fixture.bodyFont.pointSize) * 0.5 * 1.06 / Double(column),
+                                                                    in: CrashGuard.countRange)) // no trap on a zero column
+         if index.ready, index.count <= 512 * 1024 { require(blocks: 0..<max(0, min(index.blockCount, keep ?? index.blockCount))) } // a negative keep built an inverted range
+     }
+ 
+     var totalLines: Int {
+-        lock.lock(); defer { lock.unlock() }
+-        return index.ready ? max(1, tree.total) : placeholderLines
++        index.ready ? max(1, state.withLock { $0.tree.total }) : placeholderLines
+     }
+     var textHeight: CGFloat { CGFloat(totalLines) * Fixture.lineHeight }
+     var size: CGSize { size(scale: Fixture.renderScale) }
+@@ -467,11 +498,11 @@
+         CGSize(width: Sizing.textBalloonWidth(column, column: column, scale: scale), height: textHeight + 2 * Fixture.bubblePadY)
+     }
+     var blockCount: Int { index.blockCount }
+-    func lines(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return Int(truncatingIfNeeded: tree.values[checked: b] ?? 0) }
+-    func firstLine(ofBlock b: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.prefix(b) }
+-    func block(containingLine l: Int) -> Int { lock.lock(); defer { lock.unlock() }; return tree.find(max(0, l)) }
+-    func isExact(_ b: Int) -> Bool { lock.lock(); defer { lock.unlock() }; return exact[checked: b] ?? false }
+-    var exactCount: Int { lock.lock(); defer { lock.unlock() }; return measured }
++    func lines(ofBlock b: Int) -> Int { Int(truncatingIfNeeded: state.withLock { $0.tree.values[checked: b] ?? 0 }) }
++    func firstLine(ofBlock b: Int) -> Int { state.withLock { $0.tree.prefix(b) } }
++    func block(containingLine l: Int) -> Int { state.withLock { $0.tree.find(max(0, l)) } }
++    func isExact(_ b: Int) -> Bool { state.withLock { $0.exact[checked: b] ?? false } }
++    var exactCount: Int { measured }
+ 
+     func key(_ b: Int) -> BlockLayoutCache.Key {
+         // A markdown block's layout also depends on whether the next block continues it.
+@@ -491,7 +522,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b), reuse: reuse)
          BlockLayoutCache.shared.put(k, out)
@@ -45,7 +283,34 @@
          report(b, out.lineCount)
          return out
      }
-@@ -563,7 +566,7 @@
+@@ -510,9 +541,7 @@
+     /// (2 screens), then publish counts and tiles together.
+     func measureTail(_ blocks: Range<Int>) {
+         guard !blocks.isEmpty else { return }
+-        lock.lock()
+-        for b in blocks { inFlight.insert(b) }
+-        lock.unlock()
++        state.withLock { s in for b in blocks { s.inFlight.insert(b) } }
+         LongTextLayout.tailQueue.addOperation { [weak self] in
+             guard let self, !self.retired else { return }
+             // Lines of the first tail block before this append: its tiles above them did not change.
+@@ -547,10 +576,11 @@
+                     line += c
+                 }
+             }
+-            self.lock.lock()
+-            for (b, c) in counts { self.inFlight.remove(b); if !(self.exact[checked: b] ?? true) { self.pending.updateValue(Int32(clamping: c), forKey: b) } }
+-            self.pendingTiles += tiles
+-            self.lock.unlock()
++            let drawn: [PendingTile] = tiles.map { (key: $0.0, image: HomeShared($0.1)) }
++            self.state.withLock { s in
++                for (b, c) in counts { s.inFlight.remove(b); if !(s.exact[checked: b] ?? true) { s.pending.updateValue(Int32(clamping: c), forKey: b) } }
++                s.pendingTiles += drawn
++            }
+             LongTextCenter.schedule(self)
+         }
+     }
+@@ -563,7 +593,7 @@
          }
          let out = l ?? BlockLayout(string: index.blockString(b), column: column, final: index.isFinal(b))
          BlockLayoutCache.shared.put(key(b), out)
@@ -54,7 +319,78 @@
          return out
      }
  
-@@ -750,54 +753,97 @@
+@@ -574,10 +604,11 @@
+         require(blocks: a..<(b + 1))
+     }
+     func require(blocks: Range<Int>) {
+-        var todo: [Int] = []
+-        lock.lock()
+-        for b in blocks where !(exact[checked: b] ?? true) && !pending.keys.contains(b) && !inFlight.contains(b) { inFlight.insert(b); todo.append(b) }
+-        lock.unlock()
++        let todo = state.withLock { s -> [Int] in
++            var todo: [Int] = []
++            for b in blocks where !(s.exact[checked: b] ?? true) && !s.pending.keys.contains(b) && !s.inFlight.contains(b) { s.inFlight.insert(b); todo.append(b) }
++            return todo
++        }
+         guard !todo.isEmpty else { return }
+         // Chunks of 8 blocks per operation (fewer queue hops).
+         for i in stride(from: 0, to: todo.count, by: 8) {
+@@ -596,33 +627,38 @@
+     }
+ 
+     func report(_ b: Int, _ n: Int) {
+-        lock.lock()
+-        inFlight.remove(b)
+-        let fresh = !(exact[checked: b] ?? true) && !pending.keys.contains(b) // checked
+-        if fresh { pending.updateValue(Int32(clamping: n), forKey: b) }
+-        lock.unlock()
++        let fresh = state.withLock { s -> Bool in
++            s.inFlight.remove(b)
++            let fresh = !(s.exact[checked: b] ?? true) && !s.pending.keys.contains(b) // checked
++            if fresh { s.pending.updateValue(Int32(clamping: n), forKey: b) }
++            return fresh
++        }
+         if fresh { LongTextCenter.schedule(self) }
+     }
+ 
+     /// Main thread: published counts take the measured ones. Returns whether a height changed.
+     @discardableResult
+     func applyPending() -> Bool {
+-        lock.lock(); defer { lock.unlock() }
+-        var changed = false
+-        for (b, n) in pending where !(exact[checked: b] ?? true) { // checked
+-            if tree.values[checked: b] != n { changed = true }
+-            tree.set(b, n)
+-            if let slot = exact.checkedIndex(b) { exact[slot] = true }
+-            measured += 1
++        let (changed, tiles) = state.withLock { s -> (Bool, [PendingTile]) in
++            var changed = false
++            for (b, n) in s.pending where !(s.exact[checked: b] ?? true) { // checked
++                if s.tree.values[checked: b] != n { changed = true }
++                s.tree.set(b, n)
++                if let slot = s.exact.checkedIndex(b) { s.exact[slot] = true }
++                s.measured += 1
++            }
++            s.pending.removeAll()
++            let tiles = s.pendingTiles
++            s.pendingTiles.removeAll()
++            return (changed, tiles)
+         }
+-        pending.removeAll()
+         // Tiles drawn with the measurement: in the cache before the new height is laid out.
+         // (Keyed by scale too: tiles of a view at another scale stay out of this view's lookups.)
+-        for (k, img) in pendingTiles where k.palette == Fixture.paletteGeneration { TileCache.shared.put(k, img) }
+-        pendingTiles.removeAll()
++        let generation = Fixture.paletteGeneration
++        for t in tiles where t.key.palette == generation { TileCache.shared.put(t.key, t.image.value) }
+         return changed
+     }
+-    var hasPending: Bool { lock.lock(); defer { lock.unlock() }; return !pending.isEmpty || !pendingTiles.isEmpty }
++    var hasPending: Bool { state.withLock { !$0.pending.isEmpty || !$0.pendingTiles.isEmpty } }
+ 
+     // MARK: Anchors (text-local y: 0 at the first line's slot top)
+ 
+@@ -750,54 +786,97 @@
      }
  }
  
@@ -183,7 +519,81 @@
          let apply = {
              rs.forEach { $0() }
              ls.forEach { $0.applyPending() }
-@@ -876,6 +922,15 @@
+@@ -807,19 +886,26 @@
+ }
+ 
+ /// Text to index and layouts (thread safe). Finds a streamed text's previous index by prefix.
+-final class LongTextStore: @unchecked Sendable {
++/// cmux: checked `Sendable` (p10-stability-055): the maps, the clock and the lineage serial are one lock
++/// state (they were vars under an NSLock in an unchecked class, and the serial was bumped outside it);
++/// hashing, byte compares, index builds and layouts run outside the lock, and a layout is marked retired
++/// after the lock is released.
++final class LongTextStore: Sendable {
+     static let shared = LongTextStore()
+-    private let lock = NSLock()
+     private struct Addr: Hashable { var base: UInt; var count: Int }
+     private struct Print: Hashable { var count: Int; var head: Int; var tail: Int }
+-    private var byAddr: [Addr: LongTextIndex] = [:]
+-    private var byPrint: [Print: LongTextIndex] = [:]
+-    private var byHead: [Int: LongTextIndex] = [:]
+-    /// Per index: layouts by width, negative widths for markdown shown as source.
+-    private var layouts: [ObjectIdentifier: [CGFloat: LongTextLayout]] = [:]
+-    private var recent: [ObjectIdentifier: Int] = [:]
+-    private var tick = 0
+-    private var lineageSerial = 0
++    private struct State: Sendable {
++        var byAddr: [Addr: LongTextIndex] = [:]
++        var byPrint: [Print: LongTextIndex] = [:]
++        var byHead: [Int: LongTextIndex] = [:]
++        /// Per index: layouts by width, negative widths for markdown shown as source.
++        var layouts: [ObjectIdentifier: [CGFloat: LongTextLayout]] = [:]
++        var recent: [ObjectIdentifier: Int] = [:]
++        var tick = 0
++        var lineageSerial = 0
++    }
++    // Lock carve-out: rows on the loader queue and main look up and register indexes and layouts; no work under the lock.
++    private let state = OSAllocatedUnfairLock(initialState: State())
+     static let maxIndexes = 12
+     static let syncBytes = 512 << 10
+ 
+@@ -843,20 +929,24 @@
+         let idx = index(for: text) ?? LongTextIndex.build(text, lineage: 0)
+         let md = idx.markdown && markdown && !(message.map { MarkdownStore.shared.showsSource($0) } ?? false)
+         let wk = md || !idx.markdown ? width : -width
+-        lock.lock()
+         let id = ObjectIdentifier(idx)
+-        tick += 1
+-        recent.updateValue(tick, forKey: id) // dictionary write
+-        if let l = layouts[id]?[wk] { lock.unlock(); return l }
+-        let carry = layouts[id]?.values.first { $0.markdown == md }
+-        lock.unlock()
++        let (found, carry) = state.withLock { s -> (LongTextLayout?, LongTextLayout?) in
++            s.tick += 1
++            s.recent.updateValue(s.tick, forKey: id) // dictionary write
++            if let l = s.layouts[id]?[wk] { return (l, nil) }
++            return (nil, s.layouts[id]?.values.first { $0.markdown == md })
++        }
++        if let found { return found }
+         let l = LongTextLayout(index: idx, width: width, carry: carry?.column == Metrics(width: width).maxTextWidth ? carry : nil, markdown: md)
+-        lock.lock()
+-        var per = layouts[id] ?? [:]
+-        if per.count >= 3 { per.values.forEach { $0.retired = true }; per.removeAll() }
+-        per.updateValue(l, forKey: wk) // dictionary write
+-        layouts[id] = per
+-        lock.unlock()
++        let dropped = state.withLock { s -> [LongTextLayout] in
++            var per = s.layouts[id] ?? [:]
++            var dropped: [LongTextLayout] = []
++            if per.count >= 3 { dropped = Array(per.values); per.removeAll() }
++            per.updateValue(l, forKey: wk) // dictionary write
++            s.layouts[id] = per
++            return dropped
++        }
++        dropped.forEach { $0.retired = true }
+         return l
+     }
+ 
+@@ -876,32 +966,64 @@
          return h.finalize()
      }
  
@@ -199,17 +609,24 @@
      private func index(for text: String, create: Bool = true) -> LongTextIndex? {
          var t = text
          if t.utf8.withContiguousStorageIfAvailable({ _ in true }) == nil { t.makeContiguousUTF8() }
-@@ -884,24 +939,45 @@
-             lock.lock()
-             if let i = byAddr[addr] { lock.unlock(); return i }
+         return t.utf8.withContiguousStorageIfAvailable { p -> LongTextIndex? in
+             let addr = Addr(base: UInt(bitPattern: p.baseAddress), count: p.count)
+-            lock.lock()
+-            if let i = byAddr[addr] { lock.unlock(); return i }
++            if let i = state.withLock({ $0.byAddr[addr] }) { return i }
              let pr = LongTextStore.print(p)
 -            if let i = byPrint[pr] { byAddr[addr] = i; lock.unlock(); return i }
 +            // cmux: the print (length, first and last KiB) only names a candidate; its bytes decide. A
 +            // same-length edit in the middle of a long text has the old text's print and drew the old text.
-+            if let i = byPrint[pr], LongTextStore.sameBytes(i, p) { byAddr[addr] = i; lock.unlock(); return i }
++            if let i = state.withLock({ $0.byPrint[pr] }), LongTextStore.sameBytes(i, p) {
++                // Still registered under that print (a register on another thread may have replaced it meanwhile).
++                state.withLock { s in if s.byPrint[pr] === i { s.byAddr[addr] = i } }
++                return i
++            }
              let hd = LongTextStore.head(p)
-             let prev = byHead[hd]
-             lock.unlock()
+-            let prev = byHead[hd]
+-            lock.unlock()
++            let prev = state.withLock { $0.byHead[hd] }
              guard create else { return nil }
              // Streaming: the same text with more at the end keeps every block but the last
              // (a plain stream that turns into markdown is indexed again from its start).
@@ -252,16 +669,29 @@
                      let old = layoutsOf(prev)
                      register(i, addr: addr, print: pr, head: hd, replacing: prev)
                      // Layouts carry the measured blocks. The tail keeps its previous line count (and
-@@ -923,7 +999,7 @@
+@@ -911,7 +1033,8 @@
+                     for o in old {
+                         let tailOffMain = LongText.offMainTail
+                         let l = LongTextLayout(index: i, width: o.width, carry: o, markdown: o.markdown, provisional: tailOffMain ? keep : nil)
+-                        lock.lock(); layouts[ObjectIdentifier(i), default: [:]][o.markdown || !i.markdown ? o.width : -o.width] = l; lock.unlock()
++                        let iid = ObjectIdentifier(i), wk = o.markdown || !i.markdown ? o.width : -o.width
++                        state.withLock { $0.layouts[iid, default: [:]][wk] = l }
+                         if tailOffMain { l.measureTail(keep..<max(keep, i.blockCount)); continue } // never an inverted range
+                         // The previous rule: the new tail is measured now (about 4 KB).
+                         let reuse = BlockLayoutCache.shared.get(o.key(keep))
+@@ -921,9 +1044,8 @@
+                     return i
+                 }
              }
-             lineageSerial += 1
-             let lineage = lineageSerial
+-            lineageSerial += 1
+-            let lineage = lineageSerial
 -            LongTextStats.indexBuilds += 1
++            let lineage = state.withLock { s -> Int in s.lineageSerial += 1; return s.lineageSerial }
 +            LongTextStats.count(.indexBuilds)
              if p.count <= LongTextStore.syncBytes {
                  let i = LongTextIndex.build(t, lineage: lineage)
                  register(i, addr: addr, print: pr, head: hd, replacing: nil)
-@@ -932,8 +1008,9 @@
+@@ -932,8 +1054,9 @@
              // Large: a placeholder (estimated height, no tiles) until the scan finishes off main.
              let ph = LongTextIndex.placeholder(t, lineage: lineage)
              register(ph, addr: addr, print: pr, head: hd, replacing: nil)
@@ -272,7 +702,75 @@
                  LongTextCenter.scheduleReplace(lineage: lineage) {
                      self.register(i, addr: addr, print: pr, head: hd, replacing: ph)
                  }
-@@ -982,6 +1059,11 @@
+@@ -943,37 +1066,42 @@
+     }
+ 
+     private func layoutsOf(_ i: LongTextIndex) -> [LongTextLayout] {
+-        lock.lock(); defer { lock.unlock() }
+-        return Array(layouts[ObjectIdentifier(i)]?.values ?? [:].values)
++        let id = ObjectIdentifier(i)
++        return state.withLock { s in Array(s.layouts[id]?.values ?? [:].values) }
+     }
+ 
+     private func register(_ i: LongTextIndex, addr: Addr, print: Print, head: Int, replacing old: LongTextIndex?) {
+-        lock.lock(); defer { lock.unlock() }
+-        if let old {
+-            let oid = ObjectIdentifier(old)
+-            layouts[oid]?.values.forEach { $0.retired = true }
+-            layouts[oid] = nil
+-            recent.removeValue(forKey: oid) // dictionary write
+-            byAddr = byAddr.filter { $0.value !== old }
+-            byPrint = byPrint.filter { $0.value !== old }
+-        }
+-        byAddr[addr] = i
+-        byPrint[print] = i
+-        byHead[head] = i
+-        tick += 1
+-        recent.updateValue(tick, forKey: ObjectIdentifier(i)) // dictionary write
+-        // Bounded: the least recently used indexes go (their texts with them).
+-        let live = Set(byAddr.values.map { ObjectIdentifier($0) })
+-        if live.count > LongTextStore.maxIndexes {
+-            let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
+-            byAddr = byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
+-            byPrint = byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
+-            byHead = byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
+-            for d in drop { layouts[d]?.values.forEach { $0.retired = true }; layouts[d] = nil; recent.removeValue(forKey: d) }
++        let dropped = state.withLock { s -> [LongTextLayout] in
++            var dropped: [LongTextLayout] = []
++            if let old {
++                let oid = ObjectIdentifier(old)
++                dropped += s.layouts[oid].map { Array($0.values) } ?? []
++                s.layouts[oid] = nil
++                s.recent.removeValue(forKey: oid) // dictionary write
++                s.byAddr = s.byAddr.filter { $0.value !== old }
++                s.byPrint = s.byPrint.filter { $0.value !== old }
++            }
++            s.byAddr[addr] = i
++            s.byPrint[print] = i
++            s.byHead[head] = i
++            s.tick += 1
++            s.recent.updateValue(s.tick, forKey: ObjectIdentifier(i)) // dictionary write
++            // Bounded: the least recently used indexes go (their texts with them).
++            let live = Set(s.byAddr.values.map { ObjectIdentifier($0) })
++            if live.count > LongTextStore.maxIndexes {
++                let recent = s.recent
++                let drop = Set(live.sorted { (recent[$0] ?? 0) < (recent[$1] ?? 0) }.prefix(live.count - LongTextStore.maxIndexes))
++                s.byAddr = s.byAddr.filter { !drop.contains(ObjectIdentifier($0.value)) }
++                s.byPrint = s.byPrint.filter { !drop.contains(ObjectIdentifier($0.value)) }
++                s.byHead = s.byHead.filter { !drop.contains(ObjectIdentifier($0.value)) }
++                for d in drop { dropped += s.layouts[d].map { Array($0.values) } ?? []; s.layouts[d] = nil; s.recent.removeValue(forKey: d) }
++            }
++            return dropped
+         }
++        dropped.forEach { $0.retired = true }
+     }
+ 
+-    var indexCount: Int { lock.lock(); defer { lock.unlock() }; return Set(byAddr.values.map { ObjectIdentifier($0) }).count }
++    var indexCount: Int { state.withLock { s in Set(s.byAddr.values.map { ObjectIdentifier($0) }).count } }
+ }
+ 
+ /// Collapsed long messages (shared/LONG-MESSAGES.md, product rule): a message taller than
+@@ -982,6 +1110,11 @@
  /// fixed (80 lines and the band), so measurement never changes it.
  enum LongTextFold {
      static let headLines = 40, tailLines = 40
@@ -284,7 +782,7 @@
      /// 3 screens (the 1041 pt window).
      static var maxLines: Int { CrashGuard.int(3 * 1041 / Fixture.lineHeight, in: CrashGuard.countRange) }
      static var bandHeight: CGFloat { 2 * Fixture.lineHeight }
-@@ -992,15 +1074,16 @@
+@@ -992,15 +1125,16 @@
          if disabledByArgument { return false }
          return UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
      }

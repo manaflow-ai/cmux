@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
 
 // Markdown layout (shared/MARKDOWN.md): a parsed document at a column width becomes
 // a display list in body-local points (origin = the bubble's top-left; text starts
@@ -73,10 +74,14 @@ struct MDAXNode {
     var children: [MDAXNode] = []
 }
 
-final class MarkdownLayout: Hashable, @unchecked Sendable {
+/// cmux: checked `Sendable` (p10-stability-055): the lines (attributed strings and CTLines) and boxes
+/// (an image box's CGImage) are held as one immutable shared value; everything else is a Sendable value.
+final class MarkdownLayout: Hashable, Sendable {
     let size: CGSize
-    let frags: [MDFrag]
-    let boxes: [MDBox]
+    var frags: [MDFrag] { drawn.value.frags }
+    var boxes: [MDBox] { drawn.value.boxes }
+    private struct Drawn: HomeShareable { let frags: [MDFrag]; let boxes: [MDBox] }
+    private let drawn: HomeShared<Drawn>
     let regions: [MDRegion]
     /// Display text: what selection offsets index and what Copy returns.
     let plain: String
@@ -88,7 +93,7 @@ final class MarkdownLayout: Hashable, @unchecked Sendable {
     let proxy: TextLayout
 
     init(size: CGSize, frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, source: String, ax: [MDAXNode], identity: Int) {
-        self.size = size; self.frags = frags; self.boxes = boxes; self.regions = regions
+        self.size = size; drawn = HomeShared(Drawn(frags: frags, boxes: boxes)); self.regions = regions
         self.plain = plain; self.source = source; self.ax = ax; self.identity = identity
         let n = (plain as NSString).length
         proxy = TextLayout(text: plain, runs: [], lines: [TextLayout.Line(range: NSRange(location: 0, length: n), width: size.width)], width: size.width)
@@ -157,7 +162,7 @@ enum MarkdownImages {
 
 enum MarkdownLayoutEngine {
     /// Laid-out top-level blocks, keyed by block content and width (streams re-use all but the tail).
-    private static let cache = MDLRU<BlockKey, BlockLayout>(capacity: 2048)
+    private static let cache = MDLRU<BlockKey, HomeShared<LaidBlock>>(capacity: 2048)
     struct BlockKey: Hashable { var block: MDBlock; var width: CGFloat; var columns: [CGFloat]? = nil }
 
     /// A block laid out at y = 0, x = 0 (content-local).
@@ -170,6 +175,15 @@ enum MarkdownLayoutEngine {
         /// Rightmost drawn extent of content outside stretchable boxes.
         var extent: CGFloat = 0
         var ax: [MDAXNode] = []
+    }
+
+    /// cmux (p10-stability-055): a laid-out block as the cache shares it between the layout threads:
+    /// the filled `BlockLayout`, frozen (the builder was the cached object itself).
+    struct LaidBlock: HomeShareable {
+        let frags: [MDFrag], boxes: [MDBox], regions: [MDRegion], plain: String, height: CGFloat, extent: CGFloat, ax: [MDAXNode]
+        init(_ b: BlockLayout) {
+            frags = b.frags; boxes = b.boxes; regions = b.regions; plain = b.plain; height = b.height; extent = b.extent; ax = b.ax
+        }
     }
 
     /// `tableColumns`: fixed column widths for the first table (a long message's table continued
@@ -188,14 +202,15 @@ enum MarkdownLayoutEngine {
             var cols: [CGFloat]?
             if fixed != nil, case .table = b.kind { cols = fixed; fixed = nil }
             let key = BlockKey(block: MDBlock(kind: b.kind), width: maxWidth, columns: cols)
-            let bl: BlockLayout
-            if let c = cache.get(key) { bl = c } else {
-                bl = BlockLayout()
-                var w = Writer(out: bl, width: maxWidth)
+            let bl: LaidBlock
+            if let c = cache.get(key) { bl = c.value } else {
+                let out = BlockLayout()
+                var w = Writer(out: out, width: maxWidth)
                 w.fixedColumns = cols
                 w.block(b.kind, x: 0, width: maxWidth, depth: 0, listDepth: 0)
-                bl.height = w.y
-                cache.set(key, bl)
+                out.height = w.y
+                bl = LaidBlock(out)
+                cache.set(key, HomeShared(bl))
             }
             if let p = prev {
                 y += gap(p, b, nested: false)
@@ -684,27 +699,36 @@ extension Markdown {
 
 // MARK: - LRU
 
-final class MDLRU<K: Hashable, V>: @unchecked Sendable {
-    private var map: [K: (V, Int)] = [:]
-    private var tick = 0
-    private let lock = NSLock()
+/// cmux: checked `Sendable` (p10-stability-055): Sendable keys and values in one lock state (it was an
+/// unchecked class over an NSLock; its only user caches `HomeShared` blocks).
+final class MDLRU<K: Hashable & Sendable, V: Sendable>: Sendable {
+    private struct State: Sendable {
+        var map: [K: (V, Int)] = [:]
+        var tick = 0
+    }
+    // Lock carve-out: the layout threads look up and insert blocks; the eviction is a filter of at most `capacity`.
+    private let state = OSAllocatedUnfairLock(initialState: State())
     let capacity: Int
     init(capacity: Int) { self.capacity = capacity }
     func get(_ k: K) -> V? {
-        lock.lock(); defer { lock.unlock() }
-        guard let v = map[k] else { return nil }
-        tick += 1; map.updateValue((v.0, tick), forKey: k) // dictionary write
-        return v.0
-    }
-    func set(_ k: K, _ v: V) {
-        lock.lock(); defer { lock.unlock() }
-        tick += 1
-        map.updateValue((v, tick), forKey: k) // dictionary write
-        if map.count > capacity {
-            // Drop the older half (amortized O(1) per insert).
-            let cut = map.values.map(\.1).sorted()[map.count / 2]
-            map = map.filter { $0.value.1 >= cut }
+        state.withLock { s -> V? in
+            guard let v = s.map[k] else { return nil }
+            s.tick += 1; s.map.updateValue((v.0, s.tick), forKey: k) // dictionary write
+            return v.0
         }
     }
-    var count: Int { lock.lock(); defer { lock.unlock() }; return map.count }
+    func set(_ k: K, _ v: V) {
+        let capacity = capacity
+        state.withLock { s in
+            s.tick += 1
+            s.map.updateValue((v, s.tick), forKey: k) // dictionary write
+            if s.map.count > capacity {
+                // Drop the older half (amortized O(1) per insert).
+                let ticks = s.map.values.map(\.1).sorted()
+                let cut = ticks[checked: s.map.count / 2] ?? 0 // checked (crash ratchet)
+                s.map = s.map.filter { $0.value.1 >= cut }
+            }
+        }
+    }
+    var count: Int { state.withLock { $0.map.count } }
 }
