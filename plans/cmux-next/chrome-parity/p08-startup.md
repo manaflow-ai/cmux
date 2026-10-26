@@ -1002,6 +1002,11 @@ focused then visible. Acceptance: `views_built` == visible panes; 60-workspace t
 **067 Sparkle.** Files: `Packages/macOS/CmuxNext/Package.swift`, `CmuxNextUpdater/UpdaterService.swift`. Change: measure the
 Sparkle image and initializers; close with the number unless >= 3 ms; if so (risk:high), a protocol whose implementation
 dlopens Sparkle off main at afterStartup. Acceptance: number recorded, or otool no longer lists Sparkle and updater tests pass.
+Measure: `scripts/measure/sparkle-image-cost.sh` (fleet entry) runs `scripts/cmux-next/sparkle-image-cost.py`: per
+fresh process, `dlopen(Sparkle, RTLD_NOW)` after its system dependencies, minus a control dlopen; p50/p95/p99/max and
+the verdict (`keep-linked` under 3 ms p50, else `dlopen-off-main`); `--app` also lists the executable's non-system
+dylibs. Number: not yet run (the entry needs the hq measureScripts allowlist); Package.swift and UpdaterService.swift
+stay unchanged until the number says `dlopen-off-main`.
 
 **068 FFI and libghostty.** Files: `AppServices.swift`, `CmuxNextTerminal/GhosttyRuntime.swift`. Change: signpost first FFI
 calls and `ghostty_init`; tokio or relay starts reachable before completion move to afterStartup owners; check GhosttyNextKit

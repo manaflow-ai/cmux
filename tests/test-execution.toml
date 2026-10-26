@@ -1948,3 +1948,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. bench_idle.py and bench_launch.p
 path = "tests/test_perf_signposts_presented.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. perf-signposts.py is a fleet and local report; run python3 -I tests/test_perf_signposts_presented.py yourself after changing it (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_sparkle_image_cost.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. sparkle-image-cost.py is the p08-startup-067 fleet measurement, not a gate; run python3 -I tests/test_sparkle_image_cost.py yourself after changing the script (under 1 s, no app, no build)."
