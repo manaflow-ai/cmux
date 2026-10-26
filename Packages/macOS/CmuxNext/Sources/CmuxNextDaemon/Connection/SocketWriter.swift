@@ -27,11 +27,12 @@ final class SocketWriter: Sendable {
     private let queue: DispatchQueue
     private let state = Mutex(State())
 
-    init(fd: Int32, label: String, limit: Int = 64 << 20) {
+    /// - Parameter qos: The drain queue's class, chosen by the owner from what the connection
+    ///   carries (``DaemonWireStats/Role/writerQoS``).
+    init(fd: Int32, label: String, qos: DispatchQoS, limit: Int = 64 << 20) {
         self.fd = fd
         self.limit = limit
-        // qos-allow: key echo path: a typed key reaches the daemon through this queue and its frame waits for the echo
-        self.queue = DispatchQueue(label: label, qos: .userInteractive)
+        self.queue = DispatchQueue(label: label, qos: qos)
         // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
         // (whose default action ends the process), whatever the caller set.
         // The option fails (EINVAL) once the peer is gone, so writes also
@@ -140,6 +141,28 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
         case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
         case .noProgress: "write: no progress"
         case .errno(let code): "write: \(String(cString: strerror(code)))"
+        }
+    }
+}
+
+extension DaemonWireStats.Role {
+    /// The class of this connection's ``SocketWriter`` queue, by what it carries
+    /// (threading-model.md, QoS table). Only the connections that carry typed keys run at
+    /// user-interactive, so a bulk loopback forward never shares the class of a keystroke.
+    var writerQoS: DispatchQoS {
+        switch self {
+        case .control, .terminalAttach:
+            // qos-allow: key echo path: typed keys reach the daemon on these connections and the echo frame waits for them
+            .userInteractive
+        case .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
+            // userBlocking: a person waits now for the result of a click, an open or quit.
+            .userInitiated
+        case .loopbackForward:
+            // userVisible: forwarded page bytes show on screen soon.
+            .default
+        case .socketProbe:
+            // bestEffort: a liveness probe nobody watches.
+            .utility
         }
     }
 }
