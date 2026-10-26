@@ -109,6 +109,8 @@ async fn adopts_at_the_cap() {
     an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session().await;
     adopts_waiting_on_one_that_fails_before_its_session_are_admitted_again().await;
     an_adopt_with_a_harness_only_its_worktree_has_starts_there().await;
+    a_refused_adopt_whose_holder_ended_makes_no_worktree().await;
+    an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree().await;
 }
 
 async fn an_adopt_with_a_harness_only_its_worktree_has_starts_there() {
@@ -297,6 +299,100 @@ fn trust_and_enable(
     let cfg = hub.config.try_read().unwrap().clone();
     let sha = fp::load_one(&cfg, gate, folder, "fp").and_then(|p| p.sha256).expect("sha256");
     fp::enable(&cfg, gate, folder, "fp", &sha).unwrap();
+}
+
+async fn an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree() {
+    let root = std::env::temp_dir().join(format!("acpmux-admfp-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    let gate = acpmux::config::folder_profiles::FolderGate {
+        enable_record: root.join("acpmux/harness-enable.json"),
+        trust: acpmux::trust::Paths {
+            claude_json: root.join("claude.json"),
+            codex_config: root.join("config.toml"),
+            record: root.join("acpmux/trust.json"),
+            agent_home: None,
+            cmux_worktrees: None,
+        },
+    };
+    // The repository commits `fp` as a Claude harness; its working copy makes it Codex.
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    folder_profile(&project, "claude");
+    git(&project, &["add", "-A"]);
+    git(&project, &["commit", "-q", "-m", "fp"]);
+    folder_profile(&project, "codex");
+    let hub = hub_gated(Some(gate.clone()));
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    trust_and_enable(&hub, &gate, &project);
+    // Its worktree lane-x (made and removed here) is trusted with `fp` enabled as committed.
+    let worktree = root.join("home/.cmux/worktrees/project/lane-x");
+    git(&project, &["worktree", "add", "-q", &worktree.to_string_lossy()]);
+    trust_and_enable(&hub, &gate, &worktree);
+    git(&project, &["worktree", "remove", "--force", &worktree.to_string_lossy()]);
+    git(&project, &["branch", "-D", "lane-x"]);
+    // A Codex conversation, adopted with `fp` into worktree lane-x: admitted as Codex
+    // in the repository, its worktree's `fp` is Claude. Refused, with no session and
+    // no worktree left.
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let mut adopt = adopt_of("fp", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "lane-x"});
+    let r = new_session(&hub, adopt).await;
+    assert_eq!(r["error"]["data"]["reason"], "adopt.family_changed", "{r}");
+    assert!(hub.sessions().is_empty(), "no session under another family's admission: {r}");
+    assert!(!worktree.exists(), "the refused adopt left {}: {r}", worktree.display());
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+async fn a_refused_adopt_whose_holder_ended_makes_no_worktree() {
+    let root = std::env::temp_dir().join(format!("acpmux-admwt-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    // The conversation was recorded in a git repository.
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    for args in [&["init", "-q"][..], &["commit", "-q", "--allow-empty", "-m", "first"]] {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&project)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let hub = hub();
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    let r = new_session(&hub, adopt_of("fakecodex", &chat)).await;
+    let holder = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let flag = root.join("home/.cache/worktree-reclaim/under-floor");
+    std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
+    std::fs::write(&flag, "").unwrap();
+    // An adopt that asks for a worktree finds the conversation held, and is held
+    // there while the holder is purged: its create is then refused under the floor.
+    // SAFETY: one test function in this binary; no session reads it concurrently.
+    unsafe { std::env::set_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS", "1500") };
+    let mut adopt = adopt_of("fakecodex", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "lane-x"});
+    let adopt = tokio::spawn(new_session_owned(hub.clone(), adopt));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let r = request(&hub, "_acpmux/kill", json!({"sessionId": holder, "purge": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = adopt.await.unwrap();
+    unsafe { std::env::remove_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS") };
+    assert_eq!(r["error"]["data"]["reason"], "admission_refused", "{r}");
+    // A refusal makes no worktree, as one before the attach makes none.
+    let worktree = root.join("home/.cmux/worktrees/project/lane-x");
+    assert!(!worktree.exists(), "the refused adopt made {}: {r}", worktree.display());
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 async fn new_session_owned(hub: Arc<Hub>, params: Value) -> Value {
