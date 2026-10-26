@@ -553,7 +553,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::SelfUpdate { channel } => {
                     return crate::cli::hosts::self_update(&channel, json_out).await;
                 }
-                PeerCmd::Update { name, all, binary_dir, if_idle } => {
+                PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
                     let caller = match std::env::var("ACPMUX_SESSION_ID") {
                         Ok(session) if if_idle && !session.is_empty() => {
@@ -564,7 +564,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         }
                         _ => None,
                     };
-                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle, caller };
+                    let opts = crate::cli::hosts::UpdateOptions {
+                        binary_dir,
+                        if_idle,
+                        keep_newer,
+                        caller,
+                    };
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
