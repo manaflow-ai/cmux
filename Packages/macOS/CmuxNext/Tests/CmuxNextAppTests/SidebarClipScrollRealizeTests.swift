@@ -4,8 +4,9 @@ import CmuxNextDesign
 import Testing
 
 /// The sidebar list realizes rows as its clip scrolls and follows the clip's width as it resizes, pushed
-/// from the clip itself (p03-rendering-039; before, from `boundsDidChangeNotification` and
-/// `frameDidChangeNotification` observers).
+/// from the clip itself (p03-rendering-039; before, from NotificationCenter observers of the clip).
+/// The edge fade and the scroll fit share that clip (p03-rendering-038), so the sidebar's pushes must
+/// survive them attaching.
 @MainActor @Suite(.serialized) struct SidebarClipScrollRealizeTests {
     private static let count = 200
 
@@ -21,8 +22,11 @@ import Testing
         return sidebar
     }
 
-    @Test func theClipIsTheSidebarsOwn() {
-        #expect(Self.sidebar().scrollView.contentView is ScrollClipView)
+    @Test func theClipIsTheSharedGeometryClip() {
+        let sidebar = Self.sidebar()
+        let clip = sidebar.scrollView.contentView
+        #expect(clip is ScrollGeometryClipView)
+        #expect(ScrollGeometryClipView.install(in: sidebar.scrollView) === clip, "a later client keeps the clip")
     }
 
     @Test func scrollingTheClipRealizesTheRowsItShows() {
@@ -34,10 +38,16 @@ import Testing
         #expect(sidebar.list.rowViews[last] != nil)
     }
 
+    /// The scroll view tiles its clip to a new width with no sidebar layout pass (which would fit the
+    /// list itself): only the clip's push can fit it.
     @Test func resizingTheClipFitsTheListToItsWidth() {
         let sidebar = Self.sidebar()
-        sidebar.frame.size.width = 300
-        sidebar.layoutSubtreeIfNeeded()
-        #expect(sidebar.list.frame.width == sidebar.scrollView.contentView.bounds.width)
+        let scrollView = sidebar.scrollView
+        let before = sidebar.list.frame.width
+        scrollView.setFrameSize(NSSize(width: scrollView.frame.width - 60, height: scrollView.frame.height))
+        scrollView.tile()
+        let clipWidth = scrollView.contentView.bounds.width
+        #expect(clipWidth != before)
+        #expect(sidebar.list.frame.width == clipWidth)
     }
 }

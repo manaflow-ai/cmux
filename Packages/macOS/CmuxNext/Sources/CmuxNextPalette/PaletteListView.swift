@@ -5,7 +5,7 @@ import CmuxNextCompat
 /// The result list: an `NSTableView` with reused row views. Only visible
 /// rows exist. Results reload in place without animation (no flicker);
 /// selection and hover update just the affected row views.
-final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate {
+final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, ScrollGeometryClient {
     enum DisplayRow {
         case header(String)
         case item(PaletteRow)
@@ -15,6 +15,8 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     /// The pointer moved over the list (hover after a real mouse move, not a scroll).
     var onPointerMove: ((String?) -> Void)?
     var onActivate: ((String) -> Void)?
+    /// Where the pointer is in `window`'s coordinates; tests hold it still.
+    var pointerLocation: @MainActor (NSWindow) -> NSPoint = { $0.mouseLocationOutsideOfEventStream }
 
     private let table = PaletteTableView()
     private var rows: [DisplayRow] = []
@@ -26,16 +28,13 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        // Scrolling moves rows under a still pointer: the clip pushes each scroll (`boundsChanged`).
-        let clip = ScrollClipView()
-        clip.onScroll = { [weak self] in self?.boundsChanged() }
-        contentView = clip
         drawsBackground = false
         hasVerticalScroller = true
         SystemScrollers.follow(self)
         automaticallyAdjustsContentInsets = false
-        // The scroll fit's and edge fade's clip, in place before the bounds observer below holds the clip view.
-        ScrollGeometryClipView.install(in: self)
+        // The clip the scroll fit and edge fade share; scrolling moves rows under a still pointer, so it
+        // also pushes each scroll here (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: self).addClient(self)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("palette.column"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -127,11 +126,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     // MARK: Mouse
 
-    private func boundsChanged() {
-        // Scrolling moves rows under a still pointer; re-hit-test so hover
-        // follows the pointer, not the row it was over before the scroll.
-        guard let window else { return }
-        let point = table.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+    /// Scrolling moves rows under a still pointer; re-hit-test so hover
+    /// follows the pointer, not the row it was over before the scroll.
+    func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        guard change.contains(.scrolled), let window else { return }
+        let point = table.convert(pointerLocation(window), from: nil)
         if table.visibleRect.contains(point) { updateHover(at: point) }
     }
 

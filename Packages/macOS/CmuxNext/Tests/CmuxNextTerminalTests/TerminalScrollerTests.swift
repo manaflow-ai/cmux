@@ -1,9 +1,10 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextTerminal
 import Testing
 
 /// The terminal's scroller hears its own clip move from the clip (p03-rendering-039), not from a
-/// `boundsDidChangeNotification` observer: a scroller drag reports the row it shows, and the
+/// NotificationCenter observer of the clip: a scroller drag reports the row it shows, and the
 /// scroller's own placement for Ghostty's scrollbar reports nothing back.
 @MainActor
 struct TerminalScrollerTests {
@@ -12,6 +13,12 @@ struct TerminalScrollerTests {
         scroller.frame = NSRect(x: 0, y: 0, width: 12, height: 100)
         scroller.tile()
         return scroller
+    }
+
+    @Test func theClipIsTheSharedGeometryClip() {
+        let scroller = scroller()
+        #expect(scroller.contentView is ScrollGeometryClipView)
+        #expect(ScrollGeometryClipView.install(in: scroller) === scroller.contentView, "a later client keeps the clip")
     }
 
     @Test func aClipMoveReportsTheRowAtTheTop() {

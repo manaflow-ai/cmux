@@ -1738,9 +1738,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat for Mutex and GhosttyKit for ghostty_surface_t (TerminalOutputLaneHangScopeTests); Wakeups for
             // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests); CmuxFuzzSupport for the link and
             // Ghostty action fuzz suites (p10-stability-030); WakeupsTestSupport for the pointer coalescer's manual clock
-            // (TerminalPointerCoalescingTests).
+            // (TerminalPointerCoalescingTests); Design for the scroller's shared clip (TerminalScrollerTests).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
-                           "CmuxNextWakeupsTestSupport",
+                           "CmuxNextWakeupsTestSupport", "CmuxNextDesign",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]

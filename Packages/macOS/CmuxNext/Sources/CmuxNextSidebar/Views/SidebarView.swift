@@ -88,6 +88,8 @@ public final class SidebarView: NSView {
     }
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
+    /// The clip size the list was last fitted to from the clip's own resize push (`scrollGeometryDidChange`).
+    var fittedClipSize: NSSize = .zero
     var lastState: RenderState?
     /// The sections the list showed at the last render (for the space slide and the provisional check).
     var lastSections: [SidebarSection] = []
@@ -255,19 +257,15 @@ public final class SidebarView: NSView {
         newButton.alphaValue = 0
         addSubview(newButton)
 
-        // The clip pushes its scrolls and resizes here (no clip-view notifications).
-        let clip = ScrollClipView()
-        clip.onScroll = { [weak self] in self?.clipBoundsChanged() }
-        clip.onResize = { [weak self] in self?.syncListSize() }
-        scrollView.contentView = clip
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
         SystemScrollers.followThin(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
-        // The edge fade's and scroll fit's clip, in place before anything below holds the clip view.
-        ScrollGeometryClipView.install(in: scrollView)
+        // The clip the edge fade and scroll fit share, in place before anything below holds the clip view;
+        // it pushes its scrolls and resizes here too (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: scrollView).addClient(self)
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
         clipObservers = [ // queue: .main: inline for a post on main; a selector into this view trapped off main
@@ -291,20 +289,13 @@ public final class SidebarView: NSView {
         buildPriority()
     }
 
-    private func clipBoundsChanged() {
-        list.realizeVisibleRows()
-        // The list updates row hover as rows move. A window-wide refresh here
-        // rescans every chrome target on every scroll tick and adds no state
-        // change for the sidebar's fixed chrome.
-    }
-
     private func scrollerStyleChanged() {
         scrollView.scrollerStyle = SystemScrollers.nativeStyle
         syncListSize()
     }
 
     /// The list follows the visible clip (`SidebarListView.fitToClip`).
-    private func syncListSize() { list.fitToClip() }
+    func syncListSize() { list.fitToClip() }
 
     override public func layout() {
         super.layout()

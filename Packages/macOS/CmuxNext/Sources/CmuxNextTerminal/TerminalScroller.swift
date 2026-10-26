@@ -14,7 +14,7 @@ import CmuxNextDesign
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
 @MainActor
-final class TerminalScroller: NSScrollView {
+final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     private let document = TerminalScrollerDocument()
     private var applying = false
     private(set) var shown: TerminalScrollbar?
@@ -34,10 +34,8 @@ final class TerminalScroller: NSScrollView {
         verticalScrollElasticity = .none
         horizontalScrollElasticity = .none
         automaticallyAdjustsContentInsets = false
-        // A scroller drag moves the clip; it pushes each move here, in order.
-        let clip = ScrollClipView()
-        clip.onScroll = { [weak self] in self?.clipMoved() }
-        contentView = clip
+        // A scroller drag moves the clip; it pushes each move here, in order (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: self).addClient(self)
         contentView.drawsBackground = false
         documentView = document
         let thin = ThinScroller()
@@ -109,8 +107,8 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    private func clipMoved() {
-        guard !applying, let shown else { return }
+    func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        guard change.contains(.scrolled), !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
         guard row != shown.offsetRows else { return }
