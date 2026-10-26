@@ -121,6 +121,7 @@ describe("sandbox receipt", () => {
       `sntrys_${"d".repeat(40)}`, `dckr_pat_${"e".repeat(27)}`, `pypi-${"f".repeat(40)}`, `shpat_${"0".repeat(32)}`,
       `lin_api_${"g".repeat(40)}`, `dop_v1_${"1".repeat(64)}`, `hvs.${"h".repeat(24)}`, `glsa_${"i".repeat(32)}`,
       `key-${"a1".repeat(16)}`, `dapi${"b2".repeat(16)}`,
+      `re_${"A1b2".repeat(8)}`, `gsk_${"c".repeat(48)}`, `xai-${"d".repeat(40)}`, `ya29.${"e".repeat(40)}`,
     ]) {
       expect(sandboxReply(`token ${token} end`)).toBe("token [redacted] end");
     }

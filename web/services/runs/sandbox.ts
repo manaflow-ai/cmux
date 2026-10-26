@@ -20,6 +20,9 @@ const TOKEN_SHAPES = [
   // Common prefixed API tokens (Sentry, Docker, PyPI, Shopify, Linear, Figma, DigitalOcean, Vercel,
   // npm, RubyGems, Postman, Databricks, HashiCorp, Doppler, Grafana, SendGrid, Twilio, Mailgun).
   /(?<![A-Za-z0-9])(?:sntry[su]_|dckr_pat_|dckr_oat_|pypi-|shp(?:at|ss|ca|pa)_|lin_(?:api|oauth)_|figd_|do[opr]_v1_|vcp_|npm_|rubygems_|PMAK-|hvs\.|hvb\.|dp\.(?:pt|st|sa|ct)\.|glsa_|glc_|SG\.)[A-Za-z0-9._=-]{16,}/g,
+  // Bare-prefix API keys a coding agent is likely to print (Resend, Groq, xAI, Perplexity,
+  // Replicate, Tavily, Fireworks, Google OAuth access tokens).
+  /(?<![A-Za-z0-9])(?:re_|gsk_|xai-|pplx-|r8_|tvly-|fw_|ya29\.)[A-Za-z0-9_-]{20,}/g,
   // Fixed-length hex tokens whose prefix alone is ordinary text (Databricks, Twilio, Mailgun).
   /(?<![A-Za-z0-9])(?:dapi[0-9a-f]{32}|SK[0-9a-f]{32}|key-[0-9a-f]{32})(?![A-Za-z0-9])/g,
   /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{30,}/g,
