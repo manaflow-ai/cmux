@@ -539,12 +539,28 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             Err(e) if taken(&e) => continue,
             Err(e) => return Err(e),
         }
+        #[cfg(test)]
+        after_add(&root);
         // The folder git just made, by identity, before anything else can take its place.
         let root_pin = crate::cwd_pin::CwdPin::of(&root);
         let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root, root_pin };
         return fill(folder, &layout, made, &commit, false);
     }
     Err(format!("every worktree name from {name} to {name}-99 is taken"))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Runs once on the next worktree [`make_worktree_under`] adds, right after `git worktree add`.
+    static AFTER_ADD: std::cell::RefCell<Option<Box<dyn FnOnce(&Path)>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn after_add(root: &Path) {
+    if let Some(f) = AFTER_ADD.with(|h| h.borrow_mut().take()) {
+        f(root);
+    }
 }
 
 /// Ok when `at` (a folder held open in the new worktree, its sub-session's start folder) is in the
@@ -857,6 +873,29 @@ mod tests {
         std::fs::rename(&impostor, &made.root).unwrap();
         let held = std::fs::File::open(&made.root).unwrap();
         let at = Dir::held(&made.root, Some(&held));
+        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
+        assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// A folder that takes the new worktree's place while git adds it (here as soon as it is
+    /// added, with a copy of its `.git` file) is not the one made either.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_took_the_worktrees_place_as_git_added_it_is_not_it() {
+        let (scratch, repo, home) = repo();
+        let at_scratch = scratch.0.clone();
+        AFTER_ADD.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move |root: &Path| {
+                let impostor = at_scratch.join("impostor");
+                std::fs::create_dir_all(&impostor).unwrap();
+                std::fs::copy(root.join(".git"), impostor.join(".git")).unwrap();
+                std::fs::rename(root, at_scratch.join("made-moved")).unwrap();
+                std::fs::rename(&impostor, root).unwrap();
+            }))
+        });
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let held = std::fs::File::open(&made.cwd).unwrap();
+        let at = Dir::held(&made.cwd, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
     }
