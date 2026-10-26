@@ -52,6 +52,29 @@ test("a Claude answer sends the chosen option's preview as its annotation", () =
   expect(replyParams(sent).annotations).toEqual(sent.annotations);
 });
 
+// The pane relay (AcpmuxPaneMethods+Answers, cmux-agent-pane-policy) refuses an annotation string over
+// 65,536 UTF-8 bytes and with it the whole answer, so a longer preview is left out and the answer goes.
+test("a preview over the relay's 65,536-byte bound is left out, and the answer still goes", () => {
+  const question = expected("pending-with-preview");
+  const item = question.items[0]!;
+  const tabs = item.options[1]!;
+  const sized = (text: string): AgentQuestion => ({
+    ...question,
+    items: [
+      { ...item, options: item.options.map((o) => (o.id === tabs.id ? { ...o, preview: { ...o.preview!, text } } : o)) },
+      ...question.items.slice(1),
+    ],
+  });
+  const answer = { selections: { [item.id]: selection([tabs.id]) } };
+  // "é" is two UTF-8 bytes: 32,768 of them are exactly the bound, one ASCII byte more is over it.
+  const atBound = "é".repeat(32768);
+  expect(reply(sized(atBound), answer).annotations).toEqual({ [item.prompt]: { preview: atBound } });
+  const over = reply(sized(atBound + "x"), answer);
+  expect(over.annotations).toBeUndefined();
+  expect(over.answers).toEqual(reply(question, answer).answers);
+  expect(reply(sized("x".repeat(65537)), answer).annotations).toBeUndefined();
+});
+
 test("an Other answer, a multi-select or an option with no preview sends no annotation", () => {
   const question = expected("pending-with-preview");
   const item = question.items[0]!;
