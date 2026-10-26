@@ -50,4 +50,16 @@ enum ChiefPetStrings {
     static var replyTarget: String {
         String(localized: "chiefPet.reply.target", defaultValue: "Send to", table: "ChiefPet", bundle: .module)
     }
+
+    // MARK: Upload (ChiefAvatarUploads)
+
+    static var uploadLimits: String {
+        String(localized: "chiefPet.upload.limits",
+               defaultValue: "Use a PNG, JPEG, WebP, HEIC or GIF up to 20 MB. A moving GIF can be at most 512 KB and 256 × 256 pixels.",
+               table: "ChiefPet", bundle: .module)
+    }
+
+    static var uploadUnsaved: String {
+        String(localized: "chiefPet.upload.unsaved", defaultValue: "cmux couldn’t save that picture on this Mac.", table: "ChiefPet", bundle: .module)
+    }
 }

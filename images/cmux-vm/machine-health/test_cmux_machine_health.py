@@ -140,23 +140,86 @@ class HealthTests(unittest.TestCase):
         self.assertRegex(h["checkedAt"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
         self.assertEqual((h["problems"], h["fixed"]), ([], []))
 
-    def test_dns_heals_by_restarting_resolved_relinking_and_restarting_tailscaled(self):
+    def test_dns_heals_by_restarting_resolved_relinking_and_restarting_tailscaled_when_opted_in(self):
         host = FakeHost()
         host.resolving, host.linked, host.tailscaled = set(), False, True
         host.heal["tailscaled.service"] = lambda: host.resolving.add("github.com")
-        h = run(host)
+        config = {"restartTailscaled": True}
+        for _ in range(2):
+            run(host, config)
+            host.t += 60
+        h = run(host, config)
         self.assertEqual(h["problems"], [])
         self.assertEqual([f["action"] for f in h["fixed"]], ["restarted systemd-resolved", "relinked /etc/resolv.conf to the systemd-resolved stub", "restarted tailscaled so it picks systemd-resolved"])
         order = [c for c in host.calls if c.startswith("systemctl restart") or c == "relink"]
         self.assertEqual(order, ["systemctl restart systemd-resolved.service", "relink", "systemctl restart tailscaled.service"])
+
+    def test_dns_never_restarts_tailscaled_by_default(self):
+        host = FakeHost()
+        host.resolving, host.tailscaled = set(), True
+        for _ in range(40):
+            h = run(host)
+            host.t += 60
+        self.assertFalse(any("tailscaled" in c for c in host.calls if c.startswith("systemctl restart")))
+        self.assertTrue(any(c == "systemctl restart systemd-resolved.service" for c in host.calls))
+        self.assertNotIn("restarted tailscaled so it picks systemd-resolved", [f["action"] for f in h["fixed"]])
+
+    def test_dns_heals_only_after_failures_in_a_row_and_a_good_pass_resets_the_count(self):
+        host = FakeHost()
+        restarts = lambda: sum(c == "systemctl restart systemd-resolved.service" for c in host.calls)
+        for resolving in (set(), set(), {"github.com"}, set(), set()):
+            host.resolving = resolving
+            run(host)
+            host.t += 60
+        self.assertEqual(restarts(), 0, "a good pass in between starts the count again")
+        host.resolving = set()
+        run(host)
+        self.assertEqual(restarts(), 1)
+        host.t += 60
+        run(host, {"dnsFailuresBeforeHeal": 1})
+        self.assertEqual(restarts(), 1, "still once per 15 min")
+
+    def test_a_heal_that_resolves_every_name_starts_the_count_again(self):
+        host = FakeHost()
+        host.resolving = set()
+        host.heal["systemd-resolved.service"] = lambda: host.resolving.add("github.com")
+        config = {"dnsFailuresBeforeHeal": 2}
+        run(host, config)
+        host.t += 60
+        self.assertEqual(run(host, config)["problems"], [])
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 0)
+
+    def test_a_hostile_stored_failure_count_is_ignored_and_the_count_saturates(self):
+        for stored in ("true", "-1", '"3"', "1.5", "9" * 4300, str(cmh.DNS_FAILURES_MAX + 1)):
+            host = FakeHost()
+            host.resolving = set()
+            host.files[cmh.STATE_FILE] = '{"dnsFailures": %s}' % stored
+            run(host)
+            self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 1, stored[:20])
+        host = FakeHost()
+        host.resolving = set()
+        host.files[cmh.STATE_FILE] = json.dumps({"dnsFailures": cmh.DNS_FAILURES_MAX})
+        run(host)
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], cmh.DNS_FAILURES_MAX)
+
+    def test_a_dns_check_that_raises_keeps_the_count(self):
+        host = FakeHost()
+        host.resolving = set()
+        run(host)
+        host.t += 60
+        real, host.run = host.run, lambda argv, timeout, **kw: (_ for _ in ()).throw(OSError("getent")) if argv[0] == "getent" else real(argv, timeout, **kw)
+        self.assertIn("machine health: the dns check failed: OSError", details(run(host)))
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 1)
 
     def test_dns_fixes_once_per_15_minutes_and_keeps_the_problem_since(self):
         host = FakeHost()
         host.resolving = set()
         first = run(host)
         self.assertEqual(details(first), ["DNS: github.com does not resolve"])
-        host.t += 60
-        second = run(host)
+        self.assertEqual(sum(c == "systemctl restart systemd-resolved.service" for c in host.calls), 0)
+        for _ in range(3):
+            host.t += 60
+            second = run(host)
         self.assertEqual(sum(c == "systemctl restart systemd-resolved.service" for c in host.calls), 1)
         self.assertEqual(second["problems"][0]["since"], first["problems"][0]["since"])
         host.t += 15 * 60
@@ -456,7 +519,7 @@ class HealthTests(unittest.TestCase):
         host.files[cmh.CONFIG_FILE] = json.dumps({"dnsNames": "github.com"})
         self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json: dnsNames must be a list of non-empty strings; the defaults apply"])
         self.assertFalse(any(c.startswith("getent ahosts g ") or c == "getent ahosts g" for c in host.calls))
-        for bad in ({"hygieneCommand": []}, {"hygieneCommands": ["systemctl start x"]}, ["not", "an", "object"], {"diskFloorBytes": -1}, {"ramFloorBytes": True}, {"tailnetName": "yes"}, {"diskPath": "home"}, {"peerDownMinutes": "10"}, {"expectedPeers": "big-red"}, {"acpmuxSockets": ["acpmux.sock"]}):
+        for bad in ({"hygieneCommand": []}, {"hygieneCommands": ["systemctl start x"]}, ["not", "an", "object"], {"diskFloorBytes": -1}, {"ramFloorBytes": True}, {"tailnetName": "yes"}, {"restartTailscaled": 1}, {"dnsFailuresBeforeHeal": 0}, {"dnsFailuresBeforeHeal": 61}, {"dnsFailuresBeforeHeal": 2.0}, {"dnsFailuresBeforeHeal": True}, {"diskPath": "home"}, {"peerDownMinutes": "10"}, {"expectedPeers": "big-red"}, {"acpmuxSockets": ["acpmux.sock"]}):
             with self.assertRaises(SystemExit, msg=bad):
                 cmh.check_config(bad)
         cmh.check_config({"hygieneCommands": [["systemctl", "start", "x"]], "dnsNames": ["github.com"], "diskFloorBytes": 0, "acpmuxUnits": ["acpmux-agent-huge-blue.service"], "expectedPeers": ["big-red"], "peerDownMinutes": 10})
@@ -485,7 +548,7 @@ class HealthTests(unittest.TestCase):
             host = FakeHost()
             host.resolving = set()
             host.files[cmh.STATE_FILE] = state
-            h = run(host)
+            h = run(host, {"dnsFailuresBeforeHeal": 1})
             self.assertEqual(details(h), ["DNS: github.com does not resolve"], state)
             self.assertEqual([f["action"] for f in h["fixed"]], ["restarted systemd-resolved"], state)
             self.assertNotIn("/home", json.dumps(h), state)
@@ -546,9 +609,9 @@ class HealthTests(unittest.TestCase):
     def test_a_clock_that_goes_back_neither_extends_the_budget_nor_blocks_a_fix(self):
         host = FakeHost()
         host.resolving = set()
-        run(host)
+        run(host, {"dnsFailuresBeforeHeal": 1})
         host.t -= 3600  # wall clock corrected backwards
-        run(host)
+        run(host, {"dnsFailuresBeforeHeal": 1})
         self.assertEqual(sum(c == "systemctl restart systemd-resolved.service" for c in host.calls), 2)
 
 
