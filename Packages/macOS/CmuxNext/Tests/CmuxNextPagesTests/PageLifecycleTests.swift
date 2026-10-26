@@ -138,6 +138,24 @@ struct PageLifecycleTests {
         #expect(log.lines == ["freeze history"])
     }
 
+    /// A refused freeze arms its own retry one recently visible window later: the plan's deadline
+    /// for a page it decided to freeze is only the discard, so without one the page would stay
+    /// hidden and running until then.
+    @Test func aRefusedFreezeIsAskedAgainOneWindowLater() throws {
+        let history = page("history"), cloud = page("cloud")
+        history.refusesFreeze = true
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .hidden)
+        #expect(near(lifecycle.nextPassAt, .seconds(20)))
+        history.refusesFreeze = false
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        #expect(log.lines == ["freeze history", "freeze history"])
+    }
+
     @Test func showOfARunningPageDoesNotThaw() {
         let settings = page("settings")
         lifecycle.hide("a", page: Target(page: settings))

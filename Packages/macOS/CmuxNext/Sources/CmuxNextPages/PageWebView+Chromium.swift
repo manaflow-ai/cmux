@@ -191,6 +191,7 @@ extension PageWebView {
         loaded = false
         traceOpenLoadStarted(.reload)
         webView.load(URLRequest(url: descriptor.url(route: route)))
+        carryFreezeToWebKit()
     }
 
     /// Ends Chromium mode for good (the page closed).
@@ -200,6 +201,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        if case .chromium? = frozenEngine { frozenEngine = nil }
     }
 
     // MARK: Events
