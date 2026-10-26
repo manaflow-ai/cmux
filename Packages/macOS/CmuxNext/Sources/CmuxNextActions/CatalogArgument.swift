@@ -224,6 +224,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "keep", title: String(localized: "argument.keep", defaultValue: "Keep After Close", bundle: .module), kind: .bool)
     }
 
+    /// Pin/Unpin's state: true pins, false unpins; left out, the action toggles.
+    static var pinnedBool: ActionArgument {
+        ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
+                       isRequired: false)
+    }
+
     static var onBool: ActionArgument {
         ActionArgument(name: "on", title: String(localized: "argument.on", defaultValue: "On", bundle: .module), kind: .bool)
     }
