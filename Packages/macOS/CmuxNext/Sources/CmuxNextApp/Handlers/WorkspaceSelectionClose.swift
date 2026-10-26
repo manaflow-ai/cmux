@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
@@ -41,10 +42,13 @@ enum WorkspaceSelectionClose {
             },
             listed: { services.workspace(id: $0) != nil },
             liveClosed: { ids in
+                // The rows left the sidebar at the press, and the group with them: write the group itself, unless a workspace this
+                // window does not list is still in it (the window's sidebar shows only its own members).
                 for group in emptied where group.workspaces.allSatisfy({ ids.contains($0.id.rawValue) }) {
-                    // The rows left the sidebar at the press, and the group with them: write the group itself.
-                    if let bridge = controller?.sidebar { PersonalGroupPin(bridge: bridge).closeEmptied(group.id, pinned: group.isPinned) }
-                    if !group.isPinned { undoGroups.append(SidebarDocStore.personalGroupID(item: group.id.rawValue)) }
+                    let id = SidebarDocStore.personalGroupID(item: group.id.rawValue), context = AppActionContext(services: services)
+                    guard context.workspaces(inPersonalGroup: WorkspaceGroupID(rawValue: id)).allSatisfy({ ids.contains($0.id) }), let bridge = controller?.sidebar,
+                          PersonalGroupPin(bridge: bridge).closeEmptied(group.id, pinned: group.isPinned) else { continue }
+                    undoGroups.append(id)
                 }
             }, machines: { services.machines.daemons },
             offerUndo: { names, undone in

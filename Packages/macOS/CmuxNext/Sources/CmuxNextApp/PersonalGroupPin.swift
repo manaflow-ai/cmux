@@ -46,13 +46,14 @@ struct PersonalGroupPin {
 
     /// The write of a group whose workspaces all closed (Close Group, or a selection's close that emptied it after its rows
     /// left the sidebar, `WorkspaceSelectionClose`): a pinned group stays, folded; an unpinned one goes (recorded, so
-    /// Reopen Closed and the close's Undo form it again).
-    func closeEmptied(_ group: GroupID, pinned: Bool) {
-        guard isServed else { return }
+    /// Reopen Closed and the close's Undo form it again). True when it sent the delete.
+    @discardableResult func closeEmptied(_ group: GroupID, pinned: Bool) -> Bool {
+        guard isServed else { return false }
         // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
         let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
-        if pinned { return send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) } }
-        send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) }
+        if pinned { send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) } }
+        else { send("delete-personal-group") { try await $0.state.deleteWorkspaceGroup(id) } }
+        return !pinned
     }
 
     /// One home-daemon request; a failure re-syncs the sidebar.

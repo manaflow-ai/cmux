@@ -96,9 +96,10 @@ enum WorkspaceGroupClose {
     private static func reopen(group id: String?, names: [String], after seen: Set<String>, _ services: AppServices) async {
         let arrived: @MainActor @Sendable () -> Bool = { [weak services] in
             guard let services else { return true }
-            // A group-only record (a selection's emptied group, WorkspaceSelectionClose) waits for the group's record.
-            let found = matches(names: names, group: id, after: seen, services)
-            return found.missing.isEmpty && (!names.isEmpty || id == nil || found.group != nil)
+            // A group-only record (a selection's emptied group, WorkspaceSelectionClose) waits for the group's record while
+            // the group is gone (a refused delete leaves the group: nothing to wait for).
+            let found = matches(names: names, group: id, after: seen, services), gone = { (id: String) in services.machines.local.store.personal.group(WorkspaceGroupID(rawValue: id)) == nil }
+            return found.missing.isEmpty && (!names.isEmpty || found.group != nil || !(id.map(gone) ?? false))
         }
         if !arrived() { await ObservationDeadline(owner: "workspace-group-close-undo").until(arrived, limit: arrivalLimit) }
         let found = matches(names: names, group: id, after: seen, services)
