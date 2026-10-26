@@ -3,6 +3,7 @@
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextKeepAwake
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -67,6 +68,31 @@ struct EnergyConsumersTests {
         #expect(services.cache.webKit.energySaver, "the app's WebKit engine does not follow mainWork.energy")
         services.mainWork.energy.update(.normal)
         #expect(!services.cache.webKit.energySaver)
+    }
+
+    /// The `energySaver` feature is off by default: macOS Low Power Mode still reaches WebKit's render rate
+    /// and the neighbor tabs, from the monitor through the driver, as it did before Energy Saver existed.
+    /// The `energy.saver` setting does not change that while the feature is off.
+    @Test func lowPowerModeStillReachesThePagesWhileTheFeatureIsOff() {
+        let monitor = Self.monitor(FakePower())
+        let services = AppServices(environment: AppEnvironment.current([:]), energyMonitor: monitor)
+        guard !services.energy.driver.isEnabled else { return }  // a local Labs override turned the feature on
+        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines,
+                                             energy: services.mainWork.energy)
+        hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: nil, neighborRadius: 1))
+        hibernation.start()
+        defer { hibernation.stop() }
+        services.startEnergy(keepAwake: KeepAwakeService(), videos: BackdropVideoPlayers())
+        services.energy.driver.update(setting: .off)
+        #expect(!services.cache.webKit.energySaver && hibernation.neighborRadius == 1)
+
+        monitor.lowPowerMode.override = true
+        #expect(services.mainWork.energy.policy.lowPowerFallback && !services.mainWork.energy.policy.isSaver)
+        #expect(services.cache.webKit.energySaver, "WebKit kept the full rate in Low Power Mode with the feature off")
+        #expect(hibernation.neighborRadius == 0, "Low Power Mode kept neighbor tabs awake with the feature off")
+
+        monitor.lowPowerMode.override = nil
+        #expect(!services.cache.webKit.energySaver && hibernation.neighborRadius == 1)
     }
 
     /// An `AppServices` a test builds never starts its monitor: no IOKit read, no power-source

@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHibernation
+import CmuxNextPages
 @testable import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -125,6 +126,22 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.isEmpty, "Energy Saver kept neighbors awake")
         rig.energy.update(.normal)
         #expect(rig.hibernation.awakeNeighbors.count == 2, "the neighbors did not wake again after the saver")
+    }
+
+    /// The saver reaches the cmux pages' lifecycle too (a shorter recently visible window), and so does
+    /// Low Power Mode while the `energySaver` feature is off (the policy's fallback).
+    @Test func energySaverReachesThePageLifecycle() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let lifecycle = PageLifecycle(deadlines: rig.services.mainDeadlines)
+        rig.services.cache.pageLifecycle = lifecycle
+        defer { rig.services.cache.pageLifecycle = nil }
+        rig.energy.update(EnergyPolicy(saverReason: .setting))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle did not take the saver")
+        rig.energy.update(.normal)
+        #expect(!lifecycle.conditions.energySaver, "the page lifecycle kept the saver after it ended")
+        rig.energy.update(EnergyPolicy(lowPowerFallback: true))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle ignored Low Power Mode with the feature off")
     }
 
     @Test func zeroTurnsItOff() async throws {

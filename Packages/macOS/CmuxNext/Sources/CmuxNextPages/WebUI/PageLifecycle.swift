@@ -135,7 +135,7 @@ package final class PageLifecycle {
 
     /// - Parameters:
     ///   - planner: The pure plan, with its times.
-    ///   - conditions: The memory pressure, Low Power Mode and `browser.hibernation` until the first
+    ///   - conditions: The memory pressure, Energy Saver and `browser.hibernation` until the first
     ///     ``setConditions(_:)``.
     ///   - deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`); a test passes one
     ///     on a fake wake-up timer and uptime.
@@ -203,7 +203,7 @@ package final class PageLifecycle {
         hiddenKeys.insert(key)
         if hides { page.keepHideSnapshot() }
         guard entry.state != .discarded else { return }
-        let window = Duration.seconds(planner.timing.visibleWindow(lowPowerMode: conditions.lowPowerMode))
+        let window = Duration.seconds(planner.timing.visibleWindow(energySaver: conditions.energySaver))
         if let previous = mostRecentlyHidden, previous != key, let hiddenAt = entries[previous]?.hiddenAt {
             arm(at: max(now, hiddenAt + window))
         } else if mostRecentlyHidden == nil, hiddenKeys.count > 1 {
@@ -251,7 +251,7 @@ package final class PageLifecycle {
         if dropped, hiddenKeys.contains(key) { arm(at: uptime()) }
     }
 
-    /// The memory pressure, Low Power Mode, or `browser.hibernation` and its companions changed (the
+    /// The memory pressure, Energy Saver, or `browser.hibernation` and its companions changed (the
     /// app's browser hibernation passes on what it follows): a pass looks again.
     package func setConditions(_ conditions: PageLifecyclePlanner.Conditions) {
         guard conditions != self.conditions else { return }
@@ -294,7 +294,7 @@ package final class PageLifecycle {
     /// Moves one page toward the planned state. A pass only moves pages down (hidden, frozen,
     /// discarded); it thaws a frozen page only for a reason that appeared since
     /// (``PageLifecyclePlanner/KeepReason/thawsFrozenPage``: loading, focus, a setting), never for time
-    /// alone: the most recently used one, or a longer recently visible window after Low Power Mode ends.
+    /// alone: the most recently used one, or a longer recently visible window after Energy Saver ends.
     private func perform(_ decision: PageLifecyclePlanner.Decision) {
         guard var entry = entries[decision.key], entry.state != decision.state else { return }
         switch (entry.state, decision.state) {

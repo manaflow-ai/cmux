@@ -132,7 +132,8 @@ final class BrowserHibernation {
     /// The app's Energy Saver policy (`MainWorkScheduler.energy`).
     private let energy: EnergyPolicySource
     private var energyObservation: MainActorEnergyObservation?
-    /// Energy Saver is on, as of the policy's last change.
+    /// Pages spend less, as of the policy's last change: Energy Saver, or Low Power Mode while the
+    /// `energySaver` feature is off (``EnergyPolicy/pageSaver``).
     private(set) var energySaver: Bool
     /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
     private var windowOcclusion: WindowOcclusionChecker?
@@ -184,7 +185,7 @@ final class BrowserHibernation {
         self.cache = cache
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
         self.energy = energy
-        energySaver = energy.policy.isSaver
+        energySaver = energy.policy.pageSaver
         self.memory = memory
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
@@ -192,7 +193,7 @@ final class BrowserHibernation {
 
     /// Tabs on each side of a shown tab that stay awake now: the setting, or 0 under memory pressure or Energy Saver.
     var neighborRadius: Int {
-        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, lowPower: energySaver)
+        NeighborTabs.radius(setting: setting.neighborRadius, pressure: pressure, energySaver: energySaver)
     }
 
     /// Registers with the memory coordinator as one lossy consumer (event-driven, no polling): the
@@ -202,8 +203,8 @@ final class BrowserHibernation {
         guard memoryRegistration == nil else { return }
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
-        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaverDidChange(policy.isSaver) }
-        energySaverDidChange(energy.policy.isSaver)
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaverDidChange(policy.pageSaver) }
+        energySaverDidChange(energy.policy.pageSaver)
         // Pages mounted before the hibernation existed (a restored session) are followed too.
         for (key, entry) in cache?.browsers ?? [:] { pageDidMount(key, entry.tab) }
     }
@@ -259,7 +260,7 @@ final class BrowserHibernation {
     /// every cmux page's lifecycle (`pageLifecycle`; the cache holds none while it is off).
     private func updateFollowers() {
         agentPages?.update(setting: setting, pressure: pressure)
-        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, lowPowerMode: energySaver))
+        cache?.pageLifecycle?.setConditions(.init(setting: setting, pressure: pressure, energySaver: energySaver))
     }
 
     /// Energy Saver turned on or off: the neighbors and the cmux pages follow. Other policy changes
