@@ -219,7 +219,12 @@ public actor SSHMachineLink {
         let child = ChildProcess(executable: binary,
                                  arguments: commandLine.link(host, clientStateDir: paths.clientState.path, localSocket: path),
                                  environment: env)
-        try child.start()
+        try await child.start()
+        // A stop during the launch found no child to end.
+        guard machine.mayAttempt else {
+            child.terminate()
+            throw SSHLinkError.stopped
+        }
         self.child = child
         do {
             let socket = try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect \(host.destination)") { line in

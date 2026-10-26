@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
+public import CmuxNextWakeups
 public import Foundation
 import Security
-import CmuxNextWakeups
 
 /// A remote browser host this app starts on loopback for one remote tab
 /// (remote-tab-r2.md, local host): `cmux-remote-browser-host --serve --listen
@@ -59,16 +59,27 @@ public final class LocalRemoteBrowserHost {
     /// takes seconds, not minutes).
     public static let defaultStartTimeout: Duration = .seconds(60)
 
+    /// The host's launcher: the person waits for this tab, so the spawn runs at userBlocking (Chromium's
+    /// launcher task runner is USER_BLOCKING, content/browser/child_process_launcher_helper.cc). The host
+    /// itself runs at userVisible for its whole life, its priority set apart from the spawn's as
+    /// `ChildProcessLauncherHelper::SetProcessPriority` does, so a CEF host never competes with the work a
+    /// frame waits for.
+    public static func defaultLauncher() -> ProcessLauncher {
+        ProcessLauncher(label: "com.cmuxterm.next.remote-browser-host", priority: .userBlocking, childPriority: .userVisible)
+    }
+
     /// Launches `executable` and returns once it listens. `workRoot` holds
     /// the per-host work directory (the CEF cache) and the host log. A host
     /// that does not listen within `timeout` (measured on `clock`) is
-    /// stopped and `start` throws `Failure.timedOut`.
+    /// stopped and `start` throws `Failure.timedOut`. `launcher` spawns it off the caller's thread (a
+    /// spawn takes hundreds of ms under memory pressure); nil is ``defaultLauncher()``.
     public static func start(
         executable: URL, pageURL: URL?, workRoot: URL = FileManager.default.temporaryDirectory,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         timeout: Duration = LocalRemoteBrowserHost.defaultStartTimeout, clock: any Clock<Duration> = ContinuousClock(),
-        secret: String? = nil
+        secret: String? = nil, launcher: ProcessLauncher? = nil
     ) async throws -> LocalRemoteBrowserHost {
+        let launcher = launcher ?? defaultLauncher()
         let name = "cmux-rb-host-\(UUID().uuidString)"
         let work = workRoot.appending(path: name, directoryHint: .isDirectory)
         let cache = work.appending(path: "cache", directoryHint: .isDirectory)
@@ -102,7 +113,7 @@ public final class LocalRemoteBrowserHost {
             exited.finish()
         }
         do {
-            try process.run()
+            try await launcher.launched(process)
         } catch {
             try? FileManager.default.removeItem(at: work)
             throw Failure.launch(String(describing: error))
