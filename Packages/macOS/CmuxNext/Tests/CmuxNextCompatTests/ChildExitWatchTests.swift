@@ -1,8 +1,8 @@
+import CmuxNextCompat
 import Darwin
 import Dispatch
 import Foundation
 import Testing
-@testable import CmuxNextAgentPane
 
 /// ``ChildExitWatch`` reaps a child from a process-exit source on its own named queue, with no thread parked in
 /// `waitpid` while the child runs (p02-threads-120): the shell-mode and Tab-completion shells used to hold a GCD
@@ -13,7 +13,7 @@ struct ChildExitWatchTests {
         let pid = try Self.spawn("sleep 0.2; exit 3")
         let (status, label) = await Self.exit(of: pid)
         #expect(status.map { ($0 >> 8) & 0xff } == 3, "the exit code reaches the callback")
-        #expect(label == "cmux.next.agent-pane.test-reap.\(pid)", "the callback runs on the child's named queue, not a root queue")
+        #expect(label == "cmux.next.compat.test-reap.\(pid)", "the callback runs on the child's named queue, not a root queue")
         #expect(Self.isReaped(pid), "no zombie is left")
     }
 
@@ -48,7 +48,7 @@ struct ChildExitWatchTests {
     /// `waitpid` on the queue would hold this probe until the child's 30 s end.
     @Test func noThreadWaitsOnTheReapQueueWhileTheChildRuns() async throws {
         let pid = try Self.spawn("sleep 30")
-        let queue = DispatchQueue(label: "cmux.next.agent-pane.test-reap.\(pid)", qos: .utility)
+        let queue = DispatchQueue(label: "cmux.next.compat.test-reap.\(pid)", qos: .utility)
         let (statuses, sink) = AsyncStream.makeStream(of: Int32?.self, bufferingPolicy: .bufferingNewest(1))
         // Started here, before the probe is queued: whatever the watch queues runs first.
         ChildExitWatch(pid: pid, queue: queue).start { status in
@@ -69,7 +69,7 @@ struct ChildExitWatchTests {
     /// Waits for `semaphore` off the cooperative pool, at most `timeout`.
     private static func wait(_ semaphore: DispatchSemaphore, timeout: DispatchTimeInterval) async -> Bool {
         await withCheckedContinuation { continuation in
-            DispatchQueue(label: "cmux.next.agent-pane.test-wait", qos: .utility).async {
+            DispatchQueue(label: "cmux.next.compat.test-wait", qos: .utility).async {
                 continuation.resume(returning: semaphore.wait(timeout: .now() + timeout) == .success)
             }
         }
@@ -77,7 +77,7 @@ struct ChildExitWatchTests {
 
     private static func exit(of pid: pid_t) async -> (Int32?, String) {
         await withCheckedContinuation { continuation in
-            ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.test-reap.\(pid)", qos: .utility)).start { status in
+            ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.compat.test-reap.\(pid)", qos: .utility)).start { status in
                 continuation.resume(returning: (status, String(cString: __dispatch_queue_get_label(nil))))
             }
         }
