@@ -17,6 +17,13 @@ public final class CEFBookmarkBridge {
     /// Stores that reported, per cmux profile.
     public private(set) var stores: [BrowserProfileID: Set<String>] = [:]
 
+    /// The Chromium that holds the stores: the process-wide runtime (tests pass their own).
+    private let runtime: CEFRuntime
+
+    init(runtime: CEFRuntime = .shared) {
+        self.runtime = runtime
+    }
+
     func arrived(json: String, cachePath: String) {
         guard let profile = Self.profile(ofCachePath: cachePath), let event = CEFBookmarkEvent(json: json) else { return }
         stores[profile, default: []].insert(cachePath)
@@ -24,15 +31,20 @@ public final class CEFBookmarkBridge {
     }
 
     /// Makes the store's Chromium tree equal to `treeJSON` ({"nodes": [...]},
-    /// pre-order). 1 applied; 0 not loaded yet (`.loaded` follows); -1 refused,
-    /// also when Chromium is not running or has no bridge.
-    @discardableResult
-    public func sync(store: String, treeJSON: String) -> Int32 {
-        let runtime = CEFRuntime.shared
-        guard let shim = runtime.shim, runtime.state == .ready else { return -1 }
-        let result = shim.bookmarksSync(store, treeJSON)
-        if result < 0 { forget(store) }
-        return result
+    /// pre-order), sent in this turn. Chromium's answer is the call's own in
+    /// process and the host's REPLY in host mode
+    /// (``CEFRuntime/whenAnswered(_:label:timeout:then:)``): 1 applied; 0 not
+    /// loaded yet (`.loaded` follows); below 0 refused or no answer, and the
+    /// store is forgotten. `onRefused` runs for a refusal, and at once when
+    /// Chromium is not running.
+    public func sync(store: String, treeJSON: String, onRefused: @escaping () -> Void = {}) {
+        guard runtime.shim != nil, runtime.state == .ready else { return onRefused() }
+        let sent = runtime.sendAsync { shim in shim.bookmarksSync(store, treeJSON) }
+        runtime.whenAnswered(sent, label: "bookmarks sync") { [weak self] answer in
+            guard (answer ?? -1) < 0 else { return }
+            self?.forget(store)
+            onRefused()
+        }
     }
 
     private func forget(_ store: String) {

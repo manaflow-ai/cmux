@@ -1180,14 +1180,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/Engine/BrowserPagePrint.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; printing in host mode is task 065."
+      "reason": "Returns 0 only when the browser is gone, which the client knows: BrowserPagePrint sends it one-way, as chrome::Print returns nothing; printing in host mode is task 065."
     },
     {
       "name": "cmux_shim_find",
@@ -1375,7 +1373,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 sent, 0 browser gone, -1 refused by Chromium; agent CDP later goes daemon to host directly (task 233)."
+      "reason": "1 sent, 0 browser gone, -1 refused by Chromium: CEFAgentRelay.send takes the token form and turns an answer other than 1 into a CDP error reply on the relay stream; agent CDP later goes daemon to host directly (task 233)."
     },
     {
       "name": "cmux_shim_devtools_set_key_handler",
@@ -2373,14 +2371,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFDownloads.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks both (http, https, data, blob) before it posts; DOWNLOAD_STARTED follows."
+      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks the scheme (http, https, data, blob) before it posts and does not read the result; DOWNLOAD_STARTED follows, as DownloadManager::DownloadUrl returns nothing."
     },
     {
       "name": "cmux_shim_download_continue",
@@ -3196,14 +3192,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/ChromiumNetError.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; ordered before the reload that follows it."
+      "reason": "Returns 0 only when the browser is gone, which the client knows; ChromiumNetError sends it one-way, ordered before the reload that follows it."
     },
     {
       "name": "cmux_shim_free_owned",
@@ -3478,7 +3472,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state."
+      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state, which CEFBookmarkBridge.sync takes in the token form."
     },
     {
       "name": "cmux_shim_page_scheme_add",
@@ -4269,15 +4263,6 @@
       "task": "p01-process-026"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFBookmarkBridge.swift: CEFBookmarkBridge.sync(store:treeJSON:)",
-      "exports": [
-        "cmux_shim_bookmarks_sync"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; a reply below 0 forgets the store, as the immediate result does now.",
-      "task": "p01-process-027"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift: CEFOmniboxKeywords.suggestions(browser:extensionID:text:shim:)",
       "exports": [
         "cmux_shim_omnibox_input"
@@ -4285,15 +4270,6 @@
       "needs": "reply",
       "change": "In host mode the call returns 1 once sent: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies beside the OMNIBOX_SUGGESTIONS waiter; a reply of 0 (the extension does not listen) returns nil at once instead of at the suggestion timeout.",
       "task": "p01-process-026"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFAgentRelay.swift: CEFAgentRelay.send(_:)",
-      "exports": [
-        "cmux_shim_devtools_send"
-      ],
-      "needs": "reply",
-      "change": "In host mode the call returns 1 once sent, so .sent no longer says the browser took the message: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; send becomes async and reports .noBrowser or .refused from the reply.",
-      "task": "p01-process-027"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.loadUnpacked(at:)",

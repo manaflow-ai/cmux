@@ -34,8 +34,11 @@ nonisolated enum CEFDownloadEvent: Equatable, Sendable {
 /// What `CEFDownloads` needs from the shim (`cmux_shim_download_*`); tests
 /// pass a fake.
 struct CEFDownloadShim {
-    /// Starts a download of a URL with a tab's request context.
-    var start: (_ browser: Int32, _ url: String) -> Bool
+    /// Starts a download of a URL with a tab's request context, one-way:
+    /// DOWNLOAD_STARTED reports the start, as `DownloadManager::DownloadUrl`
+    /// (content/public/browser/download_manager.h) returns nothing. A tab
+    /// that closed before Chromium got it starts none.
+    var start: (_ browser: Int32, _ url: String) -> Void
     /// Answers DOWNLOAD_STARTED (by token) with a path; "" cancels.
     var answer: (_ id: Int32, _ path: String) -> Void
     /// 0 cancel, 1 pause, 2 resume (a cancel before the first update is
@@ -87,6 +90,8 @@ final class CEFDownloads {
     }
 
     /// Downloads `url` with tab `browser`'s session into the Downloads folder.
+    /// True once sent (``CEFDownloadShim/start``); a download that never
+    /// starts leaves its entry until 16 newer ones push it out.
     func download(_ url: String, browser: Int32) -> Bool {
         guard Self.isDownloadable(url) else {
             logger.error("download refused: not a web URL")
@@ -95,24 +100,18 @@ final class CEFDownloads {
         guard let shim = shim() else { return false }
         started.append((browser, url))
         if started.count > 16 { started.removeFirst(started.count - 16) }
-        guard shim.start(browser, url) else {
-            if let index = started.lastIndex(where: { $0.browser == browser && $0.url == url }) { started.remove(at: index) }
-            return false
-        }
+        shim.start(browser, url)
         return true
     }
 
     /// Downloads `url` with tab `browser`'s session into `destination`, a
-    /// file the person chose.
+    /// file the person chose. True once sent, as `download`.
     func save(_ url: URL, to destination: URL, browser: Int32) -> Bool {
         let address = url.absoluteString
         guard Self.isDownloadable(address), let shim = shim() else { return false }
         chosen.append((browser, address, destination))
         if chosen.count > 16 { chosen.removeFirst(chosen.count - 16) }
-        guard shim.start(browser, address) else {
-            chosen.removeAll { $0.browser == browser && $0.url == address && $0.destination == destination }
-            return false
-        }
+        shim.start(browser, address)
         return true
     }
 
@@ -225,7 +224,7 @@ extension CEFDownloads {
         let downloads = CEFDownloads { [weak runtime] () -> CEFDownloadShim? in
             guard let shim = runtime?.shim else { return nil }
             return CEFDownloadShim(
-                start: { browser, url in url.withCString { shim.downloadURL(browser, $0) } == 1 },
+                start: { browser, url in _ = url.withCString { shim.downloadURL(browser, $0) } },
                 answer: { id, path in _ = path.withCString { shim.downloadContinue(id, $0) } },
                 control: { id, command in _ = shim.downloadControl(id, command) }
             )
