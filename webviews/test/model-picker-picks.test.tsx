@@ -404,6 +404,35 @@ test("a chat on a profile whose id names no agent keeps Claude's mark on its one
   expect(railNames().some((name) => name.startsWith("Work"))).toBe(false);
 });
 
+
+
+test("an unavailable canonical profile yields the available sibling's models", async () => {
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "shared-claude-canonical",
+        name: "Claude Code",
+        family: "shared-claude",
+        models: [],
+        unavailable: "model probe failed",
+        probeFailed: true,
+      },
+      {
+        id: "shared-claude-work",
+        name: "Work",
+        family: "shared-claude",
+        models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }],
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  await openOn("Claude Code");
+  expect(rows().some((row) => row.dataset.key === "model:claude-opus-5-5")).toBe(true);
+});
+
 test("before its first message, a machine profile is absent from the harness rail", async () => {
   await mount({
     harness: "codex",
