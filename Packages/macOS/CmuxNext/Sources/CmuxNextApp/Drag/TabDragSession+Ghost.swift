@@ -35,7 +35,7 @@ extension TabDragSession {
     }
 
     /// One ghost frame; false once the ghost settled.
-    func tick(_ current: Drag, elapsed dt: Double) -> Bool {
+    func tick(_ current: Drag, elapsed dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
         guard current === drag || current === landing else { return false }
         var moving = current.motion.step(dt)
         if current === drag, autoscroll(current, dt: dt) {
@@ -152,7 +152,6 @@ extension TabDragSession {
     func removeMonitors(_ drag: Drag) {
         if let monitor = drag.monitor { NSEvent.removeMonitor(monitor) }
         drag.monitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 

@@ -1,0 +1,17 @@
+[package]
+name = "cmux-process"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Child processes of the cmux daemon that inherit no descriptor they were not given (posix_spawn with POSIX_SPAWN_CLOEXEC_DEFAULT on macOS)"
+
+[lints]
+workspace = true
+
+[dependencies]
+libc.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+wait-timeout.workspace = true

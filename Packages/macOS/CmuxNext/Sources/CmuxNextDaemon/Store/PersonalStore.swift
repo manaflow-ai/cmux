@@ -77,11 +77,11 @@ private func personalWorkspaceIndex(_ workspaces: [PersonalWorkspace]) -> [Strin
 
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapability.profiles.rawValue) ?? false }
 
     /// Whether personal groups carry a place among the loose workspaces
     /// (`personal-mixed-order-v1`).
-    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.shared.personalMixedOrder) ?? false }
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapability.personalMixedOrder.rawValue) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {

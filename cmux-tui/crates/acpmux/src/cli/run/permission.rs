@@ -54,14 +54,16 @@ fn explain_person_required(e: anyhow::Error, session: &str) -> anyhow::Error {
     if !person {
         return e;
     }
-    AppError::new(
+    let deny = format!("acpmux deny {session}");
+    let mut app = AppError::new(
         crate::cli::errors::Code::Runtime,
         "person_required",
         format!(
-            "the CLI cannot allow a permission: only the cmux app may. Approve this on the Mac app; `acpmux deny {session}` still denies it. The prompt is still pending."
+            "the CLI cannot allow a permission: only the cmux app may. Approve this in cmux NEXT on the machine whose app shows the chat; `{deny}` still denies it. The prompt is still pending. A session that should not ask gets its policy when it starts, on the machine that runs it: `acpmux new --policy approve-edits ...` (for a peer: `ssh HOST 'acpmux new ... -d'`)."
         ),
-    )
-    .into()
+    );
+    app.data = Some(json!({"reason": crate::hub::person::REASON, "try": deny}));
+    app.into()
 }
 
 /// `acpmux answer <session> [--answer QUESTION=CHOICE]...`: answers the first
@@ -78,10 +80,10 @@ pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()
     };
     let request = first.get("request").unwrap_or(&Value::Null);
     let Some(question) = question_answer::question(request) else {
-        return Err(AppError::usage(format!(
-            "the pending permission is not a question: use `acpmux allow {session}` or `acpmux deny {session}`"
-        ))
-        .into());
+        let hint = question_answer::pending_hint(request, session);
+        return Err(
+            AppError::usage(format!("the pending permission is not a question: {hint}")).into()
+        );
     };
     if args.is_empty() {
         print!("{}", question_answer::usage(question, session));

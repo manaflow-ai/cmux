@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// Which static glyph a status shows (the Static status mode, Leo 2026-10-14).
 nonisolated extension StaticStatusGlyph {
     /// The glyph for `state`: nil for loading (busy, paused), which keeps its loading style, still

@@ -438,6 +438,37 @@
         "nullable": true
       }
     },
+    "event:cloud-conversation-presence": {
+      "/account": {
+        "ty": "string"
+      },
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"cloud-conversation-presence\""
+        ]
+      },
+      "/participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/participants/*": {
+        "ty": "object"
+      },
+      "/participants/*/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/participants/*/viewing": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "event:cloud-conversation-resynced": {
       "/account": {
         "ty": "string"
@@ -7592,6 +7623,16 @@
         "nullable": true
       }
     },
+    "request:cloud-conversation-presence": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/viewing": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:cloud-conversation-run": {
       "/after_seq": {
         "ty": "uint64",
@@ -8947,6 +8988,12 @@
         "required": true
       }
     },
+    "request:get-host-size-policy": {
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
     "request:get-size-state": {
       "/surface": {
         "ty": "uint64",
@@ -10043,6 +10090,10 @@
         "ty": "uint64",
         "required": true
       },
+      "/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -10053,6 +10104,10 @@
       },
       "/shell_args/*": {
         "ty": "string"
+      },
+      "/tab_id": {
+        "ty": "string",
+        "nullable": true
       },
       "/terminal_id": {
         "ty": "string",
@@ -10856,11 +10911,26 @@
         "ty": "string",
         "nullable": true
       },
+      "/expect_agent": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/expect_agent/session": {
+        "ty": "string",
+        "nullable": true
+      },
       "/expect_foreground": {
         "ty": "string",
         "nullable": true
       },
+      "/flow": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/paste": {
+        "ty": "boolean"
+      },
+      "/submit": {
         "ty": "boolean"
       },
       "/surface": {
@@ -10946,6 +11016,10 @@
       },
       "/name": {
         "ty": "string",
+        "nullable": true
+      },
+      "/remote": {
+        "ty": "boolean",
         "nullable": true
       },
       "/user_id": {
@@ -11062,6 +11136,29 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:set-host-size-policy": {
+      "/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/policy/order": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/policy/order/*": {
+        "ty": "string"
       }
     },
     "request:set-personal-terminal": {
@@ -11777,6 +11874,10 @@
       "/name": {
         "ty": "string",
         "nullable": true
+      },
+      "/proxy": {
+        "ty": "json",
+        "nullable": true
       }
     },
     "request:update-frontend-browser-tab": {
@@ -12456,6 +12557,12 @@
       }
     },
     "response:cloud-conversation-op": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-conversation-presence": {
       "/data": {
         "ty": "json",
         "required": true
@@ -16038,6 +16145,36 @@
         "required": true
       }
     },
+    "response:get-host-size-policy": {
+      "/data/mac_participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/mac_participants/*": {
+        "ty": "string"
+      },
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
+      }
+    },
     "response:get-size-state": {
       "/data/self_participant": {
         "ty": "string",
@@ -17945,9 +18082,15 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/pane_id": {
+        "ty": "string"
+      },
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/tab_id": {
+        "ty": "string"
       },
       "/data/terminal_id": {
         "ty": "string",
@@ -19550,6 +19693,29 @@
       "/data": {
         "ty": "json",
         "required": true
+      }
+    },
+    "response:set-host-size-policy": {
+      "/data/policy": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/policy/mode": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "latest",
+          "mac",
+          "priority",
+          "smallest"
+        ]
+      },
+      "/data/policy/order": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/policy/order/*": {
+        "ty": "string"
       }
     },
     "response:set-personal-terminal": {

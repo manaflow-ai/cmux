@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextHibernation
 import CmuxNextBridge
 @testable import CmuxNextSettings
 import Foundation

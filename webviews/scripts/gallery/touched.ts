@@ -29,6 +29,10 @@ const EVERYTHING = [
   /^webviews\/scripts\/gallery\//,
   /^webviews\/dev-server\/galleryHost\.ts$/,
   /^scripts\/cmux-next\/build-agent-pane-web\.sh$/,
+  // The pane's sheets and their order (build-agent-pane-web.sh derives the page's <style> from it).
+  /^webviews\/src\/agent-session\/acpmux\/dev\.tsx$/,
+  // What derives that list (galleryHost.ts runs bundle.mjs --css-inputs-only with these plugins).
+  /^webviews\/scripts\/agent-pane\/(bundle|tailwindCompile|jsonParsePlugin|katexStylePlugin)\.mjs$/,
   /^webviews\/vite\.config(\.gallery)?\.ts$/,
   /^webviews\/package\.json$/,
   /^bun\.lock$/,

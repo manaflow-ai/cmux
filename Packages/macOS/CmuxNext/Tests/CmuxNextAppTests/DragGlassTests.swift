@@ -16,12 +16,12 @@ import Testing
     /// Runs `body` with the app theme translucent and frosted, as cmux.json's
     /// `appearance.backgroundOpacity` 0.65 and `backgroundBlur` "frosted" make it.
     func translucent<T>(_ body: () throws -> T) rethrows -> T {
-        let original = ThemeStore.shared.input
-        defer { _ = ThemeStore.shared.apply(original) }
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
         var input = original
         input.backgroundOpacity = 0.65
         input.backgroundBlur = 20
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         return try body()
     }
 
@@ -78,16 +78,16 @@ import Testing
     /// Runs `body` with the app theme opaque and without art, so only a workspace's own pin can
     /// make a drag preview glass.
     func opaqueAppWithoutArt<T>(_ body: () throws -> T) rethrows -> T {
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         let originalSelection = ThemeScope.app.backdropSelection
         defer {
-            _ = ThemeStore.shared.apply(original)
+            _ = ThemeScope.app.store.apply(original)
             ThemeScope.app.setBackdropSelection(originalSelection)
         }
         var input = original
         input.backgroundOpacity = 1
         input.backgroundBlur = 0
-        _ = ThemeStore.shared.apply(input)
+        _ = ThemeScope.app.store.apply(input)
         ThemeScope.app.setBackdropSelection(nil)
         return try body()
     }

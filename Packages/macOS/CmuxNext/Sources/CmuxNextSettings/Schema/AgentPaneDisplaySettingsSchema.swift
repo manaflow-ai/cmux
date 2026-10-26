@@ -4,7 +4,8 @@ import CoreGraphics
 /// the same kind of rows the Markdown viewer has, under `agentPane.display`. The chat page reads the
 /// same names and ranges (webviews/src/agent-session/acpmux/chatDisplay.ts `CHAT_DISPLAY`), and its
 /// ··· menu's Text & Width popover writes them. `inspector.placement` is where the chat's Inspector
-/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx).
+/// opens (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx), and `environment.placement`
+/// controls the machine · folder chip below the tab row (webviews/.../header/EnvironmentLine.tsx).
 ///
 /// The font, code font and code size have no value of their own by default: the chat then follows
 /// the Markdown viewer's (`markdown.font.preset`, `markdown.code.family`, `markdown.code.scale`),
@@ -39,6 +40,12 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
             row(["fullWidth"], SettingsText.keyed("settings.agentPane.display.fullWidth", "Chat Full Width"),
                 help: SettingsText.keyed("settings.agentPane.display.fullWidth.help", "The chat fills the whole pane instead of the text width."),
                 .toggle, .bool(false), ["full", "width", "wide"]),
+            // The VS Code-style picture of the whole chat at its right edge (webviews chatMinimap/ChatMinimap.tsx).
+            // Off by default; the thread rail at the left (Toggle Thread Minimap) is its own thing.
+            row(["vscodeMinimap"], SettingsText.keyed("settings.agentPane.display.vscodeMinimap", "VS Code Minimap"),
+                help: SettingsText.keyed("settings.agentPane.display.vscodeMinimap.help",
+                                         "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."),
+                .toggle, .bool(false), ["minimap", "vscode", "vs code", "code", "map", "overview", "scroll", "scrollbar", "right", "toggle"]),
             row(["font", "preset"], SettingsText.keyed("settings.agentPane.display.font", "Chat Font"),
                 .choice([
                     SettingChoice("markdown", SettingsText.keyed("settings.choice.agentChatFontMarkdown", "Same as Markdown Viewer")),
@@ -62,14 +69,23 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                                          "Code as a share of the chat's text size. Empty uses the Markdown viewer's."),
                 .number(SettingNumber(0.6...1.25, step: 0.025, unit: .fraction, placeholder: codeScaleFallback)), nil,
                 ["code", "font", "size", "monospace", "scale"]),
-            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Inspector"),
+            row(["inspector", "placement"], SettingsText.keyed("settings.agentPane.display.inspector", "Session Info"),
                 help: SettingsText.keyed("settings.agentPane.display.inspector.help",
-                                         "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
+                                         "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."),
                 .choice([
                     SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
-                .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+                .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
+            row(["environment", "placement"], SettingsText.keyed("settings.agentPane.display.environment", "Session Info Chip"),
+                help: SettingsText.keyed("settings.agentPane.display.environment.help",
+                                         "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."),
+                .choice([
+                    SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
+                    SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
+                    SettingChoice("off", SettingsText.keyed("settings.choice.off", "Off")),
+                ]),
+                .string("left"), ["session", "info", "chip", "environment", "machine", "folder", "placement", "left", "right", "off"]),
         ]
     }
 }

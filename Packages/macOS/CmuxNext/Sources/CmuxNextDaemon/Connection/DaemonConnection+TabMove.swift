@@ -29,7 +29,7 @@ extension DaemonConnection {
     @discardableResult
     public func moveTabToSplit(_ surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, keepFocus: Bool = false,
                                transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
-        if keepFocus, identity?.supports(DaemonCapabilities.shared.tabSplitKeepFocus) == true {
+        if keepFocus, identity?.supports(DaemonCapability.tabSplitKeepFocus.rawValue) == true {
             return try await request(MoveTabToSplitKeepingFocusRequest(surface: surface, pane: pane, edge: edge, ratio: ratio,
                                                                         transaction: transaction))
         }
@@ -41,7 +41,7 @@ extension DaemonConnection {
     public func moveTabToColumn(_ surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
                                 dock: DockSnapshot? = nil, keepFocus: Bool = false,
                                 transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
-        let keepFocus = keepFocus && identity?.supports(DaemonCapabilities.shared.tabSplitKeepFocus) == true
+        let keepFocus = keepFocus && identity?.supports(DaemonCapability.tabSplitKeepFocus.rawValue) == true
         return try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
                                                            width: width, dock: dock, keepFocus: keepFocus, transaction: transaction))
     }
