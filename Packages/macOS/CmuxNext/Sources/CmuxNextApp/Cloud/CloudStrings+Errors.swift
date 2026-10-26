@@ -18,8 +18,9 @@ extension CloudStrings {
         }
     }
 
-    /// A ``CloudAPIError`` as a person reads it.
-    static func apiErrorText(_ error: CloudAPIError) -> String {
+    /// A ``CloudAPIError`` as a person reads it. Nonisolated: the approvals
+    /// route maps its failures off the main actor.
+    nonisolated static func apiErrorText(_ error: CloudAPIError) -> String {
         switch error {
         case .notSignedIn: signInFirst
         case .noBackend: localBackend
@@ -31,8 +32,7 @@ extension CloudStrings {
         }
     }
 
-    /// The support reference after a Cloud server message. Nonisolated: the
-    /// approvals route maps its failures off the main actor.
+    /// The support reference after a Cloud server message.
     nonisolated static func trace(_ id: String) -> String {
         String(format: String(localized: "cloud.error.trace", defaultValue: "(trace %@)", table: "Cloud", bundle: .module), id)
     }

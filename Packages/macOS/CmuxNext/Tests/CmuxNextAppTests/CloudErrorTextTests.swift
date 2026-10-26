@@ -52,6 +52,9 @@ struct CloudErrorTextTests {
         let error = CloudAPIError.http(status: 409, code: "vm_other", message: "Busy.", action: "Retry in a minute.", traceId: "t1")
         #expect(CloudService.approvalsFailure(error) == .failed("Busy. Retry in a minute. \(CloudStrings.trace("t1"))"))
         #expect(CloudService.workerApprovalsFailure(error) == .failed("Busy. Retry in a minute. \(CloudStrings.trace("t1"))"))
+        #expect(CloudService.approvalsFailure(.timedOut("/api/vm/x/acpmux/keyed-start")) == .failed(CloudStrings.apiTimedOut))
+        #expect(CloudService.workerApprovalsFailure(.decoding("keyNotFound(…)")) == .failed(CloudStrings.apiUnreadable))
+        #expect(CloudService.approvalsFailure(.notSignedIn) == .failed(CloudStrings.signInFirst))
     }
 
     @Test func anActionFailureReadsAsItsMessage() {
