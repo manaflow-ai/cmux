@@ -89,4 +89,34 @@ grep -q 'CMUX_NEXT_CRASH_REPORTS_DIR:-/Library/Logs/DiagnosticReports:\$HOME/Lib
   "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" \
   || fail "swift-test-with-hang-sampler.sh does not default to both report directories"
 
+# 7. A crash report may never arrive at all, so the crash also names itself in
+#    the log: the harness turns Swift's backtracer on, symbolicated, before it
+#    starts the run. `enable=tty` is the default and is off under Actions, which
+#    is why a signal 6 left only its one-line message and nothing to attribute.
+#    Checked by running the harness's own export line, so a typo in the setting
+#    fails here rather than on the next crash.
+setting=$(
+  eval "$(grep -m1 '^export SWIFT_BACKTRACE=' "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh")"
+  printf '%s' "$SWIFT_BACKTRACE"
+)
+case "$setting" in
+  *enable=yes*) ;;
+  *) fail "the harness does not enable the Swift backtracer: $setting" ;;
+esac
+case "$setting" in
+  *symbolicate=full*) ;;
+  *) fail "the backtrace would have no symbols, which answers nothing: $setting" ;;
+esac
+case "$setting" in
+  *interactive=no*) ;;
+  *) fail "the backtracer could wait for a keypress that cannot come: $setting" ;;
+esac
+# And it yields to an explicit setting, so a job that needs its own can say so.
+chosen=$(
+  export SWIFT_BACKTRACE="enable=no"
+  eval "$(grep -m1 '^export SWIFT_BACKTRACE=' "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh")"
+  printf '%s' "$SWIFT_BACKTRACE"
+)
+[[ "$chosen" == "enable=no" ]] || fail "the harness overrode an explicit SWIFT_BACKTRACE: $chosen"
+
 echo "ips-crash-summary.test.sh: ok"
