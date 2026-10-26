@@ -257,13 +257,16 @@ extension AppControl {
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared, mainWork: services.mainWork)
+                                                 tunables: TunableStore.shared, mainWork: services.mainWork,
+                                                 deadlines: services.mainDeadlines,
+                                                 idleExitAfter: chromiumHostIdleExit(in: services.features))
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                 let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                 over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
+                                                 over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
+                                                 idleExit: call.params["idle_exit_s"]?.doubleValue.map { Duration.seconds($0) })
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in
@@ -272,6 +275,16 @@ extension AppControl {
                 return .object(fields.mapValues(JSONValue.number))
             }.withDeadline(.fixed(.seconds(60))),
         ])
+    }
+
+    /// The Chromium host's idle deadline: `chromiumHostIdleExit`'s `idleExitAfter` while the
+    /// feature is on, else nil (the host runs while its session does).
+    static func chromiumHostIdleExit(in features: FeatureList) -> Duration? {
+        guard features.isEnabled(.chromiumHostIdleExit) else { return nil }
+        for param in Feature.chromiumHostIdleExit.params where param.name == "idleExitAfter" {
+            if case .duration(let seconds, _, _) = param.value { return .seconds(seconds) }
+        }
+        return nil
     }
     #endif
 }

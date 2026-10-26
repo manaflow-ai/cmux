@@ -530,9 +530,32 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// The Chromium host app quits when its page has been in no window for a while, and the page's next show starts a new host under its stand-in.
+    public static let chromiumHostIdleExit = Feature(
+        index: 31,
+        name: "chromiumHostIdleExit",
+        owner: "PL-memory",
+        description: "The Chromium host app quits when its page has been in no window for a while, and the page's next show starts a new host under its stand-in.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "idleExitAfter",
+                description: "How long the host runs with its page in no window before it quits.",
+                value: .duration(default: 300.0, min: 10.0, max: 3600.0)
+            ),
+        ],
+        stories: ["memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 31,
+        index: 32,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -549,7 +572,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 32,
+        index: 33,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -599,6 +622,7 @@ nonisolated extension Feature {
         .terminalPointerFrames,
         .topPageDiscard,
         .vsyncHub,
+        .chromiumHostIdleExit,
         .perfLabCanary,
         .perfLabKillProbe,
     ]
