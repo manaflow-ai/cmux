@@ -58,10 +58,6 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         regenerate = step(PR, "action-exports", "Regenerate the settings exports")
         self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
-        outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true' }}")
-        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
-
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
         autofix = temp / "autofix/scripts/cmux-next"
@@ -76,12 +72,6 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("exports=true", output.read_text())
         for path in SETTINGS_EXPORTS:
             self.assertEqual((temp / "action-exports" / path).read_text(), "new\n", path)
-
-    def test_artifact_output_is_false_when_guard_blocks_upload(self):
-        outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' && steps.require-exports.outputs.exports == 'true' }}")
-        self.assertEqual(outputs["verified"], "${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}")
-        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
 
     def test_the_repair_copies_them_in_and_rewrites_the_defaults_snapshot(self):
         download = step(PR, "repair", "Download the regenerated action exports")
@@ -103,7 +93,7 @@ class ExportGuardBehavior(unittest.TestCase):
     def guard(self, *, actions: str = "false", settings: str = "false",
               action_outcome: str = "skipped", settings_outcome: str = "skipped",
               action_exports: str = "", settings_exports: str = "",
-              artifact: str = "missing", settings_error: str = "") -> tuple:
+              artifact: str = "missing", settings_error: str = "", upload_outcome: str = "success") -> tuple:
         guard = step(PR, "action-exports", "Require generated exports")
         with tempfile.TemporaryDirectory() as tmp:
             temp = Path(tmp)
@@ -126,11 +116,13 @@ class ExportGuardBehavior(unittest.TestCase):
             "steps.regenerate.outcome": action_outcome,
             "steps.settings.outcome": settings_outcome,
         }
-        outputs = {key: self.expression(expr, values)
-                   for key, expr in PR["jobs"]["action-exports"]["outputs"].items()}
         upload = next(s for s in PR["jobs"]["action-exports"]["steps"]
                       if s.get("uses", "").startswith("actions/upload-artifact@"))
-        return result, outputs, self.expression(upload["if"], values)
+        should_upload = self.expression(upload["if"], values)
+        values["steps.upload-exports.outcome"] = upload_outcome if should_upload else "skipped"
+        outputs = {key: self.expression(expr, values)
+                   for key, expr in PR["jobs"]["action-exports"]["outputs"].items()}
+        return result, outputs, should_upload
 
     def test_successful_requested_exports_can_be_verified_noops(self):
         for actions, settings in (("true", "false"), ("false", "true"), ("true", "true")):
@@ -175,6 +167,16 @@ class ExportGuardBehavior(unittest.TestCase):
                     self.assertTrue(upload)
                     self.assertEqual(outputs, {"exports": True, "verified": actions == "true",
                                                "settings-verified": settings == "true"})
+
+    def test_failed_or_skipped_upload_withholds_changed_exports_and_verification(self):
+        for outcome in ("failure", "skipped", "cancelled"):
+            with self.subTest(upload_outcome=outcome):
+                result, outputs, upload = self.guard(
+                    actions="true", settings="true", action_outcome="success", settings_outcome="success",
+                    action_exports="true", artifact="file", upload_outcome=outcome)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(upload)
+                self.assertFalse(any(outputs.values()))
 
     def test_failed_settings_export_captures_its_missing_input_from_stderr(self):
         regenerate = step(PR, "action-exports", "Regenerate the settings exports")
