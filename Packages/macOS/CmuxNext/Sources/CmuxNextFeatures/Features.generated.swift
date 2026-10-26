@@ -1203,6 +1203,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The Chromium page tabs of one pane share one Chromium window, as a Chrome window holds its tab strip: a pane's second page builds no window, a tab moved to another pane moves its page into that pane's window, and an emptied window closes.
+    public static let pageTabsShareChromiumWindow = Feature(
+        index: 68,
+        name: "pageTabsShareChromiumWindow",
+        owner: "PL-webui",
+        description: "The Chromium page tabs of one pane share one Chromium window, as a Chrome window holds its tab strip: a pane's second page builds no window, a tab moved to another pane moves its page into that pane's window, and an emptied window closes.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["new-tab-page", "memory-hidden"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.
     public static let pagesSpareWindow = Feature(
         index: 69,
@@ -1766,6 +1783,7 @@ nonisolated extension Feature {
         .pageRendererAtFirstShow,
         .pageScriptFrames,
         .pageStandIn,
+        .pageTabsShareChromiumWindow,
         .pagesSpareWindow,
         .paneHoldsContentInMotion,
         .pointerFrameDrags,
@@ -1867,6 +1885,7 @@ nonisolated extension Feature {
         .pageRendererAtFirstShow,
         .pageScriptFrames,
         .pageStandIn,
+        .pageTabsShareChromiumWindow,
         .pagesSpareWindow,
         .paneHoldsContentInMotion,
         .pointerFrameDrags,

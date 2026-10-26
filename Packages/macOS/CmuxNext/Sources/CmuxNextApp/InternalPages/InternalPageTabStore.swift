@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextHibernation
 import CmuxNextSignposts
 import CmuxNextIcons
+import CmuxNextPages
 import CmuxNextSettingsWindow
 import CmuxNextTabs
 import Observation
@@ -54,6 +55,8 @@ final class InternalPageTabStore {
     @ObservationIgnored let discardRecords = ContentDiscardRecords()
     /// Whether a page tab's first build shows its title until the page's first frame (feature `pageStandIn`).
     @ObservationIgnored var showsStandIns = false
+    /// Whether the page tabs of one pane share one Chromium window (feature `pageTabsShareChromiumWindow`, ``place(_:in:)``).
+    @ObservationIgnored var sharesChromiumWindows = false
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -135,11 +138,22 @@ final class InternalPageTabStore {
         return provider.icon.map(TabIcon.icon) ?? .symbol(provider.symbol)
     }
 
-    /// The tab's view with its content, made on first show (the pane asks when it shows the tab).
-    func view(for key: String) -> InternalPageView? {
+    /// The tab's view with its content, made on first show (the pane asks when it shows the tab). `pane`: the pane
+    /// window that shows it, whose Chromium window the page joins (``place(_:in:)``).
+    func view(for key: String, in pane: PageChromiumWindow? = nil) -> InternalPageView? {
         guard let view = tabView(for: key) else { return nil }
         view.build()
+        place(view, in: pane)
         return view
+    }
+
+    /// Puts the page of `view` in `pane`'s Chromium window (``PageWebView/chromiumWindow``): the page tabs of one pane
+    /// share one window, as one Chrome `Browser` holds its whole tab strip (chrome/browser/ui/browser.h), so a
+    /// pane's second page builds no window. A tab that now shows in another pane moves its page there, and the
+    /// window it left closes once empty. Nil `pane` (a caller that is not a pane) leaves the page where it is.
+    private func place(_ view: InternalPageView, in pane: PageChromiumWindow?) {
+        guard sharesChromiumWindows, let pane, view.isBuilt, let page = view.content as? PageWebView else { return }
+        page.chromiumWindow = pane
     }
 
     /// The tab's view, whose content waits for the tab's first show: an open or a show that does not
@@ -212,15 +226,16 @@ final class InternalPageTabStore {
     /// app tab, `app-screens-v1`), made on first show under a provider key of
     /// its own. A tab this app did not open shows its route
     /// (`page-tab-route-v1`) only from this Mac's daemon (`local`): another
-    /// machine's daemon never names a file or folder for this Mac to read.
+    /// machine's daemon never names a file or folder for this Mac to read. `pane` as in ``view(for:in:)``.
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
-              window: WindowController?) -> InternalPageView? {
+              window: WindowController?, pane: PageChromiumWindow? = nil) -> InternalPageView? {
         guard let view = tabView(forStoreTab: tab, page: page, in: store, local: local, window: window) else { return nil }
         view.build()
+        place(view, in: pane)
         return view
     }
 
-    /// ``view(forStoreTab:page:in:local:window:)`` whose content waits for the tab's first show.
+    /// ``view(forStoreTab:page:in:local:window:pane:)`` whose content waits for the tab's first show.
     func tabView(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
                  window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] {
