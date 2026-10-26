@@ -8,7 +8,7 @@ import CmuxNextCompat
 /// deadline (reset); ``cancel()`` drops it. The clock is injected so tests do
 /// not wait. Each fire records one wakeup in the ledger under `owner`.
 ///
-/// Main-thread deadlines use `MainDeadline` (aligned through ``AlignedWakeups``);
+/// Main-thread deadlines use ``AlignedWakeups`` (on ``MainWakeUpQueue``);
 /// this timer stays for off-main deadlines, and a deadline that may be late
 /// passes a `tolerance` so the OS can coalesce its wakeup with others.
 public final class DemandTimer: Sendable {
@@ -40,7 +40,7 @@ public final class DemandTimer: Sendable {
     /// - Parameters:
     ///   - delay: How long to wait.
     ///   - tolerance: How late the wakeup may be, passed to the clock's sleep (nil: the clock's default).
-    ///     ``AlignedWakeups/leeway`` is the usual value for a deadline nobody times exactly.
+    ///     ``WakeLeeway/window(delay:policy:alignment:)``'s `tolerance` is the usual value.
     ///   - action: Runs once at the deadline.
     public func schedule(after delay: Duration, tolerance: Duration? = nil,
                          _ action: @escaping @isolated(any) @Sendable () async -> Void) {

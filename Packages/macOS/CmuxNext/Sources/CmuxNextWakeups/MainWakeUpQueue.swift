@@ -88,7 +88,13 @@ public final class MainWakeUpQueue: Sendable {
     public func insert(
         owner: String, after delay: Duration, policy: DelayPolicy = .flexibleNoSooner, _ action: @escaping Action
     ) -> Token {
-        let window = WakeLeeway.window(delay: delay, policy: policy, alignment: alignment)
+        insert(owner: owner, after: delay, window: WakeLeeway.window(delay: delay, policy: policy, alignment: alignment), action)
+    }
+
+    /// Runs `action` on the main thread `delay` from now, within `window` (a window made outside the queue,
+    /// such as ``AlignedWakeups``'s 1 s hidden one). Callable from any thread.
+    @discardableResult
+    public func insert(owner: String, after delay: Duration, window: WakeLeeway, _ action: @escaping Action) -> Token {
         let (deadline, overflow) = uptime().addingReportingOverflow(delay.nanosecondCount)
         return insert(owner: owner, at: overflow ? .max : deadline, window: window, action)
     }
