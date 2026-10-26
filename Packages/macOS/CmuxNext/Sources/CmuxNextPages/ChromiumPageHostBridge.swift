@@ -211,8 +211,7 @@ public final class ChromiumPageHostBridge: PageHostBridge {
         guard json.contains(Self.bindingName), let call = ChromiumPageHostWire.BindingCall(event: json),
               call.name == Self.bindingName else { return false }
         guard let message = parse(call.payload) else { return true }
-        // task-owner: one message; its reply goes back to the context that sent it
-        Task { [weak self] in await self?.answerFromContext(message, context: call.contextID) }
+        startAnswer(message, from: .context(call.contextID))
         return true
     }
 
@@ -227,9 +226,26 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             return
         }
         guard let message = parse(post.message) else { return }
-        let request = PageHostMessage(frameURL: post.url, isMainFrame: true, body: message.body)
-        // task-owner: one message; its reply goes back to the page's main frame
-        Task { [weak self] in await self?.answer(message, request: request, to: .mainFrame) }
+        startAnswer(message, from: .mainFrame(PageHostMessage(frameURL: post.url, isMainFrame: true, body: message.body)))
+    }
+
+    /// Where a message came from: a DevTools execution context, whose sender is read from it, or the
+    /// page's main frame on renderer paths, whose sender the channel world read.
+    private enum Origin {
+        case context(Int)
+        case mainFrame(PageHostMessage)
+    }
+
+    private func startAnswer(_ message: ChromiumPageHostWire.Message, from origin: Origin) {
+        // task-owner: one message; its reply goes back to the frame that sent it
+        Task { [weak self] in await self?.answer(message, from: origin) }
+    }
+
+    private func answer(_ message: ChromiumPageHostWire.Message, from origin: Origin) async {
+        switch origin {
+        case .context(let context): await answerFromContext(message, context: context)
+        case .mainFrame(let request): await answer(message, request: request, to: .mainFrame)
+        }
     }
 
     /// Longest page channel post: a message of ``maximumPayloadBytes`` JSON-escaped, and its URL.
