@@ -55,7 +55,9 @@ public final class ChiefBrainWatch {
         guard !stopped else { return }
         source?.cancel()
         source = nil
-        guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) else {
+        // One lock read per call, whether or not `pid` was given: the answer below is the same one.
+        let locked = ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost)
+        guard let pid = pid ?? locked else {
             logger.info("chief brain watch: no host process to watch")
             pendingLockPID = nil
             setWatched(nil)
@@ -66,7 +68,7 @@ public final class ChiefBrainWatch {
         // and a reader of the brain's liveness reads the lock, not this process source. So the lock
         // watch stays armed until the lock names this host, and the write that names it tells the
         // reader again (``lockChanged(folder:)``).
-        if ChiefHostStop.runningHostPID(home: home, isChiefHost: isChiefHost) == pid {
+        if locked == pid {
             pendingLockPID = nil
             cancelLockSources()
         } else {
@@ -138,6 +140,12 @@ public final class ChiefBrainWatch {
     }
 
     /// The lock, or the folder holding it, changed.
+    ///
+    /// The lock read runs here on the main actor, as it does in ``watch(_:)`` and ``exited(_:)``:
+    /// it is one line of a small local file plus a `proc_pidpath`, once per lock change, and these
+    /// sources exist only while no host is watched, so there is no stream of events to read on. Off
+    /// the main actor it would need a generation check, and `isChiefHost` to cross isolation; Home's
+    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:)``).
     private func lockChanged(folder: Bool) {
         guard !stopped else { return }
         guard let pending = pendingLockPID else {
@@ -160,8 +168,11 @@ public final class ChiefBrainWatch {
     /// One `.write` source on `url`, or nil when it cannot be opened (no such file yet).
     private func lockSource(at url: URL,
                             _ changed: @escaping @MainActor (ChiefBrainWatch) -> Void) -> (any DispatchSourceFileSystemObject)? {
+        // `O_CLOEXEC`, so the descriptor never reaches a child: the brain host and its acpmux
+        // daemon outlive the app's watch, and an inherited descriptor would keep the home's
+        // state folder busy after it (optchat-chief's `lock.rs` takes its own lock the same way).
         // concurrency-allow: one open of a local path while no host is watched
-        let fd = open(url.path, O_EVTONLY)
+        let fd = open(url.path, O_EVTONLY | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         lockSourceOpens += 1
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)

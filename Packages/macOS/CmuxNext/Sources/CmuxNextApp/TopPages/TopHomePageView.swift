@@ -211,7 +211,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
-                if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
@@ -221,13 +221,21 @@ final class TopHomePageView: NSView {
         chiefObservation = Task { [weak self] in
             var previous = Self.chief(home)
             for await chief in ObservationStream({ Self.chief(home) }) {
-                guard let self, let chief, chief != previous else { continue }
+                guard let self, chief != previous else { continue }
+                let shownChief = previous
+                previous = chief
+                guard let chief else {
+                    // There is no Chief to show: This Mac was picked while its Chief is not listed
+                    // yet. The cloud Chief on screen is one the Engine row now excludes, so the
+                    // page leaves it instead of keeping the host the person turned away from.
+                    if let next = Self.replacementForExcluded(shown: shown, rows: rows, home: home) { show(next) }
+                    continue
+                }
                 if shownIsGone(home.homeStore) {
                     replaceGone(with: ConversationID(chief), store: home.homeStore)
-                } else if shown == nil || shown?.rawValue == previous {
+                } else if shown == nil || shown?.rawValue == shownChief {
                     show(ConversationID(chief))
                 }
-                previous = chief
             }
         }
         let auth = home.services.cloud.auth
@@ -273,10 +281,19 @@ final class TopHomePageView: NSView {
     /// The Chief's conversation (the chief placed on a server takes over a
     /// local one without history: `HomeChiefSource`), else the first listed conversation that the
     /// Engine row does not exclude (with This Mac chosen, never a cloud Chief's: ``HomeService/excludedChiefConversations``).
-    private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
+    static func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
+    }
+
+    /// What the page shows once there is no Chief conversation at all: the first conversation the
+    /// Engine row allows, but only when what is shown is one it excludes (a cloud Chief after This
+    /// Mac was picked). nil: what is shown stays, which is every other case.
+    static func replacementForExcluded(shown: ConversationID?, rows: [InboxRow], home: HomeService) -> ConversationID? {
+        guard let shown, home.excludedChiefConversations.contains(shown.rawValue),
+              let next = defaultConversation(rows: rows, home: home), next != shown else { return nil }
+        return next
     }
 
     static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
@@ -510,7 +527,7 @@ final class TopHomePageView: NSView {
         guard shown == id, let services else { return }
         let excluded = services.home.excludedChiefConversations
         let neighbor = next.flatMap { $0 == id || excluded.contains($0.rawValue) ? nil : $0 }
-        let fallback = neighbor ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
+        let fallback = neighbor ?? Self.defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
         guard let fallback, fallback != id else { return }
         show(fallback)
     }

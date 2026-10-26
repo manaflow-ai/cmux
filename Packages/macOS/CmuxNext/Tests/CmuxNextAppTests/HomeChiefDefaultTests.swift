@@ -114,6 +114,44 @@ struct HomeChiefDefaultTests {
         #expect(home.excludedChiefConversations.isEmpty, "Hosted: the cloud Chief is the point")
     }
 
+    /// The page's own fallback, not only the excluded set: with This Mac chosen it opens the first
+    /// conversation that is not a cloud Chief's, even when a cloud Chief leads the list (review of
+    /// #23984: the test above passes with the page's filtering removed).
+    @Test func thePagesFallbackOpensThisMacsChiefWhileACloudChiefLeadsTheList() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        // The Hosted Chief is the newest, so it is the list's first row and the fallback's first pick.
+        let rows = Self.cloudLedRows
+        #expect(TopHomePageView.defaultConversation(rows: rows, home: home)?.rawValue == "conv_hosted",
+                "Auto with no local brain: the Hosted Chief is both the default and the first row")
+
+        services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
+        #expect(home.defaultChiefConversation == nil, "this Mac's conversation is not listed: there is no Chief to open")
+        #expect(TopHomePageView.defaultConversation(rows: rows, home: home)?.rawValue == "conv_local",
+                "the fallback skips both cloud Chiefs and opens this Mac's conversation")
+    }
+
+    /// Switching to This Mac while its Chief is not listed yet leaves the cloud Chief on screen:
+    /// there is no Chief conversation to replace it with, so the page falls back to one the Engine
+    /// row allows (review of #23984).
+    @Test func pickingThisMacLeavesTheCloudChiefOnScreen() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        let rows = Self.cloudLedRows
+        let hosted = CmuxHomeCore.ConversationID("conv_hosted")
+        #expect(TopHomePageView.replacementForExcluded(shown: hosted, rows: rows, home: home) == nil,
+                "Auto with no local brain: the Hosted Chief is the choice, so it stays")
+
+        services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
+        #expect(TopHomePageView.replacementForExcluded(shown: hosted, rows: rows, home: home)?.rawValue == "conv_local")
+        // What the row allows is already shown, or nothing is: the page leaves it alone.
+        #expect(TopHomePageView.replacementForExcluded(shown: CmuxHomeCore.ConversationID("conv_local"),
+                                                       rows: rows, home: home) == nil)
+        #expect(TopHomePageView.replacementForExcluded(shown: nil, rows: rows, home: home) == nil)
+    }
+
     @Test func theEngineSettingForcesEitherChief() async throws {
         let services = Self.services()
         let home = services.home
@@ -131,6 +169,15 @@ struct HomeChiefDefaultTests {
         try Data("{}".utf8).write(to: url)
         await settings.reload()
         #expect(home.cloudChief == nil, "Auto again: this Mac's brain runs, so this Mac's Chief")
+    }
+
+    /// A list a cloud Chief leads: the Hosted Chief, the placed one, then this Mac's, then a DM.
+    /// Every Chief is in the Chiefs section in this order, so the first row is a cloud Chief's.
+    static var cloudLedRows: [InboxRow] {
+        [HomeChiefRosterTests.chief(HomeChiefRosterTests.hosted, "chief_hosted", "Chief", at: 5),
+         HomeChiefRosterTests.chief(HomeChiefRosterTests.placed, "chief_placed", "Chief", at: 4),
+         HomeChiefRosterTests.chief(HomeChiefRosterTests.local, "agent_mux", "Chief", at: 3),
+         HomeChiefRosterTests.dm(HomeChiefRosterTests.ada, at: 1)]
     }
 
     static func services() -> AppServices {
