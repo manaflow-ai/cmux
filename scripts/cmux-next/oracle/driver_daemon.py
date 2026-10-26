@@ -88,6 +88,7 @@ for _path in (str(HERE), str(SDK)):
         sys.path.insert(0, _path)
 
 import check_snapshot_schema  # noqa: E402 - sibling of this file (capture rules of the daemon facet)
+from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer  # noqa: E402,F401 - shared with driver_app.py
 import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
@@ -132,7 +133,6 @@ READY_S = 60.0
 STOP_S = 60.0
 EXIT_S = 10.0
 LOG_TAIL_BYTES = 2048
-MISSING = object()
 
 
 class CaseError(Exception):
@@ -708,59 +708,7 @@ class Daemon:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Pure helpers: pointers, predicates, selectors
-
-
-def decode_pointer(pointer: str) -> List[str]:
-    if pointer == "":
-        return []
-    if not pointer.startswith("/"):
-        raise ValueError(f"JSON pointer {pointer!r} does not start with /")
-    return [part.replace("~1", "/").replace("~0", "~") for part in pointer[1:].split("/")]
-
-
-def resolve_pointer(value: Any, pointer: str) -> Any:
-    """The value at `pointer` (RFC 6901), or MISSING."""
-    for part in decode_pointer(pointer):
-        if isinstance(value, dict) and part in value:
-            value = value[part]
-        elif isinstance(value, list) and part.isdigit() and (part == "0" or not part.startswith("0")) \
-                and int(part) < len(value):
-            value = value[int(part)]
-        else:
-            return MISSING
-    return value
-
-
-def predicate_holds(wait: Mapping[str, Any], value: Any, baseline: Any) -> bool:
-    """The waitFor condition of case-v1 (`equals` or `predicate`) on the value at its pointer."""
-    if "equals" in wait:
-        return value is not MISSING and value == wait["equals"]
-    predicate = wait["predicate"]
-    if isinstance(predicate, str):
-        sized = isinstance(value, (list, dict, str))
-        return {
-            "exists": value is not MISSING,
-            "absent": value is MISSING,
-            "empty": sized and len(value) == 0,
-            "nonEmpty": sized and len(value) > 0,
-            "changed": value != baseline,
-        }[predicate]
-    op, target = predicate["op"], predicate["value"]
-    if value is MISSING:
-        return False
-    if op == "lengthEquals":
-        return isinstance(value, (list, dict, str)) and len(value) == target
-    if op == "contains":
-        if isinstance(value, str) and isinstance(target, str):
-            return target in value
-        if isinstance(value, dict) and isinstance(target, str):
-            return target in value
-        return isinstance(value, list) and target in value
-    numbers = (int, float)
-    if not (isinstance(value, numbers) and isinstance(target, numbers)) or isinstance(value, bool):
-        return False
-    return {"gt": value > target, "gte": value >= target, "lt": value < target, "lte": value <= target}[op]
+# Pure helpers: selectors and step references (pointers and predicates: case_values.py)
 
 
 def encode_selector(kind: str, value: Any) -> str:

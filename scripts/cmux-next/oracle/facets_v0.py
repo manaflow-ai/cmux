@@ -12,7 +12,7 @@ of the push with no source change, including the SHAs from before the new facets
 | daemon | `session.snapshot`, `settings.snapshot` | `journalHead`, `oracle` |
 | focus | `debug.focus`, `snapshot.get` (window key to public id, the active window) | `keyWindow`, `windows[].hasSheet`, `windows[].topPage` |
 | settings | `settings.snapshot` | `nonDefaultKeys`, `motion` |
-| invariants | `debug.desync` (`check: true`), `debug.focus` | |
+| invariants | `debug.desync` (`check: true`), `debug.focus`, `snapshot.get` (window keys) | |
 | switches | `debug.tunables` (`list`, `changed: true`) | `hits` |
 
 Every other facet is not-comparable at v0, with the v1 task that gives it. `FIELDS` below names, for each kept
@@ -33,7 +33,8 @@ providers falls back to the facets its own methods give, and says what it leaves
 Usage:
   facets_v0.py check [--sha SHA]...          every v0 method at each SHA (default: the push base and HEAD)
   facets_v0.py schema [--out FILE]           print the derived v0 schema
-  facets_v0.py capture-base --product daemon --binary B [--corpus DIR] [--suite S] [--repeat N] --out DIR
+  facets_v0.py capture --product daemon --binary B [--corpus DIR] [--suite S] [--repeat N] --out DIR
+  facets_v0.py capture --product app --tag TAG [--sha SHA] [--corpus DIR] [--suite S] --out DIR    (fleet Mac)
                                              run the corpus N times (default 2) at one build; equal hashes or exit 1
 """
 
@@ -130,7 +131,8 @@ FIELDS: Dict[str, Dict[str, Field]] = {
         "windows": F("debug.focus", "/windows"),
         "windows/*/id": F("debug.focus + snapshot.get", "/windows/*/id"),
         "windows/*/isKey": F("debug.focus", "/windows/*/is_key"),
-        "windows/*/responder": F("debug.focus", "/windows/*/appkit/classified"),
+        # `FocusResponderClassifier.describe` is `<kind>` or `<kind>:<pane>`; the pane is model.resolvedPane.
+        "windows/*/responder": F("debug.focus", "/windows/*/appkit/classified", derive="kind"),
         "windows/*/layoutFocus": F("debug.focus", "/windows/*/layout_focused_pane"),
         "windows/*/ghosttyFocused": F("debug.focus", "/ghostty_focused_tabs"),
         "windows/*/childPage": F("debug.focus", "/windows/*/appkit/child_window_page"),
@@ -158,9 +160,10 @@ FIELDS: Dict[str, Dict[str, Field]] = {
         "effectiveSha256": F("settings.snapshot", "/effective", derive="sha256"),
     },
     "invariants": {
-        "": F("debug.desync + debug.focus", "/"),
+        "": F("debug.desync + debug.focus + snapshot.get", "/"),
         "violations": F("debug.desync", "/check/violations/*/invariant"),
-        "windowInvariants": F("debug.focus", "/window_invariants"),
+        # `WindowInvariants.problems` names windows by model key: each id becomes `<kind>` (problem_class).
+        "windowInvariants": F("debug.focus + snapshot.get", "/window_invariants", derive="problem class"),
         "checks": F("debug.desync", "/checks"),
     },
     "switches": {
@@ -362,7 +365,7 @@ def focus_facet(debug_focus: Mapping[str, Any], snapshot_get: Mapping[str, Any])
         windows.append({
             "id": public[window["id"]],
             "isKey": _get(window, "is_key", where),
-            "responder": _get(appkit, "classified", where),
+            "responder": str(_get(appkit, "classified", where)).split(":", 1)[0],
             "layoutFocus": window.get("layout_focused_pane"),
             "ghosttyFocused": sorted(tab for tab in focused if tab in own),
             "childPage": appkit.get("child_window_page"),
@@ -393,11 +396,31 @@ def focus_facet(debug_focus: Mapping[str, Any], snapshot_get: Mapping[str, Any])
     }
 
 
-def invariants_facet(desync: Mapping[str, Any], debug_focus: Mapping[str, Any]) -> Dict[str, Any]:
+UUID_ANY_CASE = re.compile(r"(?<![0-9A-Za-z])[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?![0-9A-Za-z])")
+
+
+def problem_class(problem: str, window_keys: Iterable[str]) -> str:
+    """A `WindowInvariants.problems` line with each id replaced by `<kind>`: a window's model key (a per-launch
+    UUID) by `<window>`, any other UUID by `<uuid>`, a public id by its kind. The ids are per run, the problem
+    is the state."""
+    keys = sorted({key for key in window_keys if key}, key=len, reverse=True)
+    if keys:
+        problem = re.sub("|".join(map(re.escape, keys)), "<window>", problem, flags=re.IGNORECASE)
+    problem = UUID_ANY_CASE.sub("<uuid>", problem)
+    for start, end, kind in reversed(v0_schema().id_spans(problem)):
+        problem = problem[:start] + f"<{kind}>" + problem[end:]
+    return problem
+
+
+def invariants_facet(desync: Mapping[str, Any], debug_focus: Mapping[str, Any],
+                     snapshot_get: Mapping[str, Any]) -> Dict[str, Any]:
     check = _get(desync, "check", "debug.desync {check: true}")
+    topology = _get(snapshot_get, "topology", "snapshot.get")
+    keys = [str(w["key"]) for w in topology.get("windows") or () if isinstance(w, Mapping) and w.get("key")]
     return {
         "violations": sorted(str(_get(v, "invariant", "debug.desync /check/violations")) for v in check.get("violations") or ()),
-        "windowInvariants": sorted(str(p) for p in _get(debug_focus, "window_invariants", "debug.focus")),
+        "windowInvariants": sorted(problem_class(str(p), keys)
+                                   for p in _get(debug_focus, "window_invariants", "debug.focus")),
         "checks": _integral(_get(desync, "checks", "debug.desync"), "debug.desync /checks"),
     }
 
@@ -441,7 +464,7 @@ def build_facets(requested: Sequence[str], product: str, replies: Mapping[str, A
         elif facet == "settings":
             out[facet] = settings_facet(r["settings.snapshot"])
         elif facet == "invariants":
-            out[facet] = invariants_facet(r["debug.desync"], r["debug.focus"])
+            out[facet] = invariants_facet(r["debug.desync"], r["debug.focus"], r["snapshot.get"])
         elif facet == "switches":
             out[facet] = switches_facet(r["debug.tunables"])
     return out
@@ -607,6 +630,8 @@ def capture_runs(args: argparse.Namespace, sha: str) -> List[Tuple[Path, Dict[st
 
 def cmd_capture(args: argparse.Namespace) -> int:
     sha = resolve_sha(args.sha or PUSH_BASE)
+    if not args.corpus.is_dir():
+        raise V0Error(f"no corpus at {args.corpus}: its suites' generators have not written it; pass --corpus DIR")
     runs = capture_runs(args, sha)
     result: Dict[str, Any] = (compare_runs(runs) if len(runs) > 1
                               else {"equal": None, "checkpoints": None, "cases": None, "differences": []})

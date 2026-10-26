@@ -14,12 +14,14 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+import case_values  # noqa: E402
 import driver_app as app_driver  # noqa: E402
 import facets_v0 as v0  # noqa: E402
 import normalize  # noqa: E402
@@ -27,6 +29,7 @@ import normalize  # noqa: E402
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
 EXAMPLE = v0.REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
 DAEMON_CASE = v0.REPO / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
+APP_CASE = v0.REPO / "schemas" / "oracle" / "fixtures" / "case-example-app.json"
 WIRE = v0.REPO / "schemas" / "oracle" / "fixtures" / "wire"
 WINDOW_KEY = "6F1C2A4E-0B7D-4C1F-9E8A-3D2B1C0A9F8E"
 
@@ -41,15 +44,18 @@ def push_base_replies() -> dict:
     focus = {
         "windows": [{
             "id": WINDOW_KEY, "workspace": "ws_000000000000000000000000000000b1", "is_key": True,
-            "model": {"pane": pane, "target": "pane", "resolved": "terminal", "resolved_pane": pane, "resolved_tab": tab,
+            "model": {"pane": pane, "target": "content", "resolved": "terminal", "resolved_pane": pane, "resolved_tab": tab,
                       "overlays": [], "expectation": None, "dragging": False, "browser_focus_mode": [],
                       "window_key": True, "sidebar_hidden": False, "generation": 12.0},
             "topology": [{"pane": pane, "selected": tab, "tabs": [f"{tab}:terminal"]}],
-            "appkit": {"first_responder": "GhosttySurfaceView", "classified": "terminal", "child_window_page": None,
+            "appkit": {"first_responder": "GhosttySurfaceView", "classified": f"content:{pane}", "child_window_page": None,
                        "devtools_tab": None},
             "layout_focused_pane": pane, "recent_events": ["focus pane"], "mismatches": [], "consistent": True,
         }],
-        "window_invariants": [], "ghostty_focused_tabs": [tab], "key_window": "AppWindow", "app_active": True,
+        # WindowInvariants.problems at the push base: model keys (per-launch UUIDs) inside the text.
+        "window_invariants": [f"window {WINDOW_KEY.lower()} is presented but none of its workspaces is mirrored",
+                              "open window 0a1b2c3d-0000-4000-8000-00000000abcd has no controller"],
+        "ghostty_focused_tabs": [tab], "key_window": "AppWindow", "app_active": True,
         "keyboard_given_back": None, "new_tab_key_log": [], "new_tab_key_holds": [],
         "context": {"terminal_focused": True, "browser_focused": False, "agent_focused": False, "palette_open": False},
         "consistent": True,
@@ -140,6 +146,9 @@ class FacetTests(unittest.TestCase):
         facets = snapshot["facets"]
         self.assertEqual(facets["focus"]["windows"][0]["id"], "win_000000000000000000000000000000a1")
         self.assertEqual(facets["invariants"]["violations"], ["W1"])
+        self.assertEqual(facets["focus"]["windows"][0]["responder"], "content")
+        self.assertEqual(facets["invariants"]["windowInvariants"], [
+            "open window <uuid> has no controller", "window <window> is presented but none of its workspaces is mirrored"])
         self.assertEqual(facets["switches"], {"arms": {"browserResize.layerHosting": "true",
                                                        "pages.debugSettings": "web"}})
         self.assertEqual(facets["layout"]["status"], "not-comparable")
@@ -154,10 +163,30 @@ class FacetTests(unittest.TestCase):
         first = v0.canonicalize([app_snapshot(push_base_replies())])[0]
         replies = push_base_replies()
         text = json.dumps(replies).replace("000000000000000000000000000000", "1234567890abcdef1234567890ab")
-        replies = json.loads(text.replace(WINDOW_KEY, "11111111-2222-3333-4444-555555555555"))
+        new_key = "11111111-2222-3333-4444-555555555555"
+        replies = json.loads(text.replace(WINDOW_KEY, new_key).replace(WINDOW_KEY.lower(), new_key))
         replies["debug.tunables"]["tunables"].reverse()
         second = v0.canonicalize([app_snapshot(replies)])[0]
         self.assertEqual(normalize.canonical_json(first["facets"]), normalize.canonical_json(second["facets"]))
+
+    def test_two_launches_with_new_pane_ids_and_window_keys_hash_equal(self):
+        """The push-base daemon has no oracle seed: every launch makes new pane ids and window model keys."""
+        def launch(pane_hex: str, key: str, other: str) -> dict:
+            text = json.dumps(push_base_replies())
+            text = text.replace("pane_000000000000000000000000000000d1", "pane_" + pane_hex * 32)
+            text = text.replace(WINDOW_KEY, key.upper()).replace(WINDOW_KEY.lower(), key)
+            text = text.replace("0a1b2c3d-0000-4000-8000-00000000abcd", other)
+            return v0.canonicalize([app_snapshot(json.loads(text))])[0]["facets"]
+
+        first = launch("a", "11111111-2222-4333-8444-555555555555", "99999999-8888-4777-8666-555555555555")
+        second = launch("b", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", "12345678-1234-4123-8123-123456789abc")
+        for facet in ("focus", "invariants"):
+            self.assertEqual(normalize.canonical_json(first[facet]), normalize.canonical_json(second[facet]), facet)
+
+    def test_problem_class_drops_every_id(self):
+        line = "ws_" + "c" * 32 + " owned by win_" + "a" * 32 + " and 6F1C2A4E-0B7D-4C1F-9E8A-3D2B1C0A9F8E"
+        self.assertEqual(v0.problem_class(line, []), "<workspace> owned by <window> and <uuid>")
+        self.assertEqual(v0.problem_class("recency out of sync", ["k"]), "recency out of sync")
 
     def test_a_focus_window_missing_from_snapshot_get_is_refused(self):
         replies = push_base_replies()
@@ -202,9 +231,15 @@ class FacetTests(unittest.TestCase):
 
 
 class FakeBench:
-    def __init__(self, replies: dict, refusals: dict = None):
+    """The app's control socket. `targets` is what action.describe says each action takes; `on_action` changes
+    the replies when an action.run arrives; `after_reply` answers a `snapshot.get {after: <number>}`."""
+
+    def __init__(self, replies: dict, refusals: dict = None, targets: dict = None, on_action=None, after_reply=None):
         self.replies = replies
         self.refusals = refusals or {}
+        self.targets = targets or {}
+        self.on_action = on_action
+        self.after_reply = after_reply
         self.calls = []
         self.stopped = False
 
@@ -214,8 +249,14 @@ class FakeBench:
             return {"error": self.refusals[method]}
         if method == "debug.daemon":
             return {"pid": 1}
+        if method == "action.describe":
+            return {"action": {"id": params["action"], "targets": self.targets.get(params["action"], [])}}
+        if method == "action.run" and self.on_action:
+            self.on_action(self.replies)
         if method in ("action.run", "debug.key"):
             return {"ok": True}
+        if method == "snapshot.get" and isinstance((params or {}).get("after"), int) and self.after_reply is not None:
+            return self.after_reply
         return copy.deepcopy(self.replies[method])
 
     def stop(self):
@@ -244,7 +285,7 @@ class AppDriverTests(unittest.TestCase):
         return session
 
     def run_app_case(self, steps, bench):
-        replies = push_base_replies()
+        replies = bench.replies
         original = app_driver.App.daemon
         app_driver.App.daemon = lambda self, step: FakeDaemon(replies)
         try:
@@ -257,7 +298,7 @@ class AppDriverTests(unittest.TestCase):
             app_driver.App.daemon = original
 
     def test_action_then_snapshot_records_v0_facets(self):
-        bench = FakeBench(push_base_replies())
+        bench = FakeBench(push_base_replies(), targets={"pane.split.right": ["pane"]})
         result = self.run_app_case([
             {"id": "split", "op": "action.run", "target": {"window": "main"}, "args": {"action": "pane.split.right"},
              "expect": {"outcome": "ok", "noReceiptReason": "the fake app"}},
@@ -271,7 +312,69 @@ class AppDriverTests(unittest.TestCase):
         self.assertEqual(sorted(last["facets"]), ["focus", "layout"])
         self.assertIn(("snapshot.get", {"after": "sync"}), bench.calls)
         run = [params for method, params in bench.calls if method == "action.run"][0]
-        self.assertEqual(run, {"action": "pane.split.right", "wait": True, "target": {"window": "main"}})
+        # The case names only the window; a pane action takes none of it and runs on the focused pane.
+        self.assertEqual(run, {"action": "pane.split.right", "wait": True})
+
+    def test_the_app_example_cases_action_and_key_steps_run_on_the_push_base_shapes(self):
+        case = json.loads(APP_CASE.read_text(encoding="utf-8"))
+        steps = [dict(s) for s in case["steps"] if s["id"] in ("split-right", "split-key", "open-page")]
+        for step in steps:  # turn checkpoints and waitFor on app facets need debug.oracle.* (030, 031)
+            step.pop("waitFor", None)
+            step["checkpoint"] = ["settled"]
+        bench = FakeBench(push_base_replies(), targets={"splitRight": ["pane", "tab"], "newBrowserWorkspace": []})
+        result = self.run_app_case(steps, bench)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        runs = [params for method, params in bench.calls if method == "action.run"]
+        self.assertEqual(runs[0], {"action": "splitRight", "wait": True, "origin": "script",
+                                   "target": "pane:pane_000000000000000000000000000000d1"})
+        self.assertEqual(runs[1], {"action": "newBrowserWorkspace", "wait": True, "args": {"url": "$WEB/load.html"}})
+        keys = [params for method, params in bench.calls if method == "debug.key"]
+        self.assertEqual(keys, [{"key": "d", "modifiers": ["cmd"], "window": WINDOW_KEY}])
+
+    def test_a_window_action_gets_the_main_window_and_a_person_entrypoint_is_refused(self):
+        bench = FakeBench(push_base_replies(), targets={"window.close": ["window"]})
+        self.run_app_case([{"id": "w", "op": "action.run", "target": {"window": "main"},
+                            "args": {"action": "window.close"}, "expect": {"outcome": "ok"}}], bench)
+        run = [params for method, params in bench.calls if method == "action.run"][0]
+        self.assertEqual(run["target"], "window:win_000000000000000000000000000000a1")
+        result = self.run_app_case([{"id": "k", "op": "action.run", "target": {"window": "main"},
+                                     "args": {"action": "window.close", "entrypoint": "key"}}], FakeBench(push_base_replies()))
+        self.assertEqual((result["status"], result["step"]), ("Crash", "k"))
+
+    def test_an_unknown_fixture_handle_fails_the_step(self):
+        result = self.run_app_case([{"id": "x", "op": "key", "target": {"window": "other"}, "args": {"keys": ["cmd+d"]},
+                                     "expect": {"outcome": "ok"}}], FakeBench(push_base_replies()))
+        self.assertEqual((result["status"], result["step"]), ("Failure", "x"))
+
+    def test_wait_changed_compares_with_the_value_before_the_step(self):
+        def split(replies):
+            replies["snapshot.get"]["tab_count"] = 3
+
+        bench = FakeBench(push_base_replies(), on_action=split)
+        result = self.run_app_case([{"id": "s", "op": "action.run", "target": {"window": "main"},
+                                     "args": {"action": "pane.split.right"}, "expect": {"outcome": "ok"},
+                                     "waitFor": {"pointer": "/topology/tab_count", "predicate": "changed", "maxMs": 2000}}],
+                                   bench)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        order = [method for method, _ in bench.calls]
+        self.assertLess(order.index("snapshot.get", 1), order.index("action.run"), "no baseline read before acting")
+
+    def test_wait_without_a_change_times_out_within_its_bound(self):
+        bench = FakeBench(push_base_replies(), after_reply={"error": "timed out", "unreachable": True})
+        started = time.monotonic()
+        result = self.run_app_case([{"id": "s", "op": "settle",
+                                     "waitFor": {"pointer": "/topology/tab_count", "equals": 9, "maxMs": 50}}], bench)
+        self.assertEqual((result["status"], result["step"]), ("Timeout", "s"))
+        self.assertLess(time.monotonic() - started, 5)
+        bounded = [params for method, params in bench.calls if method == "snapshot.get" and params.get("after") != "sync"]
+        self.assertTrue(bounded and all(isinstance(p["after"], int) for p in bounded))
+
+    def test_wait_on_an_app_local_facet_is_refused_with_its_task(self):
+        result = self.run_app_case([{"id": "s", "op": "settle",
+                                     "waitFor": {"pointer": "/focus/paletteOpen", "equals": True, "maxMs": 50}}],
+                                   FakeBench(push_base_replies()))
+        self.assertEqual((result["status"], result["step"]), ("Crash", "s"))
+        self.assertIn("p15-oracle-031", result["message"])
 
     def test_a_typed_refusal_is_an_error_outcome(self):
         bench = FakeBench(push_base_replies(), refusals={"action.run": {"code": "not_found", "message": "no"}})
@@ -297,14 +400,59 @@ class AppDriverTests(unittest.TestCase):
         step = {"id": "s", "op": "resource.call", "target": {"machine": "local", "session": "fixture",
                                                              "pane": "$step:c#/value/pane_id"},
                 "args": {"method": "pane.split", "params": {"direction": "right"}, "idempotencyKey": "k"}}
-        method, params, key = app_driver.resource_params(step, {"c": {"value": {"pane_id": "pane_1"}}})
+        replies = {"c": {"value": {"pane_id": "pane_" + "1" * 32}}}
+        fixture = app_driver.Fixture(push_base_replies()["snapshot.get"])
+        method, params, key = app_driver.resource_params(step, replies, fixture.target(step, replies))
         self.assertEqual((method, key), ("pane.split", "k"))
-        self.assertEqual(params, {"machine": "current", "session": "current", "pane": "pane_1", "direction": "right"})
+        self.assertEqual(params, {"machine": "current", "session": "current", "pane": "pane_" + "1" * 32,
+                                  "direction": "right"})
+        shell = {"id": "s", "target": {"pane": "shell", "window": "main"}}
+        self.assertEqual(fixture.target(shell, {}), {"pane": "pane_000000000000000000000000000000d1",
+                                                     "window": "win_000000000000000000000000000000a1"})
 
-    def test_wait_predicates(self):
-        self.assertTrue(app_driver.wait_holds({"predicate": {"op": "lengthEquals", "value": 2}}, [1, 2]))
-        self.assertFalse(app_driver.wait_holds({"equals": "running"}, "launching"))
-        self.assertTrue(app_driver.wait_holds({"predicate": "nonEmpty"}, [1]))
+    def test_both_drivers_share_one_predicate(self):
+        import driver_daemon
+
+        self.assertIs(app_driver.predicate_holds, driver_daemon.predicate_holds)
+        self.assertIs(app_driver.MISSING, driver_daemon.MISSING)
+
+
+class PredicateTests(unittest.TestCase):
+    """case_values.predicate_holds: what every driver means by a waitFor."""
+
+    def holds(self, wait, value, baseline=case_values.MISSING):
+        return case_values.predicate_holds(wait, value, baseline)
+
+    def test_changed_reads_the_baseline(self):
+        self.assertTrue(self.holds({"predicate": "changed"}, 3, 2))
+        self.assertFalse(self.holds({"predicate": "changed"}, 2, 2))
+        self.assertTrue(self.holds({"predicate": "changed"}, None, case_values.MISSING))
+        self.assertFalse(self.holds({"predicate": "changed"}, case_values.MISSING, case_values.MISSING))
+
+    def test_absent_is_a_missing_value_only(self):
+        self.assertTrue(self.holds({"predicate": "absent"}, case_values.MISSING))
+        self.assertFalse(self.holds({"predicate": "absent"}, []))
+        self.assertFalse(self.holds({"predicate": "absent"}, None))
+
+    def test_exists_holds_for_a_present_null(self):
+        self.assertTrue(self.holds({"predicate": "exists"}, None))
+        self.assertFalse(self.holds({"predicate": "exists"}, case_values.MISSING))
+
+    def test_empty_is_a_sized_value_of_length_zero(self):
+        self.assertTrue(self.holds({"predicate": "empty"}, []))
+        self.assertFalse(self.holds({"predicate": "empty"}, None))
+        self.assertFalse(self.holds({"predicate": "nonEmpty"}, case_values.MISSING))
+
+    def test_contains_checks_a_dict_key(self):
+        self.assertTrue(self.holds({"predicate": {"op": "contains", "value": "a"}}, {"a": 1}))
+        self.assertTrue(self.holds({"predicate": {"op": "lengthEquals", "value": 2}}, [1, 2]))
+        self.assertFalse(self.holds({"equals": "running"}, "launching"))
+
+    def test_pointers(self):
+        doc = {"a": [{"b/c": 1}], "0": "zero"}
+        self.assertEqual(case_values.resolve_pointer(doc, "/a/0/b~1c"), 1)
+        self.assertIs(case_values.resolve_pointer(doc, "/a/01"), case_values.MISSING)
+        self.assertEqual(case_values.resolve_pointer(doc, ""), doc)
 
 
 def runnable_daemon_case() -> dict:
