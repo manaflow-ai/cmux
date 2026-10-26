@@ -90,6 +90,12 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 // (CEFForkFeatures reads this in host mode, not the remote dylib's own symbols).
 CMUX_REMOTE_EXPORT int cmux_remote_shim_host_has_export(const char* name);
 CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
+// Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
+// each frame it writes, in write order: returns the frame's input seq (Header::seq) and puts in
+// `ctl_seq` the control seq to stamp (SetCtlSeq), that of the last ordered op posted before it.
+// Ordered ops carry the returned seq as the input they follow (task 092; chromium_host_wire.h,
+// "One ordered input stream"). Both seqs start again at each attach.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
 
 }  // extern "C"
 

@@ -127,6 +127,42 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   return h->payload <= kMaxPayload;
 }
 
+// One ordered input stream (task p01-process-092). Chrome sends input and the
+// view's state (focus, IME, edit commands, geometry) to the renderer host on
+// one ordered pipe, RenderWidgetHostNSViewHost
+// (content/common/render_widget_host_ns_view.mojom), so a key after a focus
+// change goes to the newly focused page and a click after a resize hits the
+// resized page. The host has two streams instead, the input ring (task 041)
+// and the control channel (chromium_host_control.h), and joins them back
+// into one order with a sequence number each way:
+//   - an input frame's `seq` is cmux's input sequence number (1, 2, ...), and
+//     the high 32 bits of `t1` the control seq of the last control message
+//     cmux accepted before it (CtlSeqOf; the low 32 bits name the page, task
+//     041); the host dispatches it only once that control message is applied;
+//   - a control message carries its own control seq and the input seq of the
+//     last input frame cmux wrote before it (control::Message::ctl_seq and
+//     after_input); the host applies it only once that frame is dispatched.
+// control::OrderedStream holds each until the other side catches up. Seq 0 is
+// "none"; both counters skip it when they wrap (NextSeq).
+inline uint32_t CtlSeqOf(const Header& h) {
+  return static_cast<uint32_t>(h.t1 >> 32);
+}
+inline void SetCtlSeq(Header* h, uint32_t ctl_seq) {
+  h->t1 = (h->t1 & uint64_t{0xffffffff}) | (static_cast<uint64_t>(ctl_seq) << 32);
+}
+
+// The seq after `seq`, skipping 0.
+inline uint32_t NextSeq(uint32_t seq) {
+  return seq == UINT32_MAX ? 1 : seq + 1;
+}
+
+// Whether `a` is `b` or comes before it, in serial number arithmetic (RFC 1982)
+// so the order holds across a wrap: the two are never 2^31 apart, as no side
+// holds that many frames.
+inline bool SeqAtOrBefore(uint32_t a, uint32_t b) {
+  return static_cast<int32_t>(a - b) <= 0;
+}
+
 // A frame the reader thread hands to the UI thread.
 struct QueuedFrame {
   Header header;

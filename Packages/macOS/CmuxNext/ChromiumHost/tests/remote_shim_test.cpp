@@ -387,6 +387,26 @@ int main() {
     }
   }
 
+  // One ordered input stream (task 092): an ordered op (focus, activation) carries its control
+  // seq and the input seq written before it; an input frame names the last ordered op; other
+  // ops carry neither.
+  {
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 1 && ctl == 0);
+    cmux_shim_set_focus(browser, 1);
+    cmux_shim_reload(browser);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 2 && ctl == 1);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 3 && ctl == 1);
+    CHECK(cmux_shim_tab_activate(browser + 1) == 1);
+    const std::vector<Message> got = host.Read(3);
+    CHECK(got.size() == 3);
+    if (got.size() == 3) {
+      CHECK(got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 1 && got[0].after_input == 1);
+      CHECK(got[1].op == cmux_remote::kOpReload && got[1].ctl_seq == 0 && got[1].after_input == 0);
+      CHECK(got[2].op == cmux_remote::kOpTabActivate && got[2].ctl_seq == 2 && got[2].after_input == 3);
+    }
+  }
+
   // A host that never reads: posts still return at once, and the geometry of a page waits
   // coalesced to one frame.
   cmux_remote_shim_get_stats(&stats);
@@ -424,6 +444,11 @@ int main() {
   // once) and INITIALIZE, then new posts.
   Host second;
   CHECK(AttachNew(&second) == 1);
+  {
+    // A new host has a new ring and ordered stream: both seqs start again.
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 1 && ctl == 0);
+  }
   cmux_shim_stop(browser);
   {
     const std::vector<uint16_t> want = {cmux_host::control::kOpHello,     cmux_remote::kOpSetBackgroundColor,

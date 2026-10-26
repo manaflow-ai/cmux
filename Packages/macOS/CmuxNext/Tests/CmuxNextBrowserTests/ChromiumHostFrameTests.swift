@@ -47,6 +47,21 @@ import Testing
         #expect(frame.text == "abc")
     }
 
+    /// Task 092: the control seq rides in t1's high 32 bits and keeps the
+    /// page in its low 32 bits, as `SetCtlSeq` in chromium_host_wire.h
+    /// (chromium_host_order_test.cpp checks the same bits).
+    @Test func carriesTheControlSeqInT1HighBits() {
+        var frame = ChromiumHostFrame(.key)
+        frame.t1 = 0x1234
+        frame.ctlSeq = 0xabcd_ef01
+        #expect(frame.t1 == 0xabcd_ef01_0000_1234)
+        #expect(frame.ctlSeq == 0xabcd_ef01)
+        let bytes = frame.encoded()
+        #expect(Array(bytes[48..<56]) == [0x34, 0x12, 0, 0, 0x01, 0xef, 0xcd, 0xab])
+        frame.ctlSeq = 0
+        #expect(frame.t1 == 0x1234)
+    }
+
     @Test func waitsForTheRestOfAFrame() {
         let bytes = Self.golden + Array("ab".utf8)
         #expect(ChromiumHostFrame.decode(bytes[...]) == .needMore)

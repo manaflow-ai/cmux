@@ -173,6 +173,26 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
   }
 }
 
+// The ops of the one ordered input stream (task 092; chromium_host_wire.h, "One ordered input
+// stream"): those of Chrome's RenderWidgetHostNSViewHost pipe
+// (content/common/render_widget_host_ns_view.mojom) that change where input lands or that input
+// must reach first: focus (OnFirstResponderChanged), the active page and embedder activity
+// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged); IME (ImeSetComposition,
+// ImeCommitText) and edit commands (ExecuteEditCommand) join as tasks 043 and 047 add their ops.
+// Each carries its control seq and the input seq it follows; input frames name the last one.
+bool IsOrderedOp(uint16_t op) {
+  switch (op) {
+    case kOpSetFocus:
+    case kOpDevtoolsSetFocus:
+    case kOpBrowserSetEmbedderActive:
+    case kOpTabActivate:
+    case kOpDevtoolsSetPlacement:
+      return true;
+    default:
+      return false;
+  }
+}
+
 // The symbol of an optional op (kOptionalExports), nullptr for a header op.
 const char* OptionalExportName(uint16_t op) {
   for (const OptionalExport& entry : kOptionalExports) {
@@ -246,8 +266,22 @@ class Runtime {
   bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
     CMUX_REMOTE_ASSERT_MAIN();
     Message message = MakeMessage(op, token, args.fields());
+    if (IsOrderedOp(op)) {
+      ctl_seq_ = cmux_host::NextSeq(ctl_seq_);
+      message.ctl_seq = ctl_seq_;
+      message.after_input = input_seq_;
+    }
     const std::optional<uint64_t> key = token == 0 ? StateKeyFor(op, message.fields) : std::nullopt;
     return Route(std::move(message), key);
+  }
+
+  // The input ring's writer (tasks 041 and 042), for the frame it writes next: its input seq,
+  // and in `ctl_seq` the control seq of the last ordered op posted before it (CtlSeqOf).
+  uint32_t OrderInput(uint32_t* ctl_seq) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    input_seq_ = cmux_host::NextSeq(input_seq_);
+    if (ctl_seq != nullptr) *ctl_seq = ctl_seq_;
+    return input_seq_;
   }
 
   bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -367,7 +401,19 @@ class Runtime {
   };
 
   bool Send(const Message& message, std::optional<uint64_t> key = std::nullopt) {
-    return channel_->Send(message, key) ? true : Dropped(message.token);
+    if (channel_->Send(message, key)) return true;
+    KeepPlace(message);
+    return Dropped(message.token);
+  }
+
+  // An ordered op that will not be sent keeps its place in the order as a kOpSeqMark, so input
+  // written after it does not wait for it (OrderedStream).
+  void KeepPlace(const Message& message) {
+    if (message.ctl_seq == 0 || !channel_) return;
+    Message mark = MakeMessage(cmux_host::control::kOpSeqMark, 0, {});
+    mark.ctl_seq = message.ctl_seq;
+    mark.after_input = message.after_input;
+    channel_->Send(mark);
   }
 
   // Sends a post now or keeps its place in the queue: before the first attach, and after an
@@ -391,16 +437,20 @@ class Runtime {
 
   bool SendOrRefuse(const Message& message, std::optional<uint64_t> key) {
     const char* optional = OptionalExportName(message.op);
-    if (optional != nullptr && host_exports_.count(optional) == 0) return Refused(message.token);
+    if (optional != nullptr && host_exports_.count(optional) == 0) {
+      KeepPlace(message);
+      return Refused(message.token);
+    }
     return Send(message, key);
   }
 
   // Never drops: past the channel's quota the excess is counted, as the channel counts it
-  // (message_quota_checker.cc), and a state op replaces its waiting predecessor.
+  // (message_quota_checker.cc), and a state op replaces its waiting predecessor when no input
+  // was written between them (the outbox's rule, chromium_host_control.h).
   void Enqueue(Message message, std::optional<uint64_t> key) {
     if (key) {
       const auto it = queued_keys_.find(*key);
-      if (it != queued_keys_.end()) {
+      if (it != queued_keys_.end() && it->second->message.after_input == message.after_input) {
         it->second->live = false;
         --queued_live_;
         ++stats_.coalesced;
@@ -475,6 +525,9 @@ class Runtime {
     hello_ = false;
     in_ring_ = nullptr;
     out_ring_ = nullptr;
+    // The next host has a new ring and a new ordered stream: both seqs start again.
+    ctl_seq_ = 0;
+    input_seq_ = 0;
     stats_.unsendable += queued_live_;  // posts that waited for this host's HELLO
     queued_.clear();
     queued_keys_.clear();
@@ -599,6 +652,9 @@ class Runtime {
 #endif
   uint64_t next_view_token_ = 1;
   uint32_t token_ = 0;
+  // Task 092: the last ordered op's control seq, and the last input frame's input seq.
+  uint32_t ctl_seq_ = 0;
+  uint32_t input_seq_ = 0;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -620,6 +676,8 @@ bool Post(uint16_t op, uint32_t token, const TlvWriter& args) {
   return R().Post(op, token, args);
 }
 bool PostInput(uint16_t op, uint32_t token, const TlvWriter& args) {
+  // On the control channel until the ring lands (041, 042), in order with every ordered op, so
+  // it takes no input seq; on the ring it is written with OrderInput's seqs.
   return R().Post(op, token, args);
 }
 bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -688,6 +746,10 @@ int cmux_remote_shim_host_has_export(const char* name) {
 
 void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out) {
   if (out != nullptr) R().GetStats(out);
+}
+
+uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
+  return R().OrderInput(ctl_seq);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------
