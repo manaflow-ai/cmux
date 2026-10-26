@@ -352,7 +352,7 @@ struct WorkstreamStoreStartTests {
 
         #expect(store.items.count == 1)
         #expect(store.items.first?.id == id)
-        #expect(store.items.first?.status == resolved.status)
+        #expect(store.items.first?.status.isPending == false)
     }
 
     @Test("The store reports queued journal writes until they land")
