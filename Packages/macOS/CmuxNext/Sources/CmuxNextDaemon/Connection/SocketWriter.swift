@@ -38,7 +38,8 @@ final class SocketWriter: Sendable {
         // The option fails (EINVAL) once the peer is gone, so writes also
         // pass MSG_NOSIGNAL.
         var on: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the given size, MemoryLayout<Int32>.size, from `on`, an Int32 live for the call.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
     }
 
     /// Appends `bytes` after everything written before. Returns an error
@@ -100,12 +101,16 @@ final class SocketWriter: Sendable {
     }
 
     private static func writeAll(_ bytes: Data, fd: Int32) -> SocketWriteFailure? {
-        bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
-            guard var pointer = raw.baseAddress else { return nil }
-            var remaining = raw.count
+        // SAFETY: `raw` is Data's contiguous storage, valid only inside this closure, which never lets a pointer out.
+        unsafe bytes.withUnsafeBytes { raw -> SocketWriteFailure? in
+            // SAFETY: as above.
+            guard var pointer = unsafe raw.baseAddress else { return nil }
+            var remaining = unsafe raw.count
             while remaining > 0 {
                 // concurrency-allow: runs only on this writer's private serial queue, never the main thread or the cooperative pool.
-                let written = Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
+                // SAFETY: `pointer` + `remaining` always ends at the buffer's end: both start at its start and
+                // count, and each step moves `pointer` forward by the `written` bytes taken off `remaining`.
+                let written = unsafe Darwin.send(fd, pointer, remaining, MSG_NOSIGNAL)
                 if written < 0 {
                     let code = errno
                     if code == EINTR { continue }
@@ -115,7 +120,8 @@ final class SocketWriter: Sendable {
                 // retrying would loop without writing anything.
                 if written == 0 { return .noProgress }
                 remaining -= written
-                pointer += written
+                // SAFETY: as for send above; written <= remaining, so `pointer` stays inside the buffer or at its end.
+                unsafe pointer += written
             }
             return nil
         }
@@ -140,7 +146,7 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
         case .closed: "socket closed"
         case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
         case .noProgress: "write: no progress"
-        case .errno(let code): "write: \(String(cString: strerror(code)))"
+        case .errno(let code): "write: \(POSIXErrorText(code))"
         }
     }
 }

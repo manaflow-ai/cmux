@@ -21,8 +21,14 @@ extension HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver())
         // Blocking sites are kept only when the schema the server accepts carries them.
-        let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) },
-                                            resolveBlocking: builder.wireSchema.carriesBlocking ? { builder.frames(blocking: $0) } : nil)
+        // Typed locals: the inline ternary over a closure literal crashed the type checker ("failed to produce
+        // diagnostic") once this moved into this module.
+        let resolve: HangReportCollector.Resolve = { builder.frames(addresses: $0) }
+        var resolveBlocking: HangReportCollector.ResolveBlocking?
+        if builder.wireSchema.carriesBlocking {
+            resolveBlocking = { builder.frames(blocking: $0) }
+        }
+        let collector = HangReportCollector(resolve: resolve, resolveBlocking: resolveBlocking)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
         let info = Bundle.main.infoDictionary ?? [:]
         let os = ProcessInfo.processInfo.operatingSystemVersion

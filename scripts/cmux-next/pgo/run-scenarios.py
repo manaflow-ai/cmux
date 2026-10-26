@@ -61,14 +61,41 @@ step fails when the app refused its first key or more than MAX_REFUSED_SHARE of 
 that scenario. A few refused keys and a scratch workspace that did not come back are warnings, printed and kept
 in stage-profile.json.
 
+Stage 2, `--stage order` (task 109): the order file, made against the final `-profile-use` build of the stage 1
+profdata (052) and that build's link map (LD_GENERATE_MAP_FILE=YES, 051):
+
+    python3 scripts/cmux-next/pgo/run-scenarios.py --stage order --app "/path/cmux DEV <tag>.app" \
+        --link-map "/path/cmux DEV-LinkMap-normal-arm64.txt" --out DIR
+    python3 scripts/cmux-next/pgo/run-scenarios.py --stage order --merge-only --app ... --link-map ... --out DIR
+
+The app is the bench config of that build (Release optimization with the bench hooks, so `debug.timings` answers).
+`--runs` cold launches (default 3), each after `sudo -n purge` (bench-startup.py's purge, refused up front), each
+under `xctrace record` of System Trace (trace.py's XcTrace) from before the launch until the stage saw
+`startup_complete` (no lab host validation in the launch). The virtual-memory table gives the app's fault addresses,
+cut at the trace time of its `startup_complete` launch mark (the os-signpost table), so the bench's own requests and
+the work after startup are not in them; vmmap gives the address its `__TEXT` was mapped at; both are kept in
+`DIR/order-runs/<run>/faults.json`. page-fault-order.py then maps them and stage 1's launch-functions.txt (from
+`--profile-dir`, default DIR) through the link map. The stage refuses unless launch-functions.txt, stage 1's
+cmux-next.profdata.sha256 and the build's `--profdata-sha256` (default Resources/build/cmux-next.profdata.sha256)
+name the same profdata.
+
+Outputs in DIR:
+
+    cmux-next.order             the launch symbols, then the page-fault symbols of a majority of the cold launches
+                                (--min-runs); its `# profdata sha256` header is what check.py compares
+    cmux-next.swift-only.order  the launch symbols only: the other side of the cold pageins A/B
+    stage-order.json            the runs, the counts, the launch functions the map has no symbol for
+
 Seams (tests only): `--llvm-profdata` or CMUX_PGO_LLVM_PROFDATA replace `xcrun llvm-profdata` (as in
-build-profile.sh); ProfileStage takes the launcher and the STRESS context, each with `errors`, the exceptions it
-raises for a failed run (the stage reports them as that run's error).
+build-profile.sh); ProfileStage takes the launcher and the STRESS context, OrderStage the launcher, the purge, the
+fault recorder and the load address reader, each with `errors`, the exceptions it raises for a failed run (the
+stage reports them as that run's error).
 """
 import argparse, contextlib, dataclasses, hashlib, importlib.util, json, os, re, shlex, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CMUX_NEXT = os.path.dirname(HERE)
+REPO = os.path.dirname(os.path.dirname(CMUX_NEXT))
 
 # The file names of the flush hooks (task 103, CmuxNextLaunch/ProfileFlush.swift, ProfileFlush.Files), both in
 # the folder of LLVM_PROFILE_FILE.
@@ -296,15 +323,24 @@ class LiveApp:
     def alive(self):
         return self.bench.process is not None and self.bench.process.poll() is None
 
+    @property
+    def pid(self):
+        return self.bench.process.pid
+
+    @property
+    def binary(self):
+        return self.bench.binary
+
 
 class BenchLauncher:
     """Launches the profile build through bench_launch.BenchApp (its GUI session check, Finder limits, scratch
     config and socket wait) and quits it with the run's debug.quit fixture. `errors`: what a failed launch raises
     (bench_launch.LaunchError and its other SystemExit reports, RecordError)."""
 
-    def __init__(self, app, timeout=180, quit_timeout=60):
+    def __init__(self, app, timeout=180, quit_timeout=60, validate_host=True):
         self.bench_launch = load_by_path("bench_launch", os.path.join(CMUX_NEXT, "bench_launch.py"))
         self.app, self.timeout, self.quit_timeout = app, timeout, quit_timeout
+        self.validate_host = validate_host
         self.errors = (SystemExit, self.bench_launch.RecordError)
 
     def end_tag(self):
@@ -317,7 +353,7 @@ class BenchLauncher:
     def launch(self, run, run_dir, env):
         bench = self.bench_launch.BenchApp(self.app, out=run_dir, env=env, log_name="app.log",
                                            teardown=run.quit == "end-sessions", fresh_state=not run.keep_state)
-        bench.launch(timeout=self.timeout)
+        bench.launch(timeout=self.timeout, validate_host=self.validate_host)
         completed = False
         try:
             yield LiveApp(bench)
@@ -571,28 +607,309 @@ def write_manifest(out, app, reports, merged, plan=PLAN):
     return manifest
 
 
+# Stage 2: the order file.
+
+ORDER, SWIFT_ONLY_ORDER, ORDER_MANIFEST, FAULTS = ("cmux-next.order", "cmux-next.swift-only.order", "stage-order.json",
+                                                  "faults.json")
+ORDER_RUNS = 3
+DEFAULT_PROFDATA_SHA256 = os.path.join(REPO, "Resources", "build", "cmux-next.profdata.sha256")
+XCTRACE = ("xcrun", "xctrace")
+ORDER_TRACE_CAP_S = 600
+
+
+def order_lib():
+    return load_by_path("page_fault_order", os.path.join(HERE, "page-fault-order.py"))
+
+
+def order_plan(runs=ORDER_RUNS):
+    """The cold launches of stage 2: no daemon, an empty session, an empty file cache; each ends its sessions."""
+    return tuple(Run(f"order-cold-{index}", False, "end-sessions") for index in range(1, runs + 1))
+
+
+class PurgedCache:
+    """Empties the file cache before each cold launch with bench-startup.py's purge (`sudo -n purge`); `check` refuses
+    before any launch when the account may not. `errors`: bench-startup's Refused (a SystemExit that printed why)."""
+
+    errors = (SystemExit,)
+
+    def __init__(self):
+        self.bench_startup = load_by_path("bench_startup", os.path.join(CMUX_NEXT, "bench-startup.py"))
+
+    def check(self):
+        self.bench_startup.check_purge_right()
+
+    def __call__(self):
+        self.bench_startup.purge()
+
+
+class VmFaultRecorder:
+    """`xctrace record` of System Trace for one cold launch (trace.py's XcTrace, every process) and the app's fault
+    addresses from its virtual-memory table. `errors`: what a recording that failed raises."""
+
+    errors = (RuntimeError, OSError)
+
+    def __init__(self, run_dir, trace=None):
+        self.trace = trace or load_by_path("cmux_trace", os.path.join(CMUX_NEXT, "trace.py"))
+        self.run_dir = run_dir
+        self.recording = self.trace.XcTrace(run_dir, system_trace=True, cap_s=ORDER_TRACE_CAP_S)
+
+    def start(self):
+        self.recording.start()
+
+    def stop(self):
+        """Ends the recording; xctrace saves it."""
+        if not self.recording.stop():
+            raise StageError(f"xctrace saved no recording ({self.recording.log_path})")
+
+    def kill(self):
+        """Ends xctrace without saving."""
+        self.recording.kill()
+
+    def export(self, schema):
+        """The path of the recording's `schema` table, exported; None when xctrace wrote nothing."""
+        path = os.path.join(self.run_dir, f"xctrace-{schema}.xml")
+        self.trace.export_file([*XCTRACE, "export", "--input", self.recording.path, "--xpath",
+                                f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], path,
+                               self.trace.EXPORT_TIMEOUT_S, schema)
+        return path if os.path.exists(path) else None
+
+    def faults(self, pid):
+        """(the fault addresses of process `pid` up to its startup_complete launch mark, in time order; that mark's
+        trace time in ns). The recording runs on past the mark (the launcher's socket wait, the startup poll), so
+        the faults after it, the bench's own requests among them, are cut."""
+        lib, trace = order_lib(), self.trace
+        toc = os.path.join(self.run_dir, "xctrace-toc.xml")
+        trace.export_file([*XCTRACE, "export", "--input", self.recording.path, "--toc"], toc, trace.EXPORT_TOC_S,
+                          "toc", to_stdout=True)
+        schemas = trace.parse_toc(toc)["schemas"]
+        tables = [schema for schema in schemas if lib.is_vm_schema(schema)]
+        if not tables or lib.SIGNPOST_SCHEMA not in schemas:
+            raise StageError(f"the System Trace needs a virtual-memory and an {lib.SIGNPOST_SCHEMA} table (tables: "
+                             f"{', '.join(schemas) or 'none'})")
+        signposts = self.export(lib.SIGNPOST_SCHEMA)
+        if signposts is None:
+            raise StageError(f"xctrace exported no {lib.SIGNPOST_SCHEMA} table")
+        cutoff = lib.startup_cutoff(trace.xctrace_rows(signposts), pid)
+        for schema in tables:
+            path = self.export(schema)
+            if path is not None:
+                addresses = lib.fault_addresses(trace.xctrace_rows(path), pid, cutoff)
+                if addresses:
+                    return addresses, cutoff
+        raise StageError(f"the virtual-memory tables {', '.join(tables)} have no fault of pid {pid} up to "
+                         f"{STARTUP_COMPLETE}")
+
+
+def vmmap_load_address(pid, binary):
+    """The address process `pid` mapped `binary`'s __TEXT at (`vmmap -w`)."""
+    try:
+        done = subprocess.run(["vmmap", "-w", str(pid)], capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise StageError(f"vmmap {pid}: {error}") from error
+    if done.returncode != 0:
+        raise StageError(f"vmmap {pid} failed ({done.returncode}): {done.stderr.strip()[-300:]}")
+    return order_lib().text_load_address(done.stdout, binary)
+
+
+class OrderStage:
+    """Stage 2's recording: `plan`'s cold launches, each after `cold()` (the purge) under a fresh `recorder(run_dir)`
+    until `startup_complete`, then `load_address(pid, binary)`; each run's faults up to its startup_complete mark
+    (`recorder.faults(pid)`: the addresses and the mark's trace time) go to its faults.json."""
+
+    def __init__(self, out, launcher, cold, recorder, load_address=vmmap_load_address, plan=None, timeout=180,
+                 wait=wait_until, log=print):
+        self.out, self.launcher, self.cold, self.recorder = out, launcher, cold, recorder
+        self.load_address, self.plan = load_address, plan or order_plan()
+        self.timeout, self.wait, self.log = timeout, wait, log
+
+    def run(self):
+        try:
+            self.cold.check()
+        except self.cold.errors as error:
+            raise StageError(f"purge refused: {error}") from error
+        self.launcher.end_tag()
+        try:
+            return [self.run_one(run) for run in self.plan]
+        finally:
+            self.launcher.end_tag()
+
+    def run_one(self, run):
+        run_dir = os.path.join(self.out, "order-runs", run.name)
+        os.makedirs(run_dir, exist_ok=True)
+        faults_path = os.path.join(run_dir, FAULTS)
+        if os.path.exists(faults_path):  # an earlier stage's faults never pass for this run's
+            os.remove(faults_path)
+        self.log(f"pgo-stage: {run.name}: purge, record, launch")
+        try:
+            self.cold()
+        except self.cold.errors as error:
+            raise StageError(f"{run.name}: purge failed: {error}") from error
+        recorder = self.recorder(run_dir)
+        try:
+            recorder.start()
+            try:
+                with self.launcher.launch(run, run_dir, {}) as app:
+                    if not self.wait(lambda: startup_completed(app) or not app.alive(), self.timeout) \
+                            or not app.alive():
+                        raise StageError(f"the app never reached {STARTUP_COMPLETE}")
+                    recorder.stop()
+                    pid, load_address = app.pid, self.load_address(app.pid, app.binary)
+            except BaseException:
+                recorder.kill()  # a failed run keeps no recording
+                raise
+            addresses, cutoff = recorder.faults(pid)
+        except (StageError, order_lib().OrderError) as error:
+            raise StageError(f"{run.name}: {error}") from error
+        except self.launcher.errors as error:
+            raise StageError(f"{run.name}: launch: {type(error).__name__}: {error}") from error
+        except recorder.errors as error:
+            raise StageError(f"{run.name}: recording: {type(error).__name__}: {error}") from error
+        record = {"run": run.name, "pid": pid, "load_address": hex(load_address), "startup_complete_ns": cutoff,
+                  "faults": len(addresses), "addresses": [hex(address) for address in addresses]}
+        with open(faults_path, "w") as target:
+            json.dump(record, target)
+        return {key: record[key] for key in ("run", "pid", "load_address", "faults")}
+
+
+def order_launcher(app, timeout):
+    """The launcher of the cold launches: no lab host validation (its minute of nettop would run in the recording)."""
+    return BenchLauncher(app, timeout=timeout, validate_host=False)
+
+
+def same_profdata(profile_dir, build_sha256, lib):
+    """(launch function names, profdata sha256) of stage 1 when its stamp, its launch list's header and the build's
+    sha256 file name the same profdata; raises naming the two that differ."""
+    names, listed = lib.read_launch_functions(os.path.join(profile_dir, LAUNCH_FUNCTIONS))
+    stamped = lib.read_sha256_file(os.path.join(profile_dir, PROFDATA + ".sha256"))
+    built = lib.read_sha256_file(build_sha256)
+    if listed != stamped:
+        raise StageError(f"{LAUNCH_FUNCTIONS} names profdata {listed}, {PROFDATA}.sha256 {stamped}: run stage 1 again")
+    if built != stamped:
+        raise StageError(f"stage 1 made profdata {stamped}, the -profile-use build used {built} ({build_sha256}): "
+                         "the order must come from the build of this profile")
+    return names, stamped
+
+
+def order_stage(out, profile_dir, binary, link_map_path, build_sha256, plan, min_runs=None):
+    """Maps stage 1's launch functions and every run's faults in `out/order-runs` through the link map and writes
+    ORDER and SWIFT_ONLY_ORDER; returns the order part of the manifest."""
+    lib = order_lib()
+    try:
+        names, sha = same_profdata(profile_dir, build_sha256, lib)
+        with open(link_map_path) as source:
+            link_map = lib.parse_link_map(source.read())
+        text = lib.macho_text(binary, link_map.arch or "arm64")
+        lib.check_link_map_matches(link_map, text)
+        index = lib.TextIndex(link_map)
+        runs = []
+        for run in plan:
+            path = os.path.join(out, "order-runs", run.name, FAULTS)
+            if not os.path.exists(path):
+                raise StageError(f"{run.name}: no recorded faults at {path}")
+            with open(path) as source:
+                record = json.load(source)
+            runs.append(lib.unslid([int(a, 16) for a in record["addresses"]], int(record["load_address"], 16),
+                                   text["vmaddr"]))
+        launch, missing = lib.launch_symbols(names, index)
+        faults, needed = lib.fault_symbols(runs, index, min_runs)
+        lines = lib.order_lines(launch, faults, index)
+        swift_only = lib.order_lines(launch, [], index)
+    except (OSError, ValueError, KeyError, lib.OrderError) as error:
+        raise StageError(str(error)) from error
+    added = len(lines) - len(swift_only)
+    binary_line = f"binary {os.path.basename(binary)} {link_map.arch} __text {text['text_size']:#x}"
+    counts = (f"launch functions {len(names) - len(missing)} of {len(names)} in the map; page-fault symbols "
+              f"{added} more (faulted in {needed} of {len(runs)} cold launches)")
+    for name, body in ((ORDER, lines), (SWIFT_ONLY_ORDER, swift_only)):
+        rendered = lib.render_order(sha, [binary_line, counts], body)
+        problems = lib.check_order(rendered, sha)
+        if problems:
+            raise StageError(f"{name}: {'; '.join(problems)}")
+        with open(os.path.join(out, name), "w") as target:
+            target.write(rendered)
+    return {"profdata_sha256": sha, "order": {"path": ORDER, "symbols": len(lines), "page_fault_symbols": added},
+            "swift_only_order": {"path": SWIFT_ONLY_ORDER, "symbols": len(swift_only)},
+            "launch_functions": {"count": len(names), "missing": len(missing), "first_missing": missing[:20]},
+            "min_runs": needed, "link_map": os.path.abspath(link_map_path)}
+
+
+def read_order_reports(out, plan):
+    reports = []
+    for run in plan:
+        path = os.path.join(out, "order-runs", run.name, FAULTS)
+        if os.path.exists(path):
+            with open(path) as source:
+                record = json.load(source)
+            reports.append({key: record.get(key) for key in ("run", "pid", "load_address", "faults")})
+    return reports
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--stage", required=True, choices=["profile"])
-    parser.add_argument("--app", help="the profile build: cmux DEV <tag>.app of reload.sh --config profile")
-    parser.add_argument("--out", required=True, help="the stage folder: runs/, the profdata and the function list")
+    parser.add_argument("--stage", required=True, choices=["profile", "order"])
+    parser.add_argument("--app", help="profile: the profile build (reload.sh --config profile); order: the bench "
+                        "config of the -profile-use build")
+    parser.add_argument("--out", required=True, help="the stage folder: runs/, the profdata and the function list; "
+                        "order-runs/ and the order files")
     parser.add_argument("--merge-only", action="store_true", help="merge the runs already in --out; launch nothing")
     parser.add_argument("--timeout", type=float, default=180, help="seconds for a launch to answer and complete")
     parser.add_argument("--min-launches", type=int, help="launch profiles of one kind (cold or warm) a listed "
                         "function ran in (default a majority of each kind)")
     parser.add_argument("--llvm-profdata", help="llvm-profdata command (default: xcrun llvm-profdata)")
+    parser.add_argument("--link-map", help="order: the link map of the --app binary (LD_GENERATE_MAP_FILE=YES)")
+    parser.add_argument("--profile-dir", help="order: stage 1's folder (default --out)")
+    parser.add_argument("--profdata-sha256", default=DEFAULT_PROFDATA_SHA256,
+                        help="order: the sha256 file of the profdata the -profile-use build used (default %(default)s)")
+    parser.add_argument("--runs", type=int, default=ORDER_RUNS, help="order: cold launches (default %(default)s)")
+    parser.add_argument("--min-runs", type=int, help="order: cold launches a listed page-fault symbol faulted in "
+                        "(default a majority)")
     args = parser.parse_args(argv)
-    if not args.merge_only and not args.app:
+    if args.stage == "order":
+        if not args.app or not args.link_map:
+            parser.error("--stage order needs --app and --link-map (also with --merge-only: the map must be the app's)")
+        if args.runs < 1:
+            parser.error("--runs must be at least 1")
+    elif not args.merge_only and not args.app:
         parser.error("--app is required unless --merge-only")
     if args.app and not os.path.isdir(args.app):
         parser.error(f"--app {args.app} is not an app bundle")
     return args
 
 
-def main(argv=None, launcher=None, context=None):
+def main_order(args, out, launcher=None, cold=None, recorder=None, load_address=None):
+    """Stage 2: records the cold launches (unless --merge-only), then writes the order files and stage-order.json."""
+    plan = order_plan(args.runs)
+    binary = load_by_path("bench_launch", os.path.join(CMUX_NEXT, "bench_launch.py")).main_binary(args.app)
+    try:
+        if args.merge_only:
+            reports = read_order_reports(out, plan)
+        else:
+            stage = OrderStage(out, launcher or order_launcher(args.app, args.timeout), cold or PurgedCache(),
+                               recorder or VmFaultRecorder, load_address or vmmap_load_address, plan,
+                               timeout=args.timeout)
+            reports = stage.run()
+        ordered = order_stage(out, os.path.abspath(args.profile_dir or out), binary, args.link_map,
+                              args.profdata_sha256, plan, args.min_runs)
+    except StageError as error:
+        print(f"pgo-stage: error: {error}", file=sys.stderr, flush=True)
+        return 1
+    manifest = {"stage": "order", "app": os.path.abspath(args.app), "binary": binary,
+                "plan": [dataclasses.asdict(run) for run in plan], "runs": reports, **ordered}
+    with open(os.path.join(out, ORDER_MANIFEST), "w") as target:
+        json.dump(manifest, target, indent=1)
+    print("PGO-STAGE " + json.dumps({"stage": "order", "out": out, "profdata_sha256": ordered["profdata_sha256"],
+                                     "order_symbols": ordered["order"]["symbols"],
+                                     "page_fault_symbols": ordered["order"]["page_fault_symbols"],
+                                     "launch_functions_missing": ordered["launch_functions"]["missing"]}), flush=True)
+    return 0
+
+
+def main(argv=None, launcher=None, context=None, cold=None, recorder=None, load_address=None):
     args = parse_args(argv)
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
+    if args.stage == "order":
+        return main_order(args, out, launcher, cold, recorder, load_address)
     tool = profdata_tool(args.llvm_profdata)
     try:
         if args.merge_only:
