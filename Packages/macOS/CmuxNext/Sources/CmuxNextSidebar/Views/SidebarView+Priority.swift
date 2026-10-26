@@ -35,6 +35,9 @@ extension SidebarViewComponents {
         list.onPointerEventSeen = { [weak self] type, eventWindow in
             self?.priorityPanelView.pointerEventSeen(type, in: eventWindow)
         }
+        list.onPointerKeyDown = { [weak self] event in
+            self?.priorityPanelView.keyEventSeen(event)
+        }
         list.onPointerWindowLostKey = { [weak self] in
             self?.priorityPanelView.shouldKeepPointerOnWindowLoss() ?? false
         }

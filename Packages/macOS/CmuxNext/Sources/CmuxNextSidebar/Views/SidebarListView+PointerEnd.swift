@@ -42,7 +42,7 @@ extension SidebarListViewComponents {
     /// Whether a gesture is alive: a press or a drag the list still holds.
     var holdsPointerGesture: Bool { press != nil || drag != nil }
 
-    /// A left press or release anywhere in the app, before its window gets it (`observePointerEnds`).
+    /// A left press or release, or key press, anywhere in the app, before its window gets it (`observePointerEnds`).
     /// - A press while this list still holds one: the old press's release never came (a menu, a modal session or
     ///   another tracking loop took it). It ends now, wherever the new press lands; a press on the list ends it too.
     /// - A release sent to another window: a panel over this window may still forward it here (`WindowOverlayHost`),
@@ -72,8 +72,9 @@ extension SidebarListViewComponents {
 
     /// Sees every left press and release of the app before its window does (`pointerEventSeen`); the caller removes it.
     func observePointerEnds() -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
-            _ = self?.pointerEventSeen(event.type, in: event.window)
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
+            if event.type == .keyDown { self?.onPointerKeyDown?(event) }
+            else { _ = self?.pointerEventSeen(event.type, in: event.window) }
             return event
         }
     }

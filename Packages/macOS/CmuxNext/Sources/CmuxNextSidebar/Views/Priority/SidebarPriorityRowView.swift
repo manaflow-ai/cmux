@@ -7,8 +7,10 @@ import CmuxNextDesign
 /// a press that moves past the sidebar's drag threshold drags the row instead (`onDrag`). The
 /// buttons and the right-click menu run the same registered actions (the App maps them).
 final class SidebarPriorityRowView: NSView {
+    enum MoveDirection { case earlier, later }
     private(set) var entry: SidebarPriorityEntry
     var onAction: ((SidebarPriorityAction) -> Void)?
+    var onMove: ((MoveDirection) -> Void)?
     /// A drag's step: the pointer moved, the row was released over the list, or the drag ended with
     /// no place (released beside the list).
     enum DragPhase { case moved, dropped, cancelled }
@@ -21,6 +23,7 @@ final class SidebarPriorityRowView: NSView {
     private var dragging = false
     /// The list ended this press (`endPress`): its release neither opens the chat nor drops.
     private var pressEnded = false
+    private var lastWindowPoint: NSPoint?
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -62,6 +65,7 @@ final class SidebarPriorityRowView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
+    override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(_ entry: SidebarPriorityEntry) {
@@ -203,7 +207,9 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         pressStart = listPoint(event)
+        lastWindowPoint = event.locationInWindow
         dragging = false
         pressEnded = false
     }
@@ -212,6 +218,7 @@ final class SidebarPriorityRowView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = pressStart else { return }
         let point = listPoint(event)
+        lastWindowPoint = event.locationInWindow
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
         if dragging { onDrag?(self, point.y - start.y, .moved) }
     }
@@ -221,6 +228,7 @@ final class SidebarPriorityRowView: NSView {
         if pressStart != nil { pressEnded = true }
         pressStart = nil
         dragging = false
+        lastWindowPoint = nil
     }
 
     /// The event's pointer in the list's points (`superview`, flipped: down is positive).
@@ -236,6 +244,7 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        lastWindowPoint = event.locationInWindow
         let start = pressStart, dragged = dragging, ended = pressEnded
         pressStart = nil
         dragging = false
@@ -252,8 +261,44 @@ final class SidebarPriorityRowView: NSView {
         onAction?(.open(entry.id))
     }
 
+    /// The held press's offset in document coordinates, used when edge autoscroll moves the clip
+    /// without delivering another mouse event.
+    var heldWindowPoint: NSPoint? { lastWindowPoint }
+
+    func dragOffset(at windowPoint: NSPoint) -> CGFloat? {
+        guard let pressStart else { return nil }
+        return listPoint(windowPoint: windowPoint).y - pressStart.y
+    }
+
+    private func listPoint(windowPoint: NSPoint) -> NSPoint {
+        superview.map { $0.convert(windowPoint, from: nil) } ?? windowPoint
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard flags == [.command, .option] else { return super.keyDown(with: event) }
+        switch event.specialKey {
+        case .upArrow?: onMove?(.earlier)
+        case .downArrow?: onMove?(.later)
+        default: super.keyDown(with: event)
+        }
+    }
+
     override func accessibilityPerformPress() -> Bool {
         onAction?(.open(entry.id))
         return true
+    }
+
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        var actions = super.accessibilityCustomActions() ?? []
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveEarlier) { [weak self] in
+            self?.onMove?(.earlier)
+            return self != nil
+        })
+        actions.append(NSAccessibilityCustomAction(name: Strings.priorityMoveLater) { [weak self] in
+            self?.onMove?(.later)
+            return self != nil
+        })
+        return actions
     }
 }

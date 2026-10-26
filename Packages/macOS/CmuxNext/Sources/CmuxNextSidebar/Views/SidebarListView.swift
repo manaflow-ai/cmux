@@ -215,6 +215,8 @@ final class SidebarListView: NSView {
     private var pointerMonitor: Any?
     /// Additional sidebar-owned gestures that share this list's app/window pointer monitor.
     var onPointerEventSeen: ((NSEvent.EventType, NSWindow?) -> Void)?
+    /// Key events share the app monitor so a Priority drag can cancel while a child page window has focus.
+    var onPointerKeyDown: ((NSEvent) -> Void)?
     var onPointerWindowLostKey: (() -> Bool)?
     var onPointerFocusLost: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.

@@ -38,6 +38,12 @@ extension Strings {
     static var priorityUnpin: String { String(localized: "sidebar.priority.unpin", defaultValue: "Unpin from Priority", bundle: .module) }
     static var prioritySnooze: String { String(localized: "sidebar.priority.snooze", defaultValue: "Snooze for 1 Hour", bundle: .module) }
     static var priorityArchive: String { String(localized: "sidebar.priority.archive", defaultValue: "Archive", bundle: .module) }
+    static var priorityMoveEarlier: String {
+        String(localized: "sidebar.priority.moveEarlier", defaultValue: "Move Earlier", bundle: .module)
+    }
+    static var priorityMoveLater: String {
+        String(localized: "sidebar.priority.moveLater", defaultValue: "Move Later", bundle: .module)
+    }
 }
 
 extension SidebarPriorityEntry {
