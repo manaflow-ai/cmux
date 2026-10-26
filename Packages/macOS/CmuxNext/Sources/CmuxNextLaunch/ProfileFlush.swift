@@ -1,13 +1,12 @@
 #if DEBUG || CMUX_PGO_PROFILE
 import CmuxNextCompat
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceContinuation
 public import Foundation
 import os
 #if CMUX_PGO_PROFILE
 import CmuxNextProfileRuntimeC
-import class CmuxSafeConcurrency.OnceContinuation
-import enum CmuxSafeConcurrency.OnceContinuationError
-import func CmuxSafeConcurrency.withOnceContinuation
 #endif
 
 /// The profile build's two profiles from one run (p08-startup-103, plans/cmux-next/chrome-parity/p08-startup.md
