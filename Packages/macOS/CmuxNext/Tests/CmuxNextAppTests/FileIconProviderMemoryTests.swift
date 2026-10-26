@@ -107,6 +107,8 @@ import Testing
         }
         #expect(icons.arrivals == packages.count)
         #expect(system.mainAsks.withLock { $0 } == 0, "an icon was read on the main thread")
+        // The provider is each package icon's one owner: the query table keeps none, so the provider's release frees them.
+        #expect(queries.iconCount == 0)
         let usage = icons.memoryUsage
         #expect((usage?.entries ?? .max) <= FileIconProvider.defaultPackageIconCount)
         #expect(usage?.footprintBytes == (usage?.entries ?? 0) * FileIconProvider.iconBytes)

@@ -3,11 +3,27 @@ public import CmuxNextCompat
 public import UniformTypeIdentifiers
 
 /// One Launch Services or icon question ``WorkspaceQueries`` answers and keeps: its key, whether a kept answer goes
-/// stale (an app installed or removed since changes it; an icon does not), and the blocking query that answers it.
+/// stale (an app installed or removed since changes it; an icon does not), whether the answer is kept at all, and the
+/// blocking query that answers it.
 public nonisolated struct WorkspaceQuery<Value: Sendable>: Sendable {
     let key: WorkspaceQueryKey
     let refreshes: Bool
+    let keeps: Bool
     let ask: @Sendable (any WorkspaceQuerying) -> Value
+
+    init(key: WorkspaceQueryKey, refreshes: Bool, keeps: Bool = true, ask: @escaping @Sendable (any WorkspaceQuerying) -> Value) {
+        self.key = key
+        self.refreshes = refreshes
+        self.keeps = keeps
+        self.ask = ask
+    }
+
+    /// The same question, asked on the lane and shared by its callers meanwhile, with its answer not kept: for a
+    /// caller that keeps the answer in its own bounded store (the Files pane's package and type icons), so each
+    /// image has one owner and that owner's memory release frees it.
+    public var unkept: Self {
+        Self(key: key, refreshes: refreshes, keeps: false, ask: ask)
+    }
 }
 
 extension WorkspaceQuery {
@@ -28,6 +44,14 @@ nonisolated enum WorkspaceQueryKey: Hashable, Sendable {
     case iconForFile(path: String, side: CGFloat?)
     case iconForType(UTType, side: CGFloat?)
     case custom(String)
+
+    /// An icon answer: kept in the icon table, apart from the app answers.
+    var isIcon: Bool {
+        switch self {
+        case .iconForFile, .iconForType: return true
+        default: return false
+        }
+    }
 }
 
 extension WorkspaceQuery where Value == URL? {
@@ -83,8 +107,9 @@ extension WorkspaceQuery where Value == NSImage {
     }
 }
 
-// memory: bounded: at most `capacity` answers (256 by default), the least recently read dropped first; an answer is
-// one app URL, at most a few dozen app URLs, or one icon image at one size.
+// memory: bounded: at most `capacity` app answers (256 by default) and `iconCapacity` icons (256 by default), each
+// table dropping its least recently read first; an app answer is one app URL or at most a few dozen app URLs, an icon
+// one image at one size. The icons are a memory consumer once registered (``registerMemoryConsumer(with:)``).
 /// The app's Launch Services and icon answers: which app opens a link, a file or a type, where an app is, and the
 /// icon of a file, an app or a type. Each question is asked on the system lane of ``BackgroundWork`` through the
 /// checked seams (``WorkspaceQuerying``), never on the main thread, and its answer is kept in a bounded
@@ -94,7 +119,12 @@ extension WorkspaceQuery where Value == NSImage {
 ///
 /// This is Chrome's `IconManager` (chrome/browser/icon_manager.cc): a per-process icon cache on the UI thread whose
 /// misses an `IconLoader` fills on a `MayBlock` thread pool sequence and replies to the UI thread. As there, one
-/// question in flight serves every caller that asks it meanwhile.
+/// question in flight serves every caller that asks it meanwhile; a later caller that waits more raises it
+/// (Chrome's `UpdateableSequencedTaskRunner::UpdatePriority`, base/task/updateable_sequenced_task_runner.h), so an
+/// open menu never waits behind a best-effort warm-up that the startup fence holds.
+///
+/// Icons are kept apart from the app answers, so a folder of a few hundred apps never drops the browser and Open With
+/// lists a menu reads. A caller that keeps an image in its own store asks ``WorkspaceQuery/unkept``.
 ///
 /// An app answer goes stale: once a read finds it older than `refreshAfter`, the kept answer is served and asked
 /// again at best effort, so an app installed since shows one read later. Icons do not go stale.
@@ -118,54 +148,111 @@ public final class WorkspaceQueries {
         let value: Value
     }
 
+    /// Kept answers; past `limit` (at most `capacity`) the least recently read go first.
+    private struct Table {
+        let capacity: Int
+        var limit: Int
+        var entries: [WorkspaceQueryKey: Entry] = [:]
+
+        init(capacity: Int) {
+            self.capacity = capacity
+            limit = capacity
+        }
+
+        /// Keeps `entry`, then drops the least recently read past `limit` (one O(n) scan per drop; an insert drops at
+        /// most one unless the limit was just lowered).
+        mutating func insert(_ entry: Entry, for key: WorkspaceQueryKey) {
+            entries[key] = entry
+            while entries.count > limit, let oldest = entries.min(by: { $0.value.used < $1.value.used })?.key {
+                entries.removeValue(forKey: oldest)
+            }
+        }
+
+        /// Drops the least recently read entries until at most `limit` are left, checking `isExpired` before each.
+        /// True when the bound holds.
+        mutating func trim(until isExpired: () -> Bool = { false }) -> Bool {
+            guard entries.count > limit else { return true }
+            for key in entries.sorted(by: { $0.value.used < $1.value.used }).map(\.key) {
+                guard entries.count > limit else { return true }
+                if isExpired() { return false }
+                entries.removeValue(forKey: key)
+            }
+            return entries.count <= limit
+        }
+    }
+
+    /// A question on the lane: its item (a later caller that waits more raises it), the priority it runs at, and the
+    /// replies waiting for its answer.
+    private struct Asking {
+        let handle: WorkHandle<Void>
+        var priority: WorkPriority
+        var replies: [@MainActor (any Sendable) -> Void]
+    }
+
+    /// The estimated bytes of one kept icon (32 points at 2x, 4 bytes a pixel), for the memory report.
+    static let iconBytes = 64 * 64 * 4
+
     private let work: BackgroundWork
     private let mainWork: MainWorkScheduler
     private let system: any WorkspaceQuerying
-    private let capacity: Int
     private let refreshAfter: Duration
     private let now: @MainActor () -> ContinuousClock.Instant
     private let owner: MainTaskOwner
-    private var entries: [WorkspaceQueryKey: Entry] = [:]
-    /// The questions on the lane, each with the replies waiting for its answer.
-    private var asking: [WorkspaceQueryKey: [@MainActor (any Sendable) -> Void]] = [:]
+    private var answers: Table
+    private var icons: Table
+    private var asking: [WorkspaceQueryKey: Asking] = [:]
     private var reads: UInt64 = 0
+    private var memoryRegistration: MemoryConsumerRegistration?
 
     /// - Parameters:
     ///   - work: The app's lanes; questions run on its system lane.
     ///   - mainWork: The main-thread scheduler that answers come back on (class `visible`).
     ///   - system: The blocking queries (tests pass a fake).
-    ///   - capacity: The most answers kept (at least 1).
+    ///   - capacity: The most app answers kept (at least 1).
+    ///   - iconCapacity: The most icons kept at the full memory limit (at least 1).
     ///   - refreshAfter: How old an app answer may be before a read asks again.
     ///   - now: The clock reads use (tests pass a manual one).
     public init(work: BackgroundWork, mainWork: MainWorkScheduler, system: any WorkspaceQuerying = SystemWorkspaceQuerying(),
-                capacity: Int = 256, refreshAfter: Duration = .seconds(60),
+                capacity: Int = 256, iconCapacity: Int = 256, refreshAfter: Duration = .seconds(60),
                 now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.work = work
         self.mainWork = mainWork
         self.system = system
-        self.capacity = max(1, capacity)
+        answers = Table(capacity: max(1, capacity))
+        icons = Table(capacity: max(1, iconCapacity))
         self.refreshAfter = refreshAfter
         self.now = now
         owner = mainWork.board.owner("workspace.queries")
     }
 
-    /// The number of kept answers.
-    public var count: Int { entries.count }
+    /// The number of kept app answers.
+    public var count: Int { answers.entries.count }
+
+    /// The number of kept icons.
+    public var iconCount: Int { icons.entries.count }
+
+    /// Registers the kept icons with the app's memory coordinator (once; a later call replaces the registration).
+    ///
+    /// - Parameter registry: The memory coordinator.
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
+    }
 
     /// The kept answer to `query`, or nil when it was not asked yet (or was dropped). A stale app answer is
     /// returned and asked again in the background.
     public func cached<Value>(_ query: WorkspaceQuery<Value>) -> Value? {
-        guard var entry = entries[query.key], let stored = entry.value as? Stored<Value> else { return nil }
+        guard var entry = entry(query.key), let stored = entry.value as? Stored<Value> else { return nil }
         reads += 1
         entry.used = reads
-        entries[query.key] = entry
+        setEntry(entry, for: query.key)
         if query.refreshes, now() - entry.asked >= refreshAfter { ask(query, at: .bestEffort) }
         return stored.value
     }
 
     /// Calls `then` with the answer to `query`: in this turn when it is kept, else on main once the system lane
     /// answers (posted in class `visible` for `owner`'s screen update). A question already on the lane is not
-    /// asked twice.
+    /// asked twice; it runs at `priority` from now on when that is higher.
     ///
     /// - Parameters:
     ///   - query: The question.
@@ -187,7 +274,7 @@ public final class WorkspaceQueries {
         if let kept = cached(query) { return kept }
         let system = self.system
         let value = try await work.run(priority, mayBlock: .system) { query.ask(system) }
-        store(value, for: query.key)
+        store(value, for: query)
         return value
     }
 
@@ -197,44 +284,93 @@ public final class WorkspaceQueries {
         value(query, priority: priority) { [weak item] image in item?.image = image }
     }
 
-    /// Asks every question of `queries` that has no kept answer and is not on the lane yet, so the rows about to
-    /// show read their answers from ``cached(_:)``.
+    /// Asks every question of `queries` that has no kept answer, so the rows about to show read their answers from
+    /// ``cached(_:)``. A question already on the lane is not asked twice; it is raised when `priority` is higher.
     public func prefetch<Value>(_ queries: [WorkspaceQuery<Value>], priority: WorkPriority = .bestEffort) {
-        for query in queries where entries[query.key] == nil { ask(query, at: priority) }
+        for query in queries where entry(query.key) == nil { ask(query, at: priority) }
     }
 
-    /// Drops every kept answer (a question on the lane still stores its answer).
+    /// Drops every kept answer and icon (a question on the lane still stores its answer).
     public func removeAll() {
-        entries.removeAll()
+        answers.entries.removeAll()
+        icons.entries.removeAll()
     }
 
-    /// Puts `query` on the system lane unless it is there already, with `reply` among its waiters.
+    private func entry(_ key: WorkspaceQueryKey) -> Entry? {
+        key.isIcon ? icons.entries[key] : answers.entries[key]
+    }
+
+    private func setEntry(_ entry: Entry, for key: WorkspaceQueryKey) {
+        if key.isIcon { icons.entries[key] = entry } else { answers.entries[key] = entry }
+    }
+
+    /// Puts `query` on the system lane unless it is there already, with `reply` among its waiters; a question already
+    /// there runs at `priority` from now on when that is higher.
     private func ask<Value>(_ query: WorkspaceQuery<Value>, at priority: WorkPriority,
                             reply: (@MainActor (any Sendable) -> Void)? = nil) {
         let key = query.key
-        if asking[key] != nil {
-            if let reply { asking[key]?.append(reply) }
+        if var waiting = asking[key] {
+            if let reply { waiting.replies.append(reply) }
+            if priority > waiting.priority {
+                waiting.priority = priority
+                waiting.handle.raise(to: priority)
+            }
+            asking[key] = waiting
             return
         }
-        asking[key] = reply.map { [$0] } ?? []
-        let system = self.system
-        work.run(priority, mayBlock: .system) { query.ask(system) }
-            .reply(on: mainWork, class: .visible, owner: owner) { [weak self] value in
-                self?.answered(value, for: key)
-            }
+        let system = self.system, mainWork = self.mainWork, owner = self.owner
+        let handle = work.runHandle(priority, mayBlock: .system) { [weak self] in
+            let value = query.ask(system)
+            mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in self?.answered(value, for: query) }
+        }
+        asking[key] = Asking(handle: handle, priority: priority, replies: reply.map { [$0] } ?? [])
     }
 
-    private func answered<Value: Sendable>(_ value: Value, for key: WorkspaceQueryKey) {
-        store(value, for: key)
-        let replies = asking.removeValue(forKey: key) ?? []
+    private func answered<Value: Sendable>(_ value: Value, for query: WorkspaceQuery<Value>) {
+        store(value, for: query)
+        let replies = asking.removeValue(forKey: query.key)?.replies ?? []
         let answer = Stored(value: value)
         for reply in replies { reply(answer) }
     }
 
-    private func store<Value: Sendable>(_ value: Value, for key: WorkspaceQueryKey) {
+    private func store<Value: Sendable>(_ value: Value, for query: WorkspaceQuery<Value>) {
+        guard query.keeps else { return }
         reads += 1
-        entries[key] = Entry(value: Stored(value: value), asked: now(), used: reads)
-        guard entries.count > capacity, let oldest = entries.min(by: { $0.value.used < $1.value.used })?.key else { return }
-        entries.removeValue(forKey: oldest)
+        let entry = Entry(value: Stored(value: value), asked: now(), used: reads)
+        if query.key.isIcon { icons.insert(entry, for: query.key) } else { answers.insert(entry, for: query.key) }
+    }
+}
+
+/// The kept icons are one lossless consumer: each comes back from `NSWorkspace` the next time a row or a menu asks.
+/// The app answers are a few kilobytes of URLs and stay.
+extension WorkspaceQueries: MemoryConsumer {
+    /// Nothing to write back and one system call each to make again.
+    public static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .small,
+        dataAccess: .none,
+        retention: .lossless,
+        recreateCost: .cheap,
+        releaseCPUCost: .low,
+        isStateful: false,
+        supportsMemoryLimit: true
+    )
+
+    /// The consumer's name in the memory report.
+    public static let memoryConsumerName = "workspace-icons"
+
+    /// Scales the icon bound; frees nothing (the next icon drops the oldest past it).
+    public func updateMemoryLimit(_ limit: MemoryLimit) {
+        icons.limit = limit.scale(icons.capacity)
+    }
+
+    /// Drops the least recently read icons until the bound holds or the slice ends.
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        return icons.trim(until: { slice.isExpired }) ? .done : .more
+    }
+
+    /// The icons' estimated bytes; the entries are the icons.
+    public var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: icons.entries.count * Self.iconBytes, entries: icons.entries.count)
     }
 }

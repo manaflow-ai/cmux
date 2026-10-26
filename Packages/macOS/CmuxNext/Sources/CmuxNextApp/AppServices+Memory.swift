@@ -119,11 +119,13 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryAppCaches` (default off): the app-lifetime caches (agent panes' saved frames and launch
-    /// pages, decoded icon assets) are memory consumers (p07-memory-056).
+    /// pages, decoded icon assets, Launch Services' kept icons) are memory consumers (p07-memory-056,
+    /// p02-threads-056).
     private func registerAppCaches() {
         guard let registry = appCacheRegistry else { return }
         services.launchImages.registerMemoryConsumer(with: registry)
         IconAssetImages.shared.registerMemoryConsumer(with: registry)
+        services.workspaceQueries.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryImageCaches` (default off): terminal previews are a rebuildable consumer that shrinks at warning;

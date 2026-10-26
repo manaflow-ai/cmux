@@ -72,4 +72,25 @@ struct FileColumnsClickTests {
         #expect(recorder.browsed == [folder.url])
         withExtendedLifetime(columns) {}
     }
+
+    /// An icon landing redraws the cells of the open columns and keeps them open: before the fix each arrival
+    /// reloaded column 0, which made it the last column and closed the path the person had open.
+    @Test func iconRedrawKeepsTheOpenColumns() throws {
+        let recorder = Recorder()
+        let (columns, browser) = try makeColumns(recorder)
+        let folder = FileEntry(url: URL(fileURLWithPath: "/redraw-a"), kind: .folder)
+        let file = FileEntry(url: URL(fileURLWithPath: "/redraw-a/b.txt"), kind: .file)
+        columns.show([folder], of: URL(fileURLWithPath: "/"), selection: [])
+        browser.loadColumnZero()
+        columns.show([file], of: folder.url, selection: [file.name])
+        let path = browser.path()
+        let lastColumn = browser.lastColumn
+        #expect(path == "/redraw-a/b.txt")
+        #expect(lastColumn >= 1)
+        columns.redrawIcons()
+        columns.redrawIcons()
+        #expect(browser.path() == path)
+        #expect(browser.lastColumn == lastColumn)
+        withExtendedLifetime(columns) {}
+    }
 }

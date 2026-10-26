@@ -8,7 +8,7 @@ import CmuxNextPages
 /// `file://` URL (the catalog gates these on `filePreviewFocused`).
 enum OpenInHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("filePreviewOpenExternally", run: { try context.open(try focusedFile(context, $0)) })
+        registry.bindEffect("filePreviewOpenExternally", requires: nil, effect: { context.open(try focusedFile(context, $0)) })
         registry.bind("filePreviewRevealInFinder", run: { invocation in
             NSWorkspace.shared.revealInBackground([try focusedFile(context, invocation)])
         })

@@ -20,10 +20,11 @@ struct WorkspaceQueriesTests {
     static let textEdit = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
     static let xcode = URL(fileURLWithPath: "/Applications/Xcode.app")
 
-    static func queries(_ system: RecordingWorkspace, capacity: Int = 256, refreshAfter: Duration = .seconds(60),
+    static func queries(_ system: RecordingWorkspace, work: BackgroundWork = BackgroundWork(label: "test.workspace-queries"),
+                        capacity: Int = 256, iconCapacity: Int = 256, refreshAfter: Duration = .seconds(60),
                         now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) -> WorkspaceQueries {
-        WorkspaceQueries(work: BackgroundWork(label: "test.workspace-queries"), mainWork: .still(), system: system,
-                         capacity: capacity, refreshAfter: refreshAfter, now: now)
+        WorkspaceQueries(work: work, mainWork: .still(), system: system, capacity: capacity, iconCapacity: iconCapacity,
+                         refreshAfter: refreshAfter, now: now)
     }
 
     /// Runs main run loop passes until `done` or `seconds` (the answers come back as main run loop turns).
@@ -131,6 +132,73 @@ struct WorkspaceQueriesTests {
         _ = queries.cached(question)
         Self.spin(seconds: 0.3) { false }
         #expect(system.asks.withLock { $0 } == 1)
+    }
+
+    /// A best-effort warm-up the startup fence holds does not hold a later user-blocking ask for the same answer: the
+    /// ask raises the question in flight (before the fix the second ask joined it and waited for the fence to lift).
+    @Test func aUserBlockingAskRaisesAWarmUpTheFenceHolds() {
+        let system = RecordingWorkspace(apps: ["public.plain-text": [Self.textEdit]])
+        let work = BackgroundWork(label: "test.workspace-queries.fence")
+        let queries = Self.queries(system, work: work)
+        let question = WorkspaceQuery<[URL]>.applications(toOpen: .plainText)
+        work.beginBestEffortFence()
+        defer { work.endBestEffortFence() }
+        queries.prefetch([question], priority: .bestEffort)
+        Self.spin(seconds: 0.3) { false }
+        #expect(system.asks.withLock { $0 } == 0, "the fence holds the best-effort warm-up")
+        var answer: [URL]?
+        queries.value(question, priority: .userBlocking) { answer = $0 }
+        Self.spin { answer != nil }
+        #expect(answer == [Self.textEdit], "answered while the fence is still up")
+        #expect(system.asks.withLock { $0 } == 1, "one question in flight, raised, not asked twice")
+    }
+
+    /// Icons are kept apart from the app answers: a folder of a few hundred apps' icons never drops a kept app list.
+    @Test func manyIconsDoNotDropAKeptAppAnswer() async throws {
+        let system = RecordingWorkspace(apps: ["public.plain-text": [Self.textEdit]])
+        let queries = Self.queries(system, capacity: 4, iconCapacity: 8)
+        let apps = WorkspaceQuery<[URL]>.applications(toOpen: .plainText)
+        _ = try await queries.value(apps)
+        for index in 0..<300 { _ = try await queries.value(WorkspaceQuery<NSImage>.fileIcon(atPath: "/apps/\(index).app", side: 16)) }
+        #expect(queries.cached(apps) == [Self.textEdit])
+        #expect(queries.count == 1)
+        #expect(queries.iconCount == 8)
+    }
+
+    /// A memory release at the critical limit drops every kept icon and keeps no reference to it.
+    @Test func aCriticalReleaseFreesTheKeptIcons() {
+        let system = RecordingWorkspace(apps: [:])
+        let queries = Self.queries(system)
+        weak var weakIcon: NSImage?
+        autoreleasepool {
+            var landed = false
+            queries.value(WorkspaceQuery<NSImage>.typeIcon(.plainText, side: 16)) { icon in
+                weakIcon = icon
+                landed = true
+            }
+            Self.spin { landed }
+        }
+        #expect(weakIcon != nil, "the table keeps the icon")
+        #expect(queries.iconCount == 1)
+        let progress = queries.releaseMemory(within: MemoryReleaseSlice(limit: .criticalThreshold, isExpired: { false }))
+        #expect(progress == .done)
+        #expect(queries.iconCount == 0)
+        #expect(weakIcon == nil, "a released icon is freed")
+    }
+
+    /// An unkept question is shared by its callers but leaves nothing in the table: its caller owns the image.
+    @Test func anUnkeptAnswerIsNotKept() {
+        let system = RecordingWorkspace(apps: [:])
+        let queries = Self.queries(system)
+        let question = WorkspaceQuery<NSImage>.fileIcon(atPath: Self.textEdit.path).unkept
+        var answers = 0
+        queries.value(question) { _ in answers += 1 }
+        queries.value(question) { _ in answers += 1 }
+        Self.spin { answers == 2 }
+        #expect(answers == 2)
+        #expect(system.asks.withLock { $0 } == 1)
+        #expect(queries.iconCount == 0)
+        #expect(queries.cached(question) == nil)
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS

@@ -8,6 +8,7 @@ import CmuxNextCompat
 #endif
 import CmuxNextFiles
 import CmuxNextFilesUI
+import CmuxNextPages
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
@@ -101,6 +102,80 @@ struct OpenWithCacheTests {
         #expect(apps.keptOpenWithList(forFileNamed: "x.txt", isDirectory: false) != nil)
         // Two types (plain text, folder), each asked once: the app list and the default app.
         #expect(system.listAsks.withLock { $0 } == 2)
+        #expect(system.mainAsks.withLock { $0 } == 0)
+    }
+
+    /// A path menu opened before Launch Services answered (a new file, a new type) draws Open in Text Editor and a
+    /// Loading Open With, and both fill in when the lane answers, in the open menu. Before the fix the first menu had
+    /// no editor row and only Other… under Open With, and nothing added them.
+    @Test func aColdPathMenuGetsItsEditorAndAppsWhenTheLaneAnswers() throws {
+        let system = OpenWithWorkspace(apps: [Self.textEdit, Self.xcode], defaultApp: Self.textEdit)
+        let links = LinkMenu(queries: Self.queries(system))
+        let file = URL(fileURLWithPath: "/tmp/p02-threads-056/notes.txt")
+        let rows = links.pathRows(for: file, isDirectory: false)
+        let openWith = try #require(rows.first { $0.kind == .openWith })
+        let editorRow = try #require(rows.first { $0.kind == .openInTextEditor })
+        #expect(openWith.waiting == .apps(file, isDirectory: false))
+        #expect(openWith.children.first?.kind == .loading)
+        #expect(editorRow.waiting == .editor)
+        let menu = NSMenu()
+        links.items(rows, file: file).forEach(menu.addItem)
+        let openWithItem = try #require(menu.items.first { $0.title == openWith.title })
+        let other = try #require(openWith.children.last?.title)
+        Self.spin { Self.titles(openWithItem.submenu) == ["TextEdit", "Xcode", other] }
+        #expect(Self.titles(openWithItem.submenu) == ["TextEdit", "Xcode", other])
+        #expect(menu.items.contains { $0.title == editorRow.title }, "the editor row stays: the lane named an editor")
+        let warm = links.pathRows(for: file, isDirectory: false)
+        #expect(warm.first { $0.kind == .openInTextEditor }?.app == Self.textEdit)
+        #expect(warm.allSatisfy { $0.waiting == nil })
+        #expect(system.mainAsks.withLock { $0 } == 0)
+    }
+
+    /// With no editor and no app for the type, the waiting editor row leaves the open menu once the lane answers.
+    @Test func aColdPathMenuDropsTheEditorRowWhenThereIsNone() throws {
+        let system = OpenWithWorkspace(apps: [], defaultApp: nil)
+        let links = LinkMenu(queries: Self.queries(system))
+        let file = URL(fileURLWithPath: "/tmp/p02-threads-056/notes.txt")
+        let rows = links.pathRows(for: file, isDirectory: false)
+        let editorRow = try #require(rows.first { $0.kind == .openInTextEditor })
+        let menu = NSMenu()
+        links.items(rows, file: file).forEach(menu.addItem)
+        Self.spin { !menu.items.contains { $0.title == editorRow.title } }
+        #expect(!menu.items.contains { $0.title == editorRow.title })
+    }
+
+    /// A link menu opened before the browsers are kept shows Open In ▸ Loading, filled with the browsers once the
+    /// lane answers.
+    @Test func aColdLinkMenuFillsOpenInWhenTheLaneAnswers() throws {
+        let system = OpenWithWorkspace(apps: [Self.textEdit, Self.xcode], defaultApp: Self.xcode)
+        let links = LinkMenu(queries: Self.queries(system))
+        let link = try #require(URL(string: "https://example.com/p02"))
+        let rows = links.linkRows(for: link)
+        let openIn = try #require(rows.first { $0.kind == .openIn })
+        #expect(openIn.children.map(\.kind) == [.loading])
+        let menu = NSMenu()
+        links.items(rows, link: link).forEach(menu.addItem)
+        let item = try #require(menu.items.first { $0.title == openIn.title })
+        Self.spin { Self.titles(item.submenu) == ["Xcode", "TextEdit"] }
+        #expect(Self.titles(item.submenu) == ["Xcode", "TextEdit"], "the default browser first")
+    }
+
+    /// An open of a URL no app handles fails the action's work, so a script or the CLI sees the failure. Before the fix
+    /// a cold answer let the open go ahead and the action reported success, with only a late notice.
+    @Test func anOpenWithNoHandlerFailsTheAction() async throws {
+        let system = OpenWithWorkspace(apps: [], defaultApp: nil)
+        let url = try #require(URL(string: "p02-threads-056-no-handler://example"))
+        let failure = await AppActionContext.openWork(url, queries: Self.queries(system))()
+        #expect(failure?.message == RefusalStrings.couldNotOpen(url.absoluteString))
+        #expect(system.mainAsks.withLock { $0 } == 0)
+    }
+
+    /// `file open --where editor` with no editor on the Mac fails the action's work (it reported success before).
+    @Test func anEditorOpenWithNoEditorFailsTheAction() async {
+        let system = OpenWithWorkspace(apps: [], defaultApp: nil)
+        let file = URL(fileURLWithPath: "/tmp/p02-threads-056/notes.txt")
+        let failure = await AgentHandlers.editorWork(file, queries: Self.queries(system))()
+        #expect(failure?.message == MiscHandlerStrings.noEditor)
         #expect(system.mainAsks.withLock { $0 } == 0)
     }
 }

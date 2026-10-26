@@ -109,7 +109,7 @@ public final class FileIconProvider {
         case .file, .other: (key, type) = (entry.pathExtension, UTType(filenameExtension: entry.pathExtension) ?? .data)
         }
         if let cached = typeIcons[key] { return cached }
-        ask(WorkspaceQuery<NSImage>.typeIcon(type), key: key) { [weak self] in self?.typeIcons[key] = $0 }
+        ask(WorkspaceQuery<NSImage>.typeIcon(type).unkept, key: key) { [weak self] in self?.typeIcons[key] = $0 }
         return typeIcons[key] ?? Self.placeholder(folder: entry.kind == .folder)
     }
 
@@ -156,17 +156,17 @@ public final class FileIconProvider {
         // Apps carry their own icons, so packages are looked up per item.
         let key = entry.url.path
         if let cached = packageIcons.image(for: key) { return cached }
-        ask(WorkspaceQuery<NSImage>.fileIcon(atPath: key), key: "/package" + key) { [weak self] image in
+        ask(WorkspaceQuery<NSImage>.fileIcon(atPath: key).unkept, key: "/package" + key) { [weak self] image in
             self?.packageIcons.insert(FileImage(image: image, bytes: Self.iconBytes), for: key)
         }
         return packageIcons.image(for: key) ?? Self.placeholder(folder: false)
     }
 
-    /// Stores the kept answer to `query` now; else asks the system lane once per `key`, and `keep` stores the answer
-    /// when it lands, then ``arrivals`` moves.
+    /// Asks the system lane once per `key`; `keep` puts the answer in this provider's own store when it lands (the
+    /// query is unkept, so the provider is the image's one owner and its memory release frees it), then ``arrivals``
+    /// moves.
     private func ask(_ query: WorkspaceQuery<NSImage>, key: String, keep: @escaping @MainActor (NSImage) -> Void) {
         guard let queries else { return }
-        if let kept = queries.cached(query) { return keep(kept) }
         guard asking.insert(key).inserted else { return }
         queries.value(query, priority: .userVisible) { [weak self] image in
             guard let self else { return }
