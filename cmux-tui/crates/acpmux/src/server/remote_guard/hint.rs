@@ -183,7 +183,7 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
 fn change_option(words: &mut Vec<String>, option: &str, value: Option<&str>) -> bool {
     use clap::CommandFactory;
     let cli = crate::cli::command::Cli::command();
-    let new = cli.find_subcommand("new").expect("new command");
+    let Some(new) = cli.find_subcommand("new") else { return false };
     let args: Vec<_> = cli.get_arguments().chain(new.get_arguments()).collect();
     let mut i = 0;
     while i < words.len() {
