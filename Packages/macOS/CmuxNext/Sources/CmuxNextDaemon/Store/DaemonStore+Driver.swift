@@ -189,6 +189,8 @@ extension DaemonStore {
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
+        // A close, a pump failure or an incompatible daemon ends the stream with no `disconnected` event.
+        endAppliedWaits()
         if let failure { markFailed(failure) }
         resumeRefreshWaiters()
         resyncRetry?.cancel()

@@ -136,5 +136,6 @@ package nonisolated struct DiscardRule: Sendable {
         .unanswered,
         .backgroundActivity,
         .recentlyAudible,
+        .activeTab,
     ]
 }
