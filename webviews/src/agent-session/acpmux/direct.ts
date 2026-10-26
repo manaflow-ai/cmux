@@ -5266,9 +5266,10 @@ export class AcpmuxDirectClient {
       // that never reached it, or whose socket closed, answered nothing (startMode.ts keeps what it had).
       // The pane's host refusing to relay it (`data.origin: "native"`, such as a new workspace's home
       // folder outside the roots it relays) is one of those: acpmux never saw the ask.
-      // Its refusal carries no `fullAccess` either: a daemon that predates it manages nothing.
+      // Only a daemon that predates the method (method not found) manages nothing; any other
+      // refusal comes from a daemon that may still manage full access, so the mark stays.
       if (error instanceof AcpmuxRpcError && !refusedByHost(error)) {
-        rememberFullAccess(undefined, ticket);
+        if (error.code === METHOD_NOT_FOUND) rememberFullAccess(undefined, ticket);
         return undefined;
       }
       throw error;
@@ -6069,6 +6070,9 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
 }
+
+/// JSON-RPC's method-not-found code: a daemon that predates the method.
+const METHOD_NOT_FOUND = -32601;
 
 /// Whether the pane's host refused to relay a request (`data.origin: "native"`): acpmux never saw it.
 function refusedByHost(error: AcpmuxRpcError): boolean {

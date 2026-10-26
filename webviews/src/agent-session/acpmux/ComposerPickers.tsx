@@ -1234,10 +1234,11 @@ function AccessMenu({
                     ) : (
                       <span className="acpmux-menu-label">{choice.name}</span>
                     )}
-                    {refusedIds.includes(choice.id) ? (
-                      <span className="acpmux-menu-description">{refusedReason}</span>
-                    ) : managed && unrestricted(choice.id) ? (
+                    {managed && unrestricted(choice.id) ? (
+                      // Managed off outranks an earlier refusal: the organization's bound is the reason now.
                       <span className="acpmux-menu-description">{managedReason}</span>
+                    ) : refusedIds.includes(choice.id) ? (
+                      <span className="acpmux-menu-description">{refusedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
                       <span className="acpmux-menu-description">{choice.description ?? warning}</span>
                     ) : null}
