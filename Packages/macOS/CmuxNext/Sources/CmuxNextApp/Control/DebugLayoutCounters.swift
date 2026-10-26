@@ -17,6 +17,9 @@ import CmuxNextTerminal
 /// - `pane_chrome_updates`: panes whose chrome (ring, dim, tab emphasis) a layout sync re-ran; a
 ///   pane focus move re-runs the pane left and the pane focused only (perf-gate.py pane_focus).
 /// - `layout_root_layouts`: `LayoutRootView.layout()` passes, all windows (a resize: shown roots only).
+/// - `update_visibility`: `LayoutRootView.updateVisibility()` calls of the mounted roots (`roots`: every
+///   window's shown and parked workspaces); DC2 of plans/cmux-next/chrome-parity/p03-rendering.md wants
+///   <= 2 per spring (motion-main-work.py). Per-root counts, so `reset` leaves it: read a delta.
 /// - `terminal_window_updates`: window notifications terminals handled (shown terminals only).
 /// - `terminal_grid_reports`: grids terminals reported to their session (one PTY resize and shell
 ///   redraw each). A motion that moves the content edge over frames (a pane's layout spring, the
@@ -46,7 +49,8 @@ enum DebugLayoutCounters {
         if paneCountChanges.count > 64 { paneCountChanges.removeFirst(paneCountChanges.count - 64) }
     }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
+    static func handle(_ params: [String: JSONValue], roots: [LayoutRootView] = []) -> JSONValue {
+        let visibilityUpdates = roots.reduce(UInt64(0)) { $0 &+ $1.visibilityUpdates }
         let report: JSONValue = [
             "pane_snapshots": JSONValue(Int(truncatingIfNeeded: paneSnapshots)),
             "workspace_applies": JSONValue(Int(truncatingIfNeeded: workspaceApplies)),
@@ -54,6 +58,7 @@ enum DebugLayoutCounters {
             "workspace_window_entries": JSONValue(Int(truncatingIfNeeded: workspaceWindowEntries)),
             "layout_root_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.layoutPasses)),
             "pane_chrome_updates": JSONValue(Int(truncatingIfNeeded: LayoutRootView.paneChromeUpdates)),
+            "update_visibility": JSONValue(Int(truncatingIfNeeded: visibilityUpdates)),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "terminal_grid_reports": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.gridReports)),
             "indicator_resyncs": JSONValue(Int(truncatingIfNeeded: StatusIndicatorAppearance.resyncs)),

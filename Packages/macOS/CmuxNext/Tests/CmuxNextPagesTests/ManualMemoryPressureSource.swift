@@ -5,6 +5,7 @@ import CmuxNextCompat
 nonisolated final class ManualMemoryPressureSource: MemoryPressureSource {
     private nonisolated struct State {
         var deliver: (@MainActor @Sendable (MemoryPressureLevel) -> Void)?
+        var level = MemoryPressureLevel.normal
         var isCancelled = false
     }
 
@@ -24,9 +25,18 @@ nonisolated final class ManualMemoryPressureSource: MemoryPressureSource {
         state.withLock { $0.isCancelled }
     }
 
-    /// Delivers `level` as the kernel's source would; nothing after ``cancel()``.
+    /// The level last sent; normal before the first.
+    var currentLevel: MemoryPressureLevel {
+        state.withLock { $0.level }
+    }
+
+    /// Delivers `level` as the kernel's source would, after setting ``currentLevel``; nothing after ``cancel()``.
     @MainActor func send(_ level: MemoryPressureLevel) {
-        guard let deliver = state.withLock({ $0.isCancelled ? nil : $0.deliver }) else { return }
-        deliver(level)
+        let deliver: (@MainActor @Sendable (MemoryPressureLevel) -> Void)? = state.withLock { state in
+            guard !state.isCancelled else { return nil }
+            state.level = level
+            return state.deliver
+        }
+        deliver?(level)
     }
 }
