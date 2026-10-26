@@ -8629,7 +8629,13 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+        <PullRequestDock
+          key={snapshot.sessionId}
+          rows={snapshot.rows}
+          repository={githubRepository ?? undefined}
+          sessionId={snapshot.sessionId}
+          onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
+        />
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
