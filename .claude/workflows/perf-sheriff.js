@@ -1,7 +1,7 @@
 export const meta = {
   name: 'perf-sheriff',
   description: 'One perf-sheriff pass over the lab alert queue: take, confirm with a try job, read the bisect culprit, then flip its perfPath feature off or fix it from the stored traces with 2 adversarial reviewers and a verification try job. --dry-run prints one plan per group.',
-  whenToUse: 'A rotating sheriff session (or the Performance Lead) works the MQ10 queue, `lab.py alerts --state new,triaged,culprit --json`. Pass "--dry-run" or {dryRun: true} to print the plans only; {only: [group ids]} limits the pass (the canary); {groups: [...]} plans a saved queue without reading the lab.',
+  whenToUse: 'A rotating sheriff session (or the Performance Lead) works the MQ10 queue, `lab.py alerts --state new,triaged,culprit --json`. Pass "--dry-run" or {dryRun: true} to print the plans only; {only: [group ids]} limits the pass (the canary); {groups: [...]} plans a saved queue without reading the lab. A live pass needs {session: "<the calling sheriff session id>"} (or "--session ID"): every lab.py sheriff command of the pass runs as that session, so one claim holds for all its steps.',
   phases: [
     { title: 'Queue', detail: 'lab.py alerts --state new,triaged,culprit --json' },
     { title: 'Triage', detail: 'take the group, confirm it with a try job, read the bisect' },
@@ -17,12 +17,14 @@ export const meta = {
 // group, let Pinpoint bisect it, then turn the culprit's feature off first (Finch kill,
 // components/variations) or get the culprit fixed or reverted. Design: section 3.7 of
 // plans/cmux-next/chrome-parity/p12-perf-process.md. State changes go only through
-// `lab.py sheriff` (task 019); try jobs only through `lab.py try` (task 018).
+// `lab.py sheriff` (task 019): `take` claims a group for this session (a 2 h lease, no state move), `set`
+// moves it and needs --reason for assigned, flag-off and invalid. Try jobs only through `lab.py try` (task 018).
 
 const LAB = 'python3 scripts/perf-lab/lab.py'
 const TRACE = 'python3 scripts/cmux-next/trace.py'
 const GEN = 'python3 scripts/cmux-next/gen-features.py'
 const REVERT = 'scripts/gh-merge-green --revert manaflow-ai/cmux#N'
+function revertCmd(pr) { return REVERT.replace('#N', '#' + (pr || 'N')) }
 const QUEUE_STATES = 'new,triaged,culprit'
 const ATTEMPTS = 20
 const FIX_ATTEMPTS = 2
@@ -33,21 +35,27 @@ const SLO_HOURS = { triage: 1, culprit: 4, fix: 12 }
 const FORBIDDEN_FILE = /(budget|threshold|expectation|baseline|perf-hot-benches|subscriptions\.json|targets\.json|perf_stats|anomaly|pinpoint|shard_map|reference\.json)/i
 
 const OPTS = parseOpts(args)
+// sheriff.py names the actor from CMUX_AGENT_SESSION; every step's agent sets it to the calling sheriff session.
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/
 
 // ---- plan (pure: the dry run and the live pass print the same plan) ----
 
 function parseOpts(a) {
-  const o = { dryRun: false, only: null, groups: null }
+  const o = { dryRun: false, only: null, groups: null, session: '' }
   if (a == null) return o
   if (typeof a === 'string' || Array.isArray(a)) {
     const words = Array.isArray(a) ? a.map(String) : a.split(/\s+/)
     o.dryRun = words.includes('--dry-run')
-    const ids = words.filter(w => w && !w.startsWith('--'))
+    const at = words.indexOf('--session')
+    if (at >= 0) o.session = words[at + 1] || ''
+    const ids = words.filter((w, i) => w && !w.startsWith('--') && !(at >= 0 && i === at + 1))
     if (ids.length) o.only = ids
     return o
   }
   o.dryRun = Boolean(a.dryRun || a['dry-run'])
+  o.session = a.session ? String(a.session) : ''
   if (Array.isArray(a.only) && a.only.length) o.only = a.only.map(String)
+  else if (a.only != null && !Array.isArray(a.only)) o.only = [String(a.only)]
   if (Array.isArray(a.groups)) o.groups = a.groups
   return o
 }
@@ -70,17 +78,16 @@ function culpritSteps(g) {
     steps.push(`re-verify the culprit (strict rule): ${tryCmd(c + '^', c, g)}; strict DIFFERENT in the regression direction goes on, anything else stays at culprit and goes to the Performance Lead`)
   }
   steps.push(`perfPath check: for each perfPath feature in schemas/features/features.d/ that ${c} adds, turns on or gates code in, ${tryCmd(c + '^', c, g, '--feature X=off')}; the head arm with X off not DIFFERENT from the base arm means the feature carries the regression`)
-  steps.push(`if a feature carries it: PR on ${baseBranch(g)} that sets the feature's on defaults to false in schemas/features/features.d/X.json, ${GEN}, ${GEN} --check, commit the JSON and generated files, label risk:normal, body line "Takes back #${g.culprit_pr || 'N'}: <story>.<metric> regressed <delta> on <host class>, receipt <try receipt>", one review agent, ready-to-land, then ${LAB} sheriff set ${g.id} assigned and ${LAB} sheriff set ${g.id} flag-off`)
-  steps.push(`else: fixer agent from the stored traces of ${c}^ and ${c} (${TRACE} summary), never edits budgets, thresholds or expectations; ${REVIEW_ROUNDS} rounds of 2 adversarial reviewers (REVIEW-STANDARD); verification ${tryCmd('BASE_TIP', 'FIX_HEAD', g)} must be strict DIFFERENT in the improvement direction; PR with the receipt, ready-to-land, ${LAB} sheriff set ${g.id} assigned; up to ${FIX_ATTEMPTS} fix attempts`)
-  steps.push(`no verified fix by ${deadline(g.alert_at, SLO_HOURS.fix)}: ${baseBranch(g) === 'main' ? 'main is nightly, fix forward: no revert, report to the Performance Lead' : `revert only with ${REVERT} (culprit PR #${g.culprit_pr || 'N'}), then ${LAB} sheriff set ${g.id} assigned`}`)
+  steps.push(`if a feature carries it: PR on ${baseBranch(g)} that sets the feature's on defaults to false in schemas/features/features.d/X.json, ${GEN}, ${GEN} --check, commit the JSON and generated files, label risk:normal, body line "Takes back #${g.culprit_pr || 'N'}: <story>.<metric> regressed <delta> on <host class>, receipt <try receipt>", one review agent, ready-to-land, then ${LAB} sheriff set ${g.id} assigned --reason <PR url> and ${LAB} sheriff set ${g.id} flag-off --reason "X off by default in <PR url>"`)
+  steps.push(`else: fixer agent from the stored traces of ${c}^ and ${c} (${TRACE} summary), never edits budgets, thresholds or expectations; ${REVIEW_ROUNDS} rounds of 2 adversarial reviewers (REVIEW-STANDARD); verification ${tryCmd('BASE_TIP', 'FIX_HEAD', g)} must be strict DIFFERENT in the improvement direction; PR with the receipt, ready-to-land, ${LAB} sheriff set ${g.id} assigned --reason <PR url>; up to ${FIX_ATTEMPTS} fix attempts`)
+  steps.push(`no verified fix by ${deadline(g.alert_at, SLO_HOURS.fix)}: ${baseBranch(g) === 'main' ? 'main is nightly, fix forward: no revert, report to the Performance Lead' : `revert only with ${revertCmd(g.culprit_pr)} (culprit PR #${g.culprit_pr || 'N'}), then ${LAB} sheriff set ${g.id} assigned --reason <revert PR url>`}`)
   return steps
 }
 
 function planFor(g) {
-  const steps = []
+  const steps = [`${LAB} sheriff take ${g.id} (claims the group for this session; another session's live claim skips it)`]
   if (g.state === 'new') {
-    steps.push(`${LAB} sheriff take ${g.id} (new -> triaged)`)
-    steps.push(`confirm: ${tryCmd(g.range_good, g.range_bad, g)}; strict DIFFERENT in the regression direction goes on, strict SAME sets invalid with the receipt, else the group stays triaged`)
+    steps.push(`confirm: ${tryCmd(g.range_good, g.range_bad, g)}; strict DIFFERENT in the regression direction: ${LAB} sheriff set ${g.id} triaged; strict SAME: ${LAB} sheriff set ${g.id} invalid --reason <receipt>; else the group stays new for the next pass`)
   }
   if (g.state !== 'culprit') {
     steps.push(`bisect: read job ${g.bisect_job || '(not started yet)'} in ${LAB} alerts --json; a culprit goes on in this pass, a running bisect waits for the next pass`)
@@ -106,7 +113,7 @@ function forbiddenFiles(files) { return (files || []).filter(f => FORBIDDEN_FILE
 
 const S = { type: 'array', items: { type: 'string' } }
 const GROUP = { type: 'object', properties: {
-  id: { type: 'string' }, state: { type: 'string', enum: ['new', 'triaged', 'culprit'] },
+  id: { type: 'integer' }, state: { type: 'string', enum: ['new', 'triaged', 'culprit'] },
   story: { type: 'string' }, metric: { type: 'string' }, host_class: { type: 'string' },
   direction: { type: 'string', description: 'regression direction of the metric: up or down' },
   delta_pct: { type: 'number' }, range_good: { type: 'string' }, range_bad: { type: 'string' },
@@ -120,7 +127,7 @@ const TRIAGE = { type: 'object', properties: {
   route: { type: 'string', enum: ['culprit', 'bisect-wait', 'invalid', 'unconfirmed', 'held'] },
   group: GROUP, receipt: { type: 'string' }, note: { type: 'string' } }, required: ['route', 'group', 'receipt', 'note'] }
 const CULPRIT = { type: 'object', properties: {
-  route: { type: 'string', enum: ['flag-off', 'fix', 'unverified'] }, feature: { type: 'string' },
+  route: { type: 'string', enum: ['flag-off', 'fix', 'unverified', 'held'] }, feature: { type: 'string' },
   culprit_pr: { type: 'integer' }, receipts: { type: 'string' }, note: { type: 'string' } }, required: ['route', 'feature', 'culprit_pr', 'receipts', 'note'] }
 const PR = { type: 'object', properties: { pr_url: { type: 'string' }, branch: { type: 'string' }, head_sha: { type: 'string' },
   state_set: { type: 'boolean' }, note: { type: 'string' } }, required: ['pr_url', 'branch', 'head_sha', 'state_set', 'note'] }
@@ -142,27 +149,28 @@ const REVERTED = { type: 'object', properties: { action: { type: 'string', enum:
 const BRIEF = `You are a step of the cmux perf-sheriff workflow (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.7). Work in a checkout of manaflow-ai/cmux.
 Tools: ${LAB} (alerts, sheriff, try), ${TRACE}, cmux-ci, gh, and git for your own branch. The flag-off step also runs ${GEN}; a revert runs only ${REVERT}. Use nothing else for lab data, builds or merges: no direct SQLite or labd HTTP, no maclease, no perf-cron, no local swift/xcodebuild/cargo build (compile on the fleet with cmux-ci).
 Run \`${LAB} <command> --help\` before the first use of a subcommand and use its exact flags. Never pass --admin, never force push, never --no-verify, never add risk:human-ok or risk:waived, never set a group to accepted (only the Performance Lead's session may).
-A try receipt line reads: \`Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>\`. Decide on the strict verdict. A \`lab.py try --wait\` timeout leaves the job running: wait on the same job again, never resubmit.`
+A try receipt line reads: \`Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>\`. Decide on the strict verdict. A \`lab.py try --wait\` timeout leaves the job running: wait on the same job again, never resubmit.
+Run every \`${LAB} sheriff\` command as \`CMUX_AGENT_SESSION=${OPTS.session} ${LAB} sheriff ...\`: the whole pass acts as the sheriff session that started it, so its claim holds for every step. Run \`${LAB} sheriff take <group>\` again right before each \`sheriff set\` (it renews the 2 h claim); a refusal means another session holds the group: stop and say so in note.`
 
 const NO_BAR_MOVING = `Never edit a budget, threshold, expectation, baseline, subscription, target, AnomalyConfig override, perf-gate row, the budget of a \`// perf-hot:\` marker, statistics code (perf_stats.py, anomaly*.py, pinpoint*.py) or a test's bound to clear the alert (rule R3). Never add a sleep, poll, debounce, throttle, retry or a feature flag that hides the cost. Remove the work the culprit added, or make it O(changed items) and off the main thread, per plans/cmux-next/PATTERNS.md.`
 
 function groupLine(g) { return JSON.stringify(g) }
 
 function queuePrompt() {
-  return `${BRIEF}\nMODE: read only.\nRun \`${LAB} alerts --state ${QUEUE_STATES} --json\`. Return every group in it, mapped field for field to the schema: range_good/range_bad are the last good and first bad revisions of the group's range; direction is the direction the metric moved in the regression (up or down); bisect_job is the group's Pinpoint job id or ""; culprit_sha, culprit_verified (verified, unverified, or none when there is no culprit) and culprit_pr (the PR that merged the culprit, from \`gh api repos/manaflow-ai/cmux/commits/SHA/pulls\`, or 0) come from the group's culprit; traces are the stored trace digests or links of the group's Changes (task 157); base_branch is the branch the lab measured. raw_count is the number of groups in the command's output. Invent nothing: copy values, use "" or 0 where the record has none.`
+  return `${BRIEF}\nMODE: read only.\nRun \`${LAB} alerts --state ${QUEUE_STATES} --json\`. Return every group in it, mapped field for field to the schema: id is the group's integer id; range_good/range_bad are the last good and first bad commit SHAs of the group's range (the record's start_pos..end_pos are commit positions on base_branch: the commit just before start_pos is the last good one, the commit at end_pos the first bad one; resolve positions to SHAs with the lab's own commands, see \`${LAB} --help\`, or \`git rev-list --first-parent\` on origin/base_branch); story, metric and host_class are those of the group's largest regression (its first alert); delta_pct is (median_after - median_before) / median_before * 100 of that alert; alert_at is the group's created_at; direction is the direction the metric moved in the regression (up or down); bisect_job is the group's Pinpoint job id or ""; culprit_sha, culprit_verified (verified, unverified, or none when there is no culprit) and culprit_pr (the PR that merged the culprit, from \`gh api repos/manaflow-ai/cmux/commits/SHA/pulls\`, or 0) come from the group's culprit; traces are the stored trace digests or links of the group's Changes (task 157); base_branch is the branch the lab measured. raw_count is the number of groups in the command's output. Invent nothing: copy values, use "" or 0 where the record has none.`
 }
 
 function triagePrompt(g) {
+  const take = `1. \`${LAB} sheriff take ${g.id}\`. If it refuses because another sheriff session holds the group, return route=held.\n`
   const confirm = g.state === 'new'
-    ? `1. \`${LAB} sheriff take ${g.id}\`. If it refuses because another sheriff session holds the group, return route=held.
-2. Confirm the alert: \`${tryCmd(g.range_good, g.range_bad, g)}\`. Strict DIFFERENT in the regression direction (${g.direction}): go on. Strict SAME: \`${LAB} sheriff set ${g.id} invalid --reason "<the receipt line>"\` and return route=invalid. Otherwise return route=unconfirmed (the group stays triaged for the next pass).
+    ? `2. Confirm the alert: \`${tryCmd(g.range_good, g.range_bad, g)}\`. Strict DIFFERENT in the regression direction (${g.direction}): \`${LAB} sheriff set ${g.id} triaged\` and go on. Strict SAME: \`${LAB} sheriff set ${g.id} invalid --reason "<the receipt line>"\` and return route=invalid. Otherwise return route=unconfirmed (the group stays new; the next pass asks again, and lab.py try deduplicates the request).
 3. `
-    : '1. '
-  return `${BRIEF}\nMODE: lab commands only; no source edits.\nGroup: ${groupLine(g)}\n${confirm}Read the group again with \`${LAB} alerts --state ${QUEUE_STATES} --json\`. If its bisect has a culprit, return route=culprit with the refreshed group. If the bisect is still running, return route=bisect-wait (the next pass picks it up; do not wait in a loop). Return the try receipt lines you got in receipt.`
+    : '2. '
+  return `${BRIEF}\nMODE: lab commands only; no source edits.\nGroup: ${groupLine(g)}\n${take}${confirm}Read the group again with \`${LAB} alerts --state ${QUEUE_STATES} --json\`. If its bisect has a culprit, return route=culprit with the refreshed group. If the bisect is still running, return route=bisect-wait (the next pass picks it up; do not wait in a loop). Return the try receipt lines you got in receipt.`
 }
 
 function culpritPrompt(g) {
-  return `${BRIEF}\nMODE: lab commands and read-only git/gh; no source edits.\nGroup: ${groupLine(g)}\nCulprit ${g.culprit_sha} (${g.culprit_verified}).
+  return `${BRIEF}\nMODE: lab commands and read-only git/gh; no source edits.\nGroup: ${groupLine(g)}\nCulprit ${g.culprit_sha} (${g.culprit_verified}).${g.state === 'culprit' ? `\n0. \`${LAB} sheriff take ${g.id}\`. If it refuses because another sheriff session holds the group, return route=held.` : ''}
 1. ${g.culprit_verified === 'verified' ? 'The culprit is verified (strict rule, task 017); go to 2.' : `Re-verify: \`${tryCmd(g.culprit_sha + '^', g.culprit_sha, g)}\`. Not strict DIFFERENT in the regression direction: return route=unverified with the receipt (it stays at culprit for the Performance Lead).`}
 2. Find the perfPath features the culprit may carry: \`git show --stat ${g.culprit_sha}\` and its diff; a feature counts when the commit adds or turns on its schemas/features/features.d/<name>.json default, or the changed code runs behind \`Feature.<name>\` (Swift) or the cmux-features constant (Rust), and its kind is perfPath. For each candidate X: \`${tryCmd(g.culprit_sha + '^', g.culprit_sha, g, `--feature X=off`)}\`. The head arm with X off and a strict verdict that is not DIFFERENT in the regression direction means X carries the regression: return route=flag-off, feature=X. Several carry it: return the one whose off arm is closest to the base.
 3. Otherwise return route=fix, feature="".
@@ -177,7 +185,7 @@ function flagOffPrompt(g, c) {
 3. \`${GEN}\`, then \`${GEN} --check\` (exit 0). Commit the JSON and every file the generator changed in one commit: "features: turn ${c.feature} off by default (perf ${g.id})". Push the branch (plain push; the pre-push hooks run).
 4. \`gh pr create --repo manaflow-ai/cmux --base ${baseBranch(g)} --head ${branch} --label risk:normal\`. Body (STYLE.md): what regressed (${g.story}.${g.metric} @${g.host_class}, ${g.delta_pct}%), the receipts, that the off arm recovers, the line "Takes back #${c.culprit_pr || 'N'}: ${g.story}.${g.metric} regressed ${g.delta_pct}% on ${g.host_class}; ${c.feature} off recovers it (lab group ${g.id})", "## Changelog" with "Changed: ${c.feature} is off by default again while its regression is fixed." (or none if the feature is not user-visible), and "### Observed / Not run".
 5. One independent review agent of the PR head (skills/cmux-review/SKILL.md, correctness first). SHIP: add the ready-to-land label. Not SHIP: fix the finding, push, review again.
-6. \`${LAB} sheriff set ${g.id} assigned\` with the PR link (see --help for the flag), then \`${LAB} sheriff set ${g.id} flag-off\`. state_set is true only when both succeeded.`
+6. \`${LAB} sheriff set ${g.id} assigned --reason <PR url>\`, then \`${LAB} sheriff set ${g.id} flag-off --reason "${c.feature} off by default in <PR url>"\`. state_set is true only when both succeeded.`
 }
 
 function fixPrompt(g, c, attempt, last) {
@@ -212,7 +220,7 @@ function prPrompt(g, c, f, v) {
   return `${BRIEF}\nMODE: open the PR for a verified perf fix; no source edits.\nGroup ${g.id}, branch ${f.branch} at ${f.head_sha} (base ${f.base_sha}).
 1. \`gh pr create --repo manaflow-ai/cmux --base ${baseBranch(g)} --head ${f.branch} --label risk:normal\` (risk:high instead if docs/ci/risk-tiers.md puts a changed path in the high tier). Body (STYLE.md): the regression (${g.story}.${g.metric} @${g.host_class}, ${g.delta_pct}%, culprit ${g.culprit_sha} from #${c.culprit_pr || '?'}), the cause and its trace evidence (${f.cause.slice(0, 1500)}), the fix, the verification receipts:\n${v.receipts}\nthe regression test's red and green commands (${f.tests.slice(0, 1500)}), "## Changelog" (Fixed: ... or none) and "### Observed / Not run".
 2. The fix passed 2 adversarial reviewers and the verification try job in this workflow: add the ready-to-land label.
-3. \`${LAB} sheriff set ${g.id} assigned\` with the PR link. The lab moves it to fixed after the series recovers.`
+3. \`${LAB} sheriff set ${g.id} assigned --reason <PR url>\`; state_set is true only when it succeeded. The lab moves the group to fixed only after the series recovers.`
 }
 
 function revertPrompt(g, c, why) {
@@ -220,12 +228,15 @@ function revertPrompt(g, c, why) {
 - Before the deadline: return action=not-yet; the group stays at culprit for the next pass.
 - Base branch main: return action=refused (main is nightly: fix forward, CLAUDE.md).
 - Culprit PR unknown (${c.culprit_pr || 0}): return action=refused.
-- Else revert only with \`${REVERT.replace('N', String(c.culprit_pr))}\` (it opens the revert PR and lands it; add "Takes back #${c.culprit_pr}: ${g.story}.${g.metric} regressed ${g.delta_pct}% with no verified fix by the deadline" if the hold asks), then \`${LAB} sheriff set ${g.id} assigned\` with the revert PR link. Return action=reverted.`
+- Else revert only with \`${revertCmd(c.culprit_pr)}\` (it opens the revert PR and lands it; add "Takes back #${c.culprit_pr}: ${g.story}.${g.metric} regressed ${g.delta_pct}% with no verified fix by the deadline" if the hold asks), then \`${LAB} sheriff set ${g.id} assigned --reason <revert PR url>\`. Return action=reverted.`
 }
 
 // ---- pass ----
 
 phase('Queue')
+if (!OPTS.dryRun && !SESSION_ID.test(OPTS.session)) {
+  return { error: 'a live pass needs {session: "<the calling sheriff session id>"} (letters, digits and ._:@-); --dry-run needs none' }
+}
 let queue = OPTS.groups
 if (!queue) {
   const q = await agent(queuePrompt(), { label: 'queue', phase: 'Queue', schema: QUEUE })
@@ -235,7 +246,7 @@ if (!queue) {
 }
 if (OPTS.only) {
   const before = queue.length
-  queue = queue.filter(g => OPTS.only.includes(g.id))
+  queue = queue.filter(g => OPTS.only.includes(String(g.id)))
   log(`only ${OPTS.only.join(', ')}: ${queue.length} of ${before} groups in this pass`)
 }
 const plans = queue.map(planFor)
