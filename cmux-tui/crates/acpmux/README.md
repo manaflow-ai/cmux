@@ -11,14 +11,27 @@ connects to it.
 
 ## Build
 
+Install the Rust toolchain and Zig version listed in the
+[cmux-tui build prerequisites](../../README.md#build). From the repository root,
+initialize the submodules before building:
+
 ```sh
+git submodule update --init ghostty ghostty-next
 cd cmux-tui
 cargo build --release -p acpmux
-rm -f ~/.local/bin/acpmux && cp target/release/acpmux ~/.local/bin/
+mkdir -p "$HOME/.local/bin"
+rm -f "$HOME/.local/bin/acpmux"
+cp target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Remove the old binary first. On macOS, copying over an existing binary in place keeps the
 inode, the kernel keeps the stale code-signature cache, and the new binary dies with signal 9.
+The shell export lasts for this shell only; a service supervisor needs its own
+PATH containing acpmux and the installed harness. `host doctor` checks
+`~/.local/bin/acpmux` by default, so leaving the executable only in
+`target/release` is not enough for that check. For SSH peering, harness login
+and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
 ## Quick start
 
