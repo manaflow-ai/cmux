@@ -126,7 +126,9 @@ impl LocalStore {
             crate::config::private_state_dir(&archive.join("events"))?;
             let meta = self.dir(id).join("session.json");
             if meta.exists() {
-                std::fs::copy(&meta, archive.join("session.json"))?;
+                let to = archive.join("session.json");
+                std::fs::copy(&meta, &to)?;
+                File::open(&to)?.sync_all()?;
             }
         }
         let mut staged = Staged { stats: Compaction::default(), last_seq: 0, segments: Vec::new() };
@@ -178,10 +180,13 @@ impl LocalStore {
                 }
             }
         }
-        // The copies are on disk before any segment is replaced.
+        // The copies are on disk before any segment is replaced, and so is every folder that
+        // names them: the pass's, the chat's (`<archive>/<id>`) and the archive's own.
         if let Some(archive) = &archive {
             sync_directory(&archive.join("events"))?;
-            sync_directory(archive)?;
+            for dir in archive.ancestors().take(3) {
+                sync_directory(dir)?;
+            }
         }
         Ok(Some(staged))
     }
