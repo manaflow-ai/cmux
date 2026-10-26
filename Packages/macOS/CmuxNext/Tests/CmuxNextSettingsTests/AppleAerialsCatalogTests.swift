@@ -33,7 +33,7 @@ struct AppleAerialsCatalogTests {
         let row = { (id: String) in rows.first { $0["id"]?.stringValue == id } }
         #expect(row(have.id)?["title"]?.stringValue == "Tahoe Morning")
         #expect(row(missing.id)?["title"]?.stringValue == "Iceland Dusk")
-        #expect(row(missing.id)?["attribution"]?.stringValue.contains("Iceland Dusk") == true)
+        #expect(row(missing.id)?["attribution"]?.stringValue?.contains("Iceland Dusk") == true)
         #expect(row(have.id)?["video"]?.boolValue == true && row(have.id)?["downloaded"] == nil)
         #expect(row(missing.id)?["video"]?.boolValue == true && row(missing.id)?["downloaded"]?.boolValue == false)
 
