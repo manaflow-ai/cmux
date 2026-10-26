@@ -2,8 +2,8 @@ import AppKit
 @testable import CmuxNextActions
 import Testing
 
-/// The workspace, tab and pane menus show the few rows people use, then one More submenu with
-/// everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
+/// The workspace, tab and pane menus show the few rows people use, their group rows, then one
+/// More submenu with everything else, then Close (Leo 2026-10-11: the twelve-row menu was "overwhelming").
 @MainActor
 struct ContextMenuEssentialsTests {
     /// Each top-level row as the action it runs (a choices row: its submenu's action), "More"
@@ -22,14 +22,6 @@ struct ContextMenuEssentialsTests {
         menu.items.flatMap { item in
             (ActionRegistry.menuRun(of: item).map { [$0.id.rawValue] } ?? []) + (item.submenu.map(allActions) ?? [])
         }
-    }
-
-    private func item(_ id: ActionID, in menu: NSMenu) -> NSMenuItem? {
-        for item in menu.items {
-            if ActionRegistry.menuRun(of: item)?.id == id { return item }
-            if let found = item.submenu.flatMap({ self.item(id, in: $0) }) { return found }
-        }
-        return nil
     }
 
     private func registry() -> ActionRegistry {
@@ -53,26 +45,29 @@ struct ContextMenuEssentialsTests {
 
     @Test func theWorkspaceMenuShowsTheFrequentRowsThenMore() {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
         #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
-                               "palette.moveWorkspaceToTop", "—", "More", "—", "closeWorkspace"])
+                               "home.messageAbout", "palette.moveWorkspaceToTop", "—",
+                               "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
-        let groups = item("moveWorkspaceToGroup", in: menu)
+        let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
         let frontend = groups?.submenu?.items.first.flatMap(ActionRegistry.menuRun(of:))
         #expect(frontend?.arguments["group"] == .target(ActionTargetRef(kind: .workspaceGroup, id: "g1")))
-        // Messaging and group organization stay reachable in More's Organize section.
-        #expect(allActions(menu).contains("home.messageAbout"))
-        #expect(allActions(menu).contains("groupSelectedWorkspaces"))
-        #expect(allActions(menu).contains("removeWorkspaceFromGroup"))
         // The rest moved, not gone.
-        #expect(allActions(menu).contains("palette.copyWorkspaceID"))
+        #expect(allActions(menu).contains("palette.markWorkspaceUnread"))
         #expect(allActions(menu).contains("workspace.duplicate"))
     }
 
-    @Test func theWorkspacePointerMenuDropsGlobalAndDiagnosticDuplicates() {
+    /// Leo 2026-10-23: "I don't think anybody actually looks at most of the, like, row settings
+    /// ... obviously don't remove things from being searchable in the command palette". The row's
+    /// menu drops the global, copy and diagnostic long tail; the palette and the sidebar
+    /// background menu keep them (SidebarMenuPaletteReachabilityTests).
+    @Test func theWorkspaceRowMenuDropsTheGlobalAndDiagnosticLongTail() {
         let ids = Set(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .workspaceRow)))
-        #expect(Self.sidebarTrimmedActions.allSatisfy { !ids.contains($0) })
-        #expect(ids.count == 57, "trimmed workspace row has \(ids.count) action leaves")
+        for id in Self.sidebarTrimmedActions {
+            #expect(!ids.contains(id), "\(id) is still in the workspace row menu")
+        }
     }
 
     /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
@@ -88,7 +83,7 @@ struct ContextMenuEssentialsTests {
                           "reopenClosedWorkspace"])
         #expect(shown.filter { $0 != "—" }.count <= 12)
         // The rest moved into More, not gone.
-        for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.copyWorkspaceID"] {
+        for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.markWorkspaceUnread"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
     }
