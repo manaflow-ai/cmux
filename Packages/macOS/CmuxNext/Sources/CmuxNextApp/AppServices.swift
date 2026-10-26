@@ -28,6 +28,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -459,6 +460,9 @@ final class AppServices {
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
+        // The blocking detector's drain is a hang-watch lane (Compat cannot see CmuxNextTrace).
+        let hangWatch = TraceRuntime.shared.hangWatch, drainLane = hangWatch.registerLane("blocking-drain")
+        blocking.watchDrain { drain in hangWatch.watch(drainLane, deadline: .seconds(10), drain) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
         _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show

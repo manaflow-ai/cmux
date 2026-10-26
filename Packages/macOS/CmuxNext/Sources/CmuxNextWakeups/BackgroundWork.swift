@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextTrace
 import Darwin
 import Dispatch
 
@@ -27,6 +28,9 @@ import Dispatch
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
 /// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
 /// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
+///
+/// Hang watch: every lane slot is a ``HangWatch`` lane and every item runs in one scope, with the lane's
+/// ``hangDeadline(_:)``, so an item stuck in a system call or a loop is reported with its thread's stack.
 ///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
@@ -61,17 +65,40 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - hangWatch: the slot table each lane slot registers in; default the process's
+    ///     (``TraceRuntime/shared``), which the hang monitor reads. Tests pass their own.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+                hangWatch: HangWatch = TraceRuntime.shared.hangWatch,
                 onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
         lanes = BlockingLane.allCases.map { lane in
-            switch lane {
-            case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth))
-            case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)))
+            let policy: LaneScheduler.Policy = switch lane {
+            case .files: .perPriority
+            case .system: .shared(width: Self.systemWidth)
+            case .cpu: .shared(width: max(1, cpuWidth))
             }
+            return LaneScheduler(label: "\(label).\(lane)", policy: policy, hangWatch: hangWatch,
+                                 laneName: Self.hangLaneName(lane), hangDeadline: Self.hangDeadline(lane))
+        }
+    }
+
+    /// How long one item of `lane` may run before its slot counts as hung: 5 s for disk I/O, 10 s for a
+    /// system call or CPU work (Chrome's default `WatchHangsInScope` deadline, base/threading/hang_watcher.h).
+    public static func hangDeadline(_ lane: BlockingLane) -> Duration {
+        switch lane {
+        case .files: .seconds(5)
+        case .system, .cpu: .seconds(10)
+        }
+    }
+
+    /// A lane's slots' name in hang reports.
+    static func hangLaneName(_ lane: BlockingLane) -> StaticString {
+        switch lane {
+        case .files: "background-work.files"
+        case .system: "background-work.system"
+        case .cpu: "background-work.cpu"
         }
     }
 

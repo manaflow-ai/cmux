@@ -1,6 +1,7 @@
 public import CmuxNextActions
 import CmuxNextDaemon
 public import CmuxNextSettings
+public import CmuxNextTrace
 public import Foundation
 
 /// The App's one-call entry point for the control socket.
@@ -20,6 +21,9 @@ public import Foundation
 /// `automation.socketControlMode`, else `automation` (any process of this
 /// user; see ``defaultAccessMode``). The retired password mode fails closed
 /// to `off`; plaintext socket passwords are never read from settings or env.
+///
+/// Hang watch: the accept queue and every connection's queue register in `hangWatch` (the process's
+/// slot table by default), and each of their jobs runs in one scope (``ControlSocketServer``).
 @MainActor
 public final class ControlService {
     public let server: ControlSocketServer
@@ -43,7 +47,8 @@ public final class ControlService {
         bundle: Bundle = .main,
         accessMode explicitMode: ControlAccessMode? = nil,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        hangWatch: HangWatch = TraceRuntime.shared.hangWatch
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
         let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
@@ -67,7 +72,8 @@ public final class ControlService {
                                                              compatibilityLink: launch.compatibilityLink),
             identity: identity,
             frameSource: frameSource,
-            watchdog: watchdog
+            watchdog: watchdog,
+            hangWatch: hangWatch
         )
     }
 
@@ -79,14 +85,15 @@ public final class ControlService {
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
-        watchdog: MainThreadWatchdog? = nil
+        watchdog: MainThreadWatchdog? = nil,
+        hangWatch: HangWatch = TraceRuntime.shared.hangWatch
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
-        let server = ControlSocketServer(configuration: configuration, router: router)
+        let server = ControlSocketServer(configuration: configuration, router: router, hangWatch: hangWatch)
         try server.start()
         return ControlService(server: server, router: router, bridge: bridge)
     }

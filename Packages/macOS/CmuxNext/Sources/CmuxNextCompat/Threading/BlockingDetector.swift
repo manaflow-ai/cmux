@@ -60,6 +60,20 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
+    /// Runs each drain pass through `watch`, so the drain queue is hang-watched: the composition root
+    /// passes a closure that opens a `HangWatch` scope on the drain's lane and calls `drain` inside it
+    /// (Compat cannot import the hang watch, which sits above it). The last call wins; nil removes it.
+    ///
+    /// ```swift
+    /// let lane = hangWatch.registerLane("blocking-drain")
+    /// blocking.watchDrain { drain in hangWatch.watch(lane, deadline: .seconds(10), drain) }
+    /// ```
+    public func watchDrain(_ watch: BlockingDrainWatch?) {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        table.watchDrain(watch)
+        #endif
+    }
+
     /// The call sites that blocked the main thread and reached the drain queue, in the order they
     /// first did, with their current counts.
     public var sites: [BlockingSite] {
@@ -88,3 +102,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 }
+
+/// Runs one pass of the blocking detector's drain: call `drain` exactly once, synchronously, on the
+/// calling thread (``BlockingDetector/watchDrain(_:)``).
+public typealias BlockingDrainWatch = @Sendable (_ drain: () -> Void) -> Void

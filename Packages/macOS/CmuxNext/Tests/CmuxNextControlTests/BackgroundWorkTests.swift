@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import CmuxNextWakeups
 import Darwin
 import Dispatch
@@ -278,6 +279,25 @@ import Testing
         // Returns only when the held block-shutdown save has run.
         await work.shutdown()
         #expect(log.withLock { $0 } == ["save"])
+    }
+
+    /// Hang watch (p09-observability-070): an item may run 5 s on the files lane and 10 s on the system
+    /// and CPU lanes before its slot counts as hung.
+    @Test func eachLaneHasItsHangDeadline() {
+        #expect(BackgroundWork.hangDeadline(.files) == .seconds(5))
+        #expect(BackgroundWork.hangDeadline(.system) == .seconds(10))
+        #expect(BackgroundWork.hangDeadline(.cpu) == .seconds(10))
+    }
+
+    /// Every lane registers its slots in the injected slot table and still runs and returns its items
+    /// (the scope around each item closes before the next item of the slot starts).
+    @Test func itemsRunInsideTheInjectedHangWatch() async throws {
+        let work = BackgroundWork(cpuWidth: 2, label: "test.hang-watch", hangWatch: HangWatch())
+        for lane in BlockingLane.allCases {
+            for item in 0..<3 {
+                #expect(try await work.run(.userVisible, mayBlock: lane) { item } == item)
+            }
+        }
     }
 
     @Test(arguments: MainWorkClass.allCases)

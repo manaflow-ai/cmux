@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextTrace
 import Dispatch
 
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
@@ -12,6 +13,12 @@ import Dispatch
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
 /// own QoS. Chrome's `CanRunPolicy::kForegroundOnly` (base/task/thread_pool/thread_pool_impl.cc).
+///
+/// Each slot is one hang-watch lane, and each item runs inside one ``HangWatchScope`` of the lane's
+/// deadline, as Chrome's `ThreadControllerWithMessagePumpImpl` opens a `WatchHangsInScope` per work
+/// item (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). The slot, not the
+/// lane, is the unit: a shared lane runs `width` items at once, and scopes only nest within one
+/// serial queue.
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
@@ -57,18 +64,36 @@ final class LaneScheduler: Sendable {
 
     let policy: Policy
     private let slots: [DispatchQueue]
+    private let hangWatch: HangWatch
+    /// One hang-watch lane per slot, at the same index.
+    private let watched: [HangWatch.Registration]
+    /// How long one item may run before its slot counts as hung.
+    let hangDeadline: Duration
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy) {
+    /// - Parameters:
+    ///   - label: the slot queues' label prefix.
+    ///   - policy: how the slots share the pending items.
+    ///   - hangWatch: the slot table each slot registers in.
+    ///   - laneName: each slot's name in hang reports.
+    ///   - hangDeadline: how long one item may run before its slot counts as hung.
+    init(label: String, policy: Policy, hangWatch: HangWatch, laneName: StaticString, hangDeadline: Duration) {
         self.policy = policy
+        self.hangWatch = hangWatch
+        self.hangDeadline = hangDeadline
         let names: [String] = switch policy {
         case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
         case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
         }
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
+        watched = names.map { _ in hangWatch.registerLane(laneName) }
         state = Mutex(State(busy: Array(repeating: false, count: names.count)))
+    }
+
+    deinit {
+        for registration in watched { hangWatch.unregister(registration) }
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -173,7 +198,7 @@ final class LaneScheduler: Sendable {
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                start.job.execute()
+                hangWatch.watch(watched[start.slot], deadline: hangDeadline) { start.job.execute() }
                 finish(start.job.id, slot: start.slot)
             }
         }

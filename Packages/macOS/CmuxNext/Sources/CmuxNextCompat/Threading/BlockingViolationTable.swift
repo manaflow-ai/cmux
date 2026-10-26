@@ -59,6 +59,8 @@ final class BlockingViolationTable: Sendable {
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
+    // concurrency-allow: read once per drain pass on the drain queue, written once by the composition root (lock carve-out: a reference copy, nothing runs under it).
+    private let drainWatch = Mutex<BlockingDrainWatch?>(nil)
     #if DEBUG
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
     #endif
@@ -92,7 +94,7 @@ final class BlockingViolationTable: Sendable {
         for slot in 0..<Self.siteLimit { (counts + slot).initialize(to: UnsafeAtomic<Int>.Storage(0)) }
         ring = BlockingPendingRing(capacity: Self.pendingLimit)
         wake = DispatchSource.makeUserDataAddSource(queue: drainQueue)
-        wake.setEventHandler { [weak self] in self?.drain() }
+        wake.setEventHandler { [weak self] in self?.watchedDrain() }
         if startsDrain { wake.activate() }
     }
 
@@ -186,6 +188,12 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: the drain (drain queue)
 
+    /// One drain pass, inside the installed hang-watch scope when there is one.
+    private func watchedDrain() {
+        guard let watch = drainWatch.withLock({ $0 }) else { return drain() }
+        watch { drain() }
+    }
+
     private func drain() {
         var resolver = BlockingFrameResolver()
         while let pending = ring.pop() {
@@ -203,7 +211,7 @@ final class BlockingViolationTable: Sendable {
     func flush() async {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             drainQueue.async { [self] in
-                drain()
+                watchedDrain()
                 done.resume()
             }
         }
@@ -213,6 +221,10 @@ final class BlockingViolationTable: Sendable {
 
     func install(sink: (any BlockingViolationSink)?) {
         self.sink.withLock { $0 = sink }
+    }
+
+    func watchDrain(_ watch: BlockingDrainWatch?) {
+        drainWatch.withLock { $0 = watch }
     }
 
     var sites: [BlockingSite] {

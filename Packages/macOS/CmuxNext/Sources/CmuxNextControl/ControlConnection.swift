@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextTrace
 import Darwin
 import Foundation
 
@@ -14,6 +15,10 @@ import Foundation
 /// - outbound: at most `maxOutboxBytes` of unsent responses; a client that
 ///   stops reading past that is disconnected.
 /// - close: queued responses get `drainTimeout` to flush after `close()`.
+///
+/// Hang watch: the queue is one ``HangWatch`` lane, and every job on it (a source handler or a
+/// posted block) runs in one scope: ``readDeadline`` for reads and bookkeeping, ``writeDeadline``
+/// for a job that sends. Every call in a job is non-blocking, so a job past its deadline is a bug.
 final class ControlConnection: @unchecked Sendable {
     struct Limits: Sendable {
         var maxLineBytes: Int
@@ -26,6 +31,13 @@ final class ControlConnection: @unchecked Sendable {
     private let descriptor: Int32
     private let limits: Limits
     private let queue: DispatchQueue
+    private let hangWatch: HangWatch
+    /// The queue's hang-watch lane.
+    private let lane: HangWatch.Registration
+    /// How long a job that reads or keeps state may run.
+    static let readDeadline: Duration = .seconds(1)
+    /// How long a job that sends may run.
+    static let writeDeadline: Duration = .seconds(2)
     // Queue-confined.
     private var readSource: (any DispatchSourceRead)?
     private var writeSource: (any DispatchSourceWrite)?
@@ -46,22 +58,44 @@ final class ControlConnection: @unchecked Sendable {
     /// Called once on the connection queue after the descriptor closed.
     var onClosed: (@Sendable () -> Void)?
 
-    init(id: ControlConnectionID, descriptor: Int32, limits: Limits) {
+    init(id: ControlConnectionID, descriptor: Int32, limits: Limits, hangWatch: HangWatch) {
         self.id = id
         self.descriptor = descriptor
         self.limits = limits
         self.queue = DispatchQueue(label: "com.cmuxterm.next.control.\(id)")
+        self.hangWatch = hangWatch
+        lane = hangWatch.registerLane("control.connection")
+    }
+
+    deinit {
+        hangWatch.unregister(lane)
+    }
+
+    /// Runs `body` on the queue in one hang-watch scope of `deadline`.
+    private func onQueue(_ deadline: Duration = ControlConnection.readDeadline, _ body: @escaping @Sendable () -> Void) {
+        queue.async { [self] in watched(deadline, body) }
+    }
+
+    /// Runs one queue job in one hang-watch scope (call on the queue).
+    private func watched(_ deadline: Duration, _ body: () -> Void) {
+        hangWatch.watch(lane, deadline: deadline, body)
     }
 
     func start(consume: @escaping @Sendable (AsyncStream<String>) async -> Void) {
         // The stream never exceeds `maxQueuedLines`: reading pauses first.
         // concurrency-allow: bounded by maxQueuedLines; the read source suspends before the stream exceeds it
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
-        queue.async { [self] in
+        onQueue { [self] in
             self.continuation = continuation
             let source = DispatchSource.makeReadSource(fileDescriptor: descriptor, queue: queue)
-            source.setEventHandler { [weak self] in self?.readAvailable() }
-            source.setCancelHandler { [weak self] in self?.sourceCancelled() }
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                watched(Self.readDeadline) { readAvailable() }
+            }
+            source.setCancelHandler { [weak self] in
+                guard let self else { return }
+                watched(Self.readDeadline) { sourceCancelled() }
+            }
             readSource = source
             liveSources += 1
             source.resume()
@@ -71,9 +105,8 @@ final class ControlConnection: @unchecked Sendable {
 
     /// Queues one response line. Never blocks the caller.
     func send(_ line: String) {
-        var data = Data(line.utf8)
-        data.append(0x0A)
-        queue.async { [self] in
+        let data = Data(line.utf8) + [0x0A]
+        onQueue(Self.writeDeadline) { [self] in
             guard !isClosed else { return }
             if outbox.count - outboxOffset + data.count > limits.maxOutboxBytes {
                 // The client stopped reading; drop it rather than buffer without limit.
@@ -89,7 +122,7 @@ final class ControlConnection: @unchecked Sendable {
     /// connection closed (a failed write to a gone client closes it).
     func hangup() async {
         await withCheckedContinuation { waiter in
-            queue.async { [self] in
+            onQueue { [self] in
                 if isInputFinished || isClosed { waiter.resume() } else { hangupWaiters.append(waiter) }
             }
         }
@@ -103,7 +136,7 @@ final class ControlConnection: @unchecked Sendable {
 
     /// The consumer finished one line; reading may resume.
     func lineConsumed() {
-        queue.async { [self] in
+        onQueue { [self] in
             queuedLines = max(0, queuedLines - 1)
             emitLines()
             if isReadSuspended, !isInputFinished, queuedLines < limits.maxQueuedLines, !isClosed {
@@ -116,7 +149,7 @@ final class ControlConnection: @unchecked Sendable {
     /// Stops reading and closes once queued responses flushed (or after
     /// `drainTimeout`).
     func close() {
-        queue.async { [self] in
+        onQueue(Self.writeDeadline) { [self] in
             guard !isClosed, !isCloseRequested else { return }
             isCloseRequested = true
             finishInput()
@@ -127,7 +160,10 @@ final class ControlConnection: @unchecked Sendable {
             // wakeup-allow: one-shot drain deadline (5 s) after the client half-closes; cancelled by closeNow
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now() + limits.drainTimeout)
-            timer.setEventHandler { [weak self] in self?.closeNow() }
+            timer.setEventHandler { [weak self] in
+                guard let self else { return }
+                watched(Self.readDeadline) { closeNow() }
+            }
             drainTimer = timer
             timer.resume()
         }
@@ -230,8 +266,14 @@ final class ControlConnection: @unchecked Sendable {
         guard !isWriteArmed else { return }
         if writeSource == nil {
             let source = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: queue)
-            source.setEventHandler { [weak self] in self?.flush() }
-            source.setCancelHandler { [weak self] in self?.sourceCancelled() }
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                watched(Self.writeDeadline) { flush() }
+            }
+            source.setCancelHandler { [weak self] in
+                guard let self else { return }
+                watched(Self.readDeadline) { sourceCancelled() }
+            }
             writeSource = source
             liveSources += 1
         }
