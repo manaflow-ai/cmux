@@ -8,7 +8,9 @@ public import os
 /// per begin or end, and the message text the caller builds. Prefer the typed messages
 /// (``ActionSignpostMessage``), whose fields the log system formats only when something reads them,
 /// over a `String` built per call. Place intervals per user event or per frame, never per pane per
-/// frame. Nothing leaves the Mac.
+/// frame. Nothing leaves the Mac. The emitters that run per key, per key hop and per scheduled main
+/// task (`key.frame`, `key.flow`, `stall.main_task`, `stall.over_budget`; Signposter+NoAllocation.swift)
+/// make no heap allocation.
 ///
 /// Every begin, end, event and flow hop also writes one record to the Release trace ring while its
 /// name's category flag is on (``TraceRuntime``; one relaxed load when off). An interval that can
@@ -38,11 +40,11 @@ public nonisolated struct Signposter: Sendable {
     public let category: SignpostCategory
     private let signposter: OSSignposter
     /// The MetricKit mirror this signposter repeats intervals to (the app's: ``SignpostMetricKitMirror/shared``).
-    private let mirror: SignpostMetricKitMirror
+    let mirror: SignpostMetricKitMirror
     /// The trace runtime whose ring takes this signposter's records (the app's: ``TraceRuntime/shared``).
     let trace: TraceRuntime
     /// The trace clock an interval's begin time is read from (``SignpostInterval/beginUptimeNanos``).
-    private let clock: TraceClock
+    let clock: TraceClock
 
     /// A signposter for `category` under ``SignpostCategory/subsystem``, recording into the process's trace ring.
     public init(category: SignpostCategory) {
@@ -159,42 +161,6 @@ public nonisolated struct Signposter: Sendable {
         }
     }
 
-    /// Begins an interval named `name` for one scheduled main-thread task (``SignpostName/stallMainTask``),
-    /// with its class and owner formatted by the log system only when something reads them
-    /// (`class=<class> owner=<owner>`): the scheduler opens one per task, so no `String` is built per call.
-    /// ``begin(_:taskClass:owner:classID:ownerID:)`` adds their ids to the ring record.
-    ///
-    /// - Parameters:
-    ///   - name: A catalog name of this signposter's category.
-    ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
-    ///   - owner: The batch owner or control method that scheduled the task.
-    /// - Returns: The state to pass to ``end(_:_:)``.
-    public func begin(_ name: SignpostName, taskClass: String, owner: String) -> SignpostInterval {
-        beginTask(name, taskClass: taskClass, owner: owner, classCode: 0, ownerID: 0)
-    }
-
-    /// ``begin(_:taskClass:owner:)`` with the class and owner ids in the ring record: `arg0` holds `ownerID` in
-    /// bits 0-31 and the class's code (its position + 1; 0 is the overload without numbers) in bits 32-39.
-    ///
-    /// - Parameters:
-    ///   - name: A catalog name of this signposter's category.
-    ///   - taskClass: The task's priority class name (`visible`, `automation`, ...).
-    ///   - owner: The batch owner or control method that scheduled the task.
-    ///   - classID: The class's position (`MainWorkClass.rawValue`).
-    ///   - ownerID: The owner's id interned on the task board (`MainTaskOwner.index`; 0 is the board's "no task").
-    /// - Returns: The state to pass to ``end(_:_:)``.
-    public func begin(_ name: SignpostName, taskClass: String, owner: String, classID: UInt8,
-                      ownerID: UInt32) -> SignpostInterval {
-        beginTask(name, taskClass: taskClass, owner: owner, classCode: Self.code(position: classID), ownerID: ownerID)
-    }
-
-    private func beginTask(_ name: SignpostName, taskClass: String, owner: String, classCode: UInt64,
-                           ownerID: UInt32) -> SignpostInterval {
-        openInterval(name, arg0: UInt64(ownerID) | classCode << 32) {
-            signposter.beginInterval(name.staticName, id: $0, "class=\(taskClass, privacy: .public) owner=\(owner, privacy: .public)")
-        }
-    }
-
     /// Ends an interval begun with ``begin(_:_:)`` under the same name.
     public func end(_ name: SignpostName, _ interval: SignpostInterval) {
         signposter.endInterval(name.staticName, interval.state)
@@ -281,29 +247,6 @@ public nonisolated struct Signposter: Sendable {
     public func event(_ name: SignpostName, _ message: String, arg0: UInt64, arg1: UInt64 = 0) {
         signposter.emitEvent(name.staticName, "\(message, privacy: .public)")
         trace.event(name, arg0: arg0, arg1: arg1)
-    }
-
-    /// Records one hop of a key press's flow (``SignpostName/keyFlow``), formatted by the log system
-    /// only when something reads it (`hop=<hop> flow=<id> age_us=<age>`). The ring record is a flow record with
-    /// the flow id in `arg1`: a flow out (`s`) at the press's first hop, a flow in (`f`) at every later one, so an
-    /// exporter draws the press's arrows and joins them to the daemon's and host's flow records. `arg0` holds the
-    /// hop's ``KeyFlowHop/traceCode`` in bits 0-7 and the age in bits 8-63 (two's complement: an arithmetic
-    /// shift right by 8 reads -1 back).
-    ///
-    /// - Parameters:
-    ///   - hop: The hop.
-    ///   - flow: The key press's flow id.
-    ///   - ageMicroseconds: The key event's age at this hop, or -1.
-    public func flowHop(_ hop: KeyFlowHop, flow: UInt64, ageMicroseconds: Int64 = -1) {
-        assert(SignpostName.keyFlow.category == category, "key.flow is not in category \(category)")
-        signposter.emitEvent(SignpostName.keyFlow.staticName,
-                             "hop=\(hop.rawValue, privacy: .public) flow=\(flow, privacy: .public) age_us=\(ageMicroseconds, privacy: .public)")
-        let arg0 = UInt64(hop.traceCode) | UInt64(bitPattern: ageMicroseconds) << 8
-        if hop.startsFlow {
-            trace.flowOut(.keyFlow, flow: flow, arg0: arg0)
-        } else {
-            trace.flowIn(.keyFlow, flow: flow, arg0: arg0)
-        }
     }
 
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's

@@ -44,11 +44,22 @@ extension Signposter {
     /// Writes the end record of a begin that wrote one, whatever the category flags are now: a recorded begin
     /// always gets its end, and an unrecorded one never does.
     func closeInterval(_ name: SignpostName, _ interval: SignpostInterval, arg0: UInt64) {
-        switch interval.ring {
+        closeRing(name, interval.ring, arg0: arg0)
+    }
+
+    /// ``closeInterval(_:_:arg0:)`` for the slice `ring` a begin returned (the plain-value intervals).
+    func closeRing(_ name: SignpostName, _ ring: SignpostInterval.Ring?, arg0: UInt64) {
+        switch ring {
         case nil: return
         case .thread: trace.endRecorded(name, arg0: arg0)
         case .async(let id): trace.asyncEndRecorded(name, id: id, arg0: arg0)
         }
+    }
+
+    /// A scheduled main task's numbers in `arg0` (`stall.main_task` begin, `stall.over_budget`): `ownerID` in
+    /// bits 0-31 and the class's code in bits 32-39.
+    static func taskArg0(classCode: UInt64, ownerID: UInt32) -> UInt64 {
+        UInt64(ownerID) | classCode << 32
     }
 
     /// The async id of an interval: its `OSSignpostID`, or its begin time when the log system handed out no
@@ -93,6 +104,16 @@ extension ScrollFramePhase {
         case .ended: 4
         case .momentum: 5
         case .wheel: 6
+        }
+    }
+}
+
+extension KeyFrameSignpost.Target {
+    /// The target's number in a ``SignpostName/keyToFrame`` begin record (bits 0-7 of `arg0`). Fixed and nonzero.
+    var traceCode: UInt64 {
+        switch self {
+        case .view: 1
+        case .terminal: 2
         }
     }
 }

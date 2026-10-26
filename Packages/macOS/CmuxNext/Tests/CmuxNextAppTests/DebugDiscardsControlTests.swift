@@ -1,192 +1,129 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextBridge
+@testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `debug.discards` (p07-memory task 011): cmux's chrome://discards. Every one of the nine content
-/// kinds is listed; every content that cannot be discarded says why; the rows come from what the
-/// planner's owners last reported (kind, visible, hidden_for, state, eligibility and reason, last
-/// discard reason, wake count).
-@MainActor @Suite(.serialized)
+/// `debug.discards` (p07-memory task 011): cmux's chrome://discards, served by release builds too.
+/// The app's owners report their contents where they decide: BrowserHibernation each browser page
+/// (hide, each pass's verdict, every keep after the probe, the discard and its reason, the wake, the
+/// close) and AgentPageHibernation each agent page. ContentDiscardReportTests covers the rows and
+/// the nine kinds; this suite drives the real owners and the registered method.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct DebugDiscardsControlTests {
-    let start = ContinuousClock.now
+    // MARK: The method
 
-    /// One hidden content of every kind, each with a different verdict, and one shown.
-    func plannerWithEveryKind() -> ContentDiscardPlanner {
-        var planner = ContentDiscardPlanner(tracking: .browser, .agentPage)
-        for kind in ContentKind.allCases { planner.track(kind) }
-        let verdicts: [ContentKind: CanDiscardResult] = [
-            .browser: .eligible,
-            .agentPage: .protected(.agentBusy),
-            .internalPage: .protected(.unsavedEdits),
-            .topPage: .eligible,
-            .conversation: .protected(.recentlyVisible),
-            .terminalSurface: .protected(.runningCommand),
-            .parkedWorkspace: .eligible,
-            .overlayPage: .disallowed(.unsupported),
-        ]
-        for (kind, verdict) in verdicts {
-            planner.note(.hidden(kind.rawValue, kind), at: start)
-            planner.note(.planned(kind.rawValue, kind, hiddenFor: 90, verdict), at: start + .seconds(90))
-        }
-        planner.note(.shown(ContentKind.sidebarSection.rawValue, .sidebarSection), at: start)
-        return planner
-    }
-
-    @Test func everyKindHasARowAndEveryNonEligibleRowHasAReason() throws {
-        let report = plannerWithEveryKind().report(now: start + .seconds(100))
-        let rows = try #require(report["contents"].flatMap(Self.array))
-        #expect(Set(rows.compactMap { $0["kind"]?.stringValue }) == Set(ContentKind.allCases.map(\.rawValue)))
-        for row in rows {
-            let eligibility = try #require(row["eligibility"]?.stringValue)
-            if eligibility == "eligible" {
-                #expect(row["reason"] == .null, "an eligible row has a reason: \(row)")
-            } else {
-                #expect(row["reason"]?.stringValue?.isEmpty == false, "a \(eligibility) row has no reason: \(row)")
-            }
-            guard case .object(let fields) = row else { Issue.record("row \(row) is no object"); continue }
-            #expect(Set(fields.keys) == ["key", "kind", "visible", "hidden_for", "state", "eligibility", "reason", "last_discard_reason", "wake_count"])
-        }
-        let sidebar = try #require(rows.first { $0["kind"] == "sidebar_section" })
-        #expect(sidebar["visible"] == true)
-        #expect(sidebar["hidden_for"] == .null)
-        #expect(sidebar["eligibility"] == "protected")
-        #expect(sidebar["reason"] == "visible")
-        let browser = try #require(rows.first { $0["kind"] == "browser" })
-        #expect(browser["hidden_for"] == 100, "hidden_for counts from the planner's 90 s, then 10 s more")
-        #expect(browser["state"] == "live")
-        let overlay = try #require(rows.first { $0["kind"] == "overlay_page" })
-        #expect(overlay["eligibility"] == "disallowed")
-        #expect(overlay["reason"] == "unsupported")
-    }
-
-    @Test func kindsNoOwnerReportsAreListedWithNoPolicy() throws {
-        let planner = ContentDiscardPlanner(tracking: .browser, .agentPage)
-        let report = planner.report(now: start)
-        let kinds = try #require(report["kinds"].flatMap(Self.array))
-        #expect(kinds.compactMap { $0["kind"]?.stringValue } == ContentKind.allCases.map(\.rawValue))
-        for kind in kinds {
-            let tracked = kind["tracked"] == true
-            #expect(tracked == ["browser", "agent_page"].contains(kind["kind"]?.stringValue ?? ""))
-            #expect(kind["reason"] == (tracked ? JSONValue.null : JSONValue.string("no_policy")), "\(kind)")
-        }
-    }
-
-    @Test func aDiscardRecordsItsReasonAndAWakeCountsOnce() throws {
-        var planner = ContentDiscardPlanner(tracking: .browser)
-        planner.note(.hidden("tab", .browser), at: start)
-        planner.note(.planned("tab", .browser, hiddenFor: 1_800, .eligible), at: start)
-        planner.note(.frozen("tab", true), at: start)
-        #expect(planner.row("tab", now: start)?.state == .frozen)
-        planner.note(.discarding("tab", .browser, DiscardReason(pressure: .critical, user: false)), at: start)
-        planner.note(.discarded("tab"), at: start)
-        var row = try #require(planner.row("tab", now: start))
-        #expect(row.state == .discarded)
-        #expect(row.eligibility == .disallowed(.alreadyDiscarded))
-        #expect(row.lastDiscardReason == .urgent)
-        #expect(row.wakeCount == 0)
-        planner.note(.frozen("tab", false), at: start)
-        #expect(planner.row("tab", now: start)?.state == .discarded, "a thaw woke a discarded page")
-
-        planner.note(.woke("tab"), at: start)
-        planner.note(.woke("tab"), at: start)
-        planner.note(.shown("tab", .browser), at: start)
-        row = try #require(planner.row("tab", now: start))
-        #expect(row.state == .live)
-        #expect(row.wakeCount == 1, "a second wake of a live page counted")
-        #expect(row.lastDiscardReason == .urgent, "the last discard's reason went with the wake")
-        #expect(row.eligibility == .protected(.visible))
-
-        let json = row.json
-        #expect(json["last_discard_reason"] == "urgent")
-        #expect(json["wake_count"] == 1)
-        planner.note(.removed("tab"), at: start)
-        #expect(planner.rows(now: start).isEmpty)
-    }
-
-    @Test func aHiddenContentNoPassJudgedIsProtectedAsNotPlanned() {
-        var planner = ContentDiscardPlanner(tracking: .browser)
-        planner.note(.hidden("tab", .browser), at: start)
-        #expect(planner.row("tab", now: start + .seconds(5))?.eligibility == .protected(.notPlanned))
-        #expect(planner.row("tab", now: start + .seconds(5))?.hiddenFor == 5)
-        planner.note(.planned("tab", .browser, hiddenFor: 5, .protected(.pinnedTab)), at: start + .seconds(5))
-        planner.note(.shown("tab", .browser), at: start + .seconds(6))
-        planner.note(.hidden("tab", .browser), at: start + .seconds(7))
-        #expect(planner.row("tab", now: start + .seconds(7))?.eligibility == .protected(.notPlanned),
-                "a verdict from before the show still applied")
-    }
-
-    @Test func discardReasonsFollowPressureAndThePerson() {
-        #expect(DiscardReason(pressure: .normal, user: false) == .proactive)
-        #expect(DiscardReason(pressure: .warning, user: false) == .urgent)
-        #expect(DiscardReason(pressure: .critical, user: false) == .urgent)
-        #expect(DiscardReason(pressure: .critical, user: true) == .external)
-    }
-
-    /// Only what `BrowserHibernation.hibernateNow` refuses is disallowed; the person's Hibernate Tab
-    /// takes every other exempt page, so those are protected. Chrome's name where Chrome has the reason.
-    @Test func exemptionsMapToChromeReasonsAndResults() {
-        let all: [HibernationPlanner.Exemption] = [
-            .disabled, .excluded, .pinned, .devTools, .capturing, .unsupported, .audio, .formInput, .webAudio,
-            .beforeUnload, .webRTC, .connectedDevice, .unreadableFrame, .notifications, .agentBusy, .agentTurnsUnknown,
-            .formSubmission, .agentDriving, .neighbor, .unanswered, .downloading, .agentLease,
-        ]
-        for exemption in all {
-            let result = CanDiscardResult(exemption)
-            if exemption == .unsupported || exemption == .formSubmission {
-                #expect(result == .disallowed(CannotDiscardReason(exemption)))
-            } else {
-                #expect(result == .protected(CannotDiscardReason(exemption)))
-            }
-        }
-        #expect(CannotDiscardReason(.excluded) == .optedOut)
-        #expect(CannotDiscardReason(.pinned) == .pinnedTab)
-        #expect(CannotDiscardReason(.devTools) == .devToolsOpen)
-        #expect(CannotDiscardReason(.audio) == .audible)
-        #expect(CannotDiscardReason(.formInput) == .formInteractions)
-        #expect(CannotDiscardReason(.notifications) == .notificationsEnabled)
-        // An exemption with no Chrome reason keeps the name debug.surfaces shows.
-        #expect(CannotDiscardReason(.agentLease).rawValue == HibernationPlanner.Exemption.agentLease.rawValue)
-        #expect(CannotDiscardReason(.unreadableFrame).rawValue == HibernationPlanner.Exemption.unreadableFrame.rawValue)
-    }
-
-    @Test func theKindParameterKeepsOneKindAndRejectsAnUnknownOne() throws {
-        let planner = plannerWithEveryKind()
-        let report = planner.report(["kind": "terminal_surface"], now: start + .seconds(90))
-        let rows = try #require(report["contents"].flatMap(Self.array))
-        #expect(rows.count == 1)
-        #expect(rows.first?["reason"] == "running_command")
-        #expect(report["kinds"].flatMap(Self.array)?.count == 1)
-        let refused = planner.report(["kind": "tab"], now: start)
-        #expect(refused["error"]?.stringValue?.contains("sidebar_section") == true)
-    }
-
-    /// The app's owners report: BrowserHibernation tracks browser pages, and its agent page
-    /// hibernation reports into the same planner.
-    @Test func browserHibernationTracksBrowserAndAgentPages() {
+    /// A release router keeps `debug.discards` (read-only, tab keys only) and drops the pressure
+    /// override; a DEBUG router serves both. `{"kind": "browser"}` keeps the browser rows.
+    @Test func releaseBuildsServeTheReportAndTheKindParameterFilters() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
-                                             lowPower: LowPowerMode(enabled: false))
-        #expect(hibernation.discards.trackedKinds == [.browser])
-        let agentPages = AgentPageHibernation(tabs: { nil })
-        hibernation.agentPages = agentPages
-        #expect(hibernation.discards.trackedKinds == [.browser, .agentPage])
-        agentPages.noteDiscard(.hidden("tab_chat", .agentPage))
-        #expect(hibernation.discards.row("tab_chat", now: .now)?.kind == .agentPage)
+        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: LowPowerMode(enabled: false))
+        services.cache.hibernation = hibernation
+        hibernation.noteDiscard(.hidden("tab-page", .browser))
+        hibernation.noteDiscard(.hidden("tab-chat", .agentPage))
+        for allowsDebug in [false, true] {
+            let router = Self.router(services, allowsDebug: allowsDebug)
+            #expect(router.method(named: "debug.discards")?.servesRelease == true)
+            #expect((router.method(named: "debug.hibernation.pressure") != nil) == (allowsDebug && ControlRouter.debugMethodsAllowed),
+                    "the pressure override is a DEBUG method only")
+            let reply = try await router.handle(ControlRequest(id: "1", method: "debug.discards", params: ["kind": "browser"])).get()
+            let rows = try #require(reply["contents"].flatMap(Self.array))
+            #expect(rows.compactMap { $0["key"]?.stringValue } == ["tab-page"])
+            #expect(rows.first?["eligibility"] == "protected")
+            #expect(rows.first?["reason"] == "recently_visible")
+            #expect(reply["kinds"].flatMap(Self.array)?.compactMap { $0["kind"]?.stringValue } == ["browser"])
+        }
+
+        // Before hibernation starts: the nine kinds, none tracked, no rows.
+        services.cache.hibernation = nil
+        let empty = try await Self.router(services, allowsDebug: false).handle(ControlRequest(id: "2", method: "debug.discards", params: [:])).get()
+        #expect(empty["contents"].flatMap(Self.array)?.isEmpty == true)
+        let kinds = try #require(empty["kinds"].flatMap(Self.array))
+        #expect(kinds.count == ContentKind.allCases.count)
+        #expect(kinds.allSatisfy { $0["tracked"] == false && $0["reason"] == "not_a_tab" })
         withExtendedLifetime((services, hibernation)) {}
     }
+
+    // MARK: Browser pages
+
+    /// One page from hide to close, and one that goes under memory pressure: each pass's verdict
+    /// is from that pass (off, then on again, flips it back to eligible), the person's Hibernate Tab
+    /// is external, the critical plan's discard urgent, a show counts one wake, and a close drops the row.
+    @Test func browserHibernationReportsEachPageFromHideToClose() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let asked = try await rig.hide(rig.page("asked", body: "<p>asked</p>"))
+        var row = try #require(rig.hibernation.discards.row(asked, now: .now))
+        #expect(row.kind == .browser && !row.visible && row.state == .live)
+        #expect(row.eligibility == DiscardEligibility(), "a hidden page the critical pass ranks is eligible: \(row)")
+
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .off))
+        #expect(rig.hibernation.discards.row(asked, now: .now)?.eligibility == DiscardEligibility(keptFor: .disabled))
+        rig.hibernation.apply(BrowserHibernationSetting(mode: .moderate))
+        #expect(rig.hibernation.discards.row(asked, now: .now)?.eligibility == DiscardEligibility(),
+                "the disabled verdict outlived the pass that turned hibernation on")
+
+        #expect(rig.hibernation.hibernateNow(asked) == nil)
+        try await rig.until("the asked page hibernated") { rig.isHibernated(asked) }
+        row = try #require(rig.hibernation.discards.row(asked, now: .now))
+        #expect(row.state == .discarded)
+        #expect(row.lastDiscardReason == .external)
+        #expect(row.eligibility == DiscardEligibility(result: .disallowed, reasons: [.alreadyDiscarded]))
+
+        let pressed = try await rig.hide(rig.page("pressed", body: "<p>pressed</p>"))
+        try await rig.until("the page hibernated under pressure") { rig.isHibernated(pressed) || rig.exemption(pressed) != nil }
+        #expect(rig.hibernation.discards.row(pressed, now: .now)?.lastDiscardReason == .urgent)
+
+        rig.services.cache.present(asked, by: rig.pane, presence: .visible)
+        try await rig.until("the page woke") { !rig.isHibernated(asked) && rig.services.cache.phase(of: asked) == .mountedVisible }
+        row = try #require(rig.hibernation.discards.row(asked, now: .now))
+        #expect(row.state == .live && row.visible && row.hiddenFor == nil)
+        #expect(row.wakeCount == 1)
+        #expect(row.lastDiscardReason == .external, "the last discard's reason went with the wake")
+        #expect(row.eligibility == DiscardEligibility(result: .protected, reasons: [.visible]))
+
+        rig.services.cache.release(pressed)
+        #expect(rig.hibernation.discards.row(pressed, now: .now) == nil, "a closed tab kept its row")
+    }
+
+    /// A page the probe keeps (the person's typing) says so at once: the keep reports its verdict,
+    /// with no later pass needed.
+    @Test func aPageTheProbeKeepsIsReportedProtectedWithTheProbesReason() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await rig.page("typed", body: "<input id='note'>")
+        rig.window.contentView = page.contentView
+        rig.window.makeFirstResponder(page.webView)
+        _ = try await page.evaluate("document.getElementById('note').focus(); true", world: .page, gesture: .agent)
+        page.webView.insertText("draft")
+        try await rig.until("the typing reached the page") {
+            (try? await page.evaluate("document.getElementById('note').value", world: .page, gesture: .agent)) == .string("draft")
+        }
+        rig.window.contentView = nil
+        let key = try await rig.hide(page)
+        try await rig.until("the page was kept") { rig.exemption(key) != nil }
+        try #require(rig.exemption(key) == .formInput)
+        let row = try #require(rig.hibernation.discards.row(key, now: .now))
+        #expect(row.eligibility == DiscardEligibility(keptFor: .formInput), "debug.discards and debug.surfaces disagree: \(row)")
+        #expect(row.lastDiscardReason == nil, "a kept page was reported as discarded")
+    }
+
+    // MARK: Agent pages
 
     /// A real agent page through AgentPageHibernation: kept while its agent works, released when
     /// due (proactive), and one wake once its tab builds the page again.
     @Test func agentPageHibernationReportsVerdictsDiscardsAndWakes() async throws {
         let rig = AgentPageHibernationTests.Rig()
-        let box = PlannerBox()
-        rig.hibernation.noteDiscard = { [box] event in box.planner.note(event, at: .now) }
+        let box = ReportBox()
+        rig.hibernation.noteDiscard = { [box] event in box.report.note(event, at: .now) }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         _ = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         _ = try rig.hiddenChat("tab_busy", session: "s-busy")
@@ -194,25 +131,49 @@ struct DebugDiscardsControlTests {
         rig.advance(minutes: 31)
         await rig.settle { rig.tabs.existingView("tab_quiet") == nil }
 
-        let busy = try #require(box.planner.row("tab_busy", now: .now))
+        let busy = try #require(box.report.row("tab_busy", now: .now))
         #expect(busy.kind == .agentPage)
-        #expect(busy.eligibility == .protected(.agentBusy))
+        #expect(busy.eligibility == DiscardEligibility(keptFor: .agentBusy))
         #expect((busy.hiddenFor ?? 0) >= 31 * 60)
-        let quiet = try #require(box.planner.row("tab_quiet", now: .now))
+        let quiet = try #require(box.report.row("tab_quiet", now: .now))
         #expect(quiet.state == .discarded)
         #expect(quiet.lastDiscardReason == .proactive)
 
         _ = try #require(rig.tabs.view(for: "tab_quiet"))
         rig.rendering.insert("tab_quiet")
         rig.hibernation.sync { rig.rendering.contains($0) }
-        let woken = try #require(box.planner.row("tab_quiet", now: .now))
+        let woken = try #require(box.report.row("tab_quiet", now: .now))
         #expect(woken.state == .live)
         #expect(woken.wakeCount == 1)
         #expect(woken.visible)
     }
 
-    @MainActor final class PlannerBox {
-        var planner = ContentDiscardPlanner(tracking: .agentPage)
+    /// A connected page that does not say what it holds stays, and its row says why at once.
+    @Test func anAgentPageKeptForNoWakeStateIsReportedUnanswered() async throws {
+        let rig = AgentPageHibernationTests.Rig()
+        let box = ReportBox()
+        rig.hibernation.noteDiscard = { [box] event in box.report.note(event, at: .now) }
+        rig.hibernation.wakeState = { _ in nil }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let page = try rig.hiddenChat("tab_silent", session: "s-silent")
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+        rig.advance(minutes: 61)
+        await rig.settle { box.report.row("tab_silent", now: .now)?.eligibility.reason == .unanswered }
+        #expect(rig.tabs.existingView("tab_silent") != nil, "a page that did not say what it held let go")
+        #expect(box.report.row("tab_silent", now: .now)?.eligibility == DiscardEligibility(keptFor: .unanswered))
+    }
+
+    @MainActor final class ReportBox {
+        var report = ContentDiscardReport(tracking: .agentPage)
+    }
+
+    private static func router(_ services: AppServices, allowsDebug: Bool) -> ControlRouter {
+        let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
+                                                             processID: getpid()),
+                                   executor: RegistryControlBridge(registry: services.registry), settings: nil,
+                                   configuration: ControlRouter.Configuration(allowsDebugMethods: allowsDebug))
+        router.register(DebugHibernationControl.methods(services))
+        return router
     }
 
     private static func array(_ value: JSONValue) -> [JSONValue]? {

@@ -7,8 +7,9 @@ internal import Dispatch
 /// per-thread `ThreadRestrictions`, which disallow blocking on the UI thread and on every pool thread that
 /// runs a task without `MayBlock()` (base/task/thread_pool/task_tracker.cc, `RunTask`).
 ///
-/// The detector reads, in order: the main thread; else the thread's own mark (``runAsLane(_:)`` around a
-/// `BackgroundWork` lane item, ``allowBlocking(_:_:)`` off the main thread, or a named thread's first check);
+/// The detector reads, in order: the main thread; else the thread's own mark (``runAsLane(_:)`` or
+/// ``runAsCPULane(_:)`` around a `BackgroundWork` lane item, ``allowBlocking(_:_:)`` off the main thread, or a
+/// named thread's first check);
 /// else the label of the dispatch queue running the call. A GCD root queue (label prefix `com.apple.root.`) is
 /// ``pool``; the Swift cooperative pool's queues are root queues (`com.apple.root.user-initiated-qos.cooperative`,
 /// libdispatch queue.c `_dispatch_root_queues`), so the one prefix compare covers them. Any other queue, a named
@@ -29,25 +30,34 @@ public enum BlockingContext: String, Sendable, CaseIterable {
     /// threads shared by every task, about one per core, so one blocking call stalls the tasks queued behind it.
     /// Blocking is a violation, recorded (`CMUX_BLOCKING_TRAP_POOL=1` traps in Debug).
     case pool
-    /// A `BackgroundWork` lane slot, Chrome's `MayBlock()` task: blocking allowed.
+    /// A slot of a `BackgroundWork` lane that may block (`.files`, `.system`), Chrome's `MayBlock()` task: blocking
+    /// allowed.
     case lane
     /// A named queue or a registered thread that owns its work: blocking allowed.
     case dedicated
+    /// A slot of BackgroundWork's `.cpu` lane, Chrome's task without `MayBlock()`: the lane is sized to the cores,
+    /// so a blocking call holds a core's slot idle. Blocking is a ``BlockingKind/wrongLane`` violation, recorded
+    /// and never a trap; the fix is to run the job on `.files` or `.system`.
+    case cpuLane = "cpu-lane"
 
     /// What a thread declares itself for the length of a ``BlockingContext/run(as:_:)`` scope. Internal to this
-    /// module: other modules mark only a lane (``runAsLane(_:)``); dedicated comes from ``allowBlocking(_:_:)``
+    /// module: other modules mark only a lane (``runAsLane(_:)``, ``runAsCPULane(_:)``); dedicated comes from
+    /// ``allowBlocking(_:_:)``
     /// (a reviewed reason) and from a named thread, never from a bare mark.
     @usableFromInline enum Mark: UInt, Sendable {
         /// A `BackgroundWork` lane slot runs its item (`LaneScheduler`).
         case lane = 1
         /// A named thread, or ``allowBlocking(_:_:)`` running its body off the main thread.
         case dedicated = 2
+        /// A slot of the `.cpu` lane runs its item (`LaneScheduler`).
+        case cpuLane = 3
 
         /// The context the mark puts the thread in.
         var context: BlockingContext {
             switch self {
             case .lane: .lane
             case .dedicated: .dedicated
+            case .cpuLane: .cpuLane
             }
         }
     }
@@ -65,6 +75,20 @@ public enum BlockingContext: String, Sendable, CaseIterable {
     /// - Throws: What `body` throws.
     package static func runAsLane<Result, Failure: Error>(_ body: () throws(Failure) -> Result) throws(Failure) -> Result {
         try run(as: .lane, body)
+    }
+
+    /// Runs `body`, one item of BackgroundWork's `.cpu` lane, with the calling thread marked ``cpuLane`` (Chrome's
+    /// task without `MayBlock()`, which `TaskTracker::RunTask` runs under `ScopedDisallowBlocking`): in Debug and
+    /// bench-checks builds a checked blocking call in it records a ``BlockingKind/wrongLane`` site. Only
+    /// `LaneScheduler` calls it. In Release it only runs `body`.
+    ///
+    /// - Parameter body: The lane item.
+    /// - Returns: What `body` returns.
+    /// - Throws: What `body` throws.
+    package static func runAsCPULane<Result, Failure: Error>(
+        _ body: () throws(Failure) -> Result
+    ) throws(Failure) -> Result {
+        try run(as: .cpuLane, body)
     }
 
     /// Runs `body` with the calling thread marked `mark`: a checked blocking call in it is classified by the
@@ -97,11 +121,15 @@ extension BlockingContext {
         pthread_main_np() != 0 ? .main : offMainThread()
     }
 
-    /// Whether the calling thread, which is not the main thread, is a shared pool thread (the checks' off-main
-    /// path: a pool call is a violation, every other off-main call is not).
+    /// The context of the calling thread, which is not the main thread, when a blocking call there is a violation
+    /// (the checks' off-main path): ``pool`` or ``cpuLane``; nil on a lane that may block or a dedicated thread.
     @usableFromInline
-    static func isPoolThread() -> Bool {
-        offMainThread() == .pool
+    static func offMainViolation() -> BlockingContext? {
+        switch offMainThread() {
+        case .pool: .pool
+        case .cpuLane: .cpuLane
+        case .main, .lane, .dedicated: nil
+        }
     }
 
     /// The context of a thread that is not the main thread. A marked thread (a lane, an allowance, a named

@@ -26,7 +26,8 @@ public final class ControlRouter: Sendable {
         public var batchOpLimit: Int
         /// Whether `debug.*` methods may be registered: only in DEBUG builds
         /// (``ControlRouter/debugMethodsAllowed``). A release router drops
-        /// every `debug.*` registration, so no release build serves one.
+        /// every `debug.*` registration but the read-only diagnostics marked
+        /// ``ControlMethod/servingRelease()``.
         public var allowsDebugMethods: Bool
 
         public init(requestDeadline: Duration = .seconds(2), terminalStartDeadline: Duration = ControlRouter.terminalStartDeadline,
@@ -41,7 +42,8 @@ public final class ControlRouter: Sendable {
         }
     }
 
-    /// True in DEBUG builds only: release builds serve no `debug.*` method.
+    /// True in DEBUG builds only: release builds serve no `debug.*` method but the
+    /// ``ControlMethod/servingRelease()`` diagnostics.
     public static var debugMethodsAllowed: Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         true
@@ -125,11 +127,12 @@ public final class ControlRouter: Sendable {
     /// Adds methods. A later registration with the same name replaces the
     /// earlier one (the App or compat layer may refine a built-in). A
     /// `debug.*` method is dropped unless the configuration allows debug
-    /// methods (DEBUG builds), whichever code path registers it.
+    /// methods (DEBUG builds) or the method serves release builds
+    /// (``ControlMethod/servingRelease()``), whichever code path registers it.
     public func register(_ methods: [ControlMethod]) {
         let allowsDebug = configuration.allowsDebugMethods
         // Each method's owner is interned once here (registration), never per request.
-        let methods = methods.filter { allowsDebug || !Self.isDebugMethod($0.name) }.map { method in
+        let methods = methods.filter { allowsDebug || $0.servesRelease || !Self.isDebugMethod($0.name) }.map { method in
             var method = method
             method.owner = workQueue.owner(of: method.name)
             return method

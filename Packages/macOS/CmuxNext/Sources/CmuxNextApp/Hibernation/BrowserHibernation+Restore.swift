@@ -2,7 +2,6 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
-import CmuxNextHibernation
 import CoreGraphics
 import Foundation
 import Observation
@@ -82,6 +81,7 @@ extension BrowserHibernation {
         }
         cache.swapPage(key, with: page, asleep: asleep.state)
         cache.dormantTabs.set(key, false)
+        savedBytes[key] = nil
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
         cache.previews.remove(key)

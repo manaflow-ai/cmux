@@ -878,8 +878,8 @@ Acceptance: named .utility Thread -> one row requested utility, declared utility
 -> declared null; DEBUG or CMUX_BENCH_HOOKS only. Test: T1; RUN-3.
 
 **019 Hang counters.** Files: MainThreadWatchdog.swift, S/CmuxNextControl/Diagnostics/HangLog.swift,
-scripts/cmux-next/perf-cron.py. Change: count250 and count100 since launch/reset in debug.hangs and hang
-report CoarseCounts; perf-cron prints count250 (read only, no gate). Acceptance: injected 300 ms and 120
+scripts/cmux-next/perf-cron.py. Change: count250 and count100 since launch/reset in debug.hangs (the hang
+report CoarseCounts half is 024, after the server change 023); perf-cron prints count250 (read only, no gate). Acceptance: injected 300 ms and 120
 ms stalls -> count250=1, count100=2. Test: T1.
 
 **020 blocking-probe.** Files: scripts/measure/blocking-probe.sh, scripts/measure/blocking-probe/probe.c,
@@ -902,6 +902,20 @@ contexts, modes, allowances (Swift and Rust), lane widths and the sequence rule;
 thread-per-connection instead of a reactor, and the per-terminal thread count that must not grow. Remove
 "Unnamed today". Acceptance: --rule thread-doc = 0 unlisted; no userInteractive outside the closed list;
 STE. Test: T0.
+
+**023 Hang report server accepts the stall counts.** Files: web/services/hangReports/wireSchema.ts,
+web/tests/hang-reports-route.test.ts. A separate web/ PR against main. Change: the strict decoder
+(onExcessProperty "error") accepts optional whole-number count100 and count250 under counts, bounded, and
+the stored report keeps them. It lands and deploys before 024: before that, the server refuses every
+NIGHTLY report that has the keys. Acceptance: counts.count100=2, count250=1 decodes and is stored; a
+report without them still decodes; a negative, fractional or string value is refused. Test: T1 (bun test).
+
+**024 Hang report CoarseCounts carry the stall counts.** Depends 019, 023. Files:
+S/CmuxNextHangReports/CoarseCounts.swift, S/CmuxNextApp/HangReports/WatchdogReporting.swift,
+HangReportWireFormatTests.swift. Change: the CoarseCounts half of 019 (019 did debug.hangs only, because
+of 023): optional count100 and count250, encoded only when present, from watchdog.stallCounts in
+WatchdogReporting.counts. Acceptance: 300 ms and 120 ms stalls -> counts.count250=1, count100=2; a report
+without a watchdog encodes no key. Test: T1.
 
 **030 Key echo queues.** Files: S/CmuxNextDaemon/Connection/SocketWriter.swift,
 S/CmuxNextTerminal/LocalPTYTerminalIO.swift, T/CmuxNextDaemonTests/SocketWriterQoSTests.swift,
@@ -1491,7 +1505,7 @@ Acceptance: RUN-3 and RUN-4. Test: T3.
 **303 TEST PHASE: daemon panic mode + lifecycle bench.** Depends 220, 221, 231, 210, 211, 225.
 Acceptance: RUN-5. Test: T1r + T3.
 
-**304 TEST PHASE: Nightly soak.** Depends 007, 008, 019, 233, 300. Acceptance: RUN-7, RUN-8, RUN-9.
+**304 TEST PHASE: Nightly soak.** Depends 007, 008, 019, 024, 233, 300. Acceptance: RUN-7, RUN-8, RUN-9.
 Test: T4.
 
 **305 TEST PHASE: Tart macOS 14/15.** Depends 005, 018, 117. Checks both pool label shapes and the

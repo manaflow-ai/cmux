@@ -1,223 +1,244 @@
-package import CmuxNextCompat
+package import CmuxNextSettings
+import Foundation
 
-/// The kinds of content cmux can discard (plans/cmux-next/chrome-parity/p07-memory.md, section 3.C).
-/// Chrome discards only tabs; cmux has more kinds of hidden content that hold memory.
-package enum ContentKind: String, CaseIterable, Hashable, Sendable {
-    /// A browser tab: a CEF or WebKit page, or one of the other `BrowserTab` conformers.
-    case browser
-    /// An agent chat page.
-    case agentPage = "agent_page"
-    /// A cmux page in a tab (`InternalPageID`).
-    case internalPage = "internal_page"
-    /// A window's top page (`TopPageHost`).
-    case topPage = "top_page"
-    case conversation
-    /// A terminal's render state (its Ghostty surface and GPU drawables).
-    case terminalSurface = "terminal_surface"
-    /// A hidden workspace's mounted content.
-    case parkedWorkspace = "parked_workspace"
-    /// A page shown over the window (icon picker, update island, extensions panel).
-    case overlayPage = "overlay_page"
-    /// A right sidebar section.
-    case sidebarSection = "sidebar_section"
-}
-
-/// Why content was discarded (Chrome's `DiscardReason`, chrome/browser/resource_coordinator/lifecycle_unit_types.h).
-package enum DiscardReason: String, Hashable, Sendable {
-    /// Hidden past its timeout with no memory pressure (Memory Saver).
-    case proactive
-    /// Taken under memory pressure.
-    case urgent
-    /// The person asked for it (Hibernate Tab).
-    case external
-    /// A frozen page whose memory kept growing.
-    case frozenWithGrowingMemory = "frozen_with_growing_memory"
-
-    /// The reason a planner pass at `pressure` discards for; `user` when the person asked.
-    package init(pressure: MemoryPressureLevel, user: Bool) {
-        if user {
-            self = .external
-        } else {
-            self = pressure == .normal ? .proactive : .urgent
-        }
-    }
-}
-
-/// One planner for every kind of content (p07-memory.md section 3.C). This part keeps the
-/// planner's last inputs for each content its owners report, which `debug.discards` shows as
-/// chrome://discards shows tabs (chrome/browser/ui/webui/discards/discards_ui.cc): visibility,
-/// lifecycle state, whether it can be discarded and why not, the last discard's reason and how
-/// often it woke. Owners report events; nothing here walks the session, and reading the rows is
-/// O(contents tracked).
-package struct ContentDiscardPlanner: Sendable {
-    /// A content's lifecycle state (Chrome's LifecycleUnitState: active, frozen, discarded).
-    package enum State: String, Hashable, Sendable {
-        case live, frozen, discarded
-    }
-
-    /// What an owner reports about content `key`.
-    package enum Event: Hashable, Sendable {
-        /// It shows. A verdict made while it was hidden no longer applies.
-        case shown(String, ContentKind)
-        /// It stopped showing.
-        case hidden(String, ContentKind)
-        /// A planner pass judged it, counting it hidden for `hiddenFor` seconds (the planner's
-        /// clock wins: an agent's call restarts it).
-        case planned(String, ContentKind, hiddenFor: Double, CanDiscardResult)
-        /// The owner starts to discard it for a reason; `discarded` completes it.
-        case discarding(String, ContentKind, DiscardReason)
-        /// The discard `discarding` started is done.
-        case discarded(String)
-        /// Discarded content was rebuilt.
-        case woke(String)
-        /// Live content froze (true) or thawed (false).
-        case frozen(String, Bool)
-        /// It closed.
-        case removed(String)
-    }
-
-    /// One content as `debug.discards` shows it.
-    package struct Row: Equatable, Sendable {
+/// The one discard planner of every kind of hidden content (p07-memory.md section 3.C): which
+/// candidates go now, least valuable first, and when to look again. Pure: its owners feed it facts
+/// and a clock reading and perform the result. `HibernationPlanner` wraps it for browser pages with
+/// the browser's pace.
+///
+/// Eligibility is Chrome's `DiscardEligibilityPolicy::CanDiscard`
+/// (chrome/browser/performance_manager/policies/discard_eligibility_policy.cc): each
+/// ``DiscardRule`` that applies to the discard reason and matches the candidate adds its reason, and
+/// the worst result wins. Anything but ``CanDiscardResult/eligible`` keeps the candidate.
+///
+/// ```swift
+/// let planner = ContentDiscardPlanner()
+/// let plan = planner.plan(setting, for: .urgent, threshold: 600, pace: pace, candidates: hidden)
+/// ```
+package nonisolated struct ContentDiscardPlanner: Sendable {
+    /// One hidden piece of content that could be discarded.
+    package nonisolated struct Candidate: Hashable, Sendable {
         package var key: String
         package var kind: ContentKind
-        package var visible: Bool
-        /// Seconds since it was last visible; nil while it shows.
-        package var hiddenFor: Double?
-        package var state: State
-        package var eligibility: CanDiscardResult
-        /// Why it was last discarded; nil when it never was.
-        package var lastDiscardReason: DiscardReason?
-        /// Times it was rebuilt after a discard.
-        package var wakeCount: Int
-    }
+        /// Seconds since the content was last visible.
+        package var hiddenFor: Double
+        package var host: String?
+        package var isPinned = false
+        package var hasDevTools = false
+        /// Camera or microphone in use (Page Info); the probe finds the rest (`PageProbe.capturing`).
+        package var isCapturing = false
+        /// The engine can save and restore its history.
+        package var canRestore = true
+        package var showsFormSubmission = false  // the shown document came from a POST (BR-R1)
+        /// Times the person showed the content in the last hour (`BrowserHibernation.focusWindow`).
+        package var recentFocusCount = 0
+        /// The content's memory (its renderers' footprint, shared ones split), when sampled.
+        package var memoryBytes: UInt64?
+        /// A download the page started still runs.
+        package var isDownloading = false
+        /// An agent holds the page's browser lease (its cursor is on it).
+        package var hasAgentLease = false
+        /// The probe kept the page lately (it played or held form input): under pressure it
+        /// ranks after the others, so it does not hold up the relief of the rest.
+        package var recentlyKept = false
+        /// The page's site may show notifications (its permission is Allow): the timeout keeps it,
+        /// memory pressure does not (Chrome's kNotificationsEnabled, proactive discards only).
+        package var allowsNotifications = false
+        /// The content holds edits the person has not saved.
+        package var hasUnsavedEdits = false
+        /// A terminal's command still runs.
+        package var runsCommand = false
 
-    /// One kind as `debug.discards` shows it: whether an owner reports its contents, and how many.
-    package struct KindSummary: Equatable, Sendable {
-        package var kind: ContentKind
-        package var tracked: Bool
-        package var contents: Int
-        package var discarded: Int
-        /// Why none of its contents can be discarded; nil when an owner tracks the kind.
-        package var reason: CannotDiscardReason? { tracked ? nil : .noPolicy }
-    }
+        /// The tab sits beside a pane's shown tab or was just hovered (browser pages).
+        package var isNeighbor = false
+        /// An agent called the page within its grace (browser pages).
+        package var isAgentDriving = false
 
-    private struct Input: Sendable {
-        var kind: ContentKind
-        var visible = false
-        var hiddenSince: ContinuousClock.Instant?
-        var state = State.live
-        var verdict: CanDiscardResult?
-        var pendingDiscard: DiscardReason?
-        var lastDiscardReason: DiscardReason?
-        var wakeCount = 0
-    }
+        // The lead rule's facts (p07-memory.md section 3.C). A web page's probe fills them right
+        // before a discard (`PageProbe.fill(_:)`); other kinds set them from their own state.
 
-    private var inputs: [String: Input] = [:]
-    /// The kinds an owner reports.
-    package private(set) var trackedKinds: Set<ContentKind> = []
+        /// Sound, media its mute silences, or Picture in Picture.
+        package var isAudible = false
+        /// The person's edits in its form fields.
+        package var hasFormInput = false
+        /// The person moved into a child frame whose fields cannot be read.
+        package var hasUnreadableFrame = false
+        /// Its `beforeunload` would ask before it unloads.
+        package var asksBeforeUnload = false
+        /// A connected WebRTC peer connection.
+        package var hasWebRTC = false
+        /// An open USB, HID or serial device, or a connected Bluetooth GATT server.
+        package var hasConnectedDevice = false
+        /// A running Web Audio context.
+        package var usesWebAudio = false
+        /// Its probe got no answer, so its edits are unknown.
+        package var isUnanswered = false
+        /// It still gets the benefit of the doubt for a missed answer (`PageProbeHistory`).
+        package var isDoubted = false
 
-    package init() {}
-
-    /// A planner whose owners report the contents of `kinds`.
-    package init(tracking kinds: ContentKind...) {
-        trackedKinds = Set(kinds)
-    }
-
-    /// An owner reports the contents of `kind` from now on.
-    package mutating func track(_ kind: ContentKind) {
-        trackedKinds.insert(kind)
-    }
-
-    /// Applies an owner's report at `now`.
-    package mutating func note(_ event: Event, at now: ContinuousClock.Instant) {
-        switch event {
-        case .shown(let key, let kind):
-            update(key, kind) {
-                $0.visible = true
-                $0.hiddenSince = nil
-                $0.verdict = nil
-            }
-        case .hidden(let key, let kind):
-            update(key, kind) {
-                $0.visible = false
-                $0.hiddenSince = now
-                $0.verdict = nil
-            }
-        case .planned(let key, let kind, let hiddenFor, let verdict):
-            update(key, kind) {
-                $0.visible = false
-                $0.hiddenSince = now - .seconds(hiddenFor.isFinite ? max(hiddenFor, 0) : 0)
-                $0.verdict = verdict
-            }
-        case .discarding(let key, let kind, let reason):
-            update(key, kind) { $0.pendingDiscard = reason }
-        case .discarded(let key):
-            guard var input = inputs[key] else { return }
-            input.state = .discarded
-            input.lastDiscardReason = input.pendingDiscard ?? input.lastDiscardReason
-            input.pendingDiscard = nil
-            input.verdict = nil
-            inputs[key] = input
-        case .woke(let key):
-            guard var input = inputs[key], input.state == .discarded else { return }
-            input.state = .live
-            input.wakeCount += 1
-            inputs[key] = input
-        case .frozen(let key, let isFrozen):
-            guard var input = inputs[key], input.state != .discarded else { return }
-            input.state = isFrozen ? .frozen : .live
-            inputs[key] = input
-        case .removed(let key):
-            inputs[key] = nil
+        package init(key: String, kind: ContentKind = .browser, hiddenFor: Double, host: String? = nil, isPinned: Bool = false,
+                     hasDevTools: Bool = false, isCapturing: Bool = false, canRestore: Bool = true, showsFormSubmission: Bool = false,
+                     recentFocusCount: Int = 0, memoryBytes: UInt64? = nil, isDownloading: Bool = false,
+                     hasAgentLease: Bool = false, recentlyKept: Bool = false, allowsNotifications: Bool = false,
+                     hasUnsavedEdits: Bool = false, runsCommand: Bool = false) {
+            self.key = key
+            self.kind = kind
+            self.hiddenFor = hiddenFor
+            self.host = host
+            self.isPinned = isPinned
+            self.hasDevTools = hasDevTools
+            self.isCapturing = isCapturing
+            self.canRestore = canRestore
+            self.showsFormSubmission = showsFormSubmission
+            self.recentFocusCount = recentFocusCount
+            self.memoryBytes = memoryBytes
+            self.isDownloading = isDownloading
+            self.hasAgentLease = hasAgentLease
+            self.recentlyKept = recentlyKept
+            self.allowsNotifications = allowsNotifications
+            self.hasUnsavedEdits = hasUnsavedEdits
+            self.runsCommand = runsCommand
         }
     }
 
-    /// Every reported content at `now`, ordered by key.
-    package func rows(now: ContinuousClock.Instant) -> [Row] {
-        inputs.map { Self.row($0.key, $0.value, now: now) }.sorted { $0.key < $1.key }
-    }
+    /// How many candidates one pass discards and how soon the next pass runs while more are due,
+    /// so content never all goes at once (content shown meanwhile drops out of the queue).
+    package nonisolated struct Pace: Hashable, Sendable {
+        package var perPass: Int
+        package var interval: Double
+        /// Content hidden less than this never goes (the person just left it). Without pressure
+        /// the timeout alone decides.
+        package var minimumHidden: Double
 
-    /// Content `key` at `now`; nil when no owner reported it.
-    package func row(_ key: String, now: ContinuousClock.Instant) -> Row? {
-        inputs[key].map { Self.row(key, $0, now: now) }
-    }
-
-    /// Each of the nine kinds, in declaration order.
-    package var kinds: [KindSummary] {
-        var contents: [ContentKind: Int] = [:]
-        var discarded: [ContentKind: Int] = [:]
-        for input in inputs.values {
-            contents[input.kind, default: 0] += 1
-            if input.state == .discarded { discarded[input.kind, default: 0] += 1 }
+        package init(perPass: Int, interval: Double, minimumHidden: Double) {
+            self.perPass = perPass
+            self.interval = interval
+            self.minimumHidden = minimumHidden
         }
-        return ContentKind.allCases.map {
-            KindSummary(kind: $0, tracked: trackedKinds.contains($0), contents: contents[$0] ?? 0, discarded: discarded[$0] ?? 0)
+
+        /// Chrome's urgent pace, the one for every new kind (p07-memory.md section 3.C): one discard
+        /// per critical pressure event (`UrgentPageDiscardingPolicy`,
+        /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
+        /// every 5 s while it stays critical. Browser pages keep their own paces
+        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
+    }
+
+    package nonisolated struct Plan: Hashable, Sendable {
+        /// Keys to discard now (after the owner's last checks, such as the page probe).
+        package var due: [String] = []
+        /// Seconds until the next candidate reaches its deadline; nil when none will.
+        package var nextCheck: Double?
+        /// Why each kept candidate stays: the first matched rule's reason.
+        package var exemptions: [String: CannotDiscardReason] = [:]
+
+        package init(due: [String] = [], nextCheck: Double? = nil, exemptions: [String: CannotDiscardReason] = [:]) {
+            self.due = due
+            self.nextCheck = nextCheck
+            self.exemptions = exemptions
         }
     }
 
-    private static func row(_ key: String, _ input: Input, now: ContinuousClock.Instant) -> Row {
-        Row(key: key, kind: input.kind, visible: input.visible,
-            hiddenFor: input.visible ? nil : input.hiddenSince.map { seconds(now - $0) },
-            state: input.state, eligibility: eligibility(input),
-            lastDiscardReason: input.lastDiscardReason, wakeCount: input.wakeCount)
+    /// The rules, in the order their reasons are reported.
+    package var rules: [DiscardRule]
+
+    /// Makes a planner with `rules`.
+    ///
+    /// - Parameter rules: The rules, in report order; ``DiscardRule/registered`` in the app.
+    package init(rules: [DiscardRule] = DiscardRule.registered) {
+        self.rules = rules
     }
 
-    /// Chrome's order (discard_eligibility_policy.cc `CanDiscard`): discarded content is
-    /// disallowed, then visible content is protected, then the planner's verdict applies.
-    private static func eligibility(_ input: Input) -> CanDiscardResult {
-        if input.state == .discarded { return .disallowed(.alreadyDiscarded) }
-        if input.visible { return .protected(.visible) }
-        return input.verdict ?? .protected(.notPlanned)
+    /// Whether `candidate` may be discarded for `reason`, and why not.
+    ///
+    /// - Parameters:
+    ///   - candidate: The content's facts.
+    ///   - setting: `browser.hibernation` (its switch, exclusions and pinned rule), read only by the
+    ///     rules of browser pages.
+    ///   - reason: Why the discard would happen.
+    /// - Returns: The worst result of the rules that match and their reasons in rule order.
+    package func eligibility(of candidate: Candidate, setting: BrowserHibernationSetting, for reason: DiscardReason) -> DiscardEligibility {
+        let context = DiscardRule.Context(browser: setting, reason: reason)
+        var eligibility = DiscardEligibility()
+        for rule in rules where rule.matches(candidate, context) {
+            eligibility.result = max(eligibility.result, rule.result)
+            eligibility.reasons.append(rule.reason)
+        }
+        return eligibility
     }
 
-    private mutating func update(_ key: String, _ kind: ContentKind, _ change: (inout Input) -> Void) {
-        var input = inputs[key] ?? Input(kind: kind)
-        input.kind = kind
-        change(&input)
-        inputs[key] = input
+    /// The share of the timeout each doubling of recent focus buys: at the 30 minute default a
+    /// tab shown 15 times in the last hour (4 doublings) hibernates 20 minutes later than one
+    /// never shown. A share, not a fixed time, so a short timeout stays short.
+    package static let focusCreditPerDoubling: Double = 1.0 / 6
+
+    /// Seconds the content's memory counts as extra idleness under memory pressure: one minute per
+    /// 100 MB, at most 10. Without pressure memory is not scarce, so it does not count.
+    package static func memoryCredit(_ bytes: UInt64?) -> Double {
+        guard let bytes else { return 0 }
+        return min(Double(bytes) / Double(100 << 20), 10) * 60
     }
 
-    private static func seconds(_ duration: Duration) -> Double {
-        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    /// How idle a candidate counts as: seconds hidden, plus its memory for an urgent discard, less
+    /// its recent focus (a share of `timeout`, the seconds before it is due). Larger is less
+    /// valuable: it goes first and sooner.
+    package static func idleness(_ candidate: Candidate, for reason: DiscardReason, timeout: Double) -> Double {
+        let focus = log2(1 + Double(min(max(candidate.recentFocusCount, 0), 63))) * focusCreditPerDoubling * timeout
+        let memory = reason == .urgent ? memoryCredit(candidate.memoryBytes) : 0
+        return candidate.hiddenFor + memory - focus
+    }
+
+    /// The candidates to discard now, least valuable first, and when to look again.
+    ///
+    /// A candidate is due once its idleness reaches `threshold`. For an urgent discard, when none
+    /// is due, the least valuable candidate hidden at least `Pace.minimumHidden` goes anyway, to
+    /// relieve the pressure. Each pass takes at most `Pace.perPass` and looks again after
+    /// `Pace.interval` while more are waiting.
+    ///
+    /// - Parameters:
+    ///   - setting: `browser.hibernation`, read by the rules of browser pages.
+    ///   - reason: ``DiscardReason/proactive`` without pressure, ``DiscardReason/urgent`` with it.
+    ///   - threshold: Seconds of idleness before a candidate is due.
+    ///   - pace: How many go per pass and how often.
+    ///   - candidates: The hidden content.
+    /// - Returns: The due keys, the next check and each kept candidate's reason.
+    package func plan(_ setting: BrowserHibernationSetting, for reason: DiscardReason, threshold: Double, pace: Pace,
+                      candidates: [Candidate]) -> Plan {
+        var plan = Plan()
+        let urgent = reason == .urgent
+        var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
+        for candidate in candidates {
+            if let kept = eligibility(of: candidate, setting: setting, for: reason).reason {
+                plan.exemptions[candidate.key] = kept
+                continue
+            }
+            ranked.append((candidate.key, Self.idleness(candidate, for: reason, timeout: threshold), candidate.hiddenFor,
+                           urgent && candidate.recentlyKept))
+        }
+        ranked.sort {
+            if $0.kept != $1.kept { return !$0.kept }
+            return $0.idleness != $1.idleness ? $0.idleness > $1.idleness : $0.key < $1.key
+        }
+        // Content the person just left never goes, whatever its memory or the mode.
+        let oldEnough = ranked.filter { $0.hiddenFor >= pace.minimumHidden }
+        // Content the probe just kept comes last: only when nothing else can go.
+        let fresh = oldEnough.filter { !$0.kept }
+        var due = fresh.filter { $0.idleness >= threshold }
+        if due.isEmpty, urgent { due = fresh }
+        if due.isEmpty { due = oldEnough.filter { $0.idleness >= threshold } }
+        if due.isEmpty, urgent { due = oldEnough }
+        plan.due = due.prefix(pace.perPass).map(\.key)
+        if due.count > plan.due.count || (urgent && !plan.due.isEmpty) {
+            plan.nextCheck = pace.interval
+        }
+        let dueKeys = Set(due.map(\.key))
+        for page in ranked where !dueKeys.contains(page.key) {
+            let young = pace.minimumHidden - page.hiddenFor
+            var wait = max(threshold - page.idleness, young)
+            // Under pressure anything old enough is relief: look again once this one is.
+            if urgent { wait = min(wait, max(young, pace.interval)) }
+            plan.nextCheck = min(plan.nextCheck ?? .infinity, max(wait, 0.001))
+        }
+        return plan
     }
 }
