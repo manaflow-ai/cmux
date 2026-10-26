@@ -50,14 +50,7 @@ final class TerminalSurfaceView: UIView {
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
 
-    override convenience init(frame: CGRect) {
-        self.init(frame: frame, inForeground: { UIApplication.shared.applicationState != .background })
-    }
-
-    /// - Parameter inForeground: whether the app is in the foreground now
-    ///   (tests pass their own; the default reads `UIApplication`).
-    init(frame: CGRect, inForeground: @escaping @MainActor () -> Bool) {
-        self.inForeground = inForeground
+    override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = CmuxMobileGhosttyApp.background
         isOpaque = true
@@ -137,15 +130,8 @@ final class TerminalSurfaceView: UIView {
 
     // MARK: Occlusion
 
-    /// Whether the app is in the foreground now (`init(frame:inForeground:)`).
-    private let inForeground: @MainActor () -> Bool
-    /// The app is in the background: nothing on screen is seen. Read when the
-    /// surface is made, kept by the app's notifications, and cleared whenever
-    /// the app reads as foreground again: a view made during a cold launch
-    /// sees `.background` and can miss `willEnterForeground` (posted before
-    /// it observed), which left it paused for good (fleet flood benchmark,
-    /// 0 frames, 2026-10-26).
-    private lazy var appInBackground = !inForeground()
+    /// The app is in the background: nothing on screen is seen.
+    private var appInBackground = UIApplication.shared.applicationState == .background
     private var appStateObservers: [any NSObjectProtocol] = []
     /// The last value given to `ghostty_surface_set_occlusion` (true = draws).
     private(set) var drawsFrames: Bool?
@@ -159,7 +145,6 @@ final class TerminalSurfaceView: UIView {
     /// batch before (renderer audit 2026-10-26).
     private func updateOcclusion() {
         guard let surface else { return }
-        if appInBackground, inForeground() { appInBackground = false }
         let visible = window != nil && !appInBackground
         guard visible != drawsFrames else { return }
         drawsFrames = visible
@@ -179,10 +164,6 @@ final class TerminalSurfaceView: UIView {
                 MainActor.assumeIsolated { set(true) }
             },
             center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { set(false) }
-            },
-            // The first event a view made during launch can still see.
-            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { set(false) }
             },
         ]
