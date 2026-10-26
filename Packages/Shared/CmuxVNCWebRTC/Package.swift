@@ -22,6 +22,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxVNC"),
+        // The portable Mutex the shared session state lives in (p10-stability-172).
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .binaryTarget(
@@ -29,7 +31,8 @@ let package = Package(
             url: "https://github.com/stasel/WebRTC/releases/download/154.0.0/WebRTC-M154.xcframework.zip",
             checksum: "a2bcdda93578c82452ceb6e49d54a2746e1bcb4caf7c2fa601ffac8028b58c16"
         ),
-        .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+        .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
+                                                      .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
                 swiftSettings: swiftSettings),
         .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                           swiftSettings: swiftSettings),

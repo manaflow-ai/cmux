@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// One canonical, numeric Iroh UDP address safe to advertise on a local link.
@@ -92,29 +91,16 @@ public struct CmxIrohLANSocketAddress: Equatable, Hashable, Sendable {
     }
 
     private static func parseIPv4(_ value: String) -> (canonical: String, bytes: [UInt8])? {
-        var address = in_addr()
-        guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
-        guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return (Self.decode(buffer), bytes)
+        guard let literal = CmxIrohIPLiteral(value, family: .ipv4),
+              let canonical = literal.canonicalText else { return nil }
+        return (canonical, literal.bytes)
     }
 
     private static func parseIPv6(_ value: String) -> (canonical: String, bytes: [UInt8])? {
-        guard !value.contains("%") else { return nil }
-        var address = in6_addr()
-        guard value.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
-        guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return (Self.decode(buffer).lowercased(), bytes)
-    }
-
-    private static func decode(_ buffer: [CChar]) -> String {
-        String(
-            decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        )
+        guard !value.contains("%"),
+              let literal = CmxIrohIPLiteral(value, family: .ipv6),
+              let canonical = literal.canonicalText else { return nil }
+        return (canonical.lowercased(), literal.bytes)
     }
 
     private static func isForbiddenIPv4(_ bytes: [UInt8]) -> Bool {

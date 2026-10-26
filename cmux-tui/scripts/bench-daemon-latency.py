@@ -24,6 +24,14 @@ Keys of result["scenarios"][SCENARIO]:
                know the command (v12 `unknown variant `OP``) or operation (v2,
                once the bench's envelope parses on a served operation). Setup
                and cleanup run untimed on the same connection.
+               daemon_methods (when the daemon serves `server-stats
+               include=[ipc_methods]`): per method the op timed, the daemon's
+               own latency_us of the same requests (warm-ups included) beside
+               the bench's nearest-rank client_us, their log-linear buckets
+               (the daemon's: four per power of two), bucket_delta (client
+               bucket - daemon bucket, for p50, p95, p99, max) and
+               within_one_bucket; or `skipped` when the method also ran
+               untimed (the histograms cannot be split) or is not served.
   concurrent   c10-ping, c10-identify, c10-list-workspaces: LATENCY of 10
                clients at once; errors (when any).
   cli          cli-ping, cli-workspace-list, cli-terminal-write: LATENCY + argv
@@ -357,6 +365,51 @@ def stats(vals, keep_samples=True):
     return row
 
 
+# The daemon's log-linear latency buckets (cmux-tui-core diagnostics::LogLinearHistogram, and the
+# app's DaemonMethodLatency): values under 4 have their own bucket, then four per power of two.
+# spec/fixtures/ipc-method-latency/buckets.json is the shared vector all three check.
+SUB_BUCKETS_LOG2 = 2
+SUB_BUCKETS = 1 << SUB_BUCKETS_LOG2
+METHOD_PERCENTILES = (("p50", 0.5), ("p95", 0.95), ("p99", 0.99))
+
+
+def bucket_index(micros):
+    if micros < SUB_BUCKETS:
+        return micros
+    octave = micros.bit_length() - 1
+    return octave * SUB_BUCKETS + ((micros >> (octave - SUB_BUCKETS_LOG2)) & (SUB_BUCKETS - 1))
+
+
+def bucket_upper_bound(index):
+    if index < SUB_BUCKETS:
+        return index
+    octave, sub = divmod(index, SUB_BUCKETS)
+    return ((1 << octave) - 1) + (sub + 1) * (1 << (octave - SUB_BUCKETS_LOG2))
+
+
+def daemon_agreement(samples_ms, before, after):
+    """How the bench's client round trips of one method's requests compare with the daemon's own
+    `ipc_methods` row of the same requests. `before` and `after` are the method's row before the
+    first and after the last request (None: it had not run). Only a row that counts exactly these
+    requests is compared: the daemon reports percentiles, which cannot be split, so a method that
+    also ran untimed is skipped."""
+    if after is None:
+        return {"skipped": "no ipc_methods row for the method after its requests"}
+    if before is not None and before["latency_us"]["count"]:
+        return {"skipped": f"{before['latency_us']['count']} request(s) of the method ran before the op"}
+    daemon = after["latency_us"]
+    if daemon["count"] != len(samples_ms):
+        return {"skipped": f"the daemon counted {daemon['count']} request(s), the bench timed {len(samples_ms)}"}
+    ordered = sorted(samples_ms)
+    client = {key: round(pick(ordered, q) * 1000) for key, q in METHOD_PERCENTILES}
+    client["max"] = round(ordered[-1] * 1000)
+    keys = [key for key, _ in METHOD_PERCENTILES] + ["max"]
+    delta = {key: bucket_index(client[key]) - bucket_index(daemon[key]) for key in keys}
+    return {"n": len(samples_ms), "id": after.get("id"),
+            "client_us": client, "daemon_us": {key: daemon[key] for key in keys},
+            "bucket_delta": delta, "within_one_bucket": all(abs(d) <= 1 for d in delta.values())}
+
+
 def _run(argv):
     try:
         return subprocess.run(argv, capture_output=True, text=True, timeout=10).stdout.strip()
@@ -536,6 +589,8 @@ class OpsFixture:
         self.closer = "close-tabs" if bench.has("batch-close-v1") else "close-surface"
         self.ws_id = None
         self.v2_envelope_ok = False
+        # (method, ms) of every timed request, warm-ups included: the daemon counts them all.
+        self.timings = []
 
     def key(self):
         return f"bench-{os.getpid()}-{next(self.keys)}"
@@ -579,10 +634,12 @@ class OpsFixture:
 
     def timed(self, cmd, **params):
         ms, msg = self.c.timed(cmd, **params)
+        self.timings.append((cmd, ms))
         return ms, must(msg, cmd)
 
     def timed_v2(self, operation, params, mutation=False):
         ms, msg = self.c.timed_v2(operation, params, self.key() if mutation else None)
+        self.timings.append((operation, ms))
         return ms, must(msg, operation)
 
     def new_tab(self):
@@ -1124,6 +1181,8 @@ class Bench:
                     continue
                 count = create_n if plan["kind"] == "create" else n
                 vals = []
+                methods_before = self.method_rows(c)
+                fixture.timings.clear()
                 try:
                     for i in range(-min(3, count), count):
                         ms = plan["fn"](fixture, i)
@@ -1137,10 +1196,31 @@ class Bench:
                         out[name] = {**stats(vals), **row, "error": str(e)}
                         self.failed = True
                     continue
-                out[name] = {**stats(vals), **row}
+                out[name] = {**stats(vals), **row,
+                             "daemon_methods": self.daemon_methods(c, methods_before, fixture.timings)}
         finally:
             fixture.teardown()
             c.close()
+
+    def method_rows(self, c):
+        """server-stats' `ipc_methods` rows by method name, or None when the daemon has no such section."""
+        if not self.has("server-stats-v1"):
+            return None
+        section = must(c.call("server-stats", include=["ipc_methods"]), "server-stats").get("ipc_methods")
+        if not isinstance(section, list):
+            return None
+        return {row["method"]: row for row in section if isinstance(row, dict) and "method" in row}
+
+    def daemon_methods(self, c, before, timings):
+        """daemon_agreement for each method the op timed (ops.OP.daemon_methods)."""
+        if before is None:
+            return {"skipped": "server-stats has no ipc_methods section (p05-ipc-009)"}
+        after = self.method_rows(c) or {}
+        samples = {}
+        for method, ms in timings:
+            samples.setdefault(method, []).append(ms)
+        return {method: daemon_agreement(vals, before.get(method), after.get(method))
+                for method, vals in samples.items()}
 
     def concurrent(self, clients, n):
         vals = {"ping": [], "identify": [], "list-workspaces": []}
@@ -1728,6 +1808,13 @@ def report(name, res):
                   f"ctx/msg={s['ctx_per_msg']} idle_syscalls/s={s.get('syscalls_idle_per_s', 'n/a')}"
                   + (f" ipc/msg={json.dumps(s['server_stats_ipc_per_msg'])}" if "server_stats_ipc_per_msg" in s else ""),
                   flush=True)
+    for op_name, row in (res.get("ops") or {}).items():
+        methods = row.get("daemon_methods") if isinstance(row, dict) else None
+        for method, agreement in (methods or {}).items():
+            if isinstance(agreement, dict) and "bucket_delta" in agreement:
+                print(f"PERF-DAEMON-METHOD {name} {op_name} {method} n={agreement['n']} "
+                      f"within_one_bucket={agreement['within_one_bucket']} "
+                      f"bucket_delta={json.dumps(agreement['bucket_delta'])}", flush=True)
     for lock, callers in ((res.get("daemon_locks") or {}).get("locks") or {}).items():
         for caller, row in callers.items():
             print(f"PERF-DAEMON-LOCKS {name} {lock} {caller} " + " ".join(

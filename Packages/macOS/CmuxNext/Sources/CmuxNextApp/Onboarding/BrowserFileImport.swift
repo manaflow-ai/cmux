@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
 
@@ -20,7 +21,7 @@ struct BrowserFileImport {
     func run(profile: String) {
         let services = services
         services.registry.track(Task { @MainActor in
-            guard let source = await Self.chooseBrowser(), await Self.showSteps(source),
+            guard let source = await Self.chooseBrowser(work: services.work), await Self.showSteps(source),
                   let urls = await services.viewers.picker.open(.init(choose: .files, allowsMultiple: true,
                                                                       types: [.commaSeparatedText, .html, .zip, .json],
                                                                       title: BrowserFileImportStrings.pickerTitle))
@@ -82,8 +83,9 @@ struct BrowserFileImport {
 
     private static var scope: CmuxDialogScope { (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app }
 
-    private static func chooseBrowser() async -> BrowserExportSource? {
-        let sources = BrowserExportSource.all
+    /// The browser the person picks; its rows are read on the files lane while the action waits.
+    private static func chooseBrowser(work: BackgroundWork) async -> BrowserExportSource? {
+        let sources = (try? await work.run(.userBlocking, mayBlock: .files) { BrowserExportSource.loadBundled() }) ?? []
         guard let first = sources.first else { return nil }
         let spec = CmuxDialogSpec(
             title: BrowserFileImportStrings.title, lines: [BrowserFileImportStrings.message],
