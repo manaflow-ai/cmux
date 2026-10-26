@@ -93,9 +93,10 @@ public final class HomeNativeFixture {
         guard let shown else { return false }
         let source = self.source
         // task-owner: one owner event each, ends when the mock source has published them
-        Task {
-            await source.showPresence(Set(people.map(ParticipantID.init)), in: shown.conversation)
-            if let typing { await source.showTyping(ParticipantID(typing), in: shown.conversation, on: true) }
+        let conversation = shown.conversation, viewing = Set(people.map { ParticipantID($0) })
+        Task { () async -> Void in
+            await source.showPresence(viewing, in: conversation)
+            if let typing { await source.showTyping(ParticipantID(typing), in: conversation, on: true) }
         }
         return true
     }
