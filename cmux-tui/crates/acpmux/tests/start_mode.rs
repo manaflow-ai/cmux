@@ -875,3 +875,38 @@ async fn a_bridge_caller_never_lends_read_only_to_the_adapter() {
     assert_eq!(agent.mode(&id).await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The reviewer of cmux#25310, 2026-10-26: a Codex bridge a trusted folder profile runs is the
+/// bridge too. The start check after the chat starts resolves the profile as a respawn would,
+/// folder profiles included, so the unix socket starts it in `read-only`.
+#[tokio::test]
+async fn the_unix_socket_starts_a_folder_profile_bridge_in_read_only() {
+    use acpmux::config::folder_profiles;
+    let dir = home("narrow-folder", json!({"defaultPermissionMode": "fullAccess"}));
+    let (repo, gate) = folder_profile(&dir);
+    let codex = dir.join("bin").join("codex");
+    let path = folder_profiles::profile_dir(&repo).join("acme.toml");
+    std::fs::write(
+        &path,
+        format!("schema = 1\nid = \"acme\"\ncommand = {:?}\nargs = [\"app-server\"]\n", codex),
+    )
+    .unwrap();
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = agent
+        .call(
+            "session/new",
+            json!({"cwd": repo, "mcpServers": [],
+                "_meta": {"acpmux": {"harness": "acme", "mode": "read-only"}}}),
+        )
+        .await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
