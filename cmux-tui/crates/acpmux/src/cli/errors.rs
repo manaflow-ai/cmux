@@ -1,10 +1,10 @@
 //! One exit-code table and one error envelope for every command.
 //!
 //! Exit codes: 0 ok, 1 runtime or agent error, 2 usage, 3 timeout, 4 no
-//! such session, 5 every permission in the turn was denied, 130
-//! interrupted. `code` is the small stable set orchestrators branch on;
-//! `detail` is free text for diagnostics, or the daemon's own `reason` for a
-//! refusal that carries one (then `data` holds the daemon's error data, such
+//! such session, 5 every permission in the turn was denied or the host
+//! refused a new session (`admission_refused`), 130 interrupted. `code`
+//! is the small stable set orchestrators branch on; `detail` is free text
+//! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
 
 use std::fmt;
@@ -138,8 +138,15 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     if let Some(data) = data
         && let Some(reason) = data["reason"].as_str()
     {
-        let code =
-            if daemon.is_some_and(|d| d.0.code == -32602) { Code::Usage } else { Code::Runtime };
+        // A host that refuses a new session exits 5, as lane-place does
+        // when no host qualifies (`hub/admission.rs`).
+        let code = if reason == crate::hub::admission::REASON {
+            Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == -32602) {
+            Code::Usage
+        } else {
+            Code::Runtime
+        };
         let mut app = AppError::new(code, reason, msg);
         app.retryable = data["retryable"] == true;
         app.data = Some(data.clone());

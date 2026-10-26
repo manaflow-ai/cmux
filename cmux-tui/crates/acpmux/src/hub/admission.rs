@@ -24,10 +24,10 @@
 //! `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`) admits past both,
 //! and the daemon logs who asked and what it overrode; the person's own new
 //! chat on this host (its app pane, or the person key) is admitted and logged
-//! too. `session/new` (with no adopt, or an adopt that may fork), `session/fork`
-//! and the composer's aside (`_acpmux/ask`) are checked; a send, a resume, a
-//! restart, an adopt that never forks, a side chat (`btw.rs`) and a handoff target
-//! never are. An admitted create counts as live until it ends, so concurrent
+//! too. `session/new` (with no adopt, or an adopt that may fork), `session/fork`,
+//! the composer's aside (`_acpmux/ask`) and sub-session starts are checked; a
+//! send, a resume, a restart, an adopt that never forks, a side chat (`btw.rs`)
+//! and a handoff target never are. An admitted create counts as live until it ends, so concurrent
 //! creates at the cap cannot all pass.
 
 use super::*;
