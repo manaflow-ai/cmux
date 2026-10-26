@@ -14,9 +14,14 @@ let package = Package(
             targets: ["CmuxMobileSupport"]
         ),
     ],
+    dependencies: [
+        // The portable Mutex the keyboard observers and the dictation audio engine use (p10-stability-172).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
+    ],
     targets: [
         .target(
             name: "CmuxMobileSupport",
+            dependencies: [.product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
