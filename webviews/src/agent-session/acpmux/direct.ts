@@ -476,6 +476,7 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     kind: toolCall?.kind ?? (subjectCommand ? "execute" : undefined),
     ...(typeof toolCall?.toolCallId === "string" ? { toolCallId: toolCall.toolCallId } : {}),
     scope: permissionScopeFromMessage(raw, toolCall),
+    diffs: permissionDiffs(toolCall),
     pending: true,
     options: (raw.options ?? []).map((option: any) => ({
       id: String(option.optionId ?? option.id),
@@ -770,6 +771,14 @@ export function inputDiffs(rawInput: any, result?: string, canonical?: string): 
       ...mark,
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The ask's proposed edits. Explicit ACP diffs win over input fragments. A Write without its
+/// old text is not a diff: before approval there is no result proving it creates a new file.
+export function permissionDiffs(
+  tool: { content?: unknown; locations?: unknown; rawInput?: unknown } | undefined,
+): AcpmuxFileDiff[] | undefined {
+  return toolDiffs(tool?.content, tool?.locations) ?? inputDiffs(tool?.rawInput);
 }
 
 /// The input an earlier event of a call carried, kept as its `inputSummary` JSON.

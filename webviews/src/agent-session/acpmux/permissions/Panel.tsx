@@ -1,16 +1,15 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import { pathName } from "../chips/paths";
-import { EditDiff } from "../conversation/EditDiff";
 import { ChevronRight } from "../conversation/icons";
 import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
-import { toolFiles } from "../diff";
-import { toolDiffs } from "../direct";
+import { permissionDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import { errorMessage } from "../transportErrors";
 import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
+import { ProposedEdits } from "./ProposedEdits";
 
 /// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
@@ -125,8 +124,7 @@ function AskRow({
   }, [expandSignal]);
   const detailsId = useId();
   const ask = askOf(item, t("permission.toolRequest"));
-  const diffs = toolDiffs(ask.tool?.content, ask.tool?.locations);
-  const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
+  const diffs = permissionDiffs(ask.tool);
   return (
     <>
       <div className="acpmux-ask-row">
@@ -175,10 +173,7 @@ function AskRow({
           <p>{t("permission.reach")}</p>
         </div>
       )}
-      {files.map((file) => (
-        // An edit awaiting approval shows whole: never under a fade.
-        <EditDiff key={file.path} file={file} whole />
-      ))}
+      <ProposedEdits permissionId={item.permissionId} diffs={diffs} />
     </>
   );
 }
