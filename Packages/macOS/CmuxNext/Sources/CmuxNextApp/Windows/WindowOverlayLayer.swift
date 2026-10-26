@@ -461,8 +461,7 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+        window.updateBrowserPageGeometry(force: force)
     }
 
     // MARK: Diagnostics
