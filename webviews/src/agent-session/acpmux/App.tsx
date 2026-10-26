@@ -5774,7 +5774,12 @@ function AcpmuxPane() {
   const sandboxElsewhere =
     snapshot.sessionId && sandboxView && !sandboxRetryable(sandboxView) ? sandboxView : undefined;
   const [sandboxViewing, setSandboxViewing] = useState(false);
-  useEffect(() => setSandboxDraftMoved(false), [snapshot.sessionId, newTabGeneration]);
+  /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
+  const newTabSandboxSent = useRef(false);
+  useEffect(() => {
+    setSandboxDraftMoved(false);
+    setSandboxViewing(false);
+  }, [snapshot.sessionId, newTabGeneration]);
   const viewedSandbox = sandboxViewing && snapshot.sessionId ? sandboxView : undefined;
   const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
@@ -9484,6 +9489,16 @@ function AcpmuxPane() {
               }}
               key={newTabGeneration}
               environments={preview}
+              // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+              onLeaveDraft={(text, attachments) => {
+                // A Sandboxed send from the page already took its prompt (or held it back).
+                const handed = newTabSandboxSent.current;
+                newTabSandboxSent.current = false;
+                const view = sandbox.view();
+                if (handed || !view || sandboxRetryable(view)) return;
+                heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
+                setSandboxDraftMoved(true);
+              }}
               {...(sandboxOffered || sandboxPickedNotOffered
                 ? {
                     runMode: sandboxModeRows,
@@ -9493,6 +9508,7 @@ function AcpmuxPane() {
                       const started = sandboxPickedNotOffered
                         ? sandboxNotNow
                         : startSandbox(text, attachments.length, harness);
+                      if (started !== false) newTabSandboxSent.current = true;
                       if (typeof started !== "string") return started;
                       heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
                       setSandboxDraftMoved(true);

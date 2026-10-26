@@ -155,6 +155,9 @@ export type NewTabScreenActions = {
   /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
   /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
   onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
+  /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -380,6 +383,17 @@ export function NewTabScreen(props: Props) {
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
     text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
+  );
+  // The draft as it is now, for `onLeaveDraft` when the page goes.
+  const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
+  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
   );
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);

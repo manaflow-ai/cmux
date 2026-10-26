@@ -177,3 +177,31 @@ test("a Sandboxed New chat that starts nothing leaves New chat and the other cre
   await act(async () => newChat()!.click());
   expect(asks.length).toBe(1);
 });
+
+test("a page that goes with an unsent draft hands it over; an untouched page hands nothing", async () => {
+  const left: unknown[][] = [];
+  const page = () => (
+    <NewTabScreen
+      snapshot={noChat()}
+      onAsk={() => {}}
+      onOpen={() => {}}
+      onSearch={() => {}}
+      onShell={() => {}}
+      onJump={() => {}}
+      onOpenSession={() => {}}
+      onShowAll={() => {}}
+      upload={async (files) => ({ paths: files.map((file) => `/tmp/${file.name}`) })}
+      onLeaveDraft={(...args) => left.push(args)}
+    />
+  );
+  await act(async () => root!.render(page()));
+  await act(async () => root!.render(<main />));
+  expect(left).toEqual([]);
+  await act(async () => root!.render(page()));
+  const input = container.querySelector<HTMLInputElement>(".acpmux-attach-input")!;
+  const file = new dom!.window.File(["hello"], "notes.txt", { type: "text/plain" });
+  Object.defineProperty(input, "files", { configurable: true, value: [file] });
+  await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
+  await act(async () => root!.render(<main />));
+  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+});
