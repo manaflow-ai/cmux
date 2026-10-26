@@ -17,13 +17,13 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
+    public internal(set) var workspaces: [WorkspaceModel] = []
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
-    /// count when one changes and assigned only when the sum changes: an observer of the badge
-    /// observes this one value, never the tabs.
+    /// count when one changes, joins or leaves (``UnreadLedger``) and assigned only when the sum
+    /// changes: an observer of the badge observes this one value, never the tabs.
     public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
@@ -100,14 +100,14 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
     @ObservationIgnored public let sideEvents = DaemonSideEvents()
-    /// The workspace set (`listID`s) last reported to `onWorkspaceListChanged`.
-    @ObservationIgnored var notifiedWorkspaceList: Set<String>?
-    /// Bumped by every sidebar flattening (`recomputeSidebar`, which every
-    /// structural change runs): while it stays, the workspace set is the one
-    /// last checked, so `workspaceListMayHaveChanged` skips its O(n) set
-    /// build (status ticks apply batches several hundred times a second).
-    @ObservationIgnored var listGeneration: UInt64 = 0
-    @ObservationIgnored var checkedListGeneration: UInt64?
+    /// The digest of the workspace set (`listID`s, ``StoreIndex/workspaceListDigest``) last
+    /// reported to `onWorkspaceListChanged`: the check is one compare, whatever the batch held.
+    @ObservationIgnored var notifiedWorkspaceList: Int?
+    /// What the drains of the event inbox cost (``DrainCost``): their histogram and the
+    /// whole-list passes the applies ran.
+    @ObservationIgnored public internal(set) var drainCost = DrainCost()
+    /// Clock of the drain histogram (tests inject one).
+    @ObservationIgnored public var drainClock: any Clock<Duration> = ContinuousClock()
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -207,7 +207,8 @@ public final class DaemonStore: StateResourceQueries {
     ///   (tests, fixtures): a queue of the store's own.
     public init(waitDeadlines: MainWakeUpQueue? = nil) {
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
+        index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
     }
 
     // MARK: Lookup (O(1))
@@ -449,37 +450,55 @@ public final class DaemonStore: StateResourceQueries {
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
 
-    /// Publishes a tab list change once the visible state is complete, and resumes the keyed
-    /// waiters whose keys the apply changed (StoreWaiters).
+    /// Publishes a tab list change once the visible state is complete, the unread sum of the
+    /// workspaces that joined or left (UnreadLedger), and resumes the keyed waiters whose keys the
+    /// apply changed (StoreWaiters).
     func publishTabListChange() {
+        index.unread.flush()
         if index.takeTabListChange() { tabListRevision &+= 1 }
         waiters.settleTouched(in: self)
     }
 
     /// Runs `onWorkspaceListChanged` when the workspace set differs from
     /// the last one reported (outside a batch, once loaded). Order is not
-    /// membership: a move or a group change leaves the set as it was.
+    /// membership: a move or a group change leaves the set as it was. O(1): the
+    /// index keeps the set's digest as workspaces join and leave it.
     func workspaceListMayHaveChanged() {
         // Tracked without a hook too: a hook installed later runs for the next change, not for
         // a set its installer (`reconcileMembership`) has just read.
         guard applyDepth == 0, isLoaded else { return }
-        guard checkedListGeneration != listGeneration else { return }
-        checkedListGeneration = listGeneration
-        if let notified = notifiedWorkspaceList, notified.count == workspaces.count,
-           workspaces.allSatisfy({ notified.contains($0.listID) }) { return }
-        let list = Set(workspaces.map(\.listID))
+        let list = index.workspaceListDigest
         guard list != notifiedWorkspaceList else { return }
         notifiedWorkspaceList = list
         workspaceSetRevision &+= 1
+        drainCost.listChanges &+= 1
         onWorkspaceListChanged?()
     }
 
+    /// The ledger's sum changed: assigned only when it differs, so the badge's observers wake
+    /// only for a new count.
+    func publish(unread totals: UnreadTotals) {
+        if totals != unreadTotals { unreadTotals = totals }
+    }
+
+    /// Flattens the sidebar in one pass over the workspaces and one over the groups. Only an
+    /// apply that changed the order, the membership or a group runs it (`sidebarNeedsRecompute`).
     func recomputeSidebar() {
-        listGeneration &+= 1
-        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        drainCost.sidebarFlattens &+= 1
+        var members: [WorkspaceGroupID: [WorkspaceModel]] = [:]
+        members.reserveCapacity(groups.count)
+        for group in groups { members[group.id] = [] }
+        var ungrouped: [WorkspaceModel] = []
+        for workspace in workspaces {
+            if let id = workspace.group, members[id] != nil {
+                members[id, default: []].append(workspace)
+            } else {
+                ungrouped.append(workspace)
+            }
+        }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
+            sections.append(SidebarSection(group: group, workspaces: members[group.id] ?? []))
         }
         let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
             new.group === old.group && new.workspaces.count == old.workspaces.count
