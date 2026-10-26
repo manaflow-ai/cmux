@@ -41,7 +41,12 @@ extension AgentTabStore {
         guard let localHost else { return [] }
         var seen = Set<String>()
         return listTabs().compactMap { key, record in
-            guard record.host == localHost, let session = session(of: key), seen.insert(session).inserted else { return nil }
+            // The restored tree already carries the durable session. A page may have reported a
+            // newer session for this tab while its bind echo is still in flight; prefer that
+            // observation, then fall back to the tree record so launch does not depend on a page
+            // having been constructed.
+            let session = sessions[resolve(key)] ?? record.session
+            guard record.host == localHost, let session, seen.insert(session).inserted else { return nil }
             return session
         }
     }
