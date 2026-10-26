@@ -212,7 +212,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
     private func webPage(model: DebugSettingsModel) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
-        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes)
+        let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes, on: services.mainWork)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
         let routes = [PageRoute(prefix: "cmux.debug.tunables.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .debugSettings, routes: routes)) else { return nil }

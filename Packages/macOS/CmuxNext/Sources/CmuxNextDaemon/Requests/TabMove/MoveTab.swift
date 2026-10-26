@@ -4,7 +4,7 @@ import Foundation
 /// workspaces). Pinned tabs stay first (`tab-metadata-v1`).
 public struct MoveTabRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab"
+    public static let commandName: DaemonCommandName = "move-tab"
     public var surface: SurfaceID
     public var pane: PaneID
     public var index: Int
@@ -22,7 +22,7 @@ public struct MoveTabRequest: DaemonRequest {
 /// `workspace` is nil (`tab-workspace-move-v1`).
 public struct MoveTabToWorkspaceRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-workspace"
+    public static let commandName: DaemonCommandName = "move-tab-to-workspace"
     public var surface: SurfaceID
     public var workspace: WorkspaceHandle?
     public var transaction: ClientTransactionID?
@@ -37,7 +37,7 @@ public struct MoveTabToWorkspaceRequest: DaemonRequest {
 /// at a final section index. Tear-off = this + open the workspace in a new window.
 public struct MoveTabToNewWorkspaceRequest: DaemonRequest {
     public typealias Response = TabMoveResult
-    public static let command = "move-tab-to-new-workspace"
+    public static let commandName: DaemonCommandName = "move-tab-to-new-workspace"
     public static let requiredCapability: String? = DaemonCapability.tabDrag.rawValue
     public var surface: SurfaceID
     public var group: WorkspaceGroupID?

@@ -7,13 +7,13 @@ import Foundation
 /// `cloud-inbox-subscribe`: the daemon's shared inbox socket for this connection.
 public struct CloudInboxSubscribeRequest: DaemonRequest {
     public typealias Response = CloudSubscription
-    public static let command = "cloud-inbox-subscribe"
+    public static let commandName: DaemonCommandName = "cloud-inbox-subscribe"
     public init() {}
 }
 
 /// `cloud-inbox-unsubscribe`.
 public struct CloudInboxUnsubscribeRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "cloud-inbox-unsubscribe"
+    public static let commandName: DaemonCommandName = "cloud-inbox-unsubscribe"
     public init() {}
 }

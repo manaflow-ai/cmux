@@ -5,7 +5,7 @@ import Foundation
 /// commit, unless it is kept; a terminal still shown elsewhere keeps running.
 public struct CloseTabsRequest: DaemonRequest {
     public typealias Response = CloseTabsResult
-    public static let command = "close-tabs"
+    public static let commandName: DaemonCommandName = "close-tabs"
     public static let requiredCapability: String? = DaemonCapability.batchClose.rawValue
     public var surfaces: [SurfaceID]
     public var endTerminals: Bool

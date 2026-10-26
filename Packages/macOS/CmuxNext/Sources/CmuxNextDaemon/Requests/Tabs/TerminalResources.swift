@@ -7,7 +7,7 @@ import Foundation
 /// percentage needs two calls (the resource hover cards make one per
 /// second while a card is open).
 public struct TerminalResourcesRequest: DaemonRequest {
-    public static let command = "terminal-resources"
+    public static let commandName: DaemonCommandName = "terminal-resources"
     public static let requiredCapability: String? = capability
     public static let capability = "terminal-resources-v1"
 

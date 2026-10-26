@@ -8,6 +8,18 @@ internal import os
 ///
 ///     for await scale in ObservationStream({ DesignSettings.shared.uiScale }) { ... }
 ///
+/// New code does not add a loop over this type (plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// rule 3 and Q2). A loop's flushes run in no class and keep no owner, and a hidden view's loop
+/// keeps reading. Use one of the two scheduled observers in CmuxNextWakeups instead, each with
+/// a class and an owner:
+/// - `VisibleObservation(node, owner:, on:, read:, apply:)` when `apply` only touches views: it stops
+///   reading while its visibility node is hidden.
+/// - `ServiceObservation(class, owner:, on:, read:, apply:)` for anything else (the model, the
+///   daemon, the disk, another owner): it keeps running while hidden.
+/// Both coalesce a burst of changes to one task per frame and cancel when their token is
+/// released. Swift cannot deprecate this type for some importing targets only, so the Q2
+/// `git grep` count is the guard, not an `@available` attribute.
+///
 /// On macOS 26 and later every iterator forwards to the system `Observations`,
 /// so the main population runs Apple's code. On macOS 14 and 15 the iterator
 /// below reimplements the same algorithm over `withObservationTracking`

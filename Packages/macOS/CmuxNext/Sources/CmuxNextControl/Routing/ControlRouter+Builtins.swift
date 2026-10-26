@@ -11,7 +11,7 @@ extension ControlRouter {
         [
             .snapshot("system.ping") { [identity] _ in
                 ["pong": true, "app": .string(identity.appName), "protocol_version": JSONValue(Self.protocolVersion)]
-            },
+            }.readingLastPublished(),
             .snapshot("system.identify") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 guard case .object(var members) = self.identify() else { return self.identify() }

@@ -81,7 +81,7 @@ extension ScreenContentView {
         let now = renderClockTime
         for (pane, track) in renderTracks.panes {
             if let frame = paneFrames[pane] { paneFrames[pane] = track.presenting(frame, at: now) }
-            if let layer = context.hosts[pane]?.layer { Self.stopMoveSprings(layer) }
+            context.hosts[pane]?.stopRenderMoves()
         }
         for (kind, track) in renderTracks.dividers {
             if let frame = dividerFrames[kind] { dividerFrames[kind] = track.presenting(frame, at: now) }
@@ -131,7 +131,8 @@ extension ScreenContentView {
         let docks = growingDocks
         let stripFrom = docks.isEmpty ? nil : stripRange(in: geometry, beside: docks)
         let stripVelocity = PaneArrival.stripClipVelocity(geometry, docks: docks)
-        let strip = stripShift, scale = self.scale
+        // Where the views are laid out: a pan on the strip container shows them moved by its translation.
+        let strip = geometry.viewShift(offset: layoutOffset), scale = self.scale
         let panes = SplitMotion.renderMoves(paneFrames.filter { entry in context.hosts[entry.key].map { holds($0) } ?? false }) { pane, rect in
             shownRect(rect, of: pane, strip: strip, scale: scale)
         }
@@ -249,10 +250,10 @@ extension ScreenContentView {
         return moved
     }
 
-    /// Springs `panes` and `dividers` from where they show to their rest frames on the change's frame
-    /// spring token (or `token`), and the strip container's range from `strip` (where it showed beside docks
-    /// still short of their rest, moving at `stripVelocity`) to its rest; records each spring (``renderTracks``);
-    /// the layout motion ends when the last one lands (``renderSpringLanded()``).
+    /// Springs `panes` (with their chrome, ``SplitMotion/placeAtRest(_:dividers:views:laysOut:context:)``) and `dividers`
+    /// from where they show to their rest frames on the change's frame spring token (or `token`), and the strip container's
+    /// range from `strip` (where it showed beside docks short of their rest, moving at `stripVelocity`) to its rest; records
+    /// each spring (``renderTracks``); the layout motion ends when the last one lands (``renderSpringLanded()``).
     private func springMoves(panes: [PaneID: SplitMotion.RenderMove], dividers: [DividerHandleView.Kind: SplitMotion.RenderMove],
                              strip: CGRect? = nil, stripVelocity: RectComponents = .zero, token: MotionSpring? = nil) {
         let spring = Motion.panes.renderSpring(token ?? motionState.frameSpring)
@@ -268,14 +269,14 @@ extension ScreenContentView {
         // The clip first: the strip's hosts then spring inside the container at its rest range.
         renderSpringsInFlight += 1
         if springStripContainer(from: strip, velocity: stripVelocity, on: spring, landed: landed) { renderTracks.strip = true }
-        for (pane, move) in panes {
-            guard let host = context.hosts[pane] else { continue }
+        let placed = SplitMotion.placeAtRest(panes, dividers: dividers, views: dividerViews, laysOut: laysOut, context: context)
+        for (pane, host, move) in placed {
             renderSpringsInFlight += 1
             let landedHost: @MainActor @Sendable () -> Void = { [weak self, weak host] in
                 if let host { self?.hostLanded(host) }
                 self?.renderSpringLanded()
             }
-            host.springOnRenderServer(move, spring: spring, laysOut: laysOut && move.to.width >= 1 && move.to.height >= 1, landed: landedHost)
+            host.springToRest(move, spring: spring, inPlane: context.overlayPlaneRect, landed: landedHost)
             renderTracks.panes[pane] = Self.tracking(renderTracks.panes[pane], move, animates: spring.animates("position", in: host),
                                                   begin: begin, parameters: parameters)
         }
@@ -298,12 +299,10 @@ extension ScreenContentView {
         return track.isEmpty ? nil : track
     }
 
-    /// Moves a divider handle to its rest in this turn, its frame set once, and springs its layer there from
-    /// where it showed (``NSView/renderSpringMoves(from:velocity:)``).
+    /// Springs a divider handle's layer from where it showed to its rest (``NSView/renderSpringMoves(from:velocity:)``):
+    /// `SplitMotion.placeAtRest` set its frame and alpha at rest in this turn.
     private func springDivider(_ view: DividerHandleView, _ move: SplitMotion.RenderMove, on spring: RenderSpring,
                                landed: @escaping @MainActor @Sendable () -> Void) {
-        view.frame = move.to
-        view.alphaValue = move.toAlpha
         let moves = view.renderSpringMoves(from: move.from, velocity: move.velocity)
         guard !moves.isEmpty else { return landed() }
         spring.animateGroup(moves, in: view) { _ in landed() }

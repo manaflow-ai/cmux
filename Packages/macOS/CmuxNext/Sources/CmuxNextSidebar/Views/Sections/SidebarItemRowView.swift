@@ -65,7 +65,7 @@ class SidebarItemRowView: NSView {
     /// The workspace item's status: the shared indicator (`info.activity`).
     let activity: StatusIndicatorView = {
         let view = StatusIndicatorView()
-        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true) // the sidebar's status colors (Lawrence msg 11983)
+        view.usesStatusColors = true // the sidebar's status colors (Lawrence msg 11983)
         return view
     }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer

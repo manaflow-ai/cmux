@@ -21,7 +21,7 @@ public final class UnixSocketLane: MobileByteLane {
 
     /// Connects to `path`, failing after `deadline`.
     public static func connect(path: String, deadline: Duration = .seconds(2)) async throws -> UnixSocketLane {
-        let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane")
+        let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane", qos: .userInitiated)
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
         // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady

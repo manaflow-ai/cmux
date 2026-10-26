@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// Cmd-Tab back to cmux got slower with the session's size (user 2026-10-21: "when i cmd tab to
@@ -20,6 +21,9 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
+            // The window is on screen for the indicators (its node is visible) without a screen.
+            _ = WindowVisibilitySource.of(window, events: WindowEvents(window: window, center: NotificationCenter()),
+                                          read: { _ in .visible })
             let content = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
             window.contentView = content
             parked = NSView(frame: content.bounds)

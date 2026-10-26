@@ -13,8 +13,10 @@ import Foundation
 /// snake_case on the wire (`mutationID` -> `mutation_id`).
 public protocol DaemonRequest: Encodable, Sendable {
     associatedtype Response: Decodable & Sendable
-    /// Wire command name, e.g. `"list-workspaces"`.
-    static var command: String { get }
+    /// The wire command name and the daemon's method id for it, e.g.
+    /// `"list-workspaces"`: a `static let` with a literal, so the id is looked
+    /// up once per type (the request's `daemon.request` slice carries it).
+    static var commandName: DaemonCommandName { get }
     /// The capability a daemon advertises in `identify` when it serves
     /// `command`, or nil for a protocol 12 base command. Every machine runs
     /// its own cmux-tui build (a Cloud VM keeps its image's daemon until it
@@ -27,6 +29,9 @@ public protocol DaemonRequest: Encodable, Sendable {
 
 extension DaemonRequest {
     public static var requiredCapability: String? { nil }
+
+    /// Wire command name, e.g. `"list-workspaces"` (``commandName``'s spelling).
+    public static var command: String { commandName.wire }
 
     /// Throws `missingCapabilities` when `identity` does not advertise
     /// ``requiredCapability``; the request must then not be sent.

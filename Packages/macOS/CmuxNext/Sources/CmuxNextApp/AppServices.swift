@@ -117,6 +117,12 @@ final class AppServices {
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
     /// key tracker and later adopters subscribe here, one observer per name for the whole app.
     let appEvents = AppEvents(center: .default)
+    /// The app's node in the visibility tree (hidden app, sleeping displays), every window's
+    /// node's parent (`WindowVisibilitySource`, p06-scheduler-022).
+    private(set) lazy var appVisibility = AppVisibilitySource(
+        appEvents: appEvents, workspaceEvents: AppEvents(center: NSWorkspace.shared.notificationCenter),
+        isAppHidden: NSApp.isHidden
+    )
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -409,7 +415,7 @@ final class AppServices {
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
-    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read by the daemon start (`startLocalDaemon`), before it connects
+    private(set) lazy var terminalColors = TerminalColorSync(machines: machines, on: mainWork) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // built by its start (`Themes.start`)
