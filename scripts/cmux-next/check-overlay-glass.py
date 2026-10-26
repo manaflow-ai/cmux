@@ -224,6 +224,26 @@ RAW_OPEN = re.compile(r'(#+)"')
 HOSTED_PANEL = re.compile(r"\bNativePopupHost\(panel:\s*(?P<name>[A-Za-z_]\w*)\(")
 
 
+def skip_interpolation(text: str, index: int, out: list[str]) -> int:
+    """The index just past a string interpolation's closing `)`, from just after its `\\(`. Its code is
+    string text here: only its newlines are kept, and a string inside it is skipped whole."""
+    depth = 1
+    while index < len(text) and depth:
+        char = text[index]
+        if char == "\n":
+            out.append(char)
+        elif char == '"':
+            index += 1
+            while index < len(text) and text[index] not in '"\n':
+                index += 2 if text[index] == "\\" else 1
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        index += 1
+    return index
+
+
 def code_lines(path: str) -> list[str]:
     """The file's lines, one per source line, without comments (`//`, and `/* */` anywhere, nested
     as Swift nests them) or the text of string literals, raw (`#"…"#`) ones too (each becomes `""`)."""
@@ -251,7 +271,9 @@ def code_lines(path: str) -> list[str]:
             else:
                 index += 1
         elif quote:
-            if text.startswith(escape, index) and index + len(escape) < end and text[index + len(escape)] != "\n":
+            if text.startswith(escape + "(", index):
+                index = skip_interpolation(text, index + len(escape) + 1, out)
+            elif text.startswith(escape, index) and index + len(escape) < end and text[index + len(escape)] != "\n":
                 index += len(escape) + 1
             elif text.startswith(quote, index):
                 out.append('""')
@@ -281,7 +303,7 @@ class Blocks:
     """The file's brace blocks, each the body of a type (by name) or not, and which are open where."""
 
     def __init__(self, lines: list[str]) -> None:
-        self.names: list[str | None] = []  # block id -> the type it is the body of, or None
+        self.names: list[str | None] = []  # block id -> the type (by its path) it is the body of, or None
         self.line_starts: list[tuple[int, ...]] = []  # the blocks open at each line's start
         self.line_events: list[list[tuple[int, tuple[int, ...]]]] = []  # (column, blocks open after it)
         stack: list[int] = []
@@ -291,9 +313,13 @@ class Blocks:
             events: list[tuple[int, tuple[int, ...]]] = []
             for token in BLOCK_TOKEN.finditer(line):
                 if token.group("name"):
-                    pending = token.group("name").split(".")[-1]
+                    pending = token.group("name")
                     continue
                 if token.group("open"):
+                    # A nested type is named by its path (Outer.Inner); an extension names its own.
+                    outer = next((self.names[block] for block in reversed(stack) if self.names[block]), None)
+                    if pending and outer and "." not in pending:
+                        pending = f"{outer}.{pending}"
                     self.names.append(pending)
                     stack.append(len(self.names) - 1)
                     pending = None
@@ -314,6 +340,15 @@ class Blocks:
     def bodies(self, name: str) -> set[int]:
         """The blocks that are a type's body: its declaration's and its extensions' in the file."""
         return {block for block, owner in enumerate(self.names) if owner == name}
+
+    def resolve(self, index: int, column: int, name: str) -> set[int]:
+        """The bodies of the type `name` names at a position: a type nested in an enclosing type
+        first, innermost out, then a top-level one."""
+        scopes = [self.names[block] for block in reversed(self.open_at(index, column)) if self.names[block]]
+        for scope in scopes:
+            if found := self.bodies(f"{scope}.{name}"):
+                return found
+        return self.bodies(name)
 
     def owner(self, index: int, column: int) -> int | None:
         """The innermost type body around a position (None: outside every type)."""
@@ -346,10 +381,10 @@ def type_builds_glass(path: str, name: str) -> bool:
 def host_type(lines: list[str], blocks: Blocks, index: int, column: int) -> str:
     """The popup host's type: the popup class declared at `column`, else the type the call sits in
     ("" outside every type)."""
+    owner = blocks.owner(index, column)
     declared = POPUP_CLASS.match(lines[index], column)
     if declared:
-        return declared.group("name")
-    owner = blocks.owner(index, column)
+        return declared.group("name") if owner is None else f"{blocks.names[owner]}.{declared.group('name')}"
     return "" if owner is None else str(blocks.names[owner])
 
 
@@ -364,9 +399,10 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
     line = lines[index]
     declared = POPUP_CLASS.match(line, column)
     if declared:
-        return glass_in(lines, blocks, blocks.bodies(declared.group("name")))
-    hosted = HOSTED_PANEL.match(line, column)
-    panel = blocks.bodies(hosted.group("name")) if hosted else set()
+        return glass_in(lines, blocks, blocks.resolve(index, column, declared.group("name")))
+    # The call's argument may wrap onto the next lines.
+    hosted = HOSTED_PANEL.match(" ".join([line[column:], *lines[index + 1 : index + 3]]))
+    panel = blocks.resolve(index, column, hosted.group("name")) if hosted else set()
     if panel and glass_in(lines, blocks, panel):
         return True
     owner = blocks.owner(index, column)

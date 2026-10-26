@@ -12,11 +12,14 @@ import { findOpaquePopupPageRoots } from "../scripts/check-glass-never-opaque";
 
 const REPO = join(import.meta.dir, "../..");
 
-// The Swift file that floats a page over the window -> that page's popup document stylesheets
+// The Swift file that floats a page over the window -> every stylesheet that page's entry imports
 // (paths under webviews/src). A new transparent overlay host fails the next test until it is here.
 const POPUP_PAGES: Record<string, string[]> = {
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
-  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": ["pages/changelog/surface.css"],
+  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": [
+    "pages/changelog/updateSurfaces.css",
+    "pages/changelog/surface.css",
+  ],
 };
 
 // Popup documents whose fix is in an open pull request that owns the file; each goes when it lands.
@@ -34,8 +37,8 @@ function swiftFiles(dir: string): string[] {
   });
 }
 
-// Swift source without comments (nested block comments too) and string literals, so a doc
-// example names no host.
+// Swift source without comments (nested block comments too) and string literals (raw ones too), so
+// a doc example names no host.
 function swiftCode(text: string): string {
   let out = "";
   let depth = 0;
@@ -50,10 +53,14 @@ function swiftCode(text: string): string {
     } else if (text.startsWith("//", i)) {
       const end = text.indexOf("\n", i);
       i = end === -1 ? text.length : end;
-    } else if (text[i] === '"') {
-      const quote = text.startsWith('"""', i) ? '"""' : '"';
-      i += quote.length;
-      while (i < text.length && !text.startsWith(quote, i)) i += text[i] === "\\" ? 2 : 1;
+    } else if (/^#*"/.test(text.slice(i, i + 8))) {
+      // A string literal, raw (#"…"#, escapes \#) or not.
+      const hashes = /^#*/.exec(text.slice(i))?.[0] ?? "";
+      i += hashes.length;
+      const quote = (text.startsWith('"""', i) ? '"""' : '"') + hashes;
+      const escape = `\\${hashes}`;
+      i += quote.length - hashes.length;
+      while (i < text.length && !text.startsWith(quote, i)) i += text.startsWith(escape, i) ? escape.length + 1 : 1;
       i += quote.length;
       out += '""';
     } else {
@@ -75,6 +82,8 @@ test("a host named only in a comment or string is no host", () => {
   const text = [
     "/* outer /* inner */ requiresWebKit: .transparentOverlay */",
     'let doc = "requiresWebKit: .transparentOverlay"',
+    'let raw = #"print("requiresWebKit: .transparentOverlay")"#',
+    'let rawEscape = #"a \\#"b" requiresWebKit: .transparentOverlay"#',
     '"""\nrequiresWebKit: .transparentOverlay\n"""',
     "// requiresWebKit: .transparentOverlay",
     "let host = Host(requiresWebKit: .opaque)",
@@ -98,10 +107,9 @@ test("a pending popup document is a listed page that still fails the scan", () =
 });
 
 test("a popup page's root never paints an opaque fill", () => {
-  const files = Object.values(POPUP_PAGES)
-    .flat()
-    .filter((file) => !(file in PENDING));
-  expect(findOpaquePopupPageRoots(files)).toEqual([]);
+  // A page's stylesheets are one document: one of them clears html for all.
+  const pages = Object.values(POPUP_PAGES).filter((page) => !page.some((file) => file in PENDING));
+  expect(findOpaquePopupPageRoots(pages)).toEqual([]);
 });
 
 test("the scan flags an opaque popup root and a root that never clears html", () => {
@@ -118,6 +126,13 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
     put("none/styles.css", "html { background: none; }\n");
     put("initial/styles.css", "html { background-color: initial; }\n");
     put("colornone/styles.css", "html { background-color: none; }\n");
+    put(
+      "child/styles.css",
+      "html { background: transparent; }\nhtml[data-surface]>body { background: #fff; }\nbody.popup { background: #fff; }\n",
+    );
+    // One page's two stylesheets: the second clears html for both, the first paints body.
+    put("split/base.css", "html[data-surface] body { background: #fff; }\n");
+    put("split/surface.css", "html { background: transparent; }\n");
     put(
       "scoped/styles.css",
       "html[data-surface] { background: transparent; }\nhtml[data-surface] #root { display: flow-root; }\n",
@@ -137,6 +152,8 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
         "none/styles.css",
         "initial/styles.css",
         "colornone/styles.css",
+        "child/styles.css",
+        ["split/base.css", "split/surface.css"],
       ],
       dir,
     );
@@ -146,6 +163,9 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
       "canvas/styles.css:2: body { background-color: Canvas }",
       "inherits/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
       "colornone/styles.css: the popup document never paints html transparent (the page base paints the host's surface)",
+      "child/styles.css:2: html[data-surface]>body { background: #fff }",
+      "child/styles.css:3: body.popup { background: #fff }",
+      "split/base.css:1: html[data-surface] body { background: #fff }",
     ]);
   } finally {
     rmSync(dir, { recursive: true, force: true });

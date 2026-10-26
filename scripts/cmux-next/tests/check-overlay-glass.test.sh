@@ -63,6 +63,18 @@ final class BarePanel: NSPanel {}
 final class DemoPicker { let a = NativePopupHost(panel: GoodPanel()); let b = NativePopupHost(panel: BarePanel()) }'
 expect_pass top-level-native-host 'final class GoodPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
 let popup = NativePopupHost(panel: GoodPanel())'
+# A nested panel is its own type: a same-named panel in another type does not cover it.
+expect_fail nested-same-name popup-host 'enum A { final class DemoMenuPanel: NSPanel { let card = NSVisualEffectView() } }
+enum B { final class DemoMenuPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) } }'
+expect_pass wrapped-native-host 'final class GoodPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
+final class DemoPicker {
+    let popup = NativePopupHost(panel:
+        GoodPanel())
+}'
+expect_pass nested-panel-glass 'final class DemoPicker {
+    final class DemoMenuPanel: NSPanel { let card = Glass.makeOverlayPanel(content: rows) }
+    let popup = NativePopupHost(panel: DemoMenuPanel())
+}'
 expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
     func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }
@@ -101,6 +113,10 @@ expect_pass host-inline-comment '        let card = makeCard() /* NativePopupHos
 # A brace in a comment or string does not end the host's body.
 expect_pass brace-in-raw-string 'final class DemoMenuPanel: NSPanel {
     let pattern = #"{"}"\#"}"#
+    let card = Glass.makeOverlayPanel(content: rows)
+}'
+expect_pass brace-in-interpolation 'final class DemoMenuPanel: NSPanel {
+    let label = "\(flag ? "}" : "")"
     let card = Glass.makeOverlayPanel(content: rows)
 }'
 expect_pass brace-in-comment 'final class DemoMenuPanel: NSPanel { /* } */

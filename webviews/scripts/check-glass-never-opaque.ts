@@ -307,7 +307,7 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
 // behind the page, so the page's own root (html, body, :root, #root) must let it show. The shared
 // page base paints html with the host's `--cmux-surface-background`, which is the opaque theme
 // surface over an opaque window, so a popup document paints its html transparent itself.
-const ROOT_COMPOUND = /^(?:html|body|:root|#root)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/;
+const ROOT_COMPOUND = /^(?:html|body|:root|#root)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?|[.#][\w-]+)*$/;
 
 // Split at separators outside (...) and [...], so :is(a, b) and [x="a b"] stay whole.
 function splitTopLevel(text: string, separator: RegExp): string[] {
@@ -332,7 +332,7 @@ function splitTopLevel(text: string, separator: RegExp): string[] {
 function rootTarget(selector: string): "html" | "root" | null {
   let target: "html" | "root" | null = null;
   for (const part of splitTopLevel(selector, /,/)) {
-    const compounds = splitTopLevel(part.trim(), /\s/).filter(Boolean);
+    const compounds = splitTopLevel(part.trim(), /[\s>+~]/).filter(Boolean);
     const last = compounds.at(-1) ?? "";
     if (!ROOT_COMPOUND.test(last)) continue;
     if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";
@@ -350,10 +350,11 @@ function clearsFill(prop: string, value: string): boolean {
 }
 
 /**
- * Every popup page document (`files`, paths under src/) whose root paints an opaque fill, or whose
- * html never paints itself transparent, as `file:line: selector { prop: value }` or `file: …`.
+ * Every popup page document (`pages`, paths under src/: a stylesheet, or all of one page's) whose
+ * root paints an opaque fill, or whose html never paints itself transparent, as
+ * `file:line: selector { prop: value }` or `file: …` (a page's first stylesheet).
  */
-export function findOpaquePopupPageRoots(files: string[], srcDir: string = SRC): string[] {
+export function findOpaquePopupPageRoots(pages: (string | string[])[], srcDir: string = SRC): string[] {
   const all = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
   tokens = new Map();
   for (const block of all) {
@@ -363,26 +364,26 @@ export function findOpaquePopupPageRoots(files: string[], srcDir: string = SRC):
     }
   }
   const found: string[] = [];
-  for (const file of files) {
-    const blocks = all.filter((block) => block.file === file && !inReduce(block));
-    if (blocks.length === 0) {
-      found.push(`${file}: no such stylesheet under src/`);
-      continue;
-    }
+  for (const page of pages) {
+    const files = typeof page === "string" ? [page] : page;
     let clearHtml = false;
-    for (const block of blocks) {
-      const target = rootTarget(block.selector);
-      if (!target) continue;
-      for (const d of block.decls) {
-        if (d.prop !== "background" && d.prop !== "background-color") continue;
-        const kind = classify(d.value);
-        if (kind === "opaque" && !d.allowed)
-          found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
-        if (target === "html" && (kind === "translucent" || clearsFill(d.prop, d.value))) clearHtml = true;
+    for (const file of files) {
+      const blocks = all.filter((block) => block.file === file && !inReduce(block));
+      if (blocks.length === 0) found.push(`${file}: no such stylesheet under src/`);
+      for (const block of blocks) {
+        const target = rootTarget(block.selector);
+        if (!target) continue;
+        for (const d of block.decls) {
+          if (d.prop !== "background" && d.prop !== "background-color") continue;
+          const kind = classify(d.value);
+          if (kind === "opaque" && !d.allowed)
+            found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
+          if (target === "html" && (kind === "translucent" || clearsFill(d.prop, d.value))) clearHtml = true;
+        }
       }
     }
-    if (!clearHtml)
-      found.push(`${file}: the popup document never paints html transparent (the page base paints the host's surface)`);
+    if (!clearHtml && files.length > 0 && !found.includes(`${files[0]}: no such stylesheet under src/`))
+      found.push(`${files[0]}: the popup document never paints html transparent (the page base paints the host's surface)`);
   }
   return found;
 }
