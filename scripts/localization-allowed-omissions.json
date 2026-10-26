@@ -1,13 +1,4 @@
 {
-  "cloud.result.apiTitle": {
-    "source": "Cloud API",
-    "identityLocales": {
-      "ja": "Cloud is the cmux Cloud product name and API is the acronym; these locales keep both in Latin script, as in cloud.result.domainsTitle and cloud.result.apiKeysTitle.",
-      "ko": "Cloud is the cmux Cloud product name and API is the acronym; these locales keep both in Latin script, as in cloud.result.domainsTitle and cloud.result.apiKeysTitle.",
-      "zh-Hans": "Cloud is the cmux Cloud product name and API is the acronym; these locales keep both in Latin script, as in cloud.result.domainsTitle and cloud.result.apiKeysTitle.",
-      "zh-Hant": "Cloud is the cmux Cloud product name and API is the acronym; these locales keep both in Latin script, as in cloud.result.domainsTitle and cloud.result.apiKeysTitle."
-    }
-  },
   "cloud.welcome.title.eyebrow": {
     "class": "brand",
     "source": "cmux cloud"

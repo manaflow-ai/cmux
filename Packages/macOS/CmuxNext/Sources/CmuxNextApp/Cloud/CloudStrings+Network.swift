@@ -35,7 +35,7 @@ extension CloudStrings {
     }
 
     static var apiTitle: String {
-        String(localized: "cloud.result.apiTitle", defaultValue: "Cloud API", table: "Cloud", bundle: .module)
+        String(localized: "cloud.result.apiTitle", defaultValue: "Cloud API Ready", table: "Cloud", bundle: .module)
     }
 
     static var apiKeysTitle: String {

@@ -18125,127 +18125,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API Ready"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واجهة API في Cloud"
+            "value": "واجهة API في Cloud جاهزة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API je spreman"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-API"
+            "value": "Cloud-API er klar"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-API"
+            "value": "Cloud-API bereit"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "API de Cloud"
+            "value": "API de Cloud lista"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud prête"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud pronta"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API の準備完了"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "API របស់ Cloud"
+            "value": "API របស់ Cloud រួចរាល់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API 준비 완료"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-API"
+            "value": "Cloud-API er klar"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud gotowe"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "API do Cloud"
+            "value": "API do Cloud pronta"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud готов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "API ของ Cloud"
+            "value": "API ของ Cloud พร้อมแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API hazır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud готовий"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "API Cloud"
+            "value": "API Cloud đã sẵn sàng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API 已就绪"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud API"
+            "value": "Cloud API 已就緒"
           }
         }
       }
