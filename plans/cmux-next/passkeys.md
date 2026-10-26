@@ -153,6 +153,43 @@ Manual steps for Lawrence (when the cmux.17 build is ready; needs him at cmux-la
 6. Repeat 2-5 in a New WebKit Tab only after WebKit passkey authorization lands (step 5); until then WebKit is expected to fail.
 7. Report: the sheet position (over the pane or detached), the Bluetooth prompt text, any error text.
 
+## 3.9 Helper-app browser process: iCloud Keychain runs in the app (fork API 31, p01-process-175)
+
+With the Chromium Host (chrome-parity p01-process), the CEF browser process leaves cmux.app. Requirement 1 of 3.2
+then fails: the host process has no visible window for the sheet (its page windows never order in) and does not
+carry `com.apple.developer.web-browser.public-key-credential`, so Chromium's `ProcessHasEntitlement` is false and
+iCloud Keychain passkeys disappear. Chrome's PWAs have the same gap (`ConfigureNSWindow`, crbug.com/364926914).
+
+Fork change, proposed: manaflow-ai/cef `cp/p01-process-175` at `0d336d1c`, on `cmux/8037-helper-items` (API 30),
+as 170, 171 and 173. Nobody has built or run it; the release train (178) merges it at API 31.
+
+- `cmux_icloud_keychain_embedder.patch` lets `device::fido::icloud_keychain` ask an embedder delegate for
+  `IsSupported`, `NewDiscovery` and `HasPermission`.
+- `cmux_set_webauthn_platform_handler(request, cancel, permission, ctx)`, before CefInitialize. Chromium's iCloud
+  Keychain authenticator (`icloud_keychain.mm`) is kept up to the system call. CREATE, GET and LIST then go out as
+  `{token, operation, browser_id, json}`. The JSON carries every field Chrome sets on the `ASAuthorizationController`
+  request (client data hash, algorithms, exclude list, allow list, user verification, PRF unhashed inputs, large
+  blob, `request_permission`).
+- `cmux_webauthn_platform_reply(token, json)` brings the answer back: the attestation object and credential id, the
+  assertion fields, PRF and large blob, or the NSError (domain, code, description). Chromium maps the answer as Chrome
+  does: an excluded credential, no credentials (1001, "No credentials available for login"), or consent denied. The
+  page's abort, or an authenticator that Chromium drops, calls `cancel(token)`. A late reply returns 0.
+- `cmux_webauthn_platform_set_permission` (or `"permission"` in a reply) gives the passkey listing permission.
+  Without AUTHORIZED, Chromium lists no iCloud passkeys, as Chrome does.
+- The request dialog, Touch ID profile passkeys (3.2.5), security keys and hybrid (3.8) stay in the host's Chromium.
+  Only the iCloud Keychain ceremony moves.
+
+The app side is chrome-parity task 067: the host relays `WEBAUTHN {token, request}` on its control channel. cmux
+runs `ASAuthorizationController` over the pane's window, which keeps the 3.4 window rules, and answers by token.
+Pending tokens resolve `.hostGone` on host exit (091). Rules K8-K12 apply to that code.
+
+Test: `scripts/test-cmux-embedder.sh <cef-path> passkey-platform` in the fork, after `cmux-ci build cef` of the
+ref. It checks the handler refusals and that no LIST is sent without the permission. Once authorized, it checks a
+LIST for a conditional get, a GET with the allow list, an abort that cancels by token and refuses a late reply, and
+NotAllowedError for ASAuthorizationErrorDomain 1001. Two steps assume that Chrome sends a modal get with only an
+iCloud Keychain passkey in the allow list straight to that authenticator, with no Chrome dialog step. If the
+fleet run shows a dialog step, the case must drive it.
+
 ## 4. Signing, App IDs and profiles
 
 Checked 2026-10-02 from the installed apps (no secrets read):
