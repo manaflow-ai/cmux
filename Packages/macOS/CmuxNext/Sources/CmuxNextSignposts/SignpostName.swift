@@ -218,7 +218,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
 
     /// One task the main-thread scheduler runs, from its start to its return: a frame batch
-    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
+    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|userBlocking|visible|automation|background>
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
