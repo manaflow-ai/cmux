@@ -2,11 +2,11 @@ import Foundation
 
 /// Chromium permission requests cmux asks about in the prompt bar
 /// (PERMISSION_PROMPT, `CEFShim/src/shim_permissions.mm`): location, and with
-/// the feature `chromiumPermissionPromptsFromData` every permission prompt
-/// and screen sharing (`CEFPermissionRequest`). Each is decided with the
-/// shared store like WebKit's (`SitePermissionRequest`); Chromium remembers
-/// Allow and Block of a permission prompt itself as well. A capture the site
-/// is allowed asks macOS for it in cmux's name first (`CEFCaptureAccess`).
+/// the feature `chromiumPermissionPromptsFromData` every permission prompt,
+/// camera and microphone included (`CEFPermissionRequest`). Each is decided
+/// with the shared store like WebKit's (`SitePermissionRequest`); Chromium
+/// remembers Allow and Block itself as well. A capture the site is allowed
+/// asks macOS for it in cmux's name first (`CEFCaptureAccess`).
 struct CEFPermissionPrompts {
     /// Questions Chromium still waits on, by token: a question whose request
     /// Chromium ended while the store loaded never reaches the bar.
@@ -49,9 +49,7 @@ struct CEFPermissionPrompts {
         }
         let capture = capture
         let confirm: @MainActor (SitePermissionRequest.Outcome) async -> SitePermissionRequest.Outcome = { outcome in
-            let captures = CEFCapture.needed(by: kind)
-            guard outcome == .grant, !captures.isEmpty else { return outcome }
-            return Self.reply(granted: await capture.authorize(captures), source: request.source)
+            await Self.confirm(outcome, kind: kind, capture: capture)
         }
         SitePermissionRequest(kind: kind, origin: site, store: tab.sitePermissions).decide(ask: ask, confirm: confirm) { outcome in
             Self.waiting.removeValue(forKey: token)
@@ -59,12 +57,20 @@ struct CEFPermissionPrompts {
         }
     }
 
-    /// The answer Chromium gets once macOS was asked. For a permission prompt
-    /// it is Allow either way: the person allowed the site, and Chromium checks
-    /// macOS's access itself when the page captures (a blocked camera fails
-    /// getUserMedia instead of being remembered as Block for the site). A
-    /// screen share has no such check in Chromium, so cmux refuses it.
-    static func reply(granted: Bool, source: CEFPermissionRequest.Source) -> SitePermissionRequest.Outcome {
-        granted || source == .prompt ? .grant : .deny
+    /// The answer Chromium gets for the person's `outcome`. An allowed
+    /// capture first asks macOS for the camera or microphone in cmux's name
+    /// (Chrome asks in the same order,
+    /// chrome/browser/media/webrtc/system_media_capture_permissions_mac.mm),
+    /// then stays Allow whatever macOS says: Chromium checks macOS's access
+    /// itself when the page captures, so a camera macOS blocks fails
+    /// getUserMedia instead of being remembered as Block for the site. Block,
+    /// a dismissed question and a kind with no capture never ask macOS.
+    @MainActor
+    static func confirm(_ outcome: SitePermissionRequest.Outcome, kind: BrowserPermissionKind,
+                        capture: any CEFCaptureAccess) async -> SitePermissionRequest.Outcome {
+        let captures = CEFCapture.needed(by: kind)
+        guard outcome == .grant, !captures.isEmpty else { return outcome }
+        await capture.authorize(captures)
+        return outcome
     }
 }

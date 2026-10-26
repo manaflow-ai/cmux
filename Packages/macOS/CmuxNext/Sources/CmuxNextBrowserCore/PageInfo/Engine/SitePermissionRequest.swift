@@ -2,12 +2,12 @@ import CmuxSafeConcurrency
 package import Foundation
 
 /// A site's request for a permission the prompt bar asks about (camera and
-/// microphone, location, notifications; in Chromium tabs also screen sharing
-/// and Chromium's other requests), in either engine: answered from the
+/// microphone, location, notifications; in Chromium tabs also Chromium's
+/// other requests), in either engine: answered from the
 /// shared store, asking only when the site has no decision, and the answer
 /// stored ("Allow this time" stores nothing). A request with no per-site
-/// setting (screen sharing, `capabilities` with an item cmux keeps no
-/// setting for) is always asked and stores nothing.
+/// setting (`capabilities` with an item cmux keeps no setting for) is always
+/// asked and stores nothing.
 package struct SitePermissionRequest {
     package enum Outcome: Equatable {
         case grant
@@ -78,7 +78,7 @@ extension BrowserPermissionKind {
         case .cameraAndMicrophone: [.camera, .microphone]
         case .location: [.location]
         case .notifications: [.notifications]
-        case .automaticDownloads, .screen: []
+        case .automaticDownloads: []
         case .capabilities(let items):
             items.allSatisfy { $0.siteKind != nil } ? Set(items.compactMap(\.siteKind)) : []
         }

@@ -1,14 +1,9 @@
 import Foundation
 
-/// The prompt bar's question for screen sharing and for Chromium's other
-/// requests: "<origin> wants to" over one line per item, as Chrome's
+/// The prompt bar's question for Chromium's other requests: "<origin> wants to" over one line per item, as Chrome's
 /// permission bubble shows them (`IDS_PERMISSIONS_BUBBLE_PROMPT` and
 /// `permissions::GetMessageTextFragment`).
 extension Strings {
-    static func permissionScreen(_ origin: String) -> String {
-        String(localized: "browser.permission.screen", defaultValue: "\(origin) wants to share your screen.", bundle: .module)
-    }
-
     static func permissionCapabilities(_ origin: String, _ items: [BrowserSiteCapability]) -> String {
         let title = String(localized: "browser.permission.wantsTo", defaultValue: "\(origin) wants to", bundle: .module)
         return ([title] + items.map { "• " + capability($0) }).joined(separator: "\n")

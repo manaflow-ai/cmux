@@ -2,11 +2,13 @@
 // a toolbar cmux never shows, so a request it would ask about waits until it
 // times out. The requests the host asks about (permission_prompt_policy.h:
 // location, and with the feature chromiumPermissionPromptsFromData every
-// cef_permission_request_types_t and screen sharing) go to the host as
-// PERMISSION_PROMPT, answered with cmux_shim_permission_continue; every other
-// request keeps Chromium's default. Chromium persists Accept and Deny of a
-// permission prompt in its own content settings; a screen share is asked
-// each time, as Chrome does.
+// cef_permission_request_types_t, camera and microphone included) go to the
+// host as PERMISSION_PROMPT, answered with cmux_shim_permission_continue;
+// every other request keeps Chromium's default. Chromium persists Accept and
+// Deny in its own content settings. Media access is not handled here:
+// Chromium's MediaStreamDevicesController asks for camera and microphone
+// through OnShowPermissionPrompt, and screen sharing keeps Chromium's
+// desktop media picker path (task p01-process-228).
 
 #include <map>
 
@@ -20,16 +22,13 @@ namespace cmux_shim {
 
 namespace {
 
-// One request waiting for the host: a permission prompt (Chromium's prompt id)
-// or a media access request (the bits it asked for).
+// One permission prompt waiting for the host, with Chromium's prompt id.
 struct Waiting {
   uint64_t prompt_id = 0;
   CefRefPtr<CefPermissionPromptCallback> prompt;
-  CefRefPtr<CefMediaAccessCallback> media;
-  uint32_t media_requested = 0;
 };
 
-// Waiting requests by token, UI thread. Never destroyed at exit (its
+// Waiting prompts by token, UI thread. Never destroyed at exit (its
 // callbacks would outlive CefShutdown); ForgetPermissionPrompts empties it
 // before shutdown.
 std::map<int, Waiting>& waiting() {
@@ -56,19 +55,6 @@ bool EveryKindToHost() {
 
 class Handler : public CefPermissionHandler {
  public:
-  bool OnRequestMediaAccessPermission(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>,
-                                      const CefString& requesting_origin, uint32_t requested_permissions,
-                                      CefRefPtr<CefMediaAccessCallback> callback) override {
-    if (!browser || !MediaGoesToHost(EveryKindToHost(), requested_permissions)) return false;
-    const int token = NextPermissionToken(last_token(), waiting());
-    Waiting& entry = waiting()[token];
-    entry.media = callback;
-    entry.media_requested = requested_permissions;
-    Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, MediaPromptBits(requested_permissions), 0,
-         requesting_origin.ToString());
-    return true;
-  }
-
   bool OnShowPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id, const CefString& requesting_origin,
                               uint32_t requested_permissions,
                               CefRefPtr<CefPermissionPromptCallback> callback) override {
@@ -79,9 +65,7 @@ class Handler : public CefPermissionHandler {
     }
     if (!browser || !PromptGoesToHost(EveryKindToHost(), requested_permissions)) return false;
     const int token = NextPermissionToken(last_token(), waiting());
-    Waiting& entry = waiting()[token];
-    entry.prompt_id = prompt_id;
-    entry.prompt = callback;
+    waiting()[token] = Waiting{prompt_id, callback};
     Emit(CMUX_SHIM_PERMISSION_PROMPT, browser->GetIdentifier(), token, requested_permissions, 0,
          requesting_origin.ToString());
     return true;
@@ -92,7 +76,7 @@ class Handler : public CefPermissionHandler {
   void OnDismissPermissionPrompt(CefRefPtr<CefBrowser> browser, uint64_t prompt_id,
                                  cef_permission_request_result_t) override {
     for (auto it = waiting().begin(); it != waiting().end(); ++it) {
-      if (!it->second.prompt || it->second.prompt_id != prompt_id) continue;
+      if (it->second.prompt_id != prompt_id) continue;
       const int token = it->first;
       waiting().erase(it);
       Emit(CMUX_SHIM_PERMISSION_DISMISSED, browser ? browser->GetIdentifier() : 0, token);
@@ -124,15 +108,11 @@ extern "C" {
 int cmux_shim_permission_continue(int prompt_token, int result) {
   auto it = waiting().find(prompt_token);
   if (it == waiting().end()) return 0;
-  const Waiting entry = it->second;
+  CefRefPtr<CefPermissionPromptCallback> callback = it->second.prompt;
   waiting().erase(it);
-  if (entry.media) {
-    entry.media->Continue(MediaAllowed(result, entry.media_requested));
-    return 1;
-  }
   switch (result) {
-    case 1: entry.prompt->Continue(CEF_PERMISSION_RESULT_ACCEPT); break;
-    case 2: entry.prompt->Continue(CEF_PERMISSION_RESULT_DENY); break;
+    case 1: callback->Continue(CEF_PERMISSION_RESULT_ACCEPT); break;
+    case 2: callback->Continue(CEF_PERMISSION_RESULT_DENY); break;
     // No answer (the tab closed): never DISMISS, which Chromium counts toward
     // blocking the site for days (embargo). The request ends, unanswered,
     // when the page goes away.

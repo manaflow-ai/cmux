@@ -248,12 +248,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) and every screen share is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS access is asked in cmux's name.
+    /// Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.
     public static let chromiumPermissionPromptsFromData = Feature(
         index: 14,
         name: "chromiumPermissionPromptsFromData",
         owner: "PL-cefhost",
-        description: "Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) and every screen share is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS access is asked in cmux's name.",
+        description: "Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.",
         kind: .labs,
         process: .chromium,
         chromiumFeature: "CmuxPermissionPromptsFromData",

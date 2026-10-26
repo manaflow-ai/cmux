@@ -110,6 +110,9 @@ Per mode:
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
 host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+It also runs the permission rows (p01-process-062, feature chromiumPermissionPromptsFromData): camera, microphone,
+location and notifications on a page served from 127.0.0.1. Each is asked in cmux's prompt bar and answered Block
+through `debug.browser.prompts`, the page hears the refusal, and the app's child processes show no window.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -296,6 +299,28 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def child_windows_on_screen(root):
+    """The on-screen windows with alpha > 0 of every process below `root` (the Chromium Host, its helpers, the
+    in-process helpers), each with its pid; None when a process's windows cannot be read."""
+    pids, frontier = [], [root]
+    while frontier:
+        parent = frontier.pop()
+        try:
+            listed = subprocess.run(["/usr/bin/pgrep", "-P", str(parent)], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        children = [int(pid) for pid in listed.split() if pid.isdigit()]
+        pids += children
+        frontier += children
+    found = []
+    for pid in pids:
+        windows = on_screen_windows(pid)
+        if windows is None:
+            return None
+        found += [{**window, "pid": pid} for window in windows if (window.get("alpha") or 0) > 0]
+    return found
 
 
 def on_screen_windows(pid):
@@ -592,6 +617,7 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+        permission_url = chromium_host_native_ui.serve_permission_page()
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
@@ -621,7 +647,9 @@ def main():
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
         modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url, permission_url,
+                lambda: child_windows_on_screen(app.process.pid))
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
@@ -1503,8 +1531,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
     rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
                              "find": "the prototype page has no find; --find runs it on a host-backed Chromium tab",
-                             "drag": "drag and drop is not forwarded (slice 4)",
-                             "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
+                             "drag": "drag and drop is not forwarded (slice 4)"}
     return rows
 
 

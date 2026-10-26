@@ -30,19 +30,6 @@ int main() {
   Expect(!PromptGoesToHost(true, kPermissionGeolocation | (1u << 30)), "a known bit with an unknown one stays Chromium's");
   Expect(!PromptGoesToHost(true, 0), "no bits: nothing to ask");
 
-  Expect(MediaGoesToHost(true, kMediaDesktopVideo), "feature on: getDisplayMedia video goes to the host");
-  Expect(MediaGoesToHost(true, kMediaDesktopVideo | kMediaDesktopAudio), "screen with its audio goes to the host");
-  Expect(!MediaGoesToHost(true, kMediaDesktopAudio), "desktop audio alone stays Chromium's (getDisplayMedia needs video)");
-  Expect(!MediaGoesToHost(true, kMediaDeviceVideo), "the camera keeps Chromium's devices controller");
-  Expect(!MediaGoesToHost(true, kMediaDeviceAudio | kMediaDeviceVideo), "camera and microphone keep Chromium's controller");
-  Expect(!MediaGoesToHost(true, kMediaDesktopVideo | kMediaDeviceAudio), "a screen with the microphone stays Chromium's");
-  Expect(!MediaGoesToHost(false, kMediaDesktopVideo), "feature off: screen sharing keeps Chromium's picker");
-
-  Expect(MediaAllowed(1, kMediaDesktopVideo | kMediaDesktopAudio) == (kMediaDesktopVideo | kMediaDesktopAudio),
-         "Allow grants what was asked");
-  Expect(MediaAllowed(2, kMediaDesktopVideo) == 0, "Block grants nothing");
-  Expect(MediaAllowed(0, kMediaDesktopVideo) == 0, "no answer grants nothing");
-
   Expect(FeatureListHas("A,CmuxPermissionPromptsFromData,B", kPermissionPromptsFromDataFeature), "a listed feature");
   Expect(FeatureListHas("CmuxPermissionPromptsFromData", kPermissionPromptsFromDataFeature), "the only entry");
   Expect(FeatureListHas("A, CmuxPermissionPromptsFromData", kPermissionPromptsFromDataFeature), "a space after the comma");
@@ -54,10 +41,6 @@ int main() {
   Expect(EveryKindFromFeatureLists("A,CmuxPermissionPromptsFromData", "B"), "enabled and not disabled: on");
   Expect(!EveryKindFromFeatureLists("CmuxPermissionPromptsFromData", "CmuxPermissionPromptsFromData"), "disable wins");
   Expect(!EveryKindFromFeatureLists("A", ""), "not enabled: off");
-
-  Expect(MediaPromptBits(kMediaDesktopVideo) == (int64_t{1} << 35), "media bits sit above bit 32");
-  Expect((MediaPromptBits(kMediaDesktopVideo | kMediaDesktopAudio) & kKnownPermissions) == 0,
-         "media bits never look like permission bits");
 
   std::map<int, int> in_use;
   int last = 0;
