@@ -139,9 +139,7 @@ fn append_frame(
     bytes: &[u8],
 ) -> anyhow::Result<()> {
     files::create_dir_all(terminal_directory)?;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-    encoder.write_all(bytes)?;
-    let compressed = encoder.finish()?;
+    let frame = encode_frame(start, bytes)?;
     let file = match generation_files(terminal_directory, generation).last() {
         Some((_, path))
             if files::metadata(path).map(|metadata| metadata.len()).unwrap_or(u64::MAX)
@@ -153,25 +151,37 @@ fn append_frame(
             terminal_directory.join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
         }
     };
+    files::open_with(fs::File::options().create(true).append(true), &file)?.write_all(&frame)?;
+    Ok(())
+}
+
+/// One frame: start offset, compressed length, raw length, gzip of `bytes`.
+pub(crate) fn encode_frame(start: u64, bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(bytes)?;
+    let compressed = encoder.finish()?;
     let mut frame = Vec::with_capacity(FRAME_HEADER_BYTES + compressed.len());
     frame.extend_from_slice(&start.to_le_bytes());
     frame.extend_from_slice(&u32::try_from(compressed.len())?.to_le_bytes());
     frame.extend_from_slice(&u32::try_from(bytes.len())?.to_le_bytes());
     frame.extend_from_slice(&compressed);
-    files::open_with(fs::File::options().create(true).append(true), &file)?.write_all(&frame)?;
-    Ok(())
+    Ok(frame)
 }
 
 /// Frames of a segment file in order: (start offset, raw bytes). Stops at a
 /// cut or corrupt frame.
 fn frames(path: &Path) -> Vec<(u64, Vec<u8>)> {
-    let Ok(contents) = files::read(path) else { return Vec::new() };
+    files::read(path).map(|contents| decode_frames(&contents)).unwrap_or_default()
+}
+
+/// The frames of a segment file's `contents`, up to the first cut or corrupt one.
+pub(crate) fn decode_frames(contents: &[u8]) -> Vec<(u64, Vec<u8>)> {
     let mut out = Vec::new();
     let mut at = 0;
     use crate::terminal_host_protocol::{wire_u32, wire_u64};
     while contents.len().saturating_sub(at) >= FRAME_HEADER_BYTES {
         let (Some(start), Some(compressed), Some(raw)) =
-            (wire_u64(&contents, at), wire_u32(&contents, at + 8), wire_u32(&contents, at + 12))
+            (wire_u64(contents, at), wire_u32(contents, at + 8), wire_u32(contents, at + 12))
         else {
             break;
         };
