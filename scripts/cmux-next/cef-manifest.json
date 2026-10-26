@@ -26,5 +26,6 @@
     "debug_r2_key": "cef/bbf662c637cbbc5c71cdc86d8d0e3441375b88a5f6df3a1ca514ddb6d77d849b/cef-154.0.28-cmux.28-macos-x86_64-debug.tar.xz",
     "fork_ref": "596a6969eb435f459125f66076699593f074cbff"
   },
-  "require_dcheck_off": true
+  "require_dcheck_off": true,
+  "require_official_pgo": false
 }
