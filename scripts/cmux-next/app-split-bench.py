@@ -8,10 +8,11 @@ Usage:
 Works on a Release build (no debug.* methods): it runs `action.run
 splitRight` on the workspace's first terminal pane through the control
 socket, polls `snapshot.get` until the new tab shows, closes it, and reads
-the app's own `stalls` signposts with `log stream --signpost --process PID`.
-Per run it prints the time of each signpost after the request:
+the app's own signposts with `log stream --signpost --process PID`.
+Per run it prints the time of each signpost after the request (the daemon
+marks are `daemon.step` events whose message is the mark):
 `daemon.snapshot_start` (the split's round trip ended and the store resyncs),
-`daemon.snapshot_end`, `createSurface` (the new pane's view and Ghostty
+`daemon.snapshot_end`, `stall.create_surface` (the new pane's view and Ghostty
 surface: visible on the next frame), `terminal.attach_start` and
 `terminal.attach_end` (first terminal frame with content). It also reports
 `action_run_wait_ms` and whether the reply already listed the created tab.

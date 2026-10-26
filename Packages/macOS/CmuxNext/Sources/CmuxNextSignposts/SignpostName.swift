@@ -14,7 +14,8 @@
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
-/// ``launchStartupTask``, ``launchStartupComplete``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The
+/// ``launchStartupTask``, ``launchStartupComplete``, ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``,
+/// ``daemonStep``, ``webuiAgentPaneStep`` and ``stallGhosttyRuntimePhase`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -199,7 +200,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`. Ring: I; arg0 the owner id in
     /// bits 0-31, the class code in bits 32-39 and the budget in us in the top 24; arg1 the task's own time in ns.
     case stallOverBudget = 17
-    /// Reserved (task 035, PL-ghostty). Creating a terminal surface on main (`TerminalTimings`). Ring: B/E.
+    /// Creating a terminal surface on main (`ghostty_surface_new`, `TerminalTimings`; task 035, PL-ghostty). Ring: B/E.
     case stallCreateSurface = 41
     /// Reserved (task 036, Performance Lead). Opening the command palette on main (`DebugTimings`). Ring: B/E.
     case stallPaletteOpen = 42
@@ -350,6 +351,25 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// held until then.
     case launchStartupComplete = 76
 
+    // MARK: steps (emitters: the start-path timings, task p09-observability-035)
+    // Each step event fires every time its step happens, so none is in the launch category: the App keeps the
+    // first of each as a launch mark (`launch.mark`), and the launch.* slices above end at those marks.
+
+    /// One step of the app's daemon connection (`DaemonLaunchTimings`): the start path's login environment,
+    /// `server ensure`, connect and handshake, and the steps that recur after it (a store resync's
+    /// `daemon.snapshot_start` and `daemon.snapshot_end`, a terminal attach's `terminal.attach_start` and
+    /// `terminal.attach_end`). Message: the step's fixed name. Ring: instant; arg0 the step's code
+    /// (`DaemonLaunchTimings.Step`).
+    case daemonStep = 77
+    /// One step of an agent pane's page (`AgentPaneLaunchTimings`): painted, page loaded, handshake start and
+    /// end, a new tab's paint and context. Message: the step's fixed name. Ring: instant; arg0 the step's code
+    /// (`AgentPaneLaunchTimings.Step`).
+    case webuiAgentPaneStep = 78
+    /// One phase of the libghostty runtime's one-time start on main (`TerminalTimings`): `ghostty_init`, the
+    /// config load, `ghostty_app_new`. Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
+    /// phase's code (`TerminalTimings.RuntimePhase`), arg1 its duration in ns.
+    case stallGhosttyRuntimePhase = 79
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -429,6 +449,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .webuiOpen: "webui.open"
         case .webuiPreload: "webui.preload"
         case .webuiScheme: "webui.scheme"
+        case .daemonStep: "daemon.step"
+        case .webuiAgentPaneStep: "webui.agent_pane_step"
+        case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
         }
     }
 
@@ -451,9 +474,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
              .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete:
             .launch
         case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen,
-             .stallRenderStarved:
+             .stallRenderStarved, .stallGhosttyRuntimePhase:
             .stall
-        case .daemonRequest: .daemon
+        case .daemonRequest, .daemonStep: .daemon
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
         case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
@@ -466,7 +489,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .controlRequest: .control
         case .ghosttyRender: .ghostty
         case .resizeFrame: .resize
-        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme: .webui
+        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
         }
     }
 
