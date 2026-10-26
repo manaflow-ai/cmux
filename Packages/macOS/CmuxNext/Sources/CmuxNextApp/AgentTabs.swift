@@ -20,19 +20,15 @@ import Observation
 /// One acpmux host is shared by every tab, so opening several at once starts one daemon.
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
-    /// The app's made-ahead open panel for every agent pane's file pickers; nil (tests) shows none.
-    private let openPanel: MadeAheadOpenPanel?
-    /// The app's page host (`AppServices.webUI`) every page-hosted agent pane opens its page through.
-    private let webUI: WebUIHost
-    /// The page every agent tab loads: the bundled file, or in Debug builds
-    /// the dev server `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the
-    /// bundled page is missing).
+    /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
+    /// its page host (`AppServices.webUI`) every page-hosted agent pane opens its page through.
+    private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost
+    /// The page every agent tab loads: the bundled file, or in Debug builds the dev server
+    /// `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
-    /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE`
-    /// (`1` full, `0` capped) for measuring either rate.
+    /// Adaptive, or in Debug builds fixed by `CMUX_NEXT_AGENT_PANE_FULL_RATE` (`1` full, `0` capped) for measuring either rate.
     private let renderRate: AgentPaneRenderRate
-    /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab
-    /// has a view.
+    /// `~/.config/cmux/agent-pane/` hot reload, watched while any agent tab has a view.
     let customization: AgentPaneCustomizationWatcher
     /// The store record of agent tab `key` and the tree that lists it; nil for any other tab
     /// (AppServices looks in every machine's tree).
@@ -499,9 +495,7 @@ final class AgentTabStore {
     private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate,
-                                                     pageHost: (AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value) ? webUI : nil,
-                                                     openPanel: openPanel) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value ? webUI : nil, openPanel: openPanel) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts
