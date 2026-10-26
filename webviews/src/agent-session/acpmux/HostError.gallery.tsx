@@ -102,7 +102,7 @@ export default componentEntry<Props>({
       play: restart,
       note: "Another binary's acpmux holds this app's socket: Restart acpmux replaces it with this app's own.",
     },
-    restartUnnamed: {
+    "restart-unnamed": {
       props: {
         message: "Another acpmux service is using this socket. It will reconnect when that service is ready.",
         initialRetrying: false,

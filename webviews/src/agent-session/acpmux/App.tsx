@@ -6752,7 +6752,9 @@ function AcpmuxPane() {
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     const connectHost = async () => {
-      if (connecting) return;
+      // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
+      // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
+      if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
       try {
         acpmuxPerf.markAgent("handshakeStart");

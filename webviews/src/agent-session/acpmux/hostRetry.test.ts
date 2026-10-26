@@ -14,12 +14,15 @@ test("only a refusal the host marked restartAcpmux offers Restart acpmux", () =>
 });
 
 /// The pane's loop as App.tsx runs it: an attempt in flight, a Retry queued behind it, an
-/// automatic retry scheduled after a failure, each gated on `mayAsk`.
+/// automatic retry scheduled after a failure or a lost daemon; `connectHost` itself asks the gate.
 function paneLoop(gate: AcpmuxRestartGate) {
   const log: string[] = [];
   let retryPending = false;
   let timer = false;
   let connected = false;
+  const connectHost = (why: string) => {
+    if (gate.mayAsk()) log.push(`handshake (${why})`);
+  };
   return {
     log,
     queueRetry: () => (retryPending = true),
@@ -28,11 +31,17 @@ function paneLoop(gate: AcpmuxRestartGate) {
       if (gate.mayAsk()) timer = true;
       if (retryPending) {
         retryPending = false;
-        if (!connected && gate.mayAsk()) log.push("handshake (queued Retry)");
+        if (!connected && gate.mayAsk()) connectHost("queued Retry");
       }
     },
+    /// The daemon's connection closed: App.tsx schedules a reconnect.
+    lose: () => {
+      connected = false;
+      timer = true;
+    },
+    scheduleTimer: () => (timer = true),
     fireTimer: () => {
-      if (timer) log.push("handshake (automatic)");
+      if (timer) connectHost("automatic");
       timer = false;
     },
     connect: () => (connected = true),
@@ -63,6 +72,22 @@ test("a Retry queued before Restart acpmux never asks the old daemon while it sh
   await restart;
   expect(loop.log).toEqual(["restarting", "restarted", "handshake (after restart)"]);
   expect(gate.mayAsk()).toBe(true);
+});
+
+test("a retry timer that fires, or a daemon lost, while Restart acpmux runs asks nothing", async () => {
+  const gate = new AcpmuxRestartGate();
+  const loop = paneLoop(gate);
+  let finishStop!: () => void;
+  const restart = gate.run(() => new Promise<void>((resolve) => (finishStop = resolve)), loop.hooks);
+  // A timer callback already queued when the restart cleared the timer, then a lost connection.
+  loop.scheduleTimer();
+  loop.fireTimer();
+  loop.lose();
+  loop.fireTimer();
+  expect(loop.log).toEqual(["restarting"]);
+  finishStop();
+  await restart;
+  expect(loop.log).toEqual(["restarting", "restarted", "handshake (after restart)"]);
 });
 
 test("a second click while Restart acpmux runs does nothing; a client that connected meanwhile needs no handshake", async () => {
