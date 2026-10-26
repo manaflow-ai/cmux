@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -17,6 +18,10 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public var onMade: ((FakeChromiumPage) -> Void)?
     /// The lanes the pages decode their large replies on (a test's own).
     public let work: BackgroundWork
+    /// The off-screen host of ``dialogs``: what a page's notice shows (its "Page unresponsive" card).
+    public let dialogHost = CmuxDialogHeadlessHost()
+    /// The pages' dialog center, on ``dialogHost``.
+    public let dialogs: CmuxDialogCenter
 
     /// The error ``makePage(_:chatOpen:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
@@ -26,6 +31,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// - Parameter work: The lanes for ``PageChromiumHosting/work``; by default a one-wide set of the test's own.
     public init(work: BackgroundWork = BackgroundWork(cpuWidth: 1, label: "test.fake-chromium-hosting")) {
         self.work = work
+        dialogs = CmuxDialogCenter(host: dialogHost)
     }
 
     /// Serves every page.

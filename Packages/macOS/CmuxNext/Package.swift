@@ -781,7 +781,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
         .target(
             name: "CmuxNextPagesTestSupport",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

@@ -68,11 +68,13 @@ extension PageWebView {
     /// Tells a Chromium page whether it shows (a hidden one stops drawing), the router's hidden hold
     /// (``holdDeliveryWhileHidden(visible:)``), and the census. A frozen
     /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
-    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
+    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
         crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -127,14 +129,19 @@ extension PageWebView {
                 return
             }
             traceMark(.browserCreated)
-            await self.attachChromium(page, scripts: scripts, work: hosting.work)
+            await self.attachChromium(page, scripts: scripts, work: hosting.work, dialogs: hosting.dialogs)
         }
     }
 
-    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork) async {
+    private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts, work: BackgroundWork,
+                                dialogs: CmuxDialogCenter) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
         let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
-        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock)
+        // Hidden until the attach below tells it whether the page shows; then ``setEngineVisible(_:)`` does.
+        let hang = PageHangNotice(center: dialogs, anchor: self, visible: false) { [weak page] terminate in
+            page?.answerUnresponsive(terminate: terminate)
+        }
+        let session = PageChromiumSession(page: page, bridge: bridge, work: work, clock: chromiumClock, hang: hang)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
         do {
@@ -169,7 +176,9 @@ extension PageWebView {
         page.contentView.autoresizingMask = [.width, .height]
         addSubview(page.contentView)
         applyNativeRects()
-        page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        let shown = window != nil && !isHiddenOrHasHiddenAncestor
+        page.setVisible(shown)
+        session.hang.visibilityChanged(shown)
         traceMark(.navigationStart)
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
@@ -240,7 +249,12 @@ extension PageWebView {
         case .finished:
             documentFinished()
         case .crashed:
+            chromiumSession.hang.end()
             contentProcessTerminated()
+        case .unresponsive:
+            chromiumSession.hang.unresponsiveChanged(true)
+        case .responsive:
+            chromiumSession.hang.unresponsiveChanged(false)
         case .ended:
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
         case .openRequested(let url):
