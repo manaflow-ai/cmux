@@ -50,6 +50,9 @@ fn allocations() -> usize {
     ALLOCATIONS.with(Cell::get)
 }
 
+/// The target of the test's `log` crate record, as a dependency's module path would be.
+const LOG_TARGET: &str = "acpmux_trace_probe::dependency";
+
 fn log_events(count: u64) {
     for index in 0..count {
         tracing::info!(index, text = "dropped", "trace layer probe");
@@ -95,6 +98,8 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     let _ = std::fs::remove_dir_all(&dir);
     let open = cmux_trace::init_blackbox(&dir, Role::Acpmux, &[]).expect("the first init");
     open.wait().expect("the black box has its file");
+    // The daemon's `.init()` installs the same forwarder of `log` crate records.
+    tracing_log::LogTracer::init().expect("the log forwarder installs");
     let subscriber = tracing_subscriber::registry().with(TraceLayer::new());
     let _default = tracing::subscriber::set_default(subscriber);
 
@@ -105,9 +110,24 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
     log_events(10_000);
     assert_eq!(allocations() - before, 0, "an event allocated while no recording runs");
 
+    // A recording of another category records no event instants.
+    let status = cmux_trace::start_recording(category::FRAME).expect("a frame recording starts");
+    let recording = status.recording_path.expect("a recording file");
+    log_events(2);
+    cmux_trace::stop().expect("the frame recording stops");
+    let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
+        .expect("the frame recording decodes");
+    let prefix = format!("{}:", module_path!());
+    assert!(
+        !decoded.names.iter().any(|n| n.text.starts_with(&prefix)),
+        "an event recorded under a frame-only recording: {:?}",
+        decoded.names
+    );
+
     let status = cmux_trace::start_recording(category::ALL).expect("a recording starts");
     let recording = status.recording_path.expect("a recording file");
     log_events(3);
+    log::warn!(target: LOG_TARGET, "a dependency's log record");
     let hub = hub();
     let requests = [(json!(7), "_acpmux/sessions"), (json!("seven"), "_acpmux/sessions")];
     serve_requests(&hub, &requests).await;
@@ -115,16 +135,30 @@ async fn trace_layer_records_events_and_request_slices_only_when_on() {
 
     let decoded = cmux_trace::decode(&std::fs::read(&recording).expect("reads the recording"))
         .expect("the recording decodes");
-    // This file's one event callsite, named `<module>:<line>`.
-    let prefix = format!("{}:", module_path!());
+    // This file's one event callsite, named `<module>:<line>`, in the `task` category.
+    let task_bit = category::TASK.trailing_zeros() as u8;
     let names: Vec<_> = decoded.names.iter().filter(|n| n.text.starts_with(&prefix)).collect();
     assert_eq!(names.len(), 1, "one name per callsite: {names:?}");
+    assert_eq!(names[0].category, task_bit, "event names carry the category they record under");
     let instants: Vec<_> = decoded.records.iter().filter(|r| r.name == names[0].id).collect();
     assert_eq!(instants.len(), 3, "one instant per event while recording");
     assert!(
         instants.iter().all(|r| r.phase == Phase::Instant as u8 && r.arg0 == 3 && r.arg1 == 0),
         "an info instant, its fields dropped: {instants:?}"
     );
+
+    // A `log` crate record keeps its own target and line, not tracing-log's shared callsite.
+    let log_prefix = format!("{LOG_TARGET}:");
+    let log_names: Vec<_> =
+        decoded.names.iter().filter(|n| n.text.starts_with(&log_prefix)).collect();
+    assert_eq!(log_names.len(), 1, "one name for the log record's site: {:?}", decoded.names);
+    assert!(log_names[0].text[log_prefix.len()..].parse::<u32>().is_ok(), "{log_names:?}");
+    assert_eq!(log_names[0].category, task_bit);
+    assert!(!decoded.names.iter().any(|n| n.text == "log"), "a log record named `log`");
+    let log_instants: Vec<_> =
+        decoded.records.iter().filter(|r| r.name == log_names[0].id).collect();
+    assert_eq!(log_instants.len(), 1);
+    assert_eq!(log_instants[0].arg0, 2, "a warn instant");
 
     let slices: Vec<_> =
         decoded.records.iter().filter(|r| decoded.name(r.name) == Some("acpmux.request")).collect();

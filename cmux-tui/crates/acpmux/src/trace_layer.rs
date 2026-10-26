@@ -1,52 +1,59 @@
 //! acpmux in the Release trace ring (plans/cmux-next/chrome-parity/p09-observability.md, task 017).
 //!
 //! - [`TraceLayer`]: a `tracing_subscriber` layer that writes each `tracing` event as a ring
-//!   instant while a recording runs, under one name per callsite (`<target>:<line>`), with the
-//!   level in arg0. Fields are dropped: the ring holds catalog names and numbers only. acpmux has no
-//!   spans, so the layer maps none. Chrome writes its log messages into the trace the same way, as
-//!   instants of the `log` category (`base/logging.cc`, `TRACE_EVENT_INSTANT`).
+//!   instant while the `task` category records, under one name per callsite (`<target>:<line>`),
+//!   with the level in arg0. Fields are dropped: the ring holds catalog names and numbers only.
+//!   acpmux has no spans, so the layer maps none. Chrome writes its log messages into the trace the
+//!   same way, as instants of their own category (`base/logging.cc`, `TRACE_EVENT_INSTANT`).
+//!   Events of the `log` crate (acpmux's dependencies, through tracing-log's `LogTracer`) share one
+//!   fake callsite per level; the layer names them by the record's own target and line.
 //! - [`RequestSlice`]: one async slice per JSON-RPC request, from its dispatch to its reply, keyed
 //!   by the connection and the request id, like Chrome's nestable async request events
 //!   (`TRACE_EVENT_NESTABLE_ASYNC_BEGIN0`, base/trace_event/common/trace_event_common.h).
+//!   [`RequestSlice::wrap`] ties the end to the request's future.
 //!
 //! Off, each trace point is one relaxed load and a branch ([`cmux_trace::enabled`]), with no
 //! allocation. The rings exist only after the process called `cmux_trace::init_blackbox`.
 
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
 
 use cmux_trace::{FLAG_ID, InternedName, Phase, category};
 use serde_json::Value;
 use tracing::{Event, Level, Metadata, Subscriber};
+use tracing_log::NormalizeEvent;
 use tracing_subscriber::layer::{Context, Layer};
 
-/// Events record only while a recording runs: any recording-only category is on.
-const EVENT_CATEGORIES: u64 = category::RECORDING;
+/// Event instants: a recording-only category, so the black box never holds log noise. The catalog
+/// has no `log` category; `task` is the recording category of acpmux's tokio work.
+const EVENT_CATEGORY: u64 = category::TASK;
 /// Requests record in the black box too, as the daemon's do.
 const REQUEST_CATEGORY: u64 = category::DAEMON;
-/// The bit index of [`category::DAEMON`], for the name entries (trace.md "category bits").
-const DAEMON_BIT: u8 = category::DAEMON.trailing_zeros() as u8;
+
+/// The bit index of a category, for its name entries (trace.md "category bits").
+const fn bit(category: u64) -> u8 {
+    category.trailing_zeros() as u8
+}
 
 /// The async slice of one request: AB at dispatch, AE at the reply. arg0 is
 /// [`method_hash`] of the method, arg1 the slice id ([`request_slice_id`]).
-static REQUEST: InternedName = InternedName::new("acpmux.request", DAEMON_BIT);
+static REQUEST: InternedName = InternedName::new("acpmux.request", bit(REQUEST_CATEGORY));
 
-/// log2 of the callsites the layer names; past them, events of new callsites are not recorded.
+/// log2 of the `tracing` callsites the layer names; past them, events of new callsites are not
+/// recorded.
 const CALLSITE_BITS: u32 = 10;
-const CALLSITE_SLOTS: usize = 1 << CALLSITE_BITS;
-/// The longest probe for a callsite's slot.
+/// log2 of the `log` crate sites (target and line) the layer names.
+const LOG_SITE_BITS: u32 = 8;
+/// The longest probe for a key's slot.
 const MAX_PROBE: usize = 32;
 
 /// See the module text. Install it beside the log:
 /// `registry().with(filter).with(fmt::layer()).with(TraceLayer::new())`.
 pub struct TraceLayer {
-    callsites: Box<[CallsiteSlot]>,
-}
-
-/// One callsite's interned name: `key` is the address of its `'static` metadata (0 for a free slot),
-/// `name` its name once made (null while the thread that claimed the slot makes it).
-struct CallsiteSlot {
-    key: AtomicUsize,
-    name: AtomicPtr<InternedName>,
+    /// Keyed by the address of a callsite's `'static` metadata.
+    callsites: NameTable,
+    /// Keyed by [`log_site_key`] of a `log` record's target and line.
+    log_sites: NameTable,
 }
 
 impl Default for TraceLayer {
@@ -57,25 +64,53 @@ impl Default for TraceLayer {
 
 impl TraceLayer {
     pub fn new() -> Self {
-        let callsites = (0..CALLSITE_SLOTS)
-            .map(|_| CallsiteSlot {
-                key: AtomicUsize::new(0),
+        Self { callsites: NameTable::new(CALLSITE_BITS), log_sites: NameTable::new(LOG_SITE_BITS) }
+    }
+
+    /// The interned name of a `tracing` callsite, made at its first event while a recording runs.
+    fn name_of(&self, metadata: &'static Metadata<'static>) -> Option<&'static InternedName> {
+        let key = std::ptr::from_ref(metadata) as usize as u64;
+        self.callsites.name_of(key, || site_text(metadata.target(), metadata.line()))
+    }
+
+    /// The interned name of a `log` crate site (its record's target and line).
+    fn log_name_of(&self, target: &str, line: Option<u32>) -> Option<&'static InternedName> {
+        self.log_sites.name_of(log_site_key(target, line), || site_text(target, line))
+    }
+}
+
+/// A fixed, lock-free open-addressing table of interned names. A slot's `key` is 0 while free;
+/// its `name` is null while the thread that claimed the slot makes it.
+struct NameTable {
+    bits: u32,
+    slots: Box<[NameSlot]>,
+}
+
+struct NameSlot {
+    key: AtomicU64,
+    name: AtomicPtr<InternedName>,
+}
+
+impl NameTable {
+    fn new(bits: u32) -> Self {
+        let slots = (0..1usize << bits)
+            .map(|_| NameSlot {
+                key: AtomicU64::new(0),
                 name: AtomicPtr::new(std::ptr::null_mut()),
             })
             .collect();
-        Self { callsites }
+        Self { bits, slots }
     }
 
-    /// The interned name of the callsite of `metadata`, made at its first event while a recording
-    /// runs (the only allocation, once per callsite, leaked: a ring name lives for the process).
-    /// None while another thread makes it, or when the table has no slot for it.
-    fn name_of(&self, metadata: &'static Metadata<'static>) -> Option<&'static InternedName> {
-        let key = std::ptr::from_ref(metadata) as usize;
-        // Fibonacci hashing: the top bits of the address times 2^64 / phi.
-        let start =
-            key.wrapping_mul(0x9E37_79B9_7F4A_7C15_u64 as usize) >> (usize::BITS - CALLSITE_BITS);
+    /// The name of nonzero `key`, made from `text` at its first lookup (the only allocation, once
+    /// per key, leaked: a ring name lives for the process). None while another thread makes it,
+    /// or when the table has no slot for it.
+    fn name_of(&self, key: u64, text: impl FnOnce() -> String) -> Option<&'static InternedName> {
+        // Fibonacci hashing: the top bits of the key times 2^64 / phi.
+        let start = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - self.bits)) as usize;
+        let mask = self.slots.len() - 1;
         for probe in 0..MAX_PROBE {
-            let slot = &self.callsites[(start + probe) % CALLSITE_SLOTS];
+            let slot = &self.slots[(start + probe) & mask];
             let claimed = match slot.key.load(Ordering::Acquire) {
                 0 => slot
                     .key
@@ -84,8 +119,9 @@ impl TraceLayer {
                 current => current,
             };
             if claimed == 0 {
+                let text: &'static str = Box::leak(text().into_boxed_str());
                 let name: &'static InternedName =
-                    Box::leak(Box::new(InternedName::new(callsite_text(metadata), DAEMON_BIT)));
+                    Box::leak(Box::new(InternedName::new(text, bit(EVENT_CATEGORY))));
                 slot.name.store(std::ptr::from_ref(name).cast_mut(), Ordering::Release);
                 return Some(name);
             }
@@ -99,13 +135,18 @@ impl TraceLayer {
     }
 }
 
-/// `<target>:<line>`: the module path and line of a callsite (a ring name keeps 55 bytes).
-fn callsite_text(metadata: &'static Metadata<'static>) -> &'static str {
-    let text = match metadata.line() {
-        Some(line) => format!("{}:{line}", metadata.target()),
-        None => metadata.target().to_owned(),
-    };
-    Box::leak(text.into_boxed_str())
+/// `<target>:<line>`: the module path and line of a site (a ring name keeps 55 bytes).
+fn site_text(target: &str, line: Option<u32>) -> String {
+    match line {
+        Some(line) => format!("{target}:{line}"),
+        None => target.to_owned(),
+    }
+}
+
+/// The key of a `log` site: FNV-1a 64 of its target and line, never 0.
+fn log_site_key(target: &str, line: Option<u32>) -> u64 {
+    let hash = fnv1a(FNV_OFFSET, target.as_bytes());
+    fnv1a(hash, &line.map_or(u64::MAX, u64::from).to_le_bytes()).max(1)
 }
 
 /// arg0 of an event instant: 1 error, 2 warn, 3 info, 4 debug, 5 trace.
@@ -121,19 +162,23 @@ fn level_number(level: &Level) -> u64 {
 
 impl<S: Subscriber> Layer<S> for TraceLayer {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        if !cmux_trace::enabled(EVENT_CATEGORIES) {
+        if !cmux_trace::enabled(EVENT_CATEGORY) {
             return;
         }
         let metadata = event.metadata();
-        if let Some(name) = self.name_of(metadata) {
+        let name = match event.normalized_metadata() {
+            Some(log) => self.log_name_of(log.target(), log.line()),
+            None => self.name_of(metadata),
+        };
+        if let Some(name) = name {
             let level = level_number(metadata.level());
-            cmux_trace::write_interned(EVENT_CATEGORIES, name, Phase::Instant, 0, level, 0);
+            cmux_trace::write_interned(EVENT_CATEGORY, name, Phase::Instant, 0, level, 0);
         }
     }
 }
 
-/// An open request slice; dropping it (or [`RequestSlice::end`]) writes the end, on every path out
-/// of the request's task, a panic or a cancel included.
+/// An open request slice; dropping it writes the end, on every path out of the request's task, a
+/// panic or a cancel included.
 #[must_use = "the slice ends when this is dropped"]
 pub struct RequestSlice {
     /// 0 when the request was not recorded.
@@ -158,8 +203,11 @@ impl RequestSlice {
         Self { id }
     }
 
-    /// Ends the slice now (the reply is ready).
-    pub fn end(self) {}
+    /// `request` with this slice: it ends when the future completes or is dropped.
+    pub async fn wrap<F: Future>(self, request: F) -> F::Output {
+        let _slice = self;
+        request.await
+    }
 }
 
 impl Drop for RequestSlice {
@@ -242,5 +290,17 @@ mod tests {
         let first = layer.name_of(metadata).expect("a slot");
         let again = layer.name_of(metadata).expect("the same slot");
         assert!(std::ptr::eq(first, again));
+    }
+
+    #[test]
+    fn trace_layer_log_sites_are_named_by_target_and_line() {
+        let layer = TraceLayer::new();
+        let first = layer.log_name_of("rustls::conn", Some(10)).expect("a slot");
+        let again = layer.log_name_of("rustls::conn", Some(10)).expect("the same slot");
+        assert!(std::ptr::eq(first, again));
+        let other_line = layer.log_name_of("rustls::conn", Some(11)).expect("a slot");
+        let other_target = layer.log_name_of("notify::inotify", Some(10)).expect("a slot");
+        assert!(!std::ptr::eq(first, other_line));
+        assert!(!std::ptr::eq(first, other_target));
     }
 }

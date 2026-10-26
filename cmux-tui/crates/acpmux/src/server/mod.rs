@@ -1131,15 +1131,14 @@ async fn serve_connection_from(
                 let slice = crate::trace_layer::RequestSlice::begin(&conn.id, &id, &m);
                 let hub = hub.clone();
                 let conn = conn.clone();
-                tokio::spawn(async move {
+                tokio::spawn(slice.wrap(async move {
                     let _slot = slot;
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
                         Err(e) => Message::err(id, e),
                     });
-                    slice.end();
-                });
+                }));
             }
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
