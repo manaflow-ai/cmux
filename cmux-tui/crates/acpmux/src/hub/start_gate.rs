@@ -347,19 +347,24 @@ impl Hub {
     /// (`lifecycle.rs` `child_for`) starts (`web_modes::any_mode_for_web`).
     async fn runs_bridge(&self, s: &Session) -> bool {
         let meta = s.meta();
+        crate::web_modes::any_mode_for_web(&meta, self.profile_now(&meta).await.as_ref())
+    }
+
+    /// The profile session `m` would start from now, as a respawn resolves it
+    /// (`lifecycle.rs` `child_for`): its catalog harness or its folder profile.
+    async fn profile_now(&self, m: &crate::store::SessionMeta) -> Option<HarnessProfile> {
         let cfg = self.config.read().await;
-        crate::web_modes::any_mode_for_web(&meta, cfg.profile(&meta.harness))
+        super::resolve::session_profile(&cfg, &m.harness, &m.cwd, m.remote_origin).ok()
     }
 
     /// Whether session `m` may run the Codex bridge: as it was created (its
     /// recorded argv) or as its harness is configured now.
     async fn may_run_bridge(&self, m: &crate::store::SessionMeta) -> bool {
-        let now = || async {
-            let cfg = self.config.read().await;
-            cfg.profile(&m.harness)
+        crate::codex_app_server::is_profile_launch(&m.harness_argv)
+            || self
+                .profile_now(m)
+                .await
                 .is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
-        };
-        crate::codex_app_server::is_profile_launch(&m.harness_argv) || now().await
     }
 
     /// Whether a `session/new` keeps the harness's own start mode rather
