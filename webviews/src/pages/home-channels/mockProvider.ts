@@ -1034,7 +1034,9 @@ export class MockHomeProvider implements PageClient {
 
   /** Who has `conversation` open, as the owner's `conversation-presence` says (gallery `teammates`). */
   viewing(conversation: string, participants: readonly string[]): void {
-    this.emit({ presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }] });
+    this.emit({
+      presence: [{ conversation, participants: participants.map((participant) => ({ participant, viewing: true })) }],
+    });
   }
 
   /** A participant starts or stops typing (gallery `teammates`). */
