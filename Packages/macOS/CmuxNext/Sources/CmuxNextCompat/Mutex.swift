@@ -23,8 +23,9 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     ///
     /// In Debug and bench-checks builds (Nightly to come) a wait for the lock longer than
     /// ``BlockingKind/lockWaitLimitNanos`` on the main thread, or in a `BackgroundWork` lane item (a
-    /// ``BlockingContext/laneSync`` site), is recorded, with the wait as its time, by the blocking detector at the
-    /// caller's `fileID`:`line` (never a trap: the wait includes scheduling time).
+    /// ``BlockingContext/laneSync`` site; a ``BlockingContext/cpuLane`` one in a `.cpu` item), is recorded, with
+    /// the wait as its time, by the blocking detector at the caller's `fileID`:`line` (never a trap: the wait
+    /// includes scheduling time).
     ///
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site; leave the default).
@@ -58,22 +59,24 @@ extension Mutex: Sendable where Value: ~Copyable {}
 
 #if DEBUG || CMUX_BLOCKING_CHECKS
 /// The blocking detector watching one `withLock` call: it times a contended wait on the main thread or in a
-/// `BackgroundWork` lane item (Chrome's `ScopedDisallowBaseSyncPrimitives` covers a lock wait in a `MayBlock()`
-/// task too) with the active table's clock, and records a wait past ``BlockingKind/lockWaitLimitNanos`` at the
-/// caller's site once the lock is released. Waits on other threads are not timed.
+/// `BackgroundWork` lane item, `.cpu` included (Chrome's `ScopedDisallowBaseSyncPrimitives` covers a lock wait in
+/// a `MayBlock()` task too, and `ScopedDisallowBlocking` one in any other task) with the active table's clock, and
+/// records a wait past ``BlockingKind/lockWaitLimitNanos`` at the caller's site once the lock is released. Waits
+/// on other threads are not timed.
 struct LockWaitObserver: MutexWaitObserver {
-    /// A timed wait: the table and clock it uses, when it began, and whether the main thread waits.
+    /// A timed wait: the table and clock it uses, when it began, and where a long one is recorded
+    /// (``BlockingContext/main``, ``BlockingContext/laneSync`` or ``BlockingContext/cpuLane``).
     struct Wait {
         let table: BlockingViolationTable
         let start: UInt64
-        let onMain: Bool
+        let context: BlockingContext
     }
 
     /// A wait past the limit, reported once the lock is released.
     struct Report {
         let table: BlockingViolationTable
         let nanos: UInt64
-        let onMain: Bool
+        let context: BlockingContext
     }
 
     let fileID: StaticString
@@ -81,22 +84,22 @@ struct LockWaitObserver: MutexWaitObserver {
 
     func waitWillBegin() -> Wait? {
         let onMain = pthread_main_np() != 0
-        guard onMain || BlockingContext.isLaneThread() else { return nil }
+        guard let context = onMain ? BlockingContext.main : BlockingContext.laneLockWaitViolation() else { return nil }
         let table = BlockingViolationTable.active
-        return Wait(table: table, start: table.uptimeNanos(), onMain: onMain)
+        return Wait(table: table, start: table.uptimeNanos(), context: context)
     }
 
     func waitDidEnd(_ wait: Wait) -> Report? {
         let nanos = wait.table.uptimeNanos() &- wait.start
         guard nanos > wait.table.lockWaitLimitNanos else { return nil }
-        return Report(table: wait.table, nanos: nanos, onMain: wait.onMain)
+        return Report(table: wait.table, nanos: nanos, context: wait.context)
     }
 
     func lockReleased(_ report: Report) {
-        if report.onMain {
+        if report.context == .main {
             report.table.mainThreadWaitedForLock(fileID: fileID, line: line, nanos: report.nanos)
         } else {
-            report.table.laneWaitedForLock(fileID: fileID, line: line, nanos: report.nanos)
+            report.table.laneWaitedForLock(in: report.context, fileID: fileID, line: line, nanos: report.nanos)
         }
     }
 }

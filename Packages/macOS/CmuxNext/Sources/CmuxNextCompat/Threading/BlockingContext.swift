@@ -146,10 +146,16 @@ extension BlockingContext {
         }
     }
 
-    /// Whether the calling thread, which is not the main thread, runs a ``lane`` item now: a ``Mutex`` wait there
-    /// past ``BlockingKind/lockWaitLimitNanos`` is a ``laneSync`` site. One thread-specific read.
-    static func isLaneThread() -> Bool {
-        BlockingThreadFlags.load().mark == .lane
+    /// Where a ``Mutex`` wait past ``BlockingKind/lockWaitLimitNanos`` on the calling thread, which is not the
+    /// main thread, is recorded: ``laneSync`` in a ``lane`` item, ``cpuLane`` (as ``BlockingKind/wrongLane``, the
+    /// seam kind ``BlockingKind/lockWait``) in a `.cpu` lane item, as ``offMainViolation(_:)`` places every other
+    /// sync primitive there; nil anywhere else (the pool's lock waits are not timed). One thread-specific read.
+    static func laneLockWaitViolation() -> BlockingContext? {
+        switch BlockingThreadFlags.load().mark {
+        case .lane: .laneSync
+        case .cpuLane: .cpuLane
+        case .dedicated, nil: nil
+        }
     }
 
     /// The context of a thread that is not the main thread. A marked thread (a lane, an allowance, a named

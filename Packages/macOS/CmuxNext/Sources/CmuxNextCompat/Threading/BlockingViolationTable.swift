@@ -268,12 +268,13 @@ final class BlockingViolationTable: Sendable {
     }
 
     /// A lane item waited `nanos`, longer than ``lockWaitLimitNanos``, for a contended ``Mutex`` at the `withLock`
-    /// call `fileID`:`line`: a ``BlockingContext/laneSync`` ``BlockingKind/lockWait`` site with the wait as its
-    /// time (without time inside a timed call on the thread, which already counts it). Never a trap.
+    /// call `fileID`:`line`: a ``BlockingKind/lockWait`` site in `context` (``BlockingContext/laneSync``, or
+    /// ``BlockingContext/cpuLane`` as ``BlockingKind/wrongLane``) with the wait as its time (without time inside a
+    /// timed call on the thread, which already counts it). Never a trap.
     @inline(never)
-    func laneWaitedForLock(fileID: StaticString, line: UInt, nanos: UInt64) {
-        guard let site = recordedOffMainSite(.lockWait, in: .laneSync, fileID: fileID, line: line) else { return }
-        laneSync.counters.add(site: site, nanos: BlockingThreadFlags.load().timedCallOpen ? nil : nanos)
+    func laneWaitedForLock(in context: BlockingContext, fileID: StaticString, line: UInt, nanos: UInt64) {
+        guard let site = recordedOffMainSite(.lockWait, in: context, fileID: fileID, line: line) else { return }
+        offMainSites(context).counters.add(site: site, nanos: BlockingThreadFlags.load().timedCallOpen ? nil : nanos)
     }
 
     /// The off-main twin of ``recordedSite(_:fileID:line:)``: the site id of a call in `context`, or nil when it

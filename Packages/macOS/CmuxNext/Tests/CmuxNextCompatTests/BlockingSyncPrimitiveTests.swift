@@ -91,31 +91,31 @@ struct BlockingSyncPrimitiveTests {
     @Test(arguments: [true, false])
     func aLongMutexWaitOnALaneIsALaneSyncSite(pastTheLimit: Bool) async {
         let step = pastTheLimit ? BlockingKind.lockWaitLimitNanos + 1 : BlockingKind.lockWaitLimitNanos - 1
-        let clock = SyncStepClock(step: step)
-        let table = BlockingViolationTable(mode: .record, poolMode: .record, uptimeNanos: { clock.read() })
-        let shared = SyncSharedCount()
-        let held = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
-        clock.arm(release)
-        Thread {
-            shared.mutex.withLock { _ in
-                held.signal()
-                release.wait()
-            }
-        }.start()
-        await onQueue(.global(qos: .utility)) {
-            held.wait()  // the holder has the lock
-            BlockingViolationTable.$scoped.withValue(table) {
-                BlockingContext.runAsLane { shared.mutex.withLock { $0 += 1 } }
-            }
-        }
-        await table.flush()
+        let (sites, reads) = await contendedMutexWait(step: step) { body in BlockingContext.runAsLane(body) }
 
-        let sites = BlockingDetector(table: table).sites
-        #expect(clock.reads == 2)  // the wait was contended and timed
+        #expect(reads == 2)  // the wait was contended and timed
         if pastTheLimit {
             #expect(sites.map(\.context) == [.laneSync])
             #expect(sites.map(\.kind) == [.lockWait])
+            #expect(sites.map(\.totalNanos) == [step])
+        } else {
+            #expect(sites.isEmpty)
+        }
+    }
+
+    /// A `.cpu` lane item's `Mutex` wait past the limit is a `cpu-lane` `wrong-lane` site with seam kind
+    /// `lock-wait`, as its other sync primitives are; under the limit it is not.
+    @Test(arguments: [true, false])
+    func aLongMutexWaitOnTheCPULaneIsAWrongLaneSite(pastTheLimit: Bool) async {
+        let step = pastTheLimit ? BlockingKind.lockWaitLimitNanos + 1 : BlockingKind.lockWaitLimitNanos - 1
+        let (sites, reads) = await contendedMutexWait(step: step) { body in BlockingContext.runAsCPULane(body) }
+
+        #expect(reads == 2)  // the wait was contended and timed
+        if pastTheLimit {
+            #expect(sites.map(\.context) == [.cpuLane])
+            #expect(sites.map(\.kind) == [.wrongLane])
+            #expect(sites.map(\.seamKind) == [.lockWait])
+            #expect(sites.map(\.count) == [1])
             #expect(sites.map(\.totalNanos) == [step])
         } else {
             #expect(sites.isEmpty)
@@ -206,6 +206,33 @@ private nonisolated func laneSemaphoreWait() -> UInt {
     let line: UInt = #line + 1
     semaphore.blockingWait()
     return line
+}
+
+/// One contended `Mutex` wait inside `lane` (a lane mark) on a utility root queue, timed by a clock that moves
+/// `step` per read; returns the table's sites and the clock's reads.
+private nonisolated func contendedMutexWait(
+    step: UInt64, in lane: @escaping @Sendable (() -> Void) -> Void
+) async -> (sites: [BlockingSite], reads: Int) {
+    let clock = SyncStepClock(step: step)
+    let table = BlockingViolationTable(mode: .record, poolMode: .record, uptimeNanos: { clock.read() })
+    let shared = SyncSharedCount()
+    let held = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    clock.arm(release)
+    Thread {
+        shared.mutex.withLock { _ in
+            held.signal()
+            release.wait()
+        }
+    }.start()
+    await onQueue(.global(qos: .utility)) {
+        held.wait()  // the holder has the lock
+        BlockingViolationTable.$scoped.withValue(table) {
+            lane { shared.mutex.withLock { $0 += 1 } }
+        }
+    }
+    await table.flush()
+    return (BlockingDetector(table: table).sites, clock.reads)
 }
 
 /// A mutex threads can share (a `Mutex` is not copyable, so a closure cannot capture it).
