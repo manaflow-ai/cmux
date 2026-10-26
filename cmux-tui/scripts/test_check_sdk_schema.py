@@ -260,6 +260,23 @@ class SnifferNameTests(unittest.TestCase):
         )
         self.assertEqual({entry.module for entry in served.values()}, {"sniffer.rs"})
 
+    def test_route_names_are_served_names(self) -> None:
+        # A typed route handler compares no `cmd`: its route's names are what it serves.
+        source = (
+            'const COMMAND: &str = "by-const";\n'
+            "pub(in crate::server) const ROUTES: &[Route] = &[Route {\n"
+            "    names: &[\n"
+            "        RouteName::Exact(COMMAND),\n"
+            '        crate::server::routes::RouteName::Exact("literal"),\n'
+            '        RouteName::OneOf(&[COMMAND, "listed"]),\n'
+            '        RouteName::Prefix("family-"),\n'
+            "    ],\n"
+            "    stage: FrameStage::Route,\n"
+            "    entry: handle,\n"
+            "}];\n"
+        )
+        self.assertEqual(self.names(source), {"by-const", "literal", "listed"})
+
     def test_guard_arms_matches_and_command_expressions(self) -> None:
         self.assertEqual(
             self.names('fn f() { match cmd { "a" if ok => 1, "b" => 2, _ => 0 } }'), {"a", "b"}

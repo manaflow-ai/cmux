@@ -102,3 +102,35 @@ fn attach_rejects_mode_change_on_existing_read_only_observer() {
     }
     fake.no_frame();
 }
+
+/// The attach and observe routes are found by the line's decoded `cmd`, never by
+/// a substring of the raw line (p05-ipc-065): a `cmd` spelled with a JSON escape
+/// reaches their handlers, which answer that this daemon has no acpmux.
+#[test]
+fn an_escaped_agent_session_cmd_reaches_its_route() {
+    let mux = Mux::new_for_test("asa-escaped-cmd", crate::SurfaceOptions::default());
+    let (outbound, writer) = queued_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    // The JSON escape of `-`.
+    let dash = "\\u002d";
+    let lines = [
+        format!(r#"{{"id":1,"cmd":"agent-session{dash}observe","surface":1}}"#),
+        format!(r#"{{"id":2,"cmd":"agent{dash}session-detach","surface":1}}"#),
+        format!(r#"{{"id":3,"cmd":"agent-session{dash}attach","surface":1}}"#),
+    ];
+    for (index, line) in lines.iter().enumerate() {
+        assert!(handle_connection_frame(
+            &mux,
+            client,
+            ClientTransport::Unix,
+            line,
+            &writer,
+            &scheduler
+        ));
+        let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        assert_eq!(reply["id"], json!(index + 1), "{line}");
+        assert_code(&reply, "agent_session.unavailable");
+    }
+}

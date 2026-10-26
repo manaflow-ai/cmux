@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
@@ -29,7 +29,8 @@ pub(super) mod agent_session_start;
 mod agent_session_trust;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
-use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
@@ -440,31 +441,22 @@ impl Refusal {
 
 /// The `cmd` names this module answers (server/routes.rs).
 /// `agent-session-observe` has its own exact route (agent_session_observe.rs).
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Prefix("agent-session-")],
-        stage: crate::server::FrameStage::AgentSession,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("agent-session-")],
+    stage: FrameStage::AgentSession,
+    entry: handle,
+}];
 
-/// Handles an `agent-session-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here (they take
+/// The route's typed handler for an `agent-session-*` line of a local
+/// connection: the line's `cmd` named this family, so it decodes the line once
+/// and answers it. A line whose full decode fails is left to the `Command`
+/// parse (`None`). Remote-relay connections never get here (they take
 /// `remote_relay::handle_frame` first).
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-session-") {
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut object = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
+    let Some(Value::String(cmd)) = object.remove("cmd") else {
         return None;
-    }
-    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
-        return None;
-    };
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
-        _ => return None,
     };
     let id = object.remove("id");
     if cmd == "agent-session-start" {
@@ -510,7 +502,7 @@ fn start(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
-    params: serde_json::Map<String, Value>,
+    params: Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
     let Ok(params) =
@@ -532,7 +524,7 @@ fn trust(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
-    params: serde_json::Map<String, Value>,
+    params: Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
     let Ok(params) =
@@ -554,7 +546,7 @@ pub(super) fn routed_trust(
     mux: &Arc<Mux>,
     client: u64,
     operation: &str,
-    params: serde_json::Map<String, Value>,
+    params: Map<String, Value>,
 ) -> Result<agent_session_trust::RoutedJob, crate::resource::ResourceError> {
     agent_session_trust::routed(mux, client, operation, params)
 }
@@ -824,7 +816,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
-            let mut meta = serde_json::Map::new();
+            let mut meta = Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
             }
