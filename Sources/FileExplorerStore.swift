@@ -294,7 +294,30 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    // `-F`, `-J` and `ControlPath` of a plain `ssh` that Files follows, so
+    // probes reach the host the terminal reached.
+    let configFile: String?
+    let jumpHost: String?
+    let controlPath: String?
     let sshOptions: [String]
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        configFile: String? = nil,
+        jumpHost: String? = nil,
+        controlPath: String? = nil,
+        sshOptions: [String]
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.jumpHost = jumpHost
+        self.controlPath = controlPath
+        self.sshOptions = sshOptions
+    }
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
@@ -1031,18 +1054,24 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     // Probes reuse the workspace's master through its ControlPath and must
     // never become one, like cmux's other background ssh runs.
     static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        WorkspaceRemoteConfiguration(
+        // `-J` and `-S` have option forms; `-F` does not.
+        var sshOptions = connection.sshOptions
+        if let jumpHost = connection.jumpHost { sshOptions.append("ProxyJump=\(jumpHost)") }
+        if let controlPath = connection.controlPath { sshOptions.append("ControlPath=\(controlPath)") }
+        let arguments = WorkspaceRemoteConfiguration(
             destination: connection.destination,
             port: connection.port,
             identityFile: connection.identityFile,
-            sshOptions: connection.sshOptions,
+            sshOptions: sshOptions,
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: nil
-        ).batchSSHCommandArguments(command: command, effectiveSSHOptions: connection.sshOptions)
+        ).batchSSHCommandArguments(command: command, effectiveSSHOptions: sshOptions)
+        guard let configFile = connection.configFile else { return arguments }
+        return ["-F", configFile] + arguments
     }
 
     private static func runSSHListCommand(

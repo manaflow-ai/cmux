@@ -732,6 +732,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
         let remoteConnectionDetail: String?
         let remoteDaemonStatus: WorkspaceRemoteDaemonStatus?
         let activeRemoteTerminalSessionCount: Int
+        let title: String?
     }
 
     @Published private(set) var directoryChangeGeneration: UInt64 = 0
@@ -757,7 +758,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
                             remoteDaemonStatus: nil,
-                            activeRemoteTerminalSessionCount: 0
+                            activeRemoteTerminalSessionCount: 0,
+                            title: nil
                         )
                     )
                     .map { ($0, UInt64(0)) }
@@ -774,7 +776,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         workspace.$remoteDaemonStatus,
                         workspace.$activeRemoteTerminalSessionCount
                     )
-                    .map { values in
+                    .combineLatest(workspace.$title)
+                    .map { values, title in
                         let (
                             previousValues,
                             remoteDaemonStatus,
@@ -795,7 +798,8 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
                             remoteDaemonStatus: remoteDaemonStatus,
-                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount
+                            activeRemoteTerminalSessionCount: activeRemoteTerminalSessionCount,
+                            title: title
                         )
                     }
                     .combineLatest(directoryChangeRevision)

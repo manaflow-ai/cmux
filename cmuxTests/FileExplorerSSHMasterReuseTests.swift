@@ -34,6 +34,35 @@ struct FileExplorerSSHMasterReuseTests {
         try Self.expectReusesWorkspaceMasterWithoutBecomingOne(arguments)
     }
 
+    /// Files following a plain `ssh -F config -J gateway -S socket alias` must
+    /// reach the host the terminal reached.
+    @Test
+    func explorerProbeKeepsFollowedSessionConnectionFlags() throws {
+        let configURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-config-\(UUID().uuidString)")
+        try "Host alias\n    HostName real.example.com\n".write(to: configURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: configURL) }
+
+        let arguments = ProcessSSHFileExplorerTransport.sshArguments(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@alias",
+                port: nil,
+                identityFile: nil,
+                configFile: configURL.path,
+                jumpHost: "gateway.example.com",
+                controlPath: Self.workspaceControlPath,
+                sshOptions: []
+            ),
+            command: "ls -1paF '/home/dev'"
+        )
+
+        let configuration = try Self.effectiveSSHConfiguration(arguments)
+        #expect(configuration["hostname"] == "real.example.com", "\(arguments)")
+        #expect(configuration["proxyjump"] == "gateway.example.com", "\(arguments)")
+        #expect(configuration["controlpath"] == Self.workspaceControlPath, "\(arguments)")
+        #expect(configuration["controlmaster"] == "false", "\(arguments)")
+    }
+
     @Test
     func gitStatusProbeReusesWorkspaceMasterWithoutBecomingOne() throws {
         let directoryURL = FileManager.default.temporaryDirectory

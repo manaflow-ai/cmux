@@ -674,6 +674,39 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testRemoteWorkspaceRootExpandsHomeRelativeWorkingDirectory() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        transport.listings["/home/dev/project"] = .success([
+            FileExplorerEntry(name: "Package.swift", path: "/home/dev/project/Package.swift", isDirectory: false),
+        ])
+        let store = FileExplorerStore()
+
+        store.applyWorkspaceRoot(
+            .remoteSSH(
+                workspaceId: UUID(),
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                displayTarget: "dev@ubuntu-host",
+                rootPath: "~/project",
+                isAvailable: true,
+                unavailableDetail: nil
+            ),
+            sshTransport: transport
+        )
+
+        try await waitFor("home-relative cwd expanded and loaded") {
+            store.rootPath == "/home/dev/project" &&
+                store.rootNodes.map(\.name) == ["Package.swift"]
+        }
+
+        #expect(transport.listedPaths == ["/home/dev/project"])
+    }
+
+    @Test
     func testRemoteFilePreviewMaterializesThroughSSHProvider() async throws {
         let transport = MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
         transport.listings["/srv/app"] = .success([
