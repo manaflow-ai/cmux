@@ -104,6 +104,14 @@ public struct InputLatencyLedger: Sendable, Equatable {
 
     public init() {}
 
+    /// Starts every count over (`debug.input reset`). It keeps the producer's last drop total, so the
+    /// next batch adds only the slots lost after the reset.
+    public mutating func reset() {
+        let baseline = lastDroppedTotal
+        self = InputLatencyLedger()
+        lastDroppedTotal = baseline
+    }
+
     /// Counts `count` slots lost before the ledger saw them.
     public mutating func noteDropped(_ count: UInt64) {
         slotsDropped &+= count

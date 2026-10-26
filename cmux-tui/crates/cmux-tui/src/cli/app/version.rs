@@ -231,7 +231,7 @@ fn os_facts() -> Value {
     #[cfg(target_os = "macos")]
     {
         let sw_vers = |flag: &str| {
-            std::process::Command::new("/usr/bin/sw_vers")
+            cmux_process::Command::new("/usr/bin/sw_vers")
                 .arg(flag)
                 .output()
                 .ok()
