@@ -200,6 +200,7 @@ impl Hub {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
+        let no_queue = opts.no_queue;
         let mut on_accepted = self.with_host_pressure(opts.on_accepted);
         // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
         // is committed (queued, started, or steered in), never before a refusal.
@@ -255,11 +256,13 @@ impl Hub {
             control,
             trust_gate,
             interrupt: opts.interrupt,
+            interrupt_turn: opts.interrupt_turn.as_deref(),
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
             full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
+            no_queue: opts.no_queue,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -309,9 +312,14 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A subagent retry waits out Claude Code's own turn (`subagent_retry.rs`); a person's
+        // never waits: `start_turn` refuses it then.
+        if !no_queue {
+            self.hold_retry_start(session, &prompt_id).await;
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -424,7 +432,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
         let control = {
@@ -481,6 +489,11 @@ impl Hub {
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
+                // Before the failover is logged: a /context answer the old agent sends from here
+                // on is not logged after it as the fallback's.
+                if let Some(old) = session.child.lock().await.as_ref() {
+                    old.retire();
+                }
                 self.append(
                     session,
                     "mux",
@@ -494,7 +507,14 @@ impl Hub {
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
-                session.meta.lock().unwrap().harness = to.clone();
+                {
+                    let mut m = session.meta.lock().unwrap();
+                    m.harness = to.clone();
+                    // The last harness's /context breakdown is not the fallback's, nor its
+                    // account's usage limits.
+                    m.context_breakdown = None;
+                    m.usage_limits = None;
+                }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
                 let fallback = self.child_for(session).await;
@@ -621,18 +641,16 @@ impl Hub {
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
-        if let Err(e) = &mut result {
-            let bare = e.message == "agent process closed"
-                || e.message == "Internal error"
-                || (e.code == -32603 && e.message.len() < 40);
-            if bare {
-                let tail: Vec<String> =
-                    session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
-                    let agent = session.meta().harness;
-                    e.message = format!("{} ({agent}): {last}", e.message);
-                }
+        // Before the message gains the stderr line: `recovery::annotate_as` below types it.
+        let dead = matches!(&result, Err(e) if crate::recovery::dead_process(e));
+        if let Err(e) = &mut result
+            && dead
+        {
+            let tail: Vec<String> = session.stderr_tail.lock().unwrap().iter().cloned().collect();
+            // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+            if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
+                let agent = session.meta().harness;
+                e.message = format!("{} ({agent}): {last}", e.message);
             }
         }
         // A harness that reported a terminal error in-band (Codex
@@ -668,11 +686,13 @@ impl Hub {
         };
         // A Claude agent that is not signed in: say what it had, how the
         // person's terminal signs in, and the fix (`claude_auth.rs`).
+        let mut signed_out = false;
         if let Err(e) = &mut result
             && let Some(text) = crate::claude_auth::explain(&session.id, &e.message)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
             e.message = text;
+            signed_out = true;
         }
         if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
             match &mut e.data {
@@ -680,6 +700,11 @@ impl Hub {
                 None => e.data = Some(Value::Object(info.clone())),
                 Some(_) => {}
             }
+        }
+        // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
+        // that exited, a harness that cannot start. A sign-in failure already says its fix.
+        if let Err(e) = &mut result {
+            crate::recovery::annotate_as(e, Some(&session.meta().cwd), dead && !signed_out);
         }
         let git = super::turn_git::turn_git(session).await;
         match &result {
@@ -710,12 +735,11 @@ impl Hub {
                 }
             }
             Err(e) => {
-                self.append(
-                    session,
-                    "mux",
-                    "turn_error",
-                    json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
-                );
+                let mut record = json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq});
+                if let Some(o) = record.as_object_mut() {
+                    o.extend(crate::recovery::fields(e));
+                }
+                self.append(session, "mux", "turn_error", record);
                 self.note_model_refusal(session, &e.message);
                 if !detached {
                     self.pause_queue(session, turn_id);
@@ -728,6 +752,7 @@ impl Hub {
                     if let Some(Value::Object(info)) = &route_info {
                         o.extend(info.clone());
                     }
+                    o.extend(crate::recovery::fields(e));
                     // Ended by acpmux, not the agent (`stalled_turn.rs`).
                     if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
                         o.insert("detail".into(), data["detail"].clone());
@@ -807,16 +832,22 @@ impl Hub {
         e: &RpcError,
     ) {
         *session.turn.lock().unwrap() = None;
-        self.append(
-            session,
-            "mux",
-            "turn_error",
-            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
-        );
+        let mut e = e.clone();
+        crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
+        let typed = crate::recovery::fields(&e);
+        let mut record =
+            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0});
+        if let Some(o) = record.as_object_mut() {
+            o.extend(typed.clone());
+        }
+        self.append(session, "mux", "turn_error", record);
         self.pause_queue(session, turn_id);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
-        let msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        if let Some(o) = msg.as_object_mut() {
+            o.extend(typed);
+        }
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
@@ -907,6 +938,12 @@ impl Hub {
         let asked_mode = (m == method::SESSION_SET_MODE)
             .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
             .flatten();
+        // A mode picked through the harness's `mode` option (Claude Code's, or a harness whose
+        // mode is only that option).
+        let asked_option_mode = (m == method::SESSION_SET_CONFIG_OPTION
+            && params.get("configId").and_then(Value::as_str) == Some("mode"))
+        .then(|| params.get("value").and_then(Value::as_str).map(str::to_owned))
+        .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -927,15 +964,38 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
-                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
-                    asked_mode;
-                if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
+                // The mode first, then the mark, under the lock, only while the chat runs it:
+                // a write that moves the mode takes the mark (`write_mode_state`).
+                let reported = res.get("currentModeId").or(res.get("modeId")).cloned();
+                if let Some(mode) = reported.or_else(|| asked_mode.clone().map(Value::String)) {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
+                }
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                if asked_mode.is_some() && crate::web_modes::mode_of(&meta) == asked_mode {
+                    meta.mode_set_by_cmux = asked_mode;
                 }
             }
             method::SESSION_SET_CONFIG_OPTION => {
+                let mut writes = Vec::new();
                 if let Some(opts) = res.get("configOptions") {
-                    self.write_mode_state(session, [ModeWrite::ConfigOptions(opts.clone())]);
+                    writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                }
+                // Claude Code answers a `mode` option with the mode it now runs.
+                if asked_option_mode.is_some()
+                    && let Some(mode) = res.get("currentModeId").cloned()
+                {
+                    writes.push(ModeWrite::CurrentMode(mode));
+                }
+                if !writes.is_empty() {
+                    self.write_mode_state(session, writes);
+                }
+                // A mode picked through its option is cmux's as a `set_mode` one is, once the
+                // harness runs it (`trust_wait.rs` `full_access_by_cmux`).
+                if let Some(mode) = asked_option_mode {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if crate::web_modes::mode_of(&meta).as_deref() == Some(mode.as_str()) {
+                        meta.mode_set_by_cmux = Some(mode);
+                    }
                 }
             }
             method::SESSION_SET_MODEL => {
@@ -1124,6 +1184,7 @@ impl Hub {
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
+        self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
@@ -1149,9 +1210,12 @@ impl Hub {
         // Before the close's event, which sends the cards it owes (`tasks.rs`).
         self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
+        // A lane link either end of which closes is retired (`lane_reports.rs`).
+        self.lane_retire(&session.id);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
+            super::watches::before_purge(self, &session.id).await?;
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);

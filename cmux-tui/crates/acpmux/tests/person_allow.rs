@@ -1368,3 +1368,143 @@ async fn a_phones_signed_answer_covers_exactly_its_answers() {
     phone.ok("_acpmux/permission_respond", answer).await;
     assert_eq!(turn_said(&mut phone, rid).await, r#"chose allow_once {"Which one?": "B"}"#);
 }
+
+/// The decision proof of a relayed answer to a question (cmux NEXT's pane, a chat on another
+/// machine): as [`decision_proof`] under "acpmux-person-decision-answers-v1", with the
+/// sha256 of the canonical answers JSON (`approvers::answers_digest`) as a sixth part, and the
+/// sha256 of the canonical annotations JSON as a seventh when the answer has annotations.
+fn decision_answers_proof(
+    key: &str,
+    parts: [&str; 5],
+    canonical_answers: &str,
+    canonical_annotations: Option<&str>,
+) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    use sha2::Digest;
+    let key = unhex::<32>(key).unwrap();
+    let digest = |text: &str| hex_of(&sha2::Sha256::digest(text.as_bytes()));
+    let digests: Vec<String> = [Some(canonical_answers), canonical_annotations]
+        .into_iter()
+        .flatten()
+        .map(digest)
+        .collect();
+    let mut message = b"acpmux-person-decision-answers-v1".to_vec();
+    for part in parts.into_iter().chain(digests.iter().map(String::as_str)) {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    hex(&hmac_sha256(&key, &message))
+}
+
+/// Leo 2026-10-21: answering an agent's question in the app's pane, for a chat on an ssh peer,
+/// was refused as "accepted only from the cmux app". A relayed answer counts with the person's
+/// decision proof over exactly its answers; a proof that covers no answers, or other answers,
+/// counts nothing and the question stays pending.
+#[tokio::test]
+async fn a_relayed_answer_counts_with_the_persons_proof_over_exactly_its_answers() {
+    let d = Daemon::start("decans", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "question: Which one?")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let answered = |proof: &str, answers: Value| {
+        let mut frame = decided(&id, &pid, "allow_once", &nonce, proof);
+        frame["answers"] = answers;
+        frame
+    };
+    let parts = [instance.as_str(), id.as_str(), pid.as_str(), "allow_once", nonce.as_str()];
+
+    let covers_none = decision_proof(KEY, &instance, &id, &pid, "allow_once", &nonce);
+    let r = relay
+        .call("_acpmux/permission_respond", answered(&covers_none, json!({"Which one?": "B"})))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let for_b = decision_answers_proof(KEY, parts, r#"{"Which one?":"B"}"#, None);
+    let r = relay
+        .call("_acpmux/permission_respond", answered(&for_b, json!({"Which one?": "A"})))
+        .await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+
+    relay.ok("_acpmux/permission_respond", answered(&for_b, json!({"Which one?": "B"}))).await;
+    assert_eq!(turn_said(&mut relay, rid).await, r#"chose allow_once {"Which one?": "B"}"#);
+}
+
+/// The answers proof's bytes, as the Mac app computes them too
+/// (`AcpmuxPersonKeyAnswersProofTests`): key order by bytes, escapes as `approvers::canonical_json`.
+#[test]
+fn the_answers_decision_proof_matches_the_apps_vector() {
+    let answers = json!({"Which one?": "B", "Pick a color\n(one)": ["red", "blue"], "é": "\u{1}"});
+    let proof = acpmux::hub::person::decision_answers_proof(
+        KEY,
+        "0123456789abcdef",
+        "sess-1",
+        "perm-1",
+        "allow_once",
+        "nonce-1",
+        &answers,
+        None,
+    );
+    assert_eq!(
+        proof.as_deref(),
+        Some("3b11c2af201d95772c106a4c8463a54b94e615f85e88eac0700f7d657c24f0e9")
+    );
+    // With annotations (a preview with a line break and a character past the BMP).
+    let annotations = json!({"Which one?": {"preview": "[ B ]\n\u{1F600}", "notes": "n"}});
+    let proof = acpmux::hub::person::decision_answers_proof(
+        KEY,
+        "0123456789abcdef",
+        "sess-1",
+        "perm-1",
+        "allow_once",
+        "nonce-1",
+        &answers,
+        Some(&annotations),
+    );
+    assert_eq!(
+        proof.as_deref(),
+        Some("03512f50a44821e899adf320ffd8babf9fc9a34c105e62b4861103c901da6992")
+    );
+}
+
+/// #24356's chosen preview and notes, answered in the pane for a chat on another machine: they
+/// count only under the person's proof over exactly those annotations. A proof over the answers
+/// alone or a proof over other notes counts nothing and the question stays pending; the agent
+/// gets them only from the proved answer.
+#[tokio::test]
+async fn a_relayed_answers_annotations_count_only_under_the_persons_proof_over_them() {
+    let d = Daemon::start("decnotes", Some(KEY));
+    let mut relay = Rpc::connect(&d.socket).await;
+    let id = new_session(&mut relay, &d).await;
+    let rid = relay.send("session/prompt", prompt(&id, "preview-question: Which layout?")).await;
+    let pending = relay.note("_acpmux/permission_pending", |_| true).await;
+    let pid = pending["permissionId"].as_str().unwrap().to_owned();
+    let nonce = pending["decisionNonce"].as_str().unwrap().to_owned();
+    let instance = pending["personInstance"].as_str().unwrap().to_owned();
+    let answered = |proof: &str, notes: &str| {
+        let mut frame = decided(&id, &pid, "allow_once", &nonce, proof);
+        frame["answers"] = json!({"Which layout?": "B"});
+        frame["annotations"] = json!({"Which layout?": {"preview": "[ B ]", "notes": notes}});
+        frame
+    };
+    let parts = [instance.as_str(), id.as_str(), pid.as_str(), "allow_once", nonce.as_str()];
+    let answers = r#"{"Which layout?":"B"}"#;
+    let narrower = r#"{"Which layout?":{"notes":"but narrower","preview":"[ B ]"}}"#;
+
+    let answers_only = decision_answers_proof(KEY, parts, answers, None);
+    let r = relay.call("_acpmux/permission_respond", answered(&answers_only, "but narrower")).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    let for_narrower = decision_answers_proof(KEY, parts, answers, Some(narrower));
+    let r = relay.call("_acpmux/permission_respond", answered(&for_narrower, "but wider")).await;
+    assert_eq!(reason(&r), REASON, "{r}");
+    assert_eq!(pending_ids(&mut relay, &id).await, vec![pid.clone()]);
+
+    relay.ok("_acpmux/permission_respond", answered(&for_narrower, "but narrower")).await;
+    assert_eq!(
+        turn_said(&mut relay, rid).await,
+        r#"got {"annotations": {"Which layout?": {"notes": "but narrower", "preview": "[ B ]\n"}}, "answers": {"Which layout?": "B"}}"#
+    );
+}

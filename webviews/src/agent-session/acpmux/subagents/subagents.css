@@ -430,14 +430,43 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   line-height: 18px;
 }
-/* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
+/* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
+   the top"): the header and View all are pinned, and only the list between them scrolls. In a
+   short pane the list gives up its height first, down to nothing; the header never does. */
+.acpmux-running-tray {
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-running-tray__head,
+.acpmux-running-tray__finished {
+  flex: none;
+}
+/* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
+   the stack never scrolls the transcript. */
 .acpmux-running-tray__list {
-  max-height: calc(5 * 28px);
+  --acpmux-tray-lines: 5;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(var(--acpmux-tray-lines) * 28px);
   margin: 0;
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
+}
+.acpmux-running-tray[data-look="tall"] .acpmux-running-tray__list {
+  --acpmux-tray-lines: 8;
+}
+/* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
+.acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+.acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
+  color: var(--agent-muted);
+}
+/* View all under the list's last line, across the tray's width, with its own divider. */
+.acpmux-running-tray__list + .acpmux-running-tray__finished {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 .acpmux-running-tray__head > svg {
   flex: none;

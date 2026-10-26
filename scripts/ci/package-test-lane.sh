@@ -727,7 +727,13 @@ run_suite() {
   fi
   # One build serves every suite. Each suite runs in its own `swift test` so the
   # summary has a result per suite and one failure does not hide the others.
-  local log filter status started result failed=0 first_failure_status=0 rows=()
+  # A suite none of whose tests ran (a trait skipped them: no display, no
+  # pasteboard) reads "skipped", never "passed": Swift Testing's own summary
+  # counts skipped tests, so a headless worker printed "passed" for suites
+  # that never ran (aws-m4pro-6, 2026-10-26). CMUX_TEST_REQUIRE_GUI=1 (a job
+  # that asked for a GUI session) fails on any skip.
+  local log filter status started result failed=0 skipped_suites=0 first_failure_status=0 rows=()
+  local ran skipped reason
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -741,21 +747,45 @@ run_suite() {
     if toolchain_mismatch "$log" "$filter in $suite_package"; then
       [ "$status" -ne 0 ] || status=1
     elif [ "$status" -eq 0 ]; then
-      python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
+      python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
+    ran=0 skipped=0
     if [ "$status" -eq 0 ]; then
+      read -r ran skipped < "$log.skips"
+      if [ "$skipped" -gt 0 ]; then
+        while IFS= read -r reason; do
+          echo "$filter: skipped $reason"
+        done < <(tail -n +2 "$log.skips")
+      fi
+      if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
+        status=1
+      fi
+    fi
+    rm -f "$log.skips"
+    if [ "$status" -eq 0 ] && [ "$ran" -eq 0 ]; then
+      result=skipped
+      skipped_suites=$((skipped_suites + 1))
+      echo "::warning title=Swift suite skipped::$filter in $suite_package: none of its $skipped tests ran (skipped)"
+    elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+      result="passed, $skipped skipped"
+    elif [ "$status" -eq 0 ]; then
       result=passed
+    elif [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
+      failed=$((failed + 1))
+      [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
+      result="failed ($skipped skipped)"
+      echo "::error title=Swift suite skipped::$filter in $suite_package: $skipped tests skipped with CMUX_TEST_REQUIRE_GUI=1"
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
       if [ "$status" -eq 124 ]; then result="stalled/timeout"; else result="failed (exit $status)"; fi
       echo "::error title=Swift suite failed::$filter in $suite_package: $result after $((SECONDS - started))s"
     fi
-    rows+=("$(printf '%-48s %-18s %6ss' "$filter" "$result" "$((SECONDS - started))")")
+    rows+=("$(printf '%-48s %-24s %6ss' "$filter" "$result" "$((SECONDS - started))")")
   done
   local table
-  table="$(printf '%-48s %-18s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
+  table="$(printf '%-48s %-24s %7s\n' suite result time; printf '%s\n' "${rows[@]}")"
   printf 'Swift suite results (%s):\n%s\n' "$suite_package" "$table"
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     printf '### Swift suites (%s)\n\n```\n%s\n```\n' "$suite_package" "$table" >> "$GITHUB_STEP_SUMMARY"
@@ -763,6 +793,10 @@ run_suite() {
   if [ "$failed" -ne 0 ]; then
     echo "$failed of ${#suite_filters[@]} suites failed."
     exit "$first_failure_status"
+  fi
+  if [ "$skipped_suites" -ne 0 ]; then
+    echo "$((${#suite_filters[@]} - skipped_suites)) of ${#suite_filters[@]} suites passed; $skipped_suites skipped (none of their tests ran)."
+    return 0
   fi
   echo "All ${#suite_filters[@]} suites passed."
 }

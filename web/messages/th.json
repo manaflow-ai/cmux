@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "ต้องใช้ cmux Pro",
-      "message": "Cloud VM ต้องใช้แผน cmux Pro",
-      "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+      "title": "ต้องใช้ cmux {plan}",
+      "message": "Cloud VM ต้องใช้แผน cmux {plan}",
+      "action": "อัปเกรดเป็น cmux {plan} ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
     },
     "displayName": {
       "title": "ชื่อเครื่องไม่ถูกต้อง",

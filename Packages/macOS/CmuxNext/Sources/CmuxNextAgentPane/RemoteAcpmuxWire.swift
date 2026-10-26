@@ -11,7 +11,9 @@ import os
 /// one session and the chats it started there, `agent-session-children-v1`, read-only), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
-/// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
+/// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
+/// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
+/// an observer never types). Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
 /// machine changes a mode, reads a folder or spawns a process from here.
 ///
@@ -114,6 +116,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/typing":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let on = params["on"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.typing(on); return Data("{}".utf8) }
+        case "_acpmux/view":
+            guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
@@ -311,6 +320,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 Self.noteLinks([session])
             }
             notify("_acpmux/session_changed", change)
+        case .presence(let data):
+            // Only this chat's set (the daemon streams no other's).
+            guard let presence = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  names(presence["sessionId"]) else { return }
+            notify("_acpmux/presence", presence)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
             // The page reconnects (a fresh wire and daemon connection) and replays from the
