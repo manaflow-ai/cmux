@@ -22,7 +22,11 @@ git status --porcelain --untracked-files=no | grep -q . && die "tracked source c
 HEAD_SHA="$(git rev-parse HEAD)" || die "cannot resolve HEAD"
 HEAD_TREE="$(git rev-parse 'HEAD^{tree}')" || die "cannot resolve HEAD tree"
 echo "NATIVE_FADE_PREFLIGHT head=$HEAD_SHA tree=$HEAD_TREE"
-python3 - "$HEAD_SHA" <<'PY_FETCH'
+# Measure workers use detached source checkouts without a configured remote. The
+# published ref already contains the commits needed for this source fence, so
+# fetch when origin exists and continue from the verified objects otherwise.
+if git remote get-url origin >/dev/null 2>&1; then
+  if ! python3 - "$HEAD_SHA" <<'PY_FETCH'
 import subprocess
 import sys
 
@@ -37,7 +41,12 @@ except subprocess.TimeoutExpired:
     raise SystemExit("bounded source fetch timed out after 150 seconds")
 raise SystemExit(result.returncode)
 PY_FETCH
-[ $? -eq 0 ] || die "bounded source fetch failed"
+  then
+    die "bounded source fetch failed"
+  fi
+else
+  echo "NATIVE_FADE_FETCH_SKIPPED no-origin"
+fi
 FIXED_BLOB="$(git rev-parse "$HEAD_SHA:$PRODUCT_PATH")" || die "product path missing"
 [ "$FIXED_BLOB" = "$EXPECTED_FIXED_BLOB" ] || die "final product blob mismatch expected=$EXPECTED_FIXED_BLOB actual=$FIXED_BLOB"
 [ "$(git rev-parse "$HEAD_SHA:$REGRESSION_PATH")" = "$EXPECTED_RED_TEST_BLOB" ] || die "final regression test blob changed"
