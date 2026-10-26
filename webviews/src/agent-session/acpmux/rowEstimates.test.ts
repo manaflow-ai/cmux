@@ -270,10 +270,7 @@ test("another agent's message is its 26px line in 2px margins, its card cut to e
   const [short] = heightsOf([row("Draft is up.")]);
   expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
   // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
-  const rows = [
-    row(Array.from({ length: 40 }, (_, i) => `Line ${i} of the report.`).join("\n")),
-    reply("after", "Ready."),
-  ];
+  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
   const estimated = layoutConversation(rows as never, 720);
   const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
   const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));

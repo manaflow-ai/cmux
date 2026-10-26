@@ -6,9 +6,8 @@
 // BE ABLE TO CLICK ON THESE TO ACTUALLY GO TO THEM"), its tooltip naming the chat and that machine
 // ("Open chief-ui (huge-blue)"). The message is a
 // muted glass card under the line, its text drawn as Markdown with PR, issue and file references
-// linked, cut between whole lines within its first eight (`RECEIVED_LINES`; lineCut.ts, never through
-// a glyph or a chip) when it is longer, with Show more under it; Show more, the line's chevron, or a
-// click on the cut card opens it whole, with the prompt as the agent got it
+// linked, cut between whole lines within `RECEIVED_LINES` (lineCut.ts), with Show more below.
+// Show more, the chevron, or a click on the cut card opens it whole, with the original prompt
 // (cmux's or Claude Code's envelope) behind Details under it. Whether it is open lasts while the
 // page does, so scrolling it out of the virtualized transcript keeps it. A sub-session family's
 // sender reads with who it is to this chat: "Parent · coordinator". Reply, at the line's end,
@@ -133,8 +132,7 @@ export function IncomingMessageLine({
   // cmux's Minimal Mode, which the chat follows (chatDisplay.ts).
   const { minimal } = useChatDisplay();
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
-  // Whether the text runs past `RECEIVED_LINES`, measured as drawn (its width and font decide), and
-  // where it is cut then: above the first line, chip or code that would cross the eighth line's end.
+  // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
   const textBox = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [cutAt, setCutAt] = useState<number>();

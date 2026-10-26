@@ -2156,8 +2156,7 @@ pre.cv-math-source {
 /* A message to another agent (MessageCard.tsx) is the shared agent message row
    (AgentMessageRow.css). Opened, its text grows in place under the line, at the line's text
    indent and with no box around it (Leo 2026-10-21: "a full bordered box for a 2-line message"
-   is heavy): only the message, cut between whole lines within its first eight (20px each;
-   lineCut.ts sets the measured cut inline), with Show more under it, never a fade. */
+   is heavy): whole lines within eight lines (lineCut.ts), then Show more. */
 .cv-message > .cv-agentmsg__card {
   margin: 0 0 6px 22.5px;
   padding: 0;
@@ -2319,10 +2318,8 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* A long message, closed: cut between whole lines within its first eight (IncomingMessageCard.tsx
-   RECEIVED_LINES; the measured cut, lineCut.ts, sets a lower max-height inline), never through a
-   glyph or a chip and never under a fade, with Show more under it; a click opens it.
-   model.ts estimates the same height: change them together. */
+/* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
+   opens it. model.ts estimates the text plus the control's 24px. */
 .cv-received__body[data-cut] {
   cursor: pointer;
 }

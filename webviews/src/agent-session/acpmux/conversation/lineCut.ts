@@ -35,7 +35,10 @@ export function wholeLineCut(box: HTMLElement, limit: number): number {
     range.selectNodeContents(node);
     add(range.getClientRects());
   }
-  for (const element of box.querySelectorAll("img, svg, video, canvas, code, kbd, button, input, tr, .cv-chip"))
+  // Code-card host bounds include both the header and the body inside any shadow root.
+  for (const element of box.querySelectorAll(
+    "img, svg, video, canvas, code, kbd, button, input, tr, .cv-chip, .cv-codeblock, diffs-container",
+  ))
     add(element.getClientRects());
   return cutBetween(spans, limit);
 }
