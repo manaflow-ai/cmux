@@ -790,7 +790,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPhoneTests",
-            dependencies: ["CmuxNextPhone", "CmuxNextCompat"],
+            dependencies: ["CmuxNextPhone", "CmuxNextCompat", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             resources: [.copy("Fixtures")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1165,7 +1165,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextRemoteView", "CmuxNextTrace", "CmuxNextMetrics", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -2023,6 +2023,8 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Seeded property tests (test targets only): p10-stability-016.
+        .package(path: "../../Shared/CmuxFuzzSupport"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
