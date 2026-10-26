@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -121,6 +122,7 @@ final class AppControl {
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
+        service.router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap)]).method])
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
