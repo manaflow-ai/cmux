@@ -242,6 +242,7 @@ final class CloudStartSessionRuns {
         run.waiters[caller] = (continuation, forgotten)
         // task-owner: this caller's answer deadline; cancelled below once the run ends first.
         let deadline = Task { @MainActor [sleep] in
+            // wakeup-allow: one-shot answer deadline of one caller; cancelled when its run ends first
             await sleep(within)
             continuation.yield(nil)
         }
