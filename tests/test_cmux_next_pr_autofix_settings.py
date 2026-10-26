@@ -161,16 +161,34 @@ class ExportGuardBehavior(unittest.TestCase):
 
     def test_successful_changed_exports_upload_and_advertise_the_artifact(self):
         for actions, settings in (("true", "false"), ("false", "true"), ("true", "true")):
-            with self.subTest(actions=actions, settings=settings):
-                result, outputs, upload = self.guard(
-                    actions=actions, settings=settings,
-                    action_outcome="success" if actions == "true" else "skipped",
-                    settings_outcome="success" if settings == "true" else "skipped",
-                    action_exports="true" if actions == "true" else "",
-                    settings_exports="true" if settings == "true" else "", artifact="file")
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertTrue(upload)
-                self.assertTrue(outputs["exports"])
+            for action_changed, settings_changed in ((True, False), (False, True), (True, True)):
+                if (action_changed and actions != "true") or (settings_changed and settings != "true"):
+                    continue
+                with self.subTest(actions=actions, settings=settings, changed=(action_changed, settings_changed)):
+                    result, outputs, upload = self.guard(
+                        actions=actions, settings=settings,
+                        action_outcome="success" if actions == "true" else "skipped",
+                        settings_outcome="success" if settings == "true" else "skipped",
+                        action_exports="true" if action_changed else "",
+                        settings_exports="true" if settings_changed else "", artifact="file")
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertTrue(upload)
+                    self.assertEqual(outputs, {"exports": True, "verified": actions == "true",
+                                               "settings-verified": settings == "true"})
+
+    def test_failed_settings_export_captures_its_missing_input_from_stderr(self):
+        regenerate = step(PR, "action-exports", "Regenerate the settings exports")
+        missing = "schemas/settings-export/" + "settings-schema.sources.sha256"
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            exporter = temp / "autofix/scripts/cmux-next/regenerate-settings-exports.sh"
+            exporter.parent.mkdir(parents=True)
+            exporter.write_text(f"#!/usr/bin/env bash\necho '::error::{missing} missing' >&2\nexit 1\n")
+            exporter.chmod(0o755)
+            result = run_step(regenerate["run"], temp,
+                              {"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(temp / "output")})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(missing, (temp / "settings-exports.txt").read_text())
 
     def test_advertised_exports_with_missing_or_empty_artifact_fail(self):
         for artifact in ("missing", "empty"):
