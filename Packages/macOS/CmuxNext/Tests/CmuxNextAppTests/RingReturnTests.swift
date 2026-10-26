@@ -1,5 +1,6 @@
 import CmuxNextSettings
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxUpdater
 import Foundation
 import Testing
@@ -89,7 +90,8 @@ import Testing
                                            hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: StaticFeed(xml: feed), architecture: .arm64),
-                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.follow(ring: "nightly")
         #expect(!updater.isProbing)
