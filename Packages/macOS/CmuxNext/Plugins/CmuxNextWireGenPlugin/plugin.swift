@@ -1,9 +1,11 @@
 // Runs CmuxNextWireGen for the target that uses this plugin, with the schema files as declared
 // inputs and its outputs in the plugin work directory (plans/cmux-next/chrome-parity/p05-ipc.md
-// section 3.3, task 027). CmuxNextIPC gets its wire bindings from cmux-tui/spec; CmuxNextIPCTests
-// gets the fixture schema's `DaemonWireEvent` (task 022), so the emitted event decode is compiled
-// and tested on every build. A build command, not a prebuild command: the build system reruns it
-// only when an input changes, so a leaf Swift edit never regenerates. Nothing it writes is in git.
+// section 3.3, task 027). CmuxNextIPC gets its wire bindings from cmux-tui/spec;
+// CmuxNextIPCTestSupport gets the fixture schema's `DaemonWireEvent` (task 022), so the emitted
+// event decode is compiled and tested (CmuxNextIPCTests) on every build. Apply it to regular
+// targets only: a test product links the executables its test targets reach, the host tool too.
+// A build command, not a prebuild command: the build system reruns it only when an input
+// changes, so a leaf Swift edit never regenerates. Nothing it writes is in git.
 
 import Foundation
 import PackagePlugin
@@ -17,7 +19,7 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
             .standardizedFileURL
         let tool = try context.tool(named: "CmuxNextWireGen")
         let work = context.pluginWorkDirectoryURL
-        if target.name == "CmuxNextIPCTests" {
+        if target.name == "CmuxNextIPCTestSupport" {
             return [Self.fixtureEvents(tool: tool.url, spec: spec, work: work, target: target.name)]
         }
         return [try Self.schemaBindings(tool: tool.url, spec: spec, work: work, target: target.name)]

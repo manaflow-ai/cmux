@@ -1545,9 +1545,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "Atomics", package: "swift-atomics"),
                 // FrameFuzzTests runs on FuzzRun (seeded replay, long mode).
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
+                // The fixture schema's generated DaemonWireEvent, which WireEventSetTests decodes with.
+                "CmuxNextIPCTestSupport",
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The fixture schema's DaemonWireEvent, built by CmuxNextWireGenPlugin, and its payload types;
+        // test targets only. A regular target, not the test target, applies the plugin: a test
+        // product links every executable its test targets reach, so a plugin on a test target pulled
+        // the host-built CmuxNextWireGen objects into the cross-compiled test link (ld64.lld:
+        // unhandled file type). Main-actor default, as the test target, so the emitted enum's
+        // `nonisolated` stays checked.
+        .target(
+            name: "CmuxNextIPCTestSupport",
+            dependencies: ["CmuxNextIPC"],
             swiftSettings: uiSwiftSettings,
-            // The fixture schema's generated DaemonWireEvent, which WireEventSetTests decodes with.
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
         ),
         // Input latency core (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I)): Chromium's
