@@ -470,7 +470,7 @@ fn write_resized_replay_json(
 }
 
 pub(super) fn write_kitty_image_aliases_json(
-    writer: &mut BudgetedJsonWriter,
+    writer: &mut impl Write,
     aliases: &[ghostty_vt::KittyImageAlias],
 ) -> std::io::Result<()> {
     writer.write_all(b"[")?;
@@ -488,7 +488,7 @@ pub(super) fn write_kitty_image_aliases_json(
 }
 
 pub(super) fn write_kitty_replay_state_json(
-    writer: &mut BudgetedJsonWriter,
+    writer: &mut impl Write,
     state: KittyReplayState,
 ) -> std::io::Result<()> {
     write!(
