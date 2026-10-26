@@ -33,11 +33,20 @@ def collect(summary: Path) -> dict[str, bool]:
             results[file] = True
             continue
         try:
-            text = Path(log).read_text(encoding="utf-8", errors="replace")
+            named: set[str] = set()
+            with Path(log).open(encoding="utf-8", errors="replace") as stream:
+                for raw in stream:
+                    line = raw.rstrip("\r\n")
+                    if line == RETRY:
+                        # The retry is the verdict used for a file that failed twice. Discard the
+                        # first run as before, without materializing a hundreds-of-megabytes log.
+                        named.clear()
+                        continue
+                    match = FAIL.fullmatch(line)
+                    if match:
+                        named.add(match.group(1))
         except OSError:
-            text = ""
-        text = text.rsplit(f"\n{RETRY}\n", 1)[-1]
-        named = {m.group(1) for m in map(FAIL.match, text.splitlines()) if m}
+            named = set()
         if result != "FAIL" or not named:
             results[file] = False
         for name in named:
