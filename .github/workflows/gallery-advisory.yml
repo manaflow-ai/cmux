@@ -18,7 +18,7 @@ name: gallery visual evidence (advisory)
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
     paths:
       - "webviews/**"
       - "scripts/gallery-matrix/**"
@@ -37,13 +37,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Drafts skip until they are marked ready, and CI_QUOTA_HOLD=1 pauses the
+  # receipt while the GITHUB_TOKEN budget is reserved for the nightly
+  # (tests/test_ci_quota_hold_gate.py).
   # The section shows the previous head's images until the capture replaces
   # them; say so. Base-branch scripts only, no pull request code.
   mark-stale:
     # Same events as capture: a body edit that mentions `Gallery:` shares the
     # concurrency group and can cancel a synchronize run, so it must mark stale
     # too. stale() writes nothing when the section already shows this head.
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
     continue-on-error: true
     timeout-minutes: 5
@@ -80,7 +83,7 @@ jobs:
           PY
 
   capture:
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
+    if: ${{ vars.CI_QUOTA_HOLD != '1' && !github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.

@@ -8,7 +8,8 @@
 //! daemon's delivery pump); and a prompt one sub-session family member sends another
 //! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
 //! `start_session`'s first prompt; and a prompt a session sends another from inside itself
-//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`).
+//! with no provenance of its own (`session_message`, `prompt_provenance.rs`: `acpmux send`); and
+//! a lane's report of its turn to its parent (`lane_report`, `lane_reports.rs`).
 //! All count toward the same pair. Only a sender that is a
 //! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
 //! or any other address passes untouched.
@@ -405,7 +406,12 @@ impl Hub {
         let kind = p.get("kind").and_then(Value::as_str);
         if !matches!(
             kind,
-            Some("agent_message" | "session_message" | super::subsessions::PROVENANCE_KIND)
+            Some(
+                "agent_message"
+                    | "session_message"
+                    | super::subsessions::PROVENANCE_KIND
+                    | super::lane_reports::KIND
+            )
         ) {
             return None;
         }
@@ -858,13 +864,17 @@ impl Hub {
                 // Its receiver is gone: nothing can take it.
                 self.pairs_state().releasing.remove(&h.prompt_id);
                 self.settle_held(&key, &h.prompt_id);
+                crate::attach::held_dropped(&h.to, &h.prompt_id);
                 continue;
             };
             let (tx, mut rx) = mpsc::unbounded_channel::<Result<(), RpcError>>();
             let accepted = tx.clone();
+            let took = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let took_it = took.clone();
             let opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
+                    took_it.store(true, Ordering::SeqCst);
                     let _ = accepted.send(Ok(()));
                 })),
                 // A message a restart rebuilt may have run before: the log answers it.
@@ -881,9 +891,14 @@ impl Hub {
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
             let target = session.clone();
+            let prompt_id = h.prompt_id.clone();
             tokio::spawn(async move {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
                 let _ = tx.send(done.map(|_| ()));
+                // Taken and answered: its files stay if it ran (`attach.rs`).
+                if took.load(Ordering::SeqCst) {
+                    crate::attach::held_released(&hub, &target.id, &prompt_id).await;
+                }
             });
             // Both ends gone with no word (the delivery task died): not accepted.
             let outcome = rx
@@ -909,6 +924,7 @@ impl Hub {
                         self.append(&sender, "mux", "agent_pair_dropped", note(&h.to));
                     }
                     self.settle_held(&key, &h.prompt_id);
+                    crate::attach::held_dropped(&h.to, &h.prompt_id);
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, "held agent message not released: {}", e.message);
