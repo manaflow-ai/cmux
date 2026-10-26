@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextInput
 import CmuxNextRemoteLayer
 import CmuxNextWakeups
 import QuartzCore
@@ -436,9 +437,10 @@ extension ChromiumHostPageView {
         _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
-    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.
+    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency
+    /// slot's `generated` time, so the host's presentation report by this time finds the slot (p04-input-066).
     static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        seconds > 0 ? UInt64(seconds * 1e9) : 0
+        InputLatencyTracker.eventNanos(seconds)
     }
 }
 #endif
