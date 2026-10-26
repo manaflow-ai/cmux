@@ -89,6 +89,12 @@ expect_pass glass-menu-host 'final class DemoPickerPanel: ContentChildPanel {
 expect_pass menu-glass-host '        let card = Glass.makeMenuPanel(content: body)
         popup.panel.adoptPopupStyle(card: card)'
 expect_pass host-comment '/// Shows it in a NativePopupHost(panel:) like the others.'
+expect_pass host-inline-comment '        let card = makeCard() /* NativePopupHost(panel: x) or NSPopover() */'
+# A brace in a comment or string does not end the host's body.
+expect_pass brace-in-comment 'final class DemoMenuPanel: NSPanel { /* } */
+    let label = "}"
+    let card = Glass.makeOverlayPanel(content: rows)
+}'
 # The host's own body: a method of the host type, an extension of the panel class, or the panel
 # class a NativePopupHost(panel:) call constructs.
 expect_pass host-method-glass 'final class DemoPopover {
@@ -191,5 +197,25 @@ printf '%s\n' 'final class PaletteContentView: NSView {
     let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
 }' > "$palette/PaletteContentView.swift"
 out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: the palette on its glass failed"; echo "$out"; exit 1; }
+
+# GLASS_FROM covers the host type it names, not the whole file: another host there is checked.
+printf '%s\n' 'final class PalettePanel: ActiveAppKeyPanel {}
+final class PaletteHelpTip {
+    let pop = NSPopover()
+}' > "$palette/PalettePanel.swift"
+if out="$(python3 -I "$CHECK" "$tmp")"; then
+  echo "check-overlay-glass.test: an unmapped host in a mapped file passed"; echo "$out"; exit 1
+fi
+grep -q "PalettePanel.swift:3: \[popup-host\]" <<<"$out" || { echo "check-overlay-glass.test: the unmapped host not named"; echo "$out"; exit 1; }
+
+# In the whole repo (a root holding this script), an entry whose file is gone is stale.
+printf '%s\n' 'final class PalettePanel: ActiveAppKeyPanel {}' > "$palette/PalettePanel.swift"
+mkdir -p "$tmp/scripts/cmux-next"
+: > "$tmp/scripts/cmux-next/check-overlay-glass.py"
+if out="$(python3 -I "$CHECK" "$tmp")"; then
+  echo "check-overlay-glass.test: a deleted host's entry passed"; echo "$out"; exit 1
+fi
+grep -q "ServerMenuBarController.swift:1: \[popup-host\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the deleted host's entry not named stale"; echo "$out"; exit 1; }
+rm -f "$tmp/scripts/cmux-next/check-overlay-glass.py"
 
 echo "check-overlay-glass.test: ok"

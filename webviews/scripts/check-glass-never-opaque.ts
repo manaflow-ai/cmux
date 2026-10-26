@@ -309,12 +309,30 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
 // surface over an opaque window, so a popup document paints its html transparent itself.
 const ROOT_COMPOUND = /^(?:html|body|:root|#root)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?)*$/;
 
+// Split at separators outside (...) and [...], so :is(a, b) and [x="a b"] stay whole.
+function splitTopLevel(text: string, separator: RegExp): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === "(" || char === "[") depth++;
+    else if ((char === ")" || char === "]") && depth > 0) depth--;
+    else if (depth === 0 && separator.test(char)) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
 // "html" when one selector of the list is the document's root element alone, "root" when one ends
 // in html, body, :root or #root, else null.
 function rootTarget(selector: string): "html" | "root" | null {
   let target: "html" | "root" | null = null;
-  for (const part of selector.split(",")) {
-    const compounds = part.trim().split(/\s+/);
+  for (const part of splitTopLevel(selector, /,/)) {
+    const compounds = splitTopLevel(part.trim(), /\s/).filter(Boolean);
     const last = compounds.at(-1) ?? "";
     if (!ROOT_COMPOUND.test(last)) continue;
     if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";

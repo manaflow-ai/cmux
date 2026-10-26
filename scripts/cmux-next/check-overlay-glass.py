@@ -35,9 +35,9 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    for a call, the braces of the type it sits in (and the panel class it hands
                    NativePopupHost(panel:), when the file declares it); glass elsewhere in the file,
                    or in a type nested in the host, does not count. A host whose glass another file
-                   builds names that file and the type there in GLASS_FROM, and that type's own body
-                   must build it; a host that is not a menu says why in
-                   NOT_POPUP_HOST. (Leo 2026-10-21, "why is this not glassed and themed right", the
+                   builds is listed in GLASS_FROM by its file and type, with the file and the type there
+                   whose own body builds it; a host that is not a menu says why in NOT_POPUP_HOST
+                   (also by file and type). An entry no host matches is stale and fails. (Leo 2026-10-21, "why is this not glassed and themed right", the
                    folder picker and the chat menu.)
 
 Hover cards (a file that hands a body to the app's one hover card window, `HoverCardBody(...)`, or
@@ -171,43 +171,48 @@ POPUP_HOST = re.compile(
 )
 GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
 
-# path -> (the file and the type in it whose own body builds its glass, why it lives there). That
-# type must build it: glass elsewhere in the file does not count.
-GLASS_FROM: dict[str, tuple[str, str, str]] = {
-    P + "CmuxNextPalette/PalettePanel.swift": (
+# (path, host type) -> (the file and the type in it whose own body builds its glass, why it lives
+# there). That type must build it: glass elsewhere in the file does not count. The host type is the
+# popup class a line declares, else the type the call sits in ("" outside every type); another host
+# in the same file is checked on its own.
+GLASS_FROM: dict[tuple[str, str], tuple[str, str, str]] = {
+    (P + "CmuxNextPalette/PalettePanel.swift", "PalettePanel"): (
         P + "CmuxNextPalette/PaletteContentView.swift",
         "PaletteContentView",
         "the palette's pages (the folder picker included) draw on PaletteContentView's glass",
     ),
-    P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuPanel.swift": (
+    (P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuPanel.swift", "ExtensionsMenuPanel"): (
         P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
         "ExtensionsMenuCardView",
         "the Extensions bubble's card is ExtensionsMenuCardView's glass",
     ),
-    P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuController.swift": (
+    (P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuController.swift", "ExtensionsMenuController"): (
         P + "CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuCardView.swift",
         "ExtensionsMenuCardView",
         "adopts ExtensionsMenuCardView's glass as its popup card",
     ),
-    P + "CmuxNextBrowser/PageInfo/UI/PageInfoController.swift": (
+    (P + "CmuxNextBrowser/PageInfo/UI/PageInfoController.swift", "PageInfoController"): (
         P + "CmuxNextBrowser/PageInfo/UI/PageInfoPanel.swift",
         "PageInfoCardView",
         "adopts PageInfoPanel.swift's glass card, PageInfoCardView",
     ),
 }
 
-# path -> why it hosts no menu of its own.
-NOT_POPUP_HOST: dict[str, str] = {
-    P + "CmuxNextDesign/PopupStyle.swift": "defines adoptPopupStyle(card:); each caller brings its glass",
-    P + "CmuxNextDesign/Overlay/NativePopupHost.swift": "the shared host; each caller brings its glass",
-    P + "CmuxNextPopups/BrowserPopupWindow.swift": "a site's window.open popup: a browser window, not a menu",
-    P + "CmuxNextApp/Server/ServerMenuBarController.swift": (
+# (path, host type) -> why it hosts no menu of its own.
+NOT_POPUP_HOST: dict[tuple[str, str], str] = {
+    (P + "CmuxNextDesign/PopupStyle.swift", "NSPanel"): "defines adoptPopupStyle(card:); each caller brings its glass",
+    (P + "CmuxNextDesign/Overlay/NativePopupHost.swift", "NativePopupPanel"): (
+        "the shared host's panel; each caller brings its glass"
+    ),
+    (P + "CmuxNextPopups/BrowserPopupWindow.swift", "BrowserPopupWindow"): (
+        "a site's window.open popup: a browser window, not a menu"
+    ),
+    (P + "CmuxNextApp/Server/ServerMenuBarController.swift", "ServerMenuBarController"): (
         "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
     ),
 }
 
 
-STRING = re.compile(r'"(?:\\.|[^"\\\n])*"')
 # A type's declaration: its name, up to where its body's `{` may follow (`class func` is not one).
 TYPE_DECL = re.compile(
     r"\b(?:class|struct|enum|actor|extension|protocol)\s+(?P<name>[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)"
@@ -219,28 +224,52 @@ HOSTED_PANEL = re.compile(r"\bNativePopupHost\(panel:\s*(?P<name>[A-Za-z_]\w*)\(
 
 
 def code_lines(path: str) -> list[str]:
-    """The file's lines, one per source line, without comments or the text of string literals."""
+    """The file's lines, one per source line, without comments (`//`, and `/* */` anywhere, nested
+    as Swift nests them) or the text of string literals (each becomes `""`)."""
     with open(path, encoding="utf-8", errors="replace") as handle:
-        raw = handle.read().split("\n")
-    lines: list[str] = []
-    in_text = in_comment = False
-    for line in raw:
-        if in_text or in_comment:
-            closer = '"""' if in_text else "*/"
-            if closer not in line:
-                lines.append("")
-                continue
-            line = line.split(closer, 1)[1]
-            in_text = in_comment = False
-        if COMMENT.match(line) and "*/" not in line:
-            in_comment = line.lstrip().startswith("/*")
-            lines.append("")
-            continue
-        if line.count('"""') % 2:
-            in_text = True
-            line = line.split('"""', 1)[0]
-        lines.append(STRING.sub('""', line).split("//", 1)[0])
-    return lines
+        text = handle.read()
+    out: list[str] = []
+    depth = 0  # how many /* */ comments are open
+    quote = ""  # the open string literal's delimiter, `"` or `"""`
+    index, end = 0, len(text)
+    while index < end:
+        char = text[index]
+        if char == "\n":
+            out.append(char)
+            if quote == '"':
+                quote = ""
+            index += 1
+        elif depth:
+            if text.startswith("/*", index):
+                depth += 1
+                index += 2
+            elif text.startswith("*/", index):
+                depth -= 1
+                index += 2
+            else:
+                index += 1
+        elif quote:
+            if char == "\\" and index + 1 < end and text[index + 1] != "\n":
+                index += 2
+            elif text.startswith(quote, index):
+                out.append('""')
+                index += len(quote)
+                quote = ""
+            else:
+                index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = end if newline < 0 else newline
+        elif text.startswith("/*", index):
+            depth = 1
+            index += 2
+        elif char == '"':
+            quote = '"""' if text.startswith('"""', index) else '"'
+            index += len(quote)
+        else:
+            out.append(char)
+            index += 1
+    return "".join(out).split("\n")
 
 
 class Blocks:
@@ -309,6 +338,16 @@ def type_builds_glass(path: str, name: str) -> bool:
     return bool(owners) and glass_in(lines, blocks, owners)
 
 
+def host_type(lines: list[str], blocks: Blocks, index: int, column: int) -> str:
+    """The popup host's type: the popup class the line declares, else the type the call sits in
+    ("" outside every type)."""
+    declared = POPUP_CLASS.search(lines[index])
+    if declared:
+        return declared.group("name")
+    owner = blocks.owner(index, column)
+    return "" if owner is None else str(blocks.names[owner])
+
+
 def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) -> bool:
     """The popup host on line `index` builds a Glass.make(Overlay|Menu)Panel in its own body.
 
@@ -334,7 +373,7 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
 def scan_popup_hosts(root: str) -> list[str]:
     """Every native popup host whose own body is not on the shared glass, and every stale entry."""
     findings: list[str] = []
-    hosts: set[str] = set()
+    seen: set[tuple[str, str]] = set()
     base = os.path.join(root, SOURCES)
     for directory, dirs, files in os.walk(base):
         dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
@@ -347,24 +386,32 @@ def scan_popup_hosts(root: str) -> list[str]:
             hits = [(index, hit.start()) for index, line in enumerate(lines) if (hit := POPUP_HOST.search(line))]
             if not hits:
                 continue
-            hosts.add(rel)
-            if rel in NOT_POPUP_HOST:
-                continue
-            source = GLASS_FROM.get(rel)
-            if source and type_builds_glass(os.path.join(root, source[0]), source[1]):
-                continue
-            where = (
-                f" (GLASS_FROM names {source[1]} in {source[0]}, whose own body builds no Glass.makeOverlayPanel)"
-                if source
-                else ""
-            )
             blocks = Blocks(lines)
             for index, column in hits:
-                if not host_has_glass(lines, blocks, index, column):
-                    findings.append(f"{rel}:{index + 1}: [popup-host] {lines[index].strip()}{where}")
-    for rel in sorted({*GLASS_FROM, *NOT_POPUP_HOST}):
-        if rel not in hosts and os.path.exists(os.path.join(root, rel)):
-            findings.append(f"{rel}:1: [popup-host] stale allowance: the file hosts no popup; remove it")
+                key = (rel, host_type(lines, blocks, index, column))
+                seen.add(key)
+                if key in NOT_POPUP_HOST:
+                    continue
+                source = GLASS_FROM.get(key)
+                if source and type_builds_glass(os.path.join(root, source[0]), source[1]):
+                    continue
+                if host_has_glass(lines, blocks, index, column):
+                    continue
+                where = (
+                    f" (GLASS_FROM names {source[1]} in {source[0]}, whose own body builds no Glass.makeOverlayPanel)"
+                    if source
+                    else ""
+                )
+                findings.append(f"{rel}:{index + 1}: [popup-host] {lines[index].strip()}{where}")
+    # A renamed or deleted file's entry is stale too. A test fixture's root (one without this
+    # script) holds only the files it tests, so there only an entry whose file is present counts.
+    whole_repo = os.path.exists(os.path.join(root, "scripts/cmux-next/check-overlay-glass.py"))
+    for rel, host in sorted({*GLASS_FROM, *NOT_POPUP_HOST} - seen):
+        if not whole_repo and not os.path.exists(os.path.join(root, rel)):
+            continue
+        findings.append(
+            f"{rel}:1: [popup-host] stale allowance: no popup host {host or '(top level)'} here; remove it"
+        )
     return findings
 
 

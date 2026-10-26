@@ -34,15 +34,34 @@ function swiftFiles(dir: string): string[] {
   });
 }
 
+// Swift source without comments and string literals, so a doc example names no host.
+function swiftCode(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/"""[\s\S]*?"""/g, '""')
+    .replace(/"(?:\\.|[^"\\\n])*"/g, '""')
+    .replace(/\/\/.*$/gm, "");
+}
+
 function transparentOverlayHosts(): string[] {
   return swiftFiles(SWIFT_SOURCES)
-    .filter((path) => /requiresWebKit:\s*\.transparentOverlay\b/.test(readFileSync(path, "utf8")))
+    .filter((path) => /requiresWebKit:\s*\.transparentOverlay\b/.test(swiftCode(readFileSync(path, "utf8"))))
     .map((path) => relative(REPO, path))
     .sort();
 }
 
 test("every page the app floats as a popup is listed with its document", () => {
   expect(transparentOverlayHosts()).toEqual(Object.keys(POPUP_PAGES).sort());
+});
+
+test("a pending popup document is a listed page that still fails the scan", () => {
+  const listed = Object.values(POPUP_PAGES).flat();
+  for (const file of Object.keys(PENDING)) {
+    expect(listed).toContain(file);
+    // Once its fix lands the document passes: drop it from PENDING so the scan covers it.
+    expect(findOpaquePopupPageRoots([file]).length).toBeGreaterThan(0);
+    expect(findOpaquePopupPageRoots([file])).not.toContain(`${file}: no such stylesheet under src/`);
+  }
 });
 
 test("a popup page's root never paints an opaque fill", () => {
@@ -62,6 +81,7 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
     put("solid/styles.css", "html, body { background: var(--cmux-surface-solid); }\n");
     put("canvas/styles.css", "html { background: transparent; }\nbody { background-color: Canvas; }\n");
     put("inherits/styles.css", "html, body, #root { height: 100%; }\n");
+    put("list/styles.css", "html:is([data-surface], [data-ready]) { background: transparent; }\n");
     put(
       "scoped/styles.css",
       "html[data-surface] { background: transparent; }\nhtml[data-surface] #root { display: flow-root; }\n",
@@ -71,7 +91,14 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
       "html { background: transparent; }\n@media (prefers-reduced-transparency: reduce) { body { background: Canvas; } }\n",
     );
     const found = findOpaquePopupPageRoots(
-      ["solid/styles.css", "canvas/styles.css", "inherits/styles.css", "scoped/styles.css", "reduce/styles.css"],
+      [
+        "solid/styles.css",
+        "canvas/styles.css",
+        "inherits/styles.css",
+        "scoped/styles.css",
+        "reduce/styles.css",
+        "list/styles.css",
+      ],
       dir,
     );
     expect(found).toEqual([
