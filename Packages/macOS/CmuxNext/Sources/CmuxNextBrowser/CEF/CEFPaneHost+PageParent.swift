@@ -42,6 +42,10 @@ extension CEFPaneHost {
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
+        page.wordLookUp = { [weak self] point, scale, answered in
+            guard let self else { return answered(nil) }
+            lookUpWord(at: point, scale: scale, answered: answered)
+        }
         #endif
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)

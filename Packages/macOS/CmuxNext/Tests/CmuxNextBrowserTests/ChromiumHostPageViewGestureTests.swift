@@ -101,6 +101,54 @@ import Testing
         #expect(page.pageTooltip == nil)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// A force click's Look Up: the page's answer decodes to the word, its box and font in page points;
+    /// no word, a malformed answer, an exception or a paragraph shows nothing.
+    @Test func theLookUpAnswerDecodesOnlyAWord() {
+        let answer = #"{"word":"parity","x":12.5,"baseline":40,"size":16,"family":"\"Helvetica Neue\", Arial, sans-serif"}"#
+        let word = ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 1, text: answer))
+        #expect(word == ChromiumHostLookUpWord(word: "parity", x: 12.5, baseline: 40, size: 16, family: "\"Helvetica Neue\", Arial, sans-serif"))
+        #expect(ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 1, text: "null")) == nil, "no word at the point")
+        #expect(ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 1, text: "")) == nil)
+        #expect(ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 0, text: answer)) == nil, "an exception")
+        #expect(ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 1, text: "{\"word\":1}")) == nil, "malformed")
+        let long = String(repeating: "a", count: ChromiumHostLookUpWord.maxLength + 1)
+        #expect(ChromiumHostLookUpWord(result: CEFEvaluationResult(status: 1, text: answer.replacingOccurrences(of: "parity", with: long))) == nil)
+        let font = word?.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        #expect(font?.pointSize == 16, "the page's size")
+    }
+
+    @Test func theLookUpScriptTakesOnlyNumbers() {
+        let script = ChromiumHostLookUpWord.script(at: CGPoint(x: CGFloat.nan, y: 30), scale: 0)
+        #expect(script.contains("x = 0.0 / z, y = 30.0 / z"), "a point that is not finite is 0")
+        #expect(script.contains("devicePixelRatio / 1.0"), "a scale that is not positive is 1")
+    }
+
+    /// With no word source (in process, or before the pane wires it) Look Up stays AppKit's; with one,
+    /// the event's page point goes to it and nothing waits for the answer.
+    @Test func lookUpAsksThePaneForTheWordAtThePoint() throws {
+        let page = makePage()
+        var asked: [CGPoint] = []
+        var answer: ((ChromiumHostLookUpWord?) -> Void)?
+        page.wordLookUp = { point, _, answered in
+            asked.append(point)
+            answer = answered
+        }
+        let cg = try #require(CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: CGPoint(x: 40, y: 60),
+                                      mouseButton: .left))
+        page.quickLook(with: try #require(NSEvent(cgEvent: cg)))
+        #expect(asked.count == 1, "the force click asked nothing")
+        answer?(nil)
+    }
+
+    @Test func aRuntimeWithNoShimAnswersTheLookUpWithNothing() {
+        let runtime = CEFRuntime(storage: CEFProfileStorage(root: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)))
+        var answered: [CEFEvaluationResult?] = []
+        runtime.evaluateLatest(7, world: "cmux", script: "1") { answered.append($0) }
+        #expect(answered == [nil], "no shim, no evaluate: the caller must hear so at once")
+    }
+    #endif
+
     @Test func aTooltipEventDecodes() {
         #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "Save", s2: "") == .pageView(browser: 7, .tooltip("Save")))
         #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .pageView(browser: 7, .tooltip("")))

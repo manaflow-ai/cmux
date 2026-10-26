@@ -126,6 +126,9 @@ public final class ChromiumHostPageView: NSView {
     /// only): the same ordered stream as ``sink``, after the key frames sent before them
     /// (ChromiumHostPageView+TextInput.swift).
     var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
+    /// The word at a page point for Look Up (ChromiumHostPageView+LookUp.swift): the point in top-left
+    /// page points, the window's backing scale, and the answer, nil for no word. Nil: AppKit's Look Up.
+    var wordLookUp: ((CGPoint, CGFloat, @escaping (ChromiumHostLookUpWord?) -> Void) -> Void)?
     /// The page's text input: the state the host pushed and the input method's marked text.
     var textInput = ChromiumHostTextInput()
     private var tracking: NSTrackingArea?
