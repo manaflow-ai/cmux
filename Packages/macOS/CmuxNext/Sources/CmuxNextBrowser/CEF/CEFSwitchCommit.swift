@@ -28,7 +28,15 @@ extension CEFLayerHosting {
     /// page's visibility reaches the fork after the commit, once, whatever the turn changed back and forth.
     func visibilityMayHaveChanged() {
         guard showsInSwitchTransaction else { return }
+        // A page shown past its grace puts its snapshot and its layer host back in this transaction.
+        if isViewShown { showHiddenSnapshot() }
         setNeedsCommitPass()
+    }
+
+    /// The content lifecycle's state for this page: the view's own flag (`CEFTab.setContentVisible`).
+    private var isViewShown: Bool {
+        guard let view else { return false }
+        return view.window != nil && !view.isHidden
     }
 
     func setNeedsCommitPass() {
@@ -40,10 +48,11 @@ extension CEFLayerHosting {
     private func commitPass() {
         let held = switchCommit.takeHeld()
         held?.activate?()
-        if showsInSwitchTransaction, let fork, let browser, let view {
-            // The content lifecycle's state for this page: the view's own flag (`CEFTab.setContentVisible`).
-            let shown = view.window != nil && !view.isHidden
+        if showsInSwitchTransaction, let fork, let browser {
+            let shown = isViewShown
             switchCommit.apply(shown ? .visible : .hidden, browser: browser, fork: fork)
+            // The renderer hears the show now; its next frame takes the snapshot away.
+            if shown { awaitFrameUnderSnapshot(browser: browser, fork: fork) }
         }
         syncDeadline()
         held?.place()
@@ -88,6 +97,8 @@ final class CEFSwitchCommit {
     private(set) var isFrameKept = false
     /// The app-wide list of kept frames; nil drops a hidden page's frame at once.
     weak var hiddenFrames: (any CEFHiddenFrames)?
+    /// What a hidden page does when its grace ends (the layer hosting's snapshot); nil evicts at once.
+    var pastGrace: ((_ browser: Int32, _ fork: CEFLayerHosting.Fork) -> Void)?
 
     private var held: HeldShow?
     private var isScheduled = false
@@ -125,6 +136,9 @@ final class CEFSwitchCommit {
 
     /// Gives the fork `wanted` when it differs from what the fork took; the page's frame is locked in
     /// the list while shown and kept unlocked while hidden. A refused call is tried at the next pass.
+    ///
+    /// The list's eviction of a hidden frame is the page's grace ending: ``pastGrace`` (the layer hosting's
+    /// snapshot, p03-rendering-055) takes it and calls ``evictFrame(browser:fork:)`` once its host is gone.
     func apply(_ wanted: CEFLayerHosting.PageVisibility, browser: Int32, fork: CEFLayerHosting.Fork) {
         target = (browser, fork)
         guard wanted != applied, let setVisibility = fork.setVisibility else { return }
@@ -152,13 +166,19 @@ final class CEFSwitchCommit {
         target = nil
     }
 
-    /// The list dropped the hidden page's frame (or there is no list): the fork lets it go; the next show
-    /// draws the page's background until Chromium's next frame.
+    /// The list dropped the hidden page's frame (or there is no list): the page is past its grace.
     private func evict() {
         guard isFrameKept, applied != .visible, let target else { return }
         isFrameKept = false
-        guard let evictFrame = target.fork.evictFrame else { return }
+        guard let pastGrace else { return evictFrame(browser: target.browser, fork: target.fork) }
+        pastGrace(target.browser, target.fork)
+    }
+
+    /// The fork lets the hidden page window's kept frame go; the next show draws the page's snapshot, or
+    /// its background, until Chromium's next frame.
+    func evictFrame(browser: Int32, fork: CEFLayerHosting.Fork) {
+        guard let evictFrame = fork.evictFrame else { return }
         forkCalls += 1
-        _ = evictFrame(target.browser)
+        _ = evictFrame(browser)
     }
 }
