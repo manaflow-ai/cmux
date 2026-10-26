@@ -61,6 +61,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A toolbar click that came before the browser existed.
     @ObservationIgnored var pendingExtensionAction: (id: String, anchor: CGRect)?
     @ObservationIgnored public weak var devToolsObserver: (any BrowserDevToolsObserving)?
+    /// The tab's visibility node (`TabContentCache.node(for:)`, given by its ``BrowserChromeView``); its
+    /// pane's layer hosting locks the hosted page while it is visible (`CEFLayerHosting.follow(_:)`).
+    @ObservationIgnored weak var visibilityNode: VisibilityNode?
     /// The page's Developer Tools modes (cache off, throttling, overlays,
     /// emulated media) that cmux's DevTools session set (`WebDevToolsToggles`).
     @ObservationIgnored public var devToolsModes = WebDevToolsToggles()

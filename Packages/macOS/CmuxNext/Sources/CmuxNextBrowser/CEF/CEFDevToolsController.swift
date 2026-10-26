@@ -222,7 +222,7 @@ final class CEFDevToolsController {
             showHostedContext(of: browser)
         } else if docked {
             views?.host.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(shim: tab.runtime.shim, apiVersion: tab.runtime.forkAPIVersion),
-                                                        frames: tab.runtime.hiddenFrames)
+                                                        frames: tab.runtime.hiddenFrames, node: tab.visibilityNode)
         }
         tab.devToolsObserver?.browserTab(tab, devToolsDidChange: tab.devTools, focused: true)
     }

@@ -158,6 +158,8 @@ public final class BrowserChromeView: NSView {
     /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
     public init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), mainWork: MainWorkScheduler, node: VisibilityNode?) {
         (self.tab, self.mainWork, self.node) = (tab, mainWork, node)
+        // The chrome holds the node; a Chromium page's lock in the hidden frame list follows it.
+        (tab as? CEFTab)?.visibilityNode = node
         let find = BrowserFindModel()
         self.find = find
         findBar = FindBarView(model: find)

@@ -366,7 +366,7 @@ final class CEFPaneHost {
         // fork's layer hosting of a page window over `hostView` is in process only.
         hostView.layerHosting.pageWindowCreated(
             browser: browser, fork: isHostMode ? nil : CEFLayerHosting.Fork(shim: runtime.shim, apiVersion: runtime.forkAPIVersion),
-            frames: runtime.hiddenFrames)
+            frames: runtime.hiddenFrames, node: tab.visibilityNode)
         if isHostMode { showHostedContext(of: browser) }
         // Tabs shown or created while the window was being built. The window's first tab is its
         // active one until a shown tab joins it as active (`tab_add` with activate).

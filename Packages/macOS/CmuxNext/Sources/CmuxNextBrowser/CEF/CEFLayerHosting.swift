@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -9,7 +10,7 @@ import CmuxNextSignposts
 ///
 /// The context belongs to the page window, not to a tab: every tab of a pane
 /// shares it, so a tab switch inside a hosted pane makes no fork call. A new
-/// page window (``pageWindowCreated(browser:fork:)``) drops the old context.
+/// page window (``pageWindowCreated(browser:fork:frames:node:)``) drops the old context.
 ///
 /// A request made inside Chromium's creation stack (`OnAfterCreated`, the
 /// DevTools opened event) can find no page window yet: Chromium adds the
@@ -35,10 +36,10 @@ import CmuxNextSignposts
 ///
 /// With the app-wide list of hidden frames (`HiddenFrameLRU`, feature
 /// `memoryHiddenFrameLRU`; Chrome's `components/viz/client/frame_eviction_manager.h`)
-/// the hosted page is one frame of it: locked while the view shows, unlocked while
-/// it is hidden or out of every window. When the list evicts it, hosting goes off
-/// for the page window as on ``stop()``, and the page is hosted again when the view
-/// shows or the next tab shows. The pane keeps no frame limit of its own.
+/// the hosted page is one frame of it: locked while the shown tab's visibility node
+/// (``follow(_:)``) is visible, unlocked while it is hidden or occluded. When the
+/// list evicts it, hosting goes off for the page window as on ``stop()``, and the
+/// page is hosted again when the node shows. The pane keeps no frame limit of its own.
 ///
 /// Tests drive it through ``Fork`` and the `schedule` seam, without Chromium.
 final class CEFLayerHosting {
@@ -125,8 +126,12 @@ final class CEFLayerHosting {
     private var frames: (any HiddenFrameKeeper)?
     /// The hosted page in ``frames``.
     let frameID = HiddenFrameID(kind: .page, key: UUID().uuidString)
-    /// Whether ``frames`` has the hosted page locked: the view showed when it was last told.
+    /// Whether ``frames`` has the hosted page locked: the node was visible when it was last told.
     private var frameLocked = false
+    /// The shown tab's visibility node (`TabContentCache.node(for:)`); nil (tests, a debug window)
+    /// counts as visible, so the page is never evicted.
+    private var node: VisibilityNode?
+    private var nodeWatch: VisibilitySubscription?
     /// The list evicted the hosted page; the next show of the view hosts it again.
     private(set) var isEvicted = false
     /// Hosted pages the list evicted so far.
@@ -162,9 +167,11 @@ final class CEFLayerHosting {
     /// A new page window over the view (a pane's Chromium window, or a docked
     /// DevTools): the old window's context went with it. Called inside
     /// Chromium's creation stack, so the request waits for the end of the turn.
-    /// `frames` is the app-wide list of hidden frames the hosted page joins.
-    func pageWindowCreated(browser: Int32, fork: Fork?, frames: (any HiddenFrameKeeper)? = nil) {
+    /// `frames` is the app-wide list of hidden frames the hosted page joins, `node` the visibility
+    /// node of the tab it shows.
+    func pageWindowCreated(browser: Int32, fork: Fork?, frames: (any HiddenFrameKeeper)? = nil, node: VisibilityNode? = nil) {
         dropPage()
+        follow(node)
         isEvicted = false
         self.frames = frames
         self.browser = browser
@@ -186,8 +193,10 @@ final class CEFLayerHosting {
     /// at this turn's app commit as `end=page_activated`, a lower bound, since
     /// Chromium presents the activated tab later in its own compositor and the
     /// fork reports no presentation time yet.
-    func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
+    /// `node` is the shown tab's visibility node, which locks the hosted page from now on.
+    func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil, node: VisibilityNode? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         defer { tabSwitch?.pageShown() }
+        follow(node)
         guard let fork else { return }
         self.browser = browser
         let wanted = isEnabled()
@@ -221,7 +230,6 @@ final class CEFLayerHosting {
     /// the views in a window when its live resize starts and ends.
     func windowDidChange() {
         inLiveResize = view?.window?.inLiveResize ?? false
-        visibilityDidChange()
         guard view?.window != nil else { return }
         syncDeadline()
     }
@@ -253,12 +261,19 @@ final class CEFLayerHosting {
         request(retry: true)
     }
 
-    /// The view was hidden or shown, or moved between windows (`CEFHostView`'s
-    /// `viewDidHide`, `viewDidUnhide` and ``windowDidChange()``): the hosted page
-    /// is locked in the list of hidden frames while the view shows and unlocked
-    /// while it does not. A page the list evicted is hosted again when the view shows.
-    func visibilityDidChange() {
-        let shows = viewShows
+    /// Follows the shown tab's visibility node: the hosted page's lock follows it from now on. O(1)
+    /// when the node is the one followed already (a show of the same tab).
+    func follow(_ node: VisibilityNode?) {
+        guard node !== self.node else { return }
+        self.node = node
+        nodeWatch = node?.subscribe(owner: "CEFLayerHosting") { [weak self] _ in self?.visibilityDidChange() }
+        visibilityDidChange()
+    }
+
+    /// The shown tab's node flipped: the hosted page is locked in the list of hidden frames while
+    /// it is visible and unlocked while it is not. A page the list evicted is hosted again when it shows.
+    private func visibilityDidChange() {
+        let shows = isShown
         if page != nil, shows != frameLocked {
             frameLocked = shows
             if shows { frames?.lock(frameID) } else { frames?.unlock(frameID) }
@@ -269,11 +284,8 @@ final class CEFLayerHosting {
         request(retry: false)
     }
 
-    /// The view is in a window and neither it nor an ancestor is hidden.
-    private var viewShows: Bool {
-        guard let view, view.window != nil else { return false }
-        return !view.isHiddenOrHasHiddenAncestor
-    }
+    /// The shown tab's node is visible; with no node, always.
+    private var isShown: Bool { node?.isVisible ?? true }
 
     /// The list of hidden frames evicted the hidden page: hosting goes off for
     /// the page window and the hosted view goes, as on ``stop()``, but the
@@ -301,6 +313,7 @@ final class CEFLayerHosting {
             _ = fork.setLayerHosting(browser, false)
         }
         dropPage()
+        follow(nil)
         syncDeadline()
         browser = nil
     }
@@ -368,7 +381,7 @@ final class CEFLayerHosting {
     /// The page shows its context: it is a frame of the list, locked while the view shows.
     private func joinFrames() {
         isEvicted = false
-        frameLocked = viewShows
+        frameLocked = isShown
         frames?.add(frameID, locked: frameLocked) { [weak self] in self?.evictHiddenPage() }
     }
 
