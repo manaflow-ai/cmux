@@ -1,0 +1,262 @@
+{
+  "id": "memory-a672-recent-reply",
+  "owner": "a672",
+  "about": "the Chief can answer about its own most recent reply (Cloud Chief view lag)",
+  "history": [
+    {
+      "kind": "user",
+      "text": "[a800] Report 0: worked on area 0 of the sidebar; tests 0 added; numbers p50 10 ms, p90 30 ms; branch scratch-0; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row0.swift, Sources/Sidebar/Group0.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a800: area 0 done, p50 10 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a801] Report 1: worked on area 1 of the sidebar; tests 1 added; numbers p50 11 ms, p90 31 ms; branch scratch-1; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row1.swift, Sources/Sidebar/Group1.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a801: area 1 done, p50 11 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a802] Report 2: worked on area 2 of the sidebar; tests 2 added; numbers p50 12 ms, p90 32 ms; branch scratch-2; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row2.swift, Sources/Sidebar/Group2.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a802: area 2 done, p50 12 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a803] Report 3: worked on area 3 of the sidebar; tests 3 added; numbers p50 13 ms, p90 33 ms; branch scratch-3; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row3.swift, Sources/Sidebar/Group3.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a803: area 3 done, p50 13 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a804] Report 4: worked on area 4 of the sidebar; tests 4 added; numbers p50 14 ms, p90 34 ms; branch scratch-4; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row4.swift, Sources/Sidebar/Group4.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a804: area 4 done, p50 14 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a805] Report 5: worked on area 5 of the sidebar; tests 5 added; numbers p50 15 ms, p90 35 ms; branch scratch-5; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row5.swift, Sources/Sidebar/Group5.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a805: area 5 done, p50 15 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a806] Report 6: worked on area 6 of the sidebar; tests 6 added; numbers p50 16 ms, p90 36 ms; branch scratch-6; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row6.swift, Sources/Sidebar/Group6.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a806: area 6 done, p50 16 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a807] Report 7: worked on area 7 of the sidebar; tests 0 added; numbers p50 17 ms, p90 37 ms; branch scratch-7; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row7.swift, Sources/Sidebar/Group7.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a807: area 7 done, p50 17 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a808] Report 8: worked on area 8 of the sidebar; tests 1 added; numbers p50 18 ms, p90 38 ms; branch scratch-8; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row8.swift, Sources/Sidebar/Group8.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a808: area 8 done, p50 18 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a809] Report 9: worked on area 9 of the sidebar; tests 2 added; numbers p50 19 ms, p90 39 ms; branch scratch-9; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row9.swift, Sources/Sidebar/Group9.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a809: area 9 done, p50 19 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a810] Report 10: worked on area 10 of the sidebar; tests 3 added; numbers p50 20 ms, p90 40 ms; branch scratch-10; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row10.swift, Sources/Sidebar/Group10.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a810: area 10 done, p50 20 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a811] Report 11: worked on area 11 of the sidebar; tests 4 added; numbers p50 21 ms, p90 41 ms; branch scratch-11; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row11.swift, Sources/Sidebar/Group11.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a811: area 11 done, p50 21 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a812] Report 12: worked on area 12 of the sidebar; tests 5 added; numbers p50 22 ms, p90 42 ms; branch scratch-12; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row12.swift, Sources/Sidebar/Group12.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a812: area 12 done, p50 22 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a813] Report 13: worked on area 13 of the sidebar; tests 6 added; numbers p50 23 ms, p90 43 ms; branch scratch-13; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row13.swift, Sources/Sidebar/Group13.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a813: area 13 done, p50 23 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a814] Report 14: worked on area 14 of the sidebar; tests 0 added; numbers p50 24 ms, p90 44 ms; branch scratch-14; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row14.swift, Sources/Sidebar/Group14.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a814: area 14 done, p50 24 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a815] Report 15: worked on area 15 of the sidebar; tests 1 added; numbers p50 25 ms, p90 45 ms; branch scratch-15; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row15.swift, Sources/Sidebar/Group15.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a815: area 15 done, p50 25 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a816] Report 16: worked on area 16 of the sidebar; tests 2 added; numbers p50 26 ms, p90 46 ms; branch scratch-16; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row16.swift, Sources/Sidebar/Group16.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a816: area 16 done, p50 26 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a817] Report 17: worked on area 17 of the sidebar; tests 3 added; numbers p50 27 ms, p90 47 ms; branch scratch-17; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row17.swift, Sources/Sidebar/Group17.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a817: area 17 done, p50 27 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a818] Report 18: worked on area 18 of the sidebar; tests 4 added; numbers p50 28 ms, p90 48 ms; branch scratch-18; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row18.swift, Sources/Sidebar/Group18.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a818: area 18 done, p50 28 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a819] Report 19: worked on area 19 of the sidebar; tests 5 added; numbers p50 29 ms, p90 49 ms; branch scratch-19; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row19.swift, Sources/Sidebar/Group19.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a819: area 19 done, p50 29 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a820] Report 20: worked on area 20 of the sidebar; tests 6 added; numbers p50 30 ms, p90 50 ms; branch scratch-20; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row20.swift, Sources/Sidebar/Group20.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a820: area 20 done, p50 30 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a821] Report 21: worked on area 21 of the sidebar; tests 0 added; numbers p50 31 ms, p90 51 ms; branch scratch-21; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row21.swift, Sources/Sidebar/Group21.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a821: area 21 done, p50 31 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a822] Report 22: worked on area 22 of the sidebar; tests 1 added; numbers p50 32 ms, p90 52 ms; branch scratch-22; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row22.swift, Sources/Sidebar/Group22.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a822: area 22 done, p50 32 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a823] Report 23: worked on area 23 of the sidebar; tests 2 added; numbers p50 33 ms, p90 53 ms; branch scratch-23; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row23.swift, Sources/Sidebar/Group23.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a823: area 23 done, p50 33 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a824] Report 24: worked on area 24 of the sidebar; tests 3 added; numbers p50 34 ms, p90 54 ms; branch scratch-24; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row24.swift, Sources/Sidebar/Group24.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a824: area 24 done, p50 34 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a825] Report 25: worked on area 25 of the sidebar; tests 4 added; numbers p50 35 ms, p90 55 ms; branch scratch-25; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row25.swift, Sources/Sidebar/Group25.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a825: area 25 done, p50 35 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a826] Report 26: worked on area 26 of the sidebar; tests 5 added; numbers p50 36 ms, p90 56 ms; branch scratch-26; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row26.swift, Sources/Sidebar/Group26.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a826: area 26 done, p50 36 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a827] Report 27: worked on area 27 of the sidebar; tests 6 added; numbers p50 37 ms, p90 57 ms; branch scratch-27; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row27.swift, Sources/Sidebar/Group27.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a827: area 27 done, p50 37 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a828] Report 28: worked on area 28 of the sidebar; tests 0 added; numbers p50 38 ms, p90 58 ms; branch scratch-28; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row28.swift, Sources/Sidebar/Group28.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a828: area 28 done, p50 38 ms."
+    },
+    {
+      "kind": "user",
+      "text": "[a829] Report 29: worked on area 29 of the sidebar; tests 1 added; numbers p50 39 ms, p90 59 ms; branch scratch-29; nothing else of note in this report, which is padded with ordinary detail about the files touched (Sources/Sidebar/Row29.swift, Sources/Sidebar/Group29.swift) so it is longer than a short line."
+    },
+    {
+      "kind": "talk",
+      "text": "- a829: area 29 done, p50 39 ms."
+    },
+    {
+      "kind": "talk",
+      "text": "Filed GitHub Support ticket 4906279 to raise the runner registration limit to 5,000 per 5 minutes."
+    }
+  ],
+  "turns": [
+    {
+      "text": "what was the ticket number you filed just now?",
+      "checks": [
+        {
+          "type": "reply_matches",
+          "re": "4906279"
+        }
+      ]
+    }
+  ]
+}

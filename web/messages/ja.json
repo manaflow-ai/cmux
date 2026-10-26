@@ -213,7 +213,7 @@
     "recreateRequired": {
       "title": "このマシンを作り直してください",
       "message": "このマシンは Cloud の更新前に作成されたため、接続できません。",
-      "action": "新しいマシンを作成し、cmux vm pull と cmux vm push でファイルを移してから、このマシンを削除してください。"
+      "action": "新しいマシンを作成してください。`cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` で SCP エンドポイントを準備し、SCP でファイルをコピーしてから、このマシンを削除してください。"
     },
     "guestUnresponsive": {
       "title": "マシンが応答しません",
@@ -223,7 +223,7 @@
     "inProgress": {
       "title": "まだ処理中です",
       "message": "クラウドプロバイダーはこの変更をまだ完了していません。このあと完了する可能性があります。",
-      "action": "もう一度試す前に、cmux vm ls またはマシン一覧でマシンの状態を確認してください。"
+      "action": "もう一度試す前に、cmux cloud list-machines またはマシン一覧でマシンの状態を確認してください。"
     },
     "providerTimeout": {
       "title": "クラウドプロバイダーの応答が遅れています",
@@ -238,7 +238,7 @@
     "stateConflict": {
       "title": "マシンが処理中です",
       "message": "このマシンは起動中、一時停止中、または停止しているため、今はこの操作を実行できません。",
-      "action": "少し待ってからもう一度お試しください。cmux vm ls でマシンの状態を確認し、一時停止している場合は先に再開してください。"
+      "action": "少し待ってからもう一度お試しください。cmux cloud list-machines でマシンの状態を確認し、一時停止している場合は先に再開してください。"
     },
     "networkRuleCapacity": {
       "title": "ネットワークルールの上限に達しました",
@@ -265,19 +265,19 @@
       "action": {
         "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
-        "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
-        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
-        "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。",
+        "fork": "再試行しても解決しません。`cmux cloud new-machine` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux cloud exec --target machine:<id> --command <command>`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
+        "default": "再試行しても解決しません。`cmux cloud list-machines` でマシンを確認するか、問題が続く場合はサポートに連絡してください。",
         "sizing": "`memoryMb` を省略して再試行してください。",
         "persistentHome": "`persistentHome`/`perMachineHome` を省略して再試行してください。",
-        "pause": "再試行しても解決しません。マシンを起動したままにするか、不要になったら `cmux vm rm` で削除してください。",
-        "resume": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。"
+        "pause": "再試行しても解決しません。マシンを起動したままにするか、不要になったら `cmux cloud kill-machine --target machine:<id> --confirm` で削除してください。",
+        "resume": "再試行しても解決しません。`cmux cloud new-machine` で新しい VM を作成してください。"
       }
     },
     "requiresPro": {
-      "title": "cmux Pro が必要です",
-      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
-      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+      "title": "cmux {plan} が必要です",
+      "message": "Cloud VM を利用するには cmux {plan} プランが必要です。",
+      "action": "{upgradeUrl} で cmux {plan} にアップグレードすると Cloud VM を作成できます。"
     },
     "displayName": {
       "title": "マシン名が無効です",
@@ -287,35 +287,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "元のマシンの RAM 容量を確認できませんでした。",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go では同時に 1 台の VM を実行できます。",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go の今月の 40 VM 時間を使い切りました。保存済み VM は次の請求期間から再び利用できます。",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} のコンピュート枠を使い切りました",
       "computeMessage": "{plan} プランは、この請求期間の {included} コンピュート時間を使い切りました。1 コンピュート時間は、1 vCPU と 2 GB メモリを 1 時間実行した量です。マシンは {resetDate} から再び起動できます。",
       "computeAction": "一時停止中のマシンのファイルは保持されます。{resetDate} より前に追加のコンピュートが必要な場合はサポートにお問い合わせください。",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} のディスク枠を使い切りました",
       "storageMessage": "{plan} プランでは、保存済みのすべてのマシンで合計 {included} GB のディスクを使用できます。保存済みマシンは {used} GB を使用しており、このリクエストには {requested} GB が必要です。",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Cloud VM のリソースが足りません",
