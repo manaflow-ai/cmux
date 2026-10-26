@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 
 extension CEFTab: BrowserContentVisibilityReporting {
     /// The page window over this tab's content view, if the fork shows one
@@ -35,6 +36,10 @@ extension CEFTab: BrowserContentVisibilityReporting {
               host.visibleTab === self, host.hostView.superview === container else { return false }
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
     }
+
+    /// Where this tab's page draws (``BrowserBackend/pageSurface`` of the process's backend): a window
+    /// that shows it (its DevTools window, a popup window) takes the child-window machinery only in process.
+    public var pageSurface: PageSurface { (host.isHostMode ? BrowserBackend.host : .inProcess).pageSurface }
 
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {

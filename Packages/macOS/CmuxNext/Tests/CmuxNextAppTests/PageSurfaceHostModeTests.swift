@@ -3,6 +3,8 @@ import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextScreenshots
+import CmuxNextSettings
 import Testing
 
 /// p01-process-223: with the Chromium Host every page is a view of its window (`ChromiumHostPageView`),
@@ -17,21 +19,29 @@ import Testing
         var pageSurface: PageSurface = .views
     }
 
+    /// The main run loop's turn number the rig's layer reads (each turn is one event cycle).
+    @MainActor final class TurnClock {
+        var turn: UInt64 = 1
+    }
+
     @MainActor private final class Rig {
         let center = NotificationCenter()
         let window: SurfaceWindow
         let layer: WindowOverlayLayer
+        let clock: TurnClock
         private var children: [NSWindow] = []
 
         init(_ surface: PageSurface) {
             _ = NSApplication.shared
+            let clock = TurnClock()
+            self.clock = clock
             window = SurfaceWindow(contentRect: CGRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled, .resizable],
                                    backing: .buffered, defer: false)
             window.pageSurface = surface
             window.isReleasedWhenClosed = false
             window.contentView = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
             window.orderFrontRegardless()
-            layer = WindowOverlayLayer(window: window, center: center, currentTurn: { 1 })
+            layer = WindowOverlayLayer(window: window, center: center, currentTurn: { clock.turn })
         }
 
         var host: WindowOverlayHost { WindowOverlayHost.host(for: window) }
@@ -212,5 +222,108 @@ import Testing
         #expect(!ChildWindowPolicy.allows(plain, parent: rig.window), "a plain child is no page in host mode")
         #expect(ChildWindowPolicy.allows(ContentChildPanel(), parent: rig.window))
         #expect(ChildWindowPolicy.allows(plain, parent: NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)))
+    }
+
+    /// A page popup closes with `removeChildWindow` and `orderOut` only (NativePopupHost,
+    /// RemoteBrowserSurfaces). In host mode no other window's notice is watched, so the window's
+    /// `removeChildWindow` puts the planes back in the view tree and detaches the overlay panel.
+    @Test func aContentPanelThatLeavesPutsThePlanesBackInHostMode() {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: CGRect(x: 200, y: 200, width: 800, height: 500), styleMask: [.titled, .resizable],
+                                 backing: .buffered, defer: false)
+        window.pageSurface = .views
+        window.isReleasedWhenClosed = false
+        window.contentView = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
+        window.orderFrontRegardless()
+        let popup = ContentChildPanel()
+        popup.setFrame(CGRect(x: 260, y: 260, width: 200, height: 120), display: false)
+        defer {
+            window.overlayLayer.teardown()
+            popup.orderOut(nil)
+            window.orderOut(nil)
+        }
+        window.addChildWindow(popup, ordered: .above)
+        #expect(window.overlayLayer.placement == .overlayWindow)
+        #expect(WindowOverlayHost.host(for: window).isPanelAttached)
+
+        window.removeChildWindow(popup)
+        popup.orderOut(nil)
+
+        #expect(window.overlayLayer.placement == .inWindow, "the closed popup kept the planes in the overlay panel")
+        #expect(!WindowOverlayHost.host(for: window).isPanelAttached)
+        #expect(WindowOverlayLayer.contentChildWindows(of: window).isEmpty)
+    }
+
+    /// `debug.overlay` `reorders_per_event` (the task's acceptance): in host mode no window notice
+    /// re-adds the overlay panel over a page across event cycles, so it stays 0.
+    @Test func reordersPerEventStaysZeroInHostMode() {
+        let rig = Rig(.views)
+        defer { rig.close() }
+        rig.addContentPanel()
+        rig.layer.resetOverlayStats()
+
+        for _ in 0..<100 {
+            rig.clock.turn += 1
+            rig.center.post(name: NSWindow.didBecomeKeyNotification, object: rig.window)
+            rig.center.post(name: NSWindow.didChangeOcclusionStateNotification, object: rig.window)
+            rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
+        }
+
+        #expect(rig.layer.eventCyclesSinceReset == 100)
+        #expect(rig.layer.reordersPerEvent == 0)
+        let report = DebugLayers.overlay(rig.layer)
+        #expect(report["reorders_per_event"]?.doubleValue == 0)
+        #expect(report["event_cycles"]?.doubleValue == 100)
+        #expect(report["page_surface"]?.stringValue == "views")
+    }
+
+    /// The control: in process a page window the fork adds above the overlay panel is a reorder, and
+    /// `reorders_per_event` shows it.
+    @Test func reordersPerEventCountsAPageReAddInProcess() {
+        let rig = Rig(.childWindows)
+        defer { rig.close() }
+        rig.addPlainChild()
+        rig.layer.resetOverlayStats()
+        rig.clock.turn += 10
+
+        rig.addPlainChild()
+
+        #expect(rig.layer.reordersSinceReset == 1)
+        #expect(rig.layer.reordersPerEvent == 0.1)
+    }
+
+    /// In host mode the focus ring draws in the window's view tree, under the page image a snapshot paints
+    /// over the page's rect: the ring goes back over the page image there. A plane over the whole window
+    /// (the inactive dim) is painted again only inside the page rect: outside it the base has it already.
+    @Test func aRingOverAHostPageStaysAboveThePageImageInASnapshot() throws {
+        let rig = Rig(.views)
+        defer { rig.close() }
+        let content = try #require(rig.window.contentView)
+        let dim = NSView(frame: content.bounds)
+        dim.wantsLayer = true
+        dim.layer?.backgroundColor = CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 0.5)
+        let ring = NSView(frame: CGRect(x: 100, y: 100, width: 40, height: 40))
+        ring.wantsLayer = true
+        ring.layer?.backgroundColor = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+        content.addSubview(dim)
+        content.addSubview(ring)
+        let size = CGSize(width: 800, height: 500)
+        let base = try #require(ScreenshotPrivacyMaskTests.image(width: 800, height: 500, white: true))
+        let pageImage = try #require(ScreenshotPrivacyMaskTests.image(width: 300, height: 300, white: false))
+        let pages: [WindowImageLayer] = [.page(pageImage, CGRect(x: 50, y: 50, width: 300, height: 300))]
+
+        let planes = try #require(WindowImageLayer.views([dim, ring], overPagesOf: pages, windowSize: size, scale: 1))
+        let image = try #require(WindowImageLayer.composite(base: base, windowSize: size, layers: pages + [planes]))
+
+        let pixels = try #require(ScreenshotPrivacyMaskTests.rgba(image))
+        // Bitmap rows run top-down; window y counts from the bottom.
+        func pixel(_ x: Int, _ y: Int) -> [UInt8] {
+            let offset = ((image.height - 1 - y) * image.width + x) * 4
+            return Array(pixels[offset..<offset + 4])
+        }
+        #expect(pixel(120, 120) == [255, 0, 0, 255], "the page image covered the focus ring")
+        #expect((120...135).contains(pixel(300, 300)[0]), "the dim is missing over the page")
+        #expect(pixel(700, 450) == [255, 255, 255, 255], "the dim was painted twice outside the page")
+        #expect(WindowImageLayer.views([dim, ring], overPagesOf: [], windowSize: size, scale: 1) == nil, "no page: nothing to repaint")
     }
 }

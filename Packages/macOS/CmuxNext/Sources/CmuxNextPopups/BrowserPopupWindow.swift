@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextWakeups
 
 /// The window of one popup page (`window.open` with window features: OAuth
@@ -27,7 +27,7 @@ public import CmuxNextWakeups
 /// - Fullscreen hides the location bar (`PopupBrowserSupportsWindowFeature`).
 /// - Escape stops a load and never closes the window
 ///   (`IDC_CLOSE_FIND_OR_STOP`); Cmd-W and `window.close()` close it.
-public final class BrowserPopupWindow: NSWindow {
+public final class BrowserPopupWindow: NSWindow, PageSurfaceHosting {
     /// The toolbar under the title bar: the location bar, with the 1 pt
     /// separator to the page inside it so the page gets the size it asked for.
     static let toolbarHeight: CGFloat = 34
@@ -44,6 +44,10 @@ public final class BrowserPopupWindow: NSWindow {
     public static var chromeHeight: CGFloat { titlebarHeight + toolbarHeight }
 
     public let page: any BrowserTab
+    /// Where the popup's page draws (``CEFTab/pageSurface``, the process's backend): in process the fork's
+    /// page window is a child of this window; with the Chromium Host the page is a view in it, and the
+    /// window's overlay host runs no page-window order check.
+    public let pageSurface: PageSurface
     public var onClose: (() -> Void)?
     /// Set for a system sign-in window (`WebAuthSessionWindow`), where
     /// Escape cancels like the system sheet's Cancel button; a page's popup
@@ -74,6 +78,7 @@ public final class BrowserPopupWindow: NSWindow {
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
                 readOnlyAddress: Bool = false, mainWork: MainWorkScheduler) {
         self.page = page
+        pageSurface = (page as? CEFTab)?.pageSurface ?? .childWindows
         locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)

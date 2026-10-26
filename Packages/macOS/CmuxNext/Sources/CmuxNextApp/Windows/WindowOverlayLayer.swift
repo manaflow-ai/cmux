@@ -43,12 +43,10 @@ import CmuxNextWakeups
 /// the window moves or shows again, and whenever the plane syncs; never per
 /// event cycle (Chrome: `remote_cocoa/app_shim/views_nswindow_delegate.mm`).
 ///
-/// All of that is in-process machinery (``PageSurface/childWindows``). A window whose pages draw in
-/// its view tree (``PageSurface/views``, the Chromium Host's `ChromiumHostPageView`) has no page
-/// window: its overlays draw in the root view above the pages, as Chrome's do above
-/// `RenderWidgetHostViewCocoa` (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm), no
-/// catcher panel is made, and no other window's notices are watched. Only a content panel (a remote
-/// page's popup) still moves the planes into the overlay panel, which stays above it.
+/// All of that is in-process machinery (``PageSurface/childWindows``). With pages in the view tree
+/// (``PageSurface/views``) overlays draw in the root view above them, as Chrome's do above
+/// `RenderWidgetHostViewCocoa` (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm), with
+/// no catcher panel and no other window's notices; only a content panel moves the planes to the panel.
 @MainActor
 final class WindowOverlayLayer {
     enum Placement: String { case inWindow, overlayWindow }
@@ -91,7 +89,9 @@ final class WindowOverlayLayer {
     private var shownPages: Set<ObjectIdentifier> = []
     /// The main run loop's turn number (`MainTurnMeter.turnNumber`): the layout depth and the geometry
     /// change's follow-up page update count only in the turn that set them.
-    private let currentTurn: @MainActor () -> UInt64
+    let currentTurn: @MainActor () -> UInt64
+    /// The reorders and the turn at the last `debug.overlay` reset (``reordersPerEvent``).
+    var overlayStatsBase: (reorders: Int, turn: UInt64) = (0, 0)
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
     private var isTornDown = false

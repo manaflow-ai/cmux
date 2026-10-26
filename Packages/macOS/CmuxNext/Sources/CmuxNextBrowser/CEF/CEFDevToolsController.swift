@@ -158,7 +158,8 @@ final class CEFDevToolsController {
     }
 
     private func makeWindow(for tab: CEFTab) -> CEFDevToolsWindow {
-        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: tab.container.window), owner: tab.container.window)
+        let window = CEFDevToolsWindow(frame: CEFDevToolsWindow.frame(near: tab.container.window), owner: tab.container.window,
+                                       pageSurface: tab.pageSurface)
         window.title = Strings.devToolsWindowTitle(tab.state.title)
         window.onClose = { [weak self] in self?.perform(.close) }
         self.window = window

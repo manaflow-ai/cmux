@@ -132,6 +132,11 @@ extension AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
+            // Overlay reorders per event cycle (p01-process-223); `reset: true` starts the counts over first.
+            .mainActor("debug.overlay") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugLayers.overlay(services: services, params: call.params))
+            },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in

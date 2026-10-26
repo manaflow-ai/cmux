@@ -152,6 +152,8 @@ enum DebugWindowSnapshot {
                 guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
                 layers.append(.page(image, rect))
             }
+            // The overlay planes in the view tree (host mode) went under the page images: they go back over them.
+            if let planes = (window as? ShellWindow)?.overlayLayer.planesOverPages(layers) { layers.append(planes) }
             if let panels = await window.childWindowsImage(on: services.work, includeChild: { !window.isPageChild($0) }) {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren

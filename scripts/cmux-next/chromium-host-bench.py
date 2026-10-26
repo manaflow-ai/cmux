@@ -827,11 +827,18 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
+    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # debug.overlay reorders_per_event stays 0.
+    rpc("debug.overlay", {"reset": True})
     fronts = []
     for _ in range(10):
         rpc("debug.mouse", click_point("b"))
         rpc("debug.key", {"key": "a"})
         fronts.append(front_pid())
+    overlay = rpc("debug.overlay") or {}
+    identity["overlay"] = {"reorders_per_event": overlay.get("reorders_per_event"),
+                           "windows": [{k: w.get(k) for k in ("page_surface", "reorders", "event_cycles", "order_checks")}
+                                       for w in overlay.get("windows") or []]}
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}

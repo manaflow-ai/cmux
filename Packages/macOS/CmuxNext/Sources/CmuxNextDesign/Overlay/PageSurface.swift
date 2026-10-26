@@ -25,8 +25,9 @@ public nonisolated enum PageSurface: Sendable, Equatable {
     }
 }
 
-/// A window that says where its Chromium pages draw (``PageSurface``): the App's main windows, from
-/// the process's browser backend, fixed for the window's life.
+/// A window that says where its Chromium pages draw (``PageSurface``), fixed for the window's life:
+/// every window that shows pages, from the process's browser backend (the App's main windows, a
+/// tab's DevTools window and a popup page's window).
 @MainActor
 public protocol PageSurfaceHosting: NSWindow {
     /// Where this window's pages draw.

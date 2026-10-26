@@ -72,3 +72,29 @@ extension ShellWindow {
 extension ShellWindow: HoverFrameInputHosting {
     var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
 }
+
+/// The window's child windows: content children (page windows in process, content panels on either
+/// page surface) keep the overlay layer's placement and the overlay host's order current as they come and go.
+extension ShellWindow {
+    /// The Chromium fork adds each page window as a child ordered above
+    /// everything, the overlay panel included. Lift the overlay (and the app
+    /// panels above it) in the same call, before the window server shows a
+    /// frame with the page over the focus ring; the notifications that
+    /// follow the page would come a frame late.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
+        super.addChildWindow(childWin, ordered: place)
+        if WindowOverlayLayer.isContent(childWin, of: self) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
+    }
+
+    /// A content child left (a page popup closed: `removeChildWindow`, then `orderOut`): the planes go
+    /// back into the view tree in the same call. With pages in the view tree no other window's notice
+    /// is watched, so nothing else would tell the overlay layer.
+    override func removeChildWindow(_ childWin: NSWindow) {
+        let wasContent = childWin.parent === self && WindowOverlayLayer.isContent(childWin, of: self)
+        super.removeChildWindow(childWin)
+        if wasContent { overlayLayer.evaluate() }
+    }
+}
