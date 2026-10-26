@@ -1365,9 +1365,12 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
     let (mut tb, mut tn) = ((0, 0), (0, 0));
     let all_now = summary_groups(now);
     for (name, all_b) in &all_now {
-        let a = gb.get(name);
-        // A group with no shared case shows all its cases, as new.
-        let b = if a.is_some() { &gn[name] } else { all_b };
+        // A group with no shared case (also one whose cases moved to
+        // another group) shows all its cases, as new.
+        let (a, b) = match (gb.get(name), gn.get(name)) {
+            (Some(a), Some(b)) => (Some(a), b),
+            _ => (None, all_b),
+        };
         if let Some(a) = a {
             tb = (tb.0 + a.0, tb.1 + a.1);
             tn = (tn.0 + b.0, tn.1 + b.1);
