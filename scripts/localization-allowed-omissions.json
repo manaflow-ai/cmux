@@ -6941,12 +6941,5 @@
     "identityLocales": {
       "de": "Text is the German noun, spelled as in English; the translated entry is still required."
     }
-  },
-  "argument.cloudStartSession.agent": {
-    "source": "Agent",
-    "identityLocales": {
-      "de": "Agent is the standard German word for an AI agent, spelled as in English; cmux NEXT's German strings use it for the same harness argument (argument.newTab.agent, argument.agent.harness.id).",
-      "fr": "Agent is the standard French word for an AI agent, spelled as in English; cmux NEXT's French strings use it for the same harness argument (argument.newTab.agent, argument.agent.harness.id)."
-    }
   }
 }
