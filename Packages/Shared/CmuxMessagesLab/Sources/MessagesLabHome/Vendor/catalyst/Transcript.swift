@@ -615,6 +615,10 @@ final class RowCell: UICollectionViewCell {
     /// typing clip use it. The window view sets it before each configure (decorate) and on its setRenderScale; a cell
     /// that no window view placed yet (iOS) keeps the process value.
     var renderScale: CGFloat = Fixture.renderScale
+    /// cmux: the zoom `renderScale` includes (a zoomed Chief chat, HostView.contentZoom; 1 otherwise), set with it.
+    var contentZoom: CGFloat = 1
+    /// The window's device pixels per window point, which the snaps (snapRow, snapTyping) round to.
+    var pixelScale: CGFloat { max(1, renderScale / contentZoom) }
     /// The inactive-window state of the window view that shows this cell (MessagesWindowView.inactive; cx-3cb
     /// inactive-per-view): the typing indicator's colours follow it (Fixture.typingColors). The window view sets it
     /// before each configure (decorate), as `renderScale`; a cell no window view placed yet (iOS) keeps false.
@@ -1179,7 +1183,7 @@ final class RowCell: UICollectionViewCell {
     private func snapTyping() {
 #if !os(iOS) || targetEnvironment(macCatalyst)
         guard case .typing? = spec?.kind else { return }
-        let s = max(1, renderScale)
+        let s = pixelScale
         // In the row's content, which snapRow already moved by rowSnap.
         let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
         guard top.isFinite, left.isFinite else { return }
@@ -1406,11 +1410,9 @@ final class RowCell: UICollectionViewCell {
     /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
     /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
     /// every pass.
-    /// `scale` is the view's (device pixels per view point); cmux: a zoomed Chief chat (|k| = its zoom) rounds on the
-    /// window's pixels, `scale / |k|` per window point.
-    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale: CGFloat) -> CGFloat {
+    /// `scale` is the window's device pixels per window point (cmux: `pixelScale`, not a zoomed chat's `renderScale`).
+    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
         guard abs(k) > 1e-6 else { return 0 }
-        let s = scale / abs(k)
         let r = o + k * v
         let d = ((r * s + 1e-6).rounded() / s - r) / k
         return d.isFinite ? d : 0
@@ -1454,7 +1456,7 @@ final class RowCell: UICollectionViewCell {
     /// Moves the content to the snapped place; true when the snap changed.
     @discardableResult private func snapRow() -> Bool {
 #if !os(iOS) || targetEnvironment(macCatalyst)
-        let s = max(1, renderScale)
+        let s = pixelScale
         let x = RowCell.anchorX(spec, layer.frame)
         guard windowY.isFinite, x.isFinite else { return false }
         let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),

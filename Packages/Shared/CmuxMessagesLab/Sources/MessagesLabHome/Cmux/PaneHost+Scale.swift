@@ -33,7 +33,7 @@ extension ChatController {
             CATransaction.commit()
             ScaleKeeper.shared.setNeedsApply()
         }
-        demo.setRenderScale(s)
+        demo.setRenderScale(s, contentZoom: host.contentZoom)
         guard changed else { return false }
         demo.moveToWindowRecursively()
         picker?.rescale()

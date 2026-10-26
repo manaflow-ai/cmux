@@ -92,7 +92,11 @@ public final class MessagesLabHomeView: NSView {
             controller.host.contentZoom = next
             applyZoomBounds()
             controller.followWindowScale()
+            // The field moved with the zoom (the host is now frame / zoom tall) without a frame change here: lay out
+            // now so `fieldTop` is current, and tell the host, which lays out what it keeps above the field.
             needsLayout = true
+            layoutSubtreeIfNeeded()
+            controller.onFieldTopChange?()
         }
     }
 

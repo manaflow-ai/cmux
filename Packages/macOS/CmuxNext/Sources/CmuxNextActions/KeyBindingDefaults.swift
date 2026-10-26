@@ -96,6 +96,10 @@ public nonisolated struct KeyBindingDefaults {
         "home.nextConversation", "home.previousConversation", "home.selectConversationByNumber",
     ]
 
+    /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
+    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
+
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
     /// sidebar order, wrapping as tabs do. Ctrl-Tab / Ctrl-Shift-Tab and Ctrl-1…9 are also the
     /// actions' catalog keys; Cmd-Shift-] / [ are aliases. They go after the Chrome tab keys

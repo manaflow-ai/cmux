@@ -28,9 +28,18 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
-        registry.bind("home.zoomIn", run: { _ in try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context) })
-        registry.bind("home.zoomOut", run: { _ in try stepAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context) })
-        registry.bind("home.zoomReset", run: { _ in try resetAgentPaneZoom(context) })
+        registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
+            try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
+            return .done
+        })
+        registry.bindEffect("home.zoomOut", requires: nil, effect: { _ in
+            try stepAgentPaneZoom(by: -AgentPaneZoomSetting.step, context: context)
+            return .done
+        })
+        registry.bindEffect("home.zoomReset", requires: nil, effect: { _ in
+            try resetAgentPaneZoom(context)
+            return .done
+        })
         for (id, destination) in forkActions {
             registry.bind(id, run: { try fork(destination, invocation: $0, context: context) })
         }
