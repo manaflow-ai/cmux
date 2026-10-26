@@ -67,9 +67,9 @@ public struct MobileTerminalInputFrame: Equatable, Sendable {
         defer {
             if reader.remainingCount < buffer.count { buffer = reader.remaining }
         }
-        while true {
-            var frame = reader
-            guard let header = frame.bigEndian(UInt32.self) else { break }
+        // `frame` reads ahead; `reader` moves only past whole frames.
+        var frame = reader
+        while let header = frame.bigEndian(UInt32.self) {
             let marked = header & markerFlag != 0
             let delivered = header & deliveryFlag != 0
             let metadataBytes = (marked ? markerByteCount : 0)

@@ -69,7 +69,7 @@ public struct CmxRetryAfterPolicy: Sendable {
     public func sleep(
         seconds: TimeInterval,
         using sleeper: @Sendable (TimeInterval) async throws -> Void = {
-            try await Task<Never, Never>.sleep(for: .seconds($0))
+            try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0)
         }
     ) async throws {
         var remaining = seconds
@@ -79,6 +79,14 @@ public struct CmxRetryAfterPolicy: Sendable {
             try await sleeper(chunk)
             remaining -= chunk
         }
+    }
+
+    /// One Retry-After wait that may fire up to min(10%, 1 s) late, so the
+    /// kernel can coalesce it with other wakes; it never fires early.
+    static func toleratedSleep(seconds: TimeInterval) async throws {
+        let wait = Duration.seconds(seconds)
+        // wakeup-allow: backoff the server's Retry-After cooldown, one wait per directive.
+        try await Task<Never, Never>.sleep(for: wait, tolerance: wait.flexibleWakeTolerance)
     }
 }
 
@@ -106,7 +114,7 @@ public actor CmxRetryAfterGate {
 
     public init() {
         now = { ProcessInfo.processInfo.systemUptime }
-        sleep = { try await Task<Never, Never>.sleep(for: .seconds($0)) }
+        sleep = { try await CmxRetryAfterPolicy.toleratedSleep(seconds: $0) }
     }
 
     init(
@@ -141,6 +149,7 @@ public actor CmxRetryAfterGate {
                 return
             }
             try Task.checkCancellation()
+            // wakeup-allow: deadline it wakes once at the cooldown's end; it loops only when a later 429 extended it.
             try await sleep(min(remaining, 86_400))
         }
     }

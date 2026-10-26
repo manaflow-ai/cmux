@@ -169,7 +169,8 @@ public final class MobileReleaseGateUIProbe {
                 try await self.waitForPresentation(stream)
             }
             group.addTask { [timeoutClock] in
-                try await timeoutClock.sleep(for: timeout)
+                // wakeup-allow: deadline the presentation wait times out once; presenting cancels it.
+                try await timeoutClock.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
                 throw Failure.timedOut
             }
             defer { group.cancelAll() }

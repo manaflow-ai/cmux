@@ -220,9 +220,11 @@ public actor AppLog {
         private var result: Bool?
 
         func wait(timeoutNanoseconds: UInt64) async -> Bool {
+            let timeout = Duration.nanoseconds(timeoutNanoseconds)
             let timeoutTask = Task.detached { [self] in
                 do {
-                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    // wakeup-allow: deadline the acknowledgement times out once; an earlier answer cancels it.
+                    try await Task.sleep(for: timeout, tolerance: timeout.flexibleWakeTolerance)
                     resolve(false)
                 } catch {
                     // The waiter completed before the deadline.
@@ -324,34 +326,30 @@ public actor AppLog {
             }
         }
 
+        /// The entries admitted since the last batch, waiting for an enqueue
+        /// while there are none; nil once the ingress is finished and empty.
         func nextBatch() async -> [Entry]? {
-            while true {
-                if let batch = withStateLock({ state -> [Entry]? in
-                    guard !state.entries.isEmpty else {
-                        return state.finished ? nil : []
-                    }
-                    let batch = state.entries
-                    state.entries.removeAll(keepingCapacity: true)
-                    state.bufferedDroppableCount = 0
-                    return batch
-                }) {
-                    if !batch.isEmpty { return batch }
-                } else {
-                    return nil
-                }
-
+            var batch = takeBatch()
+            while batch?.isEmpty == true {
                 guard await wakeIterator.next() != nil else {
-                    if let batch = withStateLock({ state -> [Entry]? in
-                        guard !state.entries.isEmpty else { return nil }
-                        let batch = state.entries
-                        state.entries.removeAll(keepingCapacity: true)
-                        state.bufferedDroppableCount = 0
-                        return batch
-                    }) {
-                        return batch
-                    }
-                    return nil
+                    return takeBatch().flatMap { $0.isEmpty ? nil : $0 }
                 }
+                batch = takeBatch()
+            }
+            return batch
+        }
+
+        /// Everything admitted so far, `[]` when nothing is waiting, or nil
+        /// when the ingress is finished and empty.
+        private func takeBatch() -> [Entry]? {
+            withStateLock { state -> [Entry]? in
+                guard !state.entries.isEmpty else {
+                    return state.finished ? nil : []
+                }
+                let batch = state.entries
+                state.entries.removeAll(keepingCapacity: true)
+                state.bufferedDroppableCount = 0
+                return batch
             }
         }
 
@@ -800,9 +798,11 @@ public actor AppLog {
             }
             completion.resolve(Self.writeExportArchive(inputs: inputs))
         }
+        let exportTimeout = Duration.nanoseconds(Self.exportTimeoutNanoseconds)
         let timeoutTask = Task.detached {
             do {
-                try await Task.sleep(nanoseconds: Self.exportTimeoutNanoseconds)
+                // wakeup-allow: deadline the export times out once; its completion cancels the wait.
+                try await Task.sleep(for: exportTimeout, tolerance: exportTimeout.flexibleWakeTolerance)
                 completion.resolve(nil)
                 exportTask.cancel()
             } catch {
@@ -974,12 +974,11 @@ public actor AppLog {
             }
             let destinationHandle = try FileHandle(forWritingTo: destination)
             defer { try? destinationHandle.close() }
-            while !Task.isCancelled {
-                let chunk = try sourceHandle.read(upToCount: 64 * 1024) ?? Data()
-                if chunk.isEmpty { return true }
+            while let chunk = try sourceHandle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+                guard !Task.isCancelled else { return false }
                 try destinationHandle.write(contentsOf: chunk)
             }
-            return false
+            return !Task.isCancelled
         } catch {
             try? FileManager.default.removeItem(at: destination)
             return false
