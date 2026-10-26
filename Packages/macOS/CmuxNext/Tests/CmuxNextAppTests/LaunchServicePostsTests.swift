@@ -20,7 +20,7 @@ import Testing
             chromiumWarmup: { ran.names.append("ChromiumWarmup.start") },
             spareHooks: { ran.names.append("NewTabSpares.hooks") },
             spareWarming: { ran.names.append("NewTabSpares.warm") },
-            pageHostPool: { ran.names.append("PageHostPool.start") },
+            pagePreload: { ran.names.append("PagePreload.start") },
             agentTabImport: { ran.names.append("AgentTabImport.start") },
             rightSidebarIcons: { ran.names.append("RightSidebar.prewarm") }
         ).post(on: f.order.startup)
@@ -28,7 +28,7 @@ import Testing
         let posted = f.order.startup.log.records.map { ($0.name.description, $0.priority) }
         #expect(posted.map(\.0) == ["SSH.start", "FreeTierAttest.start", "ServerReach.start", "Updater.start",
                                     "EmptyWorkspaceRepair.observe", "ChromiumWarmup.start", "NewTabSpares.hooks",
-                                    "NewTabSpares.warm", "PageHostPool.start", "AgentTabImport.start", "RightSidebar.prewarm"])
+                                    "NewTabSpares.warm", "PagePreload.start", "AgentTabImport.start", "RightSidebar.prewarm"])
         let firstFrame: Set<String> = ["SSH.start", "ChromiumWarmup.start", "NewTabSpares.hooks"]
         for (name, priority) in posted {
             #expect(priority == (firstFrame.contains(name) ? StartupPriority.afterFirstFrame : StartupPriority.afterStartup), "\(name)")
@@ -42,7 +42,7 @@ import Testing
         for _ in 0..<12 { f.fire() }
         #expect(ran.names == ["SSH.start", "ChromiumWarmup.start", "NewTabSpares.hooks", "FreeTierAttest.start",
                               "ServerReach.start", "Updater.start", "EmptyWorkspaceRepair.observe", "NewTabSpares.warm",
-                              "PageHostPool.start", "AgentTabImport.start", "RightSidebar.prewarm"],
+                              "PagePreload.start", "AgentTabImport.start", "RightSidebar.prewarm"],
                 "each post ran its one service once, in post order within its priority")
         #expect(f.order.startup.log.records.allSatisfy { $0.durationNanos != nil }, "one record per task, each with its run")
     }

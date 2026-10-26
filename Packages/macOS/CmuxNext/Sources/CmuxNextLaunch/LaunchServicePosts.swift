@@ -55,7 +55,7 @@ public struct LaunchServicePosts {
         ])
     }
 
-    /// The warm-ups for later tabs (Chromium, the New Tab spare, page hosts), the agent tab import and the
+    /// The warm-ups for later tabs (Chromium, the New Tab spare, page preloads), the agent tab import and the
     /// right sidebar's icons.
     ///
     /// - Parameters:
@@ -63,21 +63,21 @@ public struct LaunchServicePosts {
     ///   - spareHooks: The New Tab spare's open hooks and target window, no spare yet
     ///     (`NewTabSparePool.start(holdingWarm:)`).
     ///   - spareWarming: Lets the New Tab spare be made (`NewTabSparePool.startWarming()`).
-    ///   - pageHostPool: Starts the page host pool.
+    ///   - pagePreload: Lets Settings, History and Cloud preload through the preload slot (`PagePreloads.start()`).
     ///   - agentTabImport: Starts the agent tab import.
     ///   - rightSidebarIcons: Posts the right sidebar's icon build on the cpu lane (a panel built first posted it).
     /// - Returns: The posts, Chromium and the spare's hooks at afterFirstFrame and the rest at afterStartup.
     public static func laterTabs(chromiumWarmup: @escaping @MainActor @Sendable () -> Void,
                                  spareHooks: @escaping @MainActor @Sendable () -> Void,
                                  spareWarming: @escaping @MainActor @Sendable () -> Void,
-                                 pageHostPool: @escaping @MainActor @Sendable () -> Void,
+                                 pagePreload: @escaping @MainActor @Sendable () -> Void,
                                  agentTabImport: @escaping @MainActor @Sendable () -> Void,
                                  rightSidebarIcons: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
         LaunchServicePosts(posts: [
             Post(priority: .afterFirstFrame, name: "ChromiumWarmup.start", work: chromiumWarmup),
             Post(priority: .afterFirstFrame, name: "NewTabSpares.hooks", work: spareHooks),
             Post(priority: .afterStartup, name: "NewTabSpares.warm", work: spareWarming),
-            Post(priority: .afterStartup, name: "PageHostPool.start", work: pageHostPool),
+            Post(priority: .afterStartup, name: "PagePreload.start", work: pagePreload),
             Post(priority: .afterStartup, name: "AgentTabImport.start", work: agentTabImport),
             Post(priority: .afterStartup, name: "RightSidebar.prewarm", work: rightSidebarIcons),
         ])

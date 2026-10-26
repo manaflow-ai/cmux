@@ -88,8 +88,9 @@ extension AppControl {
                 DebugHints.watchMenus()
                 return .value(DebugHints.report(services.windowHints, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
+            // The Settings, History and Cloud preload in the preload slot (p13-webui-045); `action`: `drop`, `preload`.
+            .mainActor("debug.page_preload") { [weak services] call in
+                .value(services?.pagePreloads.debugReport(action: call.params["action"]?.stringValue) ?? .null)
             },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in

@@ -23,10 +23,16 @@ public struct PageOpenRequest {
     public var surface: SurfaceKind?
     /// Answers the descriptor's dynamic prefixes (a 404 without one).
     public var dynamicResources: (any PageDynamicResourceSource)?
+    /// The page loads now, parked, for the preload slot (``PagePreloadSlot``): its document holds
+    /// every call and subscription until an open claims it with its routes
+    /// (``PageWebView/bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``), and it
+    /// never waits for a first show. Its `routes` and `dynamicResources` are those of the claim.
+    public var parked: Bool
 
     public init(descriptor: PageDescriptor, root: URL? = nil, routes: [PageRoute], route: String? = nil,
                 documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                parked: Bool = false) {
         self.descriptor = descriptor
         self.root = root
         self.routes = routes
@@ -35,6 +41,7 @@ public struct PageOpenRequest {
         self.options = options
         self.surface = surface
         self.dynamicResources = dynamicResources
+        self.parked = parked
     }
 }
 
@@ -62,16 +69,24 @@ extension PageWebView {
             guard let served = Self.servedRoot(for: request.descriptor) else { return nil }
             root = served
         }
-        let handler = PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
+        let parkedOwner = request.parked ? PagePooledOwner() : nil
+        let handler = parkedOwner.map { Self.parkedSchemeHandler(page: request.descriptor, root: root, owner: $0) }
+            ?? PageSchemeHandler(page: request.descriptor, root: root, dynamicSource: request.dynamicResources)
         let groups = request.options.sharesWebKitProcess
             && Self.engineDecision(for: request.descriptor, options: request.options, hosting: chromium).engine == .webKit
             ? processGroups : nil
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
                                           options: request.options, dataStore: groups?.dataStore)
+        if request.parked { Self.installParkedScript(host.configuration.userContentController) }
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,
                   options: request.options, surface: request.surface, dynamicResources: request.dynamicResources,
-                  pooled: false, load: true, openRequested: requested, chromium: chromium,
-                  openPanel: openPanel, registry: registry, processGroups: groups, startsAtFirstShow: startsAtFirstShow)
+                  pooled: request.parked, load: true, openRequested: requested, chromium: chromium,
+                  openPanel: openPanel, registry: registry, processGroups: groups,
+                  startsAtFirstShow: startsAtFirstShow && !request.parked)
+        if let parkedOwner {
+            parkedOwner.view = self
+            pooledOwner = parkedOwner
+        }
     }
 }

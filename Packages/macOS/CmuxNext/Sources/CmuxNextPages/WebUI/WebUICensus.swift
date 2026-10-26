@@ -23,8 +23,8 @@ public import WebKit
 ///     window). `hidden_for_s`: seconds since it was hidden, null while visible.
 ///   - `keep_reasons` (strings): the reasons the host sees now, of `visible` (never a spare's),
 ///     `loading`, `focused`.
-///   - `spare`: `new_tab` (the parked New Tab page), `page_host_pool` (PageHostPool's parked host) or null.
-///   - `pooled` (bool): made by PageHostPool. `window_number`: null in no window.
+///   - `spare`: `new_tab` (the parked New Tab page), `page_preload` (a page in the preload slot's parking) or null.
+///   - `pooled` (bool): opened parked for the preload slot. `window_number`: null in no window.
 ///   - `browser_id`: the Chromium browser id, null on WebKit.
 ///   - `renderer_clients`, `renderer_pids`: the renderer client ids of the page's frames and the
 ///     helper pids that run them (Chromium).
@@ -118,7 +118,7 @@ nonisolated public struct WebUICensus: Sendable {
             let process = view.chromiumPage.map { rendererProcess($0) }
             let isNewTabSpare = newTabSpare != nil && view.webKitView === newTabSpare
             newTabSpareSeen = newTabSpareSeen || isNewTabSpare
-            let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil
+            let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_preload" : nil
             var keepReasons: [String] = []
             if !census.hidden, spare == nil { keepReasons.append("visible") }
             if census.loading { keepReasons.append("loading") }

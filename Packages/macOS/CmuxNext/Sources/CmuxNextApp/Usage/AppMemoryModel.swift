@@ -66,8 +66,8 @@ struct AppMemoryModel: MemorySnapshotModel {
         if let view = services.newTabSpares.spareView {
             spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: view.webView)))
         }
-        if let host = services.pageHostPool.spareHost {
-            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: host.webKitView)))
+        if let page = services.pagePreloads.heldPage, !page.showsChromium {
+            spares.append(.init(pool: "page_preload", processKind: .webkitWebContent, pid: WebContentProcess.identifier(of: page.webKitView)))
         }
         return spares
     }
@@ -88,7 +88,7 @@ struct AppMemoryModel: MemorySnapshotModel {
             for view in agentTabs.views.values { add(WebContentProcess.identifier(of: view.webView)) }
         }
         if let view = services.newTabSpares.spareView { add(WebContentProcess.identifier(of: view.webView)) }
-        if let host = services.pageHostPool.spareHost { add(WebContentProcess.identifier(of: host.webKitView)) }
+        if let page = services.pagePreloads.heldPage, !page.showsChromium { add(WebContentProcess.identifier(of: page.webKitView)) }
         return pids
     }
 

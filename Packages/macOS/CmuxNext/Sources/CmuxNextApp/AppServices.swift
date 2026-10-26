@@ -370,8 +370,14 @@ final class AppServices {
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memory: memoryCoordinator, input: inputTap, preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow))
-    /// The spare React page hosts for Settings, History and Cloud.
-    private(set) lazy var pageHostPool = PageHostPool(memory: memoryCoordinator, policy: .init(preloadOnMakeVisible: features.isEnabled(.pageRendererAtFirstShow)))
+    /// Settings, History and Cloud through the one preload slot (`webUI.preload`, feature `pagePreload`), parked
+    /// in the active window at its focused pane's tab size.
+    private(set) lazy var pagePreloads = PagePreloads(
+        webUI: webUI, deadlines: mainDeadlines, input: inputTap, isEnabled: { [weak self] in self?.features.isEnabled(.pagePreload) == true },
+        target: { [weak self] in
+            guard let controller = self?.windows.active, let content = controller.window?.contentView else { return nil }
+            return (content, controller.focusedPane.map(NewTabSparePool.newTabContentSize(in:)) ?? content.bounds.size)
+        })
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
     /// Every page follows `browser.defaultEngine` (Chromium by default) through its one Chromium host.
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).

@@ -400,6 +400,7 @@ final class WindowManager {
         awaitingContent[id] = nil
         contentWaiters[id] = nil
         restacking.remove(id)
+        services.pagePreloads.windowWillClose(controller.window)
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
