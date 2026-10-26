@@ -255,8 +255,8 @@ import Testing
         let left = makeHosting(enabled: true, views: &views), right = makeHosting(enabled: true, views: &views)
         for (hosting, browser) in [(left, Int32(3)), (right, 4)] {
             hosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(setLayerHosting: { _, on in on ? 7 : 0 },
-                                                                                 setResizeFence: { browser, fence, frames in
-                                                                                     joins.append((browser, fence, frames))
+                                                                                 setResizeFence: { id, port, frames in
+                                                                                     joins.append((id, port, frames))
                                                                                      return true
                                                                                  }))
         }
@@ -323,14 +323,19 @@ import Testing
     }
 }
 
-/// A shim whose `cmux_shim_create_window` returns a request id and every other function does nothing.
+/// A shim whose `cmux_shim_create_window` returns a request id, whose `cmux_shim_fork_api_version` reports 27
+/// (layer hosting stays off: `browserResize.layerHosting` defaults off) and whose other functions do nothing.
 private nonisolated enum QuietShim {
     static func library() throws -> CEFShimLibrary {
         let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _, _, _, _ in 1 }
+        let forkAPIVersion: @convention(c) () -> Int32 = { 27 }
         let nothing: @convention(c) () -> Int = { 0 }
         return try CEFShimLibrary.resolving { name in
-            name == "cmux_shim_create_window" ? unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
-                : unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+            switch name {
+            case "cmux_shim_create_window": unsafeBitCast(createWindow, to: UnsafeMutableRawPointer.self)
+            case "cmux_shim_fork_api_version": unsafeBitCast(forkAPIVersion, to: UnsafeMutableRawPointer.self)
+            default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
+            }
         }
     }
 }
