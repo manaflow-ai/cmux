@@ -592,6 +592,13 @@ mod tests {
         assert!(got.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
     }
 
+    #[test]
+    fn the_transcript_read_for_a_reply_keeps_each_turns_start() {
+        // `lane_last_reply` reads with the transcript filter and stops at `turn_started`: were it
+        // left out, a turn with no reply would report the turn before's.
+        assert!(super::super::paging::TRANSCRIPT_MUX_KINDS.contains(&"turn_started"));
+    }
+
     #[tokio::test]
     async fn a_parent_that_closed_while_its_lane_started_is_never_linked() {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");

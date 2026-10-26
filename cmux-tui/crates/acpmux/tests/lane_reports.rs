@@ -419,3 +419,28 @@ async fn lane_report_a_closed_parent_hears_nothing_and_is_not_reopened() {
     // Before the link was retired on close, this report went in and reopened the parent.
     person.exactly(&coord, 0).await;
 }
+
+#[tokio::test]
+async fn lane_report_a_turn_that_ends_before_replying_never_reports_the_last_turns_reply() {
+    let hub = hub();
+    let mut person = Client::new(&hub);
+    let coord = person.new_session("coord", json!({})).await;
+    let lane = Client::as_session(&hub, &coord).await.new_session("lane-r", json!({})).await;
+    let mut from_coord = Client::as_session(&hub, &coord).await;
+    from_coord.prompt(&lane, "first-reply-marker").await;
+    let got = person.exactly(&coord, 1).await;
+    assert!(text(&got[0]).contains("first-reply-marker"), "{}", got[0]);
+    // Turn 2 ends with an error and no reply of its own.
+    let r = from_coord
+        .call(
+            "session/prompt",
+            json!({"sessionId": lane, "prompt": [{"type": "text", "text": "codex-fail"}]}),
+        )
+        .await;
+    assert!(r.get("error").is_some(), "{r}");
+    let got = person.exactly(&coord, 2).await;
+    let t = text(&got[1]);
+    assert!(t.starts_with("[lane-r] lane report: turn 2 ended"), "{t}");
+    assert!(!t.contains("first-reply-marker"), "{t}");
+    assert!(t.contains("Last message: (no reply)"), "{t}");
+}
