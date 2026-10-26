@@ -26,12 +26,26 @@ Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
     session.run_case(case: dict, case_ctx: dict) -> result dict
     session.close() -> None
+    session.reset_state() -> JSON value (optional; task 189)
 A session is one product process (one app launch); it runs up to --batch-limit cases.
+A session with `reset_state` shares its process between cases: reset_state brings the product back
+to its fixture and returns the reset snapshot (a JSON projection of the state a case may leave).
+This file reads it once right after the launch (the fixture) and again after every case. A reset
+snapshot that differs from the fixture, or a reset_state that raises (a refused reset action), is
+LeakedState of the case that just ran: the launch is closed and the next case gets a fresh one
+(base/test/test_suite.cc, CheckForLeakedGlobals: OnTestEnd fails the test that leaked global state,
+by name). Two errors are not leaks: one with a true `unreachable` attribute (the product is gone)
+makes the case a Crash at step "reset"; one with a `relaunch` reason (the reset has no action for
+what the case changed) closes the launch with no finding. The check runs after the last case of a
+launch too, so --batch-limit 1 and 10 find the same leaks. A launch whose fixture cannot be read is
+an infra error of that launch, not a result of the case it was opened for (the case is retried, or
+"not-run"). A session without reset_state isolates its cases itself (the daemon driver starts one
+cmux-tui per case).
 A result is {"status": "Pass"|"Failure"|"Crash"|"Timeout", "checkpoints": [{"step": str,
 "checkpoint": "before"|"turn"|"settled", "snapshot": <canonical snapshot (normalize.py)>,
 optional "uncertain": true, optional "notComparable": [facet, ...]}], "message": str,
-optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (LeakedState
-or a lost process: the next case gets a fresh session), optional "switch_hits": {name: {arm:
+optional "step" (where a Crash or Timeout happened), optional "session_dirty": true (a lost or
+unusable process: the next case gets a fresh session, with no reset check), optional "switch_hits": {name: {arm:
 count}}}. This file hashes each snapshot (sha256 of its sorted-key compact JSON) and decides
 flakiness by hashes; diff.py compares the snapshot values.
 
@@ -40,11 +54,21 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
                         "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
                         "shards": [i], "seeds": {"i": seed}, "selection", "cases": {"<suite>/<case>":
                         {"suite", "result" (Flaky for a flaky case), "outcome", "flaky", "reasons",
-                        "expected", "attempts", "checkpoints": N}}, "counts", ...}
+                        "expected", "attempts", "checkpoints": N, "leaked_state": [leak]}},
+                        "leaked_state": [case ids], "order" (the plan's case order), "sessions":
+                        [{"session", "iteration", "attempt", "phase", "cases" (run order), "end"
+                        (batch-end, dirty, leaked, relaunch or fixture-unreadable), "reason"}],
+                        "counts", ...}
+                        A leak is {"case", "pointers" (first differing RFC 6901 pointers; "" is
+                        the whole snapshot), "count",
+                        "error", "launch_order" (the cases that ran in its launch, up to it),
+                        "session", "iteration", "attempt", "phase"}; any leak makes `ok` false.
     checkpoints.jsonl  one line per checkpoint of the case's first attempt (every attempt of a case
                         that is not flaky has the same hashes): {"case", "suite", "step", "index",
                         "checkpoint", "snapshot", "sha256", "attempt", "result"}
-    events.jsonl       one line per attempt: phase, status, ms, message, checkpoint hashes
+    events.jsonl       one line per attempt: phase, status, ms (the case alone), message,
+                        checkpoint hashes, the session (launch) it ran in and its position there,
+                        reset_ms (the reset check after it), its leak if any
 `oracle.py rebaseline --run DIR [baselines.py options]` writes the golden cases of DIR in the
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
@@ -83,7 +107,7 @@ import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -456,6 +480,12 @@ class Attempt:
     switch_hits: Dict[str, Dict[str, int]] = field(hash=False, compare=False)
     # Snapshot rows are kept for the first attempt only: it is the one checkpoints.jsonl holds.
     rows: Tuple[Dict[str, Any], ...] = field(default=(), hash=False, compare=False)
+    # The launch the attempt ran in and its 0-based position there; the reset check's finding.
+    session: Optional[int] = field(default=None, hash=False, compare=False)
+    position: Optional[int] = field(default=None, hash=False, compare=False)
+    leaked_state: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
+    # The reset check's time after the case (ms holds the case alone); None with no check.
+    reset_ms: Optional[int] = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -503,53 +533,190 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
     }
 
 
-def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any]) -> Tuple[list, list]:
-    """Runs one batch in as few sessions as possible; a dirty session is replaced before the next case."""
-    results = []
-    errors = []
-    session = None
+# The first differing pointers a leak lists; `count` has them all.
+LEAK_POINTERS = 20
+# A session without reset_state: its cases are not reset-checked.
+NO_RESET = object()
 
-    def close() -> None:
+
+def state_differences(fixture: Any, now: Any, pointer: str = "") -> List[str]:
+    """The JSON pointers (RFC 6901: "" is the whole document) where `now` differs from `fixture`, in
+    sorted-key order.
+
+    A key on one side only differs at that key; lists differ by index, and a length change at the
+    list itself. Equal values give [].
+    """
+    if isinstance(fixture, dict) and isinstance(now, dict):
+        out: List[str] = []
+        for key in sorted(set(fixture) | set(now), key=str):
+            child = f"{pointer}/{str(key).replace('~', '~0').replace('/', '~1')}"
+            if key not in fixture or key not in now:
+                out.append(child)
+            else:
+                out.extend(state_differences(fixture[key], now[key], child))
+        return out
+    if isinstance(fixture, list) and isinstance(now, list):
+        out = []
+        for index, (a, b) in enumerate(zip(fixture, now)):
+            out.extend(state_differences(a, b, f"{pointer}/{index}"))
+        if len(fixture) != len(now):
+            out.append(pointer)
+        return out
+    if type(fixture) is not type(now) or fixture != now:
+        return [pointer]
+    return []
+
+
+def read_fixture(session: Any) -> Any:
+    """The fixture of a fresh launch (its first reset snapshot), or NO_RESET for a session with no reset_state."""
+    reset_state = getattr(session, "reset_state", None)
+    return NO_RESET if reset_state is None else reset_state()
+
+
+@dataclass(frozen=True)
+class ResetOutcome:
+    """What the reset check after a case found.
+
+    `clean`: the reset snapshot is the fixture. `leaked`: it is not, or a reset action was refused
+    (`leak`). `relaunch`: the reset says it has no action for what the case changed (`reason`; the
+    driver's error has a `relaunch` attribute): a fresh launch, no leak. `unreachable`: the product
+    is gone (the error has `unreachable`): a Crash of the case at step "reset".
+    """
+
+    kind: str
+    leak: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = None
+
+
+def reset_check(session: Any, fixture: Any) -> ResetOutcome:
+    try:
+        now = session.reset_state()
+    except Exception as error:  # noqa: BLE001 - every reset failure is classified below
+        if getattr(error, "unreachable", False):
+            return ResetOutcome("unreachable", reason=f"{error}"[:500])
+        relaunch = getattr(error, "relaunch", None)
+        if relaunch:
+            return ResetOutcome("relaunch", reason=str(relaunch)[:500])
+        return ResetOutcome("leaked", leak={"pointers": [], "count": 0, "error": f"reset_state raised {error!r}"[:500]})
+    pointers = state_differences(fixture, now)
+    if not pointers:
+        return ResetOutcome("clean")
+    return ResetOutcome("leaked", leak={"pointers": pointers[:LEAK_POINTERS], "count": len(pointers), "error": None})
+
+
+@dataclass(frozen=True)
+class BatchOutput:
+    """(work, result, ms, session number, position, reset ms) per case that ran, infra errors, one log per launch."""
+
+    results: Tuple[Tuple[Work, Dict[str, Any], int, int, int, Optional[int]], ...]
+    errors: Tuple[str, ...]
+    sessions: Tuple[Dict[str, Any], ...]
+
+
+def run_batch(works: Sequence[Work], open_session: SessionOpener, session_ctx: Dict[str, Any],
+              numbers: Iterator[int]) -> BatchOutput:
+    """Runs one batch in as few launches as possible, with the reset check after each case.
+
+    A dirty session (lost process), a leak or a reset that asks for one closes the launch; the next
+    case opens a fresh one. A launch whose fixture cannot be read is an infra error of that launch:
+    the case it was opened for did not run (no result; execute retries it). `ms` is the case alone;
+    the reset check's time is `reset ms`. `numbers` gives out session numbers (itertools.count: one
+    atomic step per launch).
+    """
+    results = []
+    errors: List[str] = []
+    logs: List[Dict[str, Any]] = []
+    session: Any = None
+    fixture: Any = NO_RESET
+    log: Dict[str, Any] = {}
+
+    def end(reason: str, detail: Optional[str] = None) -> None:
+        nonlocal session
+        log["end"] = reason
+        if detail:
+            log["reason"] = detail
+        logs.append(log)
+        if session is None:
+            return
         try:
             session.close()
         except Exception as error:  # noqa: BLE001 - a teardown failure is reported, not raised
-            errors.append(f"session close after {works[0].case.id}..: {error!r}")
+            last = log["cases"][-1] if log["cases"] else "its launch"
+            errors.append(f"session {log['session']} close after {last}: {error!r}")
+        session = None
 
     try:
         for work in works:
+            if not log or "end" in log:
+                ctx = work.ctx
+                log = {"session": next(numbers), "iteration": ctx.get("iteration"), "attempt": ctx.get("attempt"),
+                       "phase": ctx.get("phase"), "cases": []}
+            if session is None:
+                try:
+                    session = open_session(dict(session_ctx))
+                except Exception as error:  # noqa: BLE001 - a launch that fails fails the case it was for
+                    log["cases"].append(work.case.id)
+                    results.append((work, {**crash(f"driver error: {error!r}"), "session_dirty": True}, 0, log["session"], 0, None))
+                    end("dirty")
+                    continue
+                try:
+                    fixture = read_fixture(session)
+                except Exception as error:  # noqa: BLE001 - the launch is unusable; the case did not run
+                    errors.append(f"session {log['session']}: fixture unreadable before {work.case.id}: {error!r}"[:500])
+                    end("fixture-unreadable", f"{error!r}"[:500])
+                    continue
+            position = len(log["cases"])
+            log["cases"].append(work.case.id)
             start = time.monotonic()
             try:
-                if session is None:
-                    session = open_session(dict(session_ctx))
                 result = coerce_result(session.run_case(work.case.data, dict(work.ctx)))
             except Exception as error:  # noqa: BLE001 - a driver failure fails this case only
                 result = {**crash(f"driver error: {error!r}"), "session_dirty": True}
-            results.append((work, result, int((time.monotonic() - start) * 1000)))
-            if result.get("session_dirty") and session is not None:
-                close()
-                session = None
+            ms = int((time.monotonic() - start) * 1000)
+            reset_ms = None
+            ending: Optional[Tuple[str, Optional[str]]] = ("dirty", None) if result.get("session_dirty") else None
+            if ending is None and fixture is not NO_RESET:
+                start = time.monotonic()
+                outcome = reset_check(session, fixture)
+                reset_ms = int((time.monotonic() - start) * 1000)
+                if outcome.kind == "leaked":
+                    leak = {"case": work.case.id, **(outcome.leak or {}), "launch_order": list(log["cases"]),
+                            "session": log["session"]}
+                    result = {**result, "leaked_state": leak, "session_dirty": True}
+                    ending = ("leaked", None)
+                elif outcome.kind == "unreachable":
+                    result = {**result, "status": "Crash", "step": "reset", "session_dirty": True,
+                              "message": f"the product was lost in the reset after the case: {outcome.reason}"}
+                    ending = ("dirty", outcome.reason)
+                elif outcome.kind == "relaunch":
+                    ending = ("relaunch", outcome.reason)
+            results.append((work, result, ms, log["session"], position, reset_ms))
+            if ending is not None:
+                end(*ending)
     finally:
-        if session is not None:
-            close()
-    return results, errors
+        if log and "end" not in log:
+            end("batch-end")
+    return BatchOutput(tuple(results), tuple(errors), tuple(logs))
 
 
 def run_phase(
-    batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int
-) -> Tuple[list, list]:
+    batches: Sequence[Sequence[Work]], open_session: SessionOpener, session_ctx: Dict[str, Any], jobs: int,
+    numbers: Iterator[int],
+) -> Tuple[list, list, list]:
+    outputs: Iterable[BatchOutput]
+    if jobs <= 1 or len(batches) <= 1:
+        outputs = [run_batch(b, open_session, session_ctx, numbers) for b in batches]
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
+            outputs = list(pool.map(lambda b: run_batch(b, open_session, session_ctx, numbers), batches))
     results: list = []
     errors: list = []
-    if jobs <= 1 or len(batches) <= 1:
-        outputs: Iterable = (run_batch(b, open_session, session_ctx) for b in batches)
-        for batch_results, batch_errors in outputs:
-            results.extend(batch_results)
-            errors.extend(batch_errors)
-        return results, errors
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(jobs, len(batches))) as pool:
-        for batch_results, batch_errors in pool.map(lambda b: run_batch(b, open_session, session_ctx), batches):
-            results.extend(batch_results)
-            errors.extend(batch_errors)
-    return results, errors
+    sessions: list = []
+    for output in outputs:
+        results.extend(output.results)
+        errors.extend(output.errors)
+        sessions.extend(output.sessions)
+    return results, errors, sessions
 
 
 @dataclass(frozen=True)
@@ -622,12 +789,14 @@ def needs_retry(attempt: Tuple[str, Optional[str]], expected: Expected) -> bool:
     return not expected.accepts(status, step) and status != "Pass"
 
 
-def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected]) -> Tuple[List[Attempt], List[str]]:
+def execute(plan: Plan, options: RunOptions, open_session: SessionOpener,
+            expected: Dict[str, Expected]) -> Tuple[List[Attempt], List[str], List[Dict[str, Any]]]:
     """Runs every iteration of the plan with the retry policy of spec 3G.
 
     Retry 1 reruns the whole shard with the same order and batches; retries 2..limit run each
     still-failing case alone in a fresh session, serially. Keys for state roots are given out
-    here, on one thread, before work is dispatched.
+    here, on one thread, before work is dispatched. Returns the attempts, the infra errors and
+    one log per launch (the cases it ran, in order, and why it ended).
     """
     run_key = base36(int.from_bytes(hashlib.sha256(options.run_id.encode()).digest()[:4], "big"))[-6:]
     keys = itertools.count()
@@ -647,6 +816,14 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
     runnable = [batch for batch in runnable if batch]
     attempts: List[Attempt] = []
     errors: List[str] = []
+    sessions: List[Dict[str, Any]] = []
+    numbers = itertools.count()
+
+    def phase_of(batches: Sequence[Sequence[Work]], jobs: int) -> list:
+        results, errs, logs = run_phase(batches, open_session, session_ctx, jobs, numbers)
+        errors.extend(errs)
+        sessions.extend(logs)
+        return results
 
     def works(batch: Sequence[Case], iteration: int, attempt: int, phase: str) -> Tuple[Work, ...]:
         out = []
@@ -670,41 +847,50 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
             )
         return tuple(out)
 
+    kept_rows: set = set()
+
     def record(results: list, iteration: int, attempt: int, phase: str) -> Dict[str, Tuple[str, Optional[str]]]:
+        """The attempts of one phase; a case missing from `results` did not run (its launch's fixture was
+        unreadable) and is retried like a failure."""
         statuses = {}
-        for work, result, ms in results:
-            first = iteration == 0 and attempt == 0
+        for work, result, ms, session, position, reset_ms in results:
+            # The first attempt that ran keeps its rows: attempt 0 unless its launch never read a fixture.
+            first = iteration == 0 and work.case.id not in kept_rows
+            if first:
+                kept_rows.add(work.case.id)
+            leak = result.get("leaked_state")
+            if leak is not None:
+                leak = {**leak, "iteration": iteration, "attempt": attempt, "phase": phase}
             attempts.append(
                 Attempt(
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
+                    session, position, leak, reset_ms,
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
         return statuses
 
+    def not_settled(statuses: Dict[str, Tuple[str, Optional[str]]], case: Case) -> bool:
+        status = statuses.get(case.id)
+        return status is None or needs_retry(status, expected[case.id])
+
     for iteration in range(options.repeat):
-        results, errs = run_phase([works(b, iteration, 0, "run") for b in runnable], open_session, session_ctx, options.jobs)
-        errors.extend(errs)
+        results = phase_of([works(b, iteration, 0, "run") for b in runnable], options.jobs)
         statuses = record(results, iteration, 0, "run")
-        failing = [c for b in runnable for c in b if needs_retry(statuses[c.id], expected[c.id])]
+        failing = [c for b in runnable for c in b if not_settled(statuses, c)]
         if failing and options.retry_limit >= 1:
-            results, errs = run_phase(
-                [works(b, iteration, 1, "shard-retry") for b in runnable], open_session, session_ctx, options.jobs
-            )
-            errors.extend(errs)
+            results = phase_of([works(b, iteration, 1, "shard-retry") for b in runnable], options.jobs)
             statuses = record(results, iteration, 1, "shard-retry")
-            failing = [c for c in failing if needs_retry(statuses[c.id], expected[c.id])]
+            failing = [c for c in failing if not_settled(statuses, c)]
         for attempt in range(2, options.retry_limit + 1):
             if not failing:
                 break
-            results, errs = run_phase(
-                [works((c,), iteration, attempt, "alone-retry") for c in failing], open_session, session_ctx, 1
-            )
-            errors.extend(errs)
+            results = phase_of([works((c,), iteration, attempt, "alone-retry") for c in failing], 1)
             statuses = record(results, iteration, attempt, "alone-retry")
-            failing = [c for c in failing if needs_retry(statuses[c.id], expected[c.id])]
-    return attempts, errors
+            failing = [c for c in failing if not_settled(statuses, c)]
+    sessions.sort(key=lambda log: log["session"])
+    return attempts, errors, sessions
 
 
 def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
@@ -716,6 +902,9 @@ def classify(attempts: Sequence[Attempt], expected: Expected) -> Dict[str, Any]:
     """
     if expected.skip:
         return {"outcome": "skipped", "result": "Skip", "status": "Skip", "flaky": False, "reasons": [], "attempts": 0}
+    if not attempts:
+        # No launch read its fixture for it (an infra error of each launch, which fails the run).
+        return {"outcome": "not-run", "result": None, "status": None, "flaky": False, "reasons": [], "attempts": 0}
     by_iteration: Dict[int, List[Attempt]] = {}
     for a in attempts:
         by_iteration.setdefault(a.iteration, []).append(a)
@@ -783,14 +972,16 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
     unexpected = sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected")
+    leaked = sorted(cid for cid, r in cases.items() if r.get("leaked_state"))
     return {
         "counts": counts,
+        "leaked_state": leaked,
         "flaky": sorted(cid for cid, r in cases.items() if r["flaky"]),
         "unexpected": unexpected,
         "unexpected_passes": sorted(cid for cid, r in cases.items() if r["outcome"] == "unexpected-pass"),
         "switch_hits": hits,
         "arm_exercised": arm_exercised,
-        "ok": not unexpected and not infra_errors and arm_exercised is not False,
+        "ok": not unexpected and not leaked and not infra_errors and arm_exercised is not False,
     }
 
 
@@ -841,10 +1032,11 @@ def perform_run(
 
     attempts: List[Attempt] = []
     errors: List[str] = []
+    sessions: List[Dict[str, Any]] = []
     if not options.dry_run:
         if open_session is None:
             raise UsageError("no driver to run cases with")
-        attempts, errors = execute(plan, options, open_session, expected)
+        attempts, errors, sessions = execute(plan, options, open_session, expected)
     by_case: Dict[str, List[Attempt]] = {c.id: [] for c in plan.order}
     for a in attempts:
         by_case[a.case].append(a)
@@ -858,11 +1050,14 @@ def perform_run(
                       "status": "Skip" if exp.skip else None, "flaky": False, "reasons": [], "attempts": 0}
         else:
             record = classify(by_case[case.id], exp)
-        first = next((a for a in by_case[case.id] if a.iteration == 0 and a.attempt == 0), None)
+        first = min((a for a in by_case[case.id] if a.iteration == 0), key=lambda a: a.attempt, default=None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        leaks = [a.leaked_state for a in by_case[case.id] if a.leaked_state]
+        if leaks:
+            record["leaked_state"] = leaks
         records[case.id] = record
         if first is not None:
-            rows.extend(checkpoint_rows(case.id, first.rows, attempt=0, result=first.status))
+            rows.extend(checkpoint_rows(case.id, first.rows, attempt=first.attempt, result=first.status))
 
     config = {**options.fingerprint(), "seed": options.seed, "shard_index": options.shard[0], "jobs": options.jobs,
               "binary": options.binary}
@@ -886,6 +1081,7 @@ def perform_run(
         "not_applicable": len(not_applicable),
         "order": [c.id for c in plan.order],
         "batches": len(plan.batches),
+        "sessions": sessions,
         "cases": records,
         "infra_errors": errors,
         **run_summary(records, hits=sum_switch_hits(a.switch_hits for a in attempts), config=config,
@@ -897,7 +1093,8 @@ def perform_run(
         options.out / "events.jsonl",
         (
             {"case": a.case, "iteration": a.iteration, "attempt": a.attempt, "phase": a.phase, "status": a.status,
-             "step": a.step, "ms": a.ms, "message": a.message, "sha256": [h for _, _, h in a.checkpoints]}
+             "step": a.step, "ms": a.ms, "message": a.message, "sha256": [h for _, _, h in a.checkpoints],
+             "session": a.session, "position": a.position, "reset_ms": a.reset_ms, "leaked_state": a.leaked_state}
             for a in attempts
         ),
     )
@@ -912,6 +1109,14 @@ def perform_run(
     return receipt, 0 if receipt["ok"] else 1
 
 
+def leak_line(leak: Mapping[str, Any]) -> str:
+    """One leak for a person: the leaking case, what differs, and the launch order that reproduces it."""
+    where = ", ".join(pointer or '"" (the whole snapshot)' for pointer in leak["pointers"][:5])
+    what = leak.get("error") or f"{leak['count']} differences at {where}"
+    return (f"{leak['case']} left the product unlike its fixture ({what}); launch {leak['session']} ran "
+            f"{' -> '.join(leak['launch_order'])}")
+
+
 def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
     lines = [
         f"# oracle run {receipt['runId']}",
@@ -922,8 +1127,12 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"retry limit {options.retry_limit}",
         "- outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(receipt["counts"].items())),
         f"- flaky (left out of comparisons): {len(receipt['flaky'])}",
+        f"- launches: {len(receipt['sessions'])} ({sum(1 for s in receipt['sessions'] if s.get('end') == 'relaunch')} "
+        f"relaunched for state the reset cannot put back); LeakedState: {len(receipt['leaked_state'])}",
         f"- ok: {receipt['ok']}",
     ]
+    for cid in receipt["leaked_state"][:50]:
+        lines.append(f"  - LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     for cid in receipt["unexpected"][:50]:
         lines.append(f"  - unexpected: {cid} ({receipt['cases'][cid]['status']})")
     (options.out / "index.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -1014,6 +1223,7 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
                        for d, r in zip(directories, loaded)],
         "order": [cid for r in loaded for cid in r["order"]],
         "batches": sum(r["batches"] for r in loaded),
+        "sessions": [{**log, "runId": r["runId"]} for r in loaded for log in r.get("sessions") or ()],
         "cases": cases,
         "infra_errors": infra,
         **run_summary(cases, hits=sum_switch_hits(r.get("switch_hits") or {} for r in loaded), config=config,
@@ -1045,17 +1255,32 @@ def write_merged(view: RunView, out: Path) -> Path:
 # Comparing runs through diff.py
 
 
-def comparability(a: RunView, b: RunView, *, partial: bool) -> Optional[str]:
-    """Why two sides cannot be compared as a full (or, with --partial, a shard-subset) result."""
+# What an order-parity comparison lets differ: the order (seed), the launch sharing (batch limit)
+# and what never takes part in a merge fingerprint either.
+ORDER_KEYS = frozenset({"seed", "batch_limit", "shard_index", "jobs", "binary"})
+
+
+def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool = False) -> Optional[str]:
+    """Why two sides cannot be compared as a full (or, with --partial, a shard-subset) result.
+
+    `order_parity` compares one config run in two orders or launch sharings (task 189: two shuffle
+    seeds and --batch-limit 1 give the batched verdicts): the seeds and batch limits may differ,
+    every other config key must not.
+    """
     if a.receipt.get("dry_run") or b.receipt.get("dry_run"):
         return "a dry run has no results"
+    if order_parity:
+        mine, theirs = ({k: v for k, v in side.receipt["config"].items() if k not in ORDER_KEYS} for side in (a, b))
+        if mine != theirs:
+            keys = sorted(k for k in set(mine) | set(theirs) if mine.get(k) != theirs.get(k))
+            return f"order parity compares one config in two orders; these differ: {', '.join(keys)}"
     if a.total != b.total:
         return f"shard totals differ: {a.total} vs {b.total}"
     if a.shards != b.shards:
         return f"shard sets differ: {list(a.shards)} vs {list(b.shards)}"
     if a.receipt["selection"]["digest"] != b.receipt["selection"]["digest"]:
         return "the two sides select different cases (corpus, suites, filters or product differ)"
-    if a.seeds != b.seeds and any(s is not None for s in (*a.seeds.values(), *b.seeds.values())):
+    if not order_parity and a.seeds != b.seeds and any(s is not None for s in (*a.seeds.values(), *b.seeds.values())):
         return f"shuffle seeds differ per shard: {a.seeds} vs {b.seeds}"
     if not partial and not (a.complete and b.complete):
         return (f"incomplete: shards {list(b.shards)} of {b.total}; merge every shard, "
@@ -1083,16 +1308,17 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False) -> int:
+                  as_json: bool = False, order_parity: bool = False) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
     diff.py owns the host check, the first divergence per case and expected differences, so an
     all-match comparison from two hosts is refused like a divergent one. Flaky cases are
-    reported as flaky by diff.py and never count as compared.
+    reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
+    leaked state on one side only is a divergence too: its leak depends on the order.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
-    refused = refused or comparability(a, b, partial=partial)
+    refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
     document: Dict[str, Any] = {}
     code = None
     if refused is None:
@@ -1110,6 +1336,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         # Every case flaky or skipped is no evidence; it must not read as a pass.
         refused = "nothing compared"
     divergent = sorted(cid for cid, s in statuses.items() if s == "divergent")
+    leaks = {"a": sorted(a.receipt.get("leaked_state") or ()), "b": sorted(b.receipt.get("leaked_state") or ())}
+    leaks_differ = sorted(set(leaks["a"]) ^ set(leaks["b"])) if order_parity else []
     comparison = {
         "schema": COMPARISON_SCHEMA,
         "a": labels[0],
@@ -1127,7 +1355,10 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
         "divergence": str(target) if target.is_file() else None,
-        "ok": refused is None and code == DIFF_OK,
+        "order_parity": order_parity,
+        "leaked_state": leaks,
+        "leaks_differ": leaks_differ,
+        "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
     write_json(out / "comparison.json", comparison)
     if as_json:
@@ -1140,6 +1371,9 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
+        for cid in leaks_differ:
+            side = "a" if cid in leaks["a"] else "b"
+            print(f"  LeakedState on side {side} only (order-dependent): {cid}")
         if refused:
             print(f"  refused: {refused}")
         if comparison["partial"]:
@@ -1149,7 +1383,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         return DIFF_INTERNAL
     if refused is not None:
         return EXIT_REFUSED
-    return 0 if code == DIFF_OK else 1
+    return 0 if comparison["ok"] else 1
 
 
 # ---------------------------------------------------------------------------------------
@@ -1418,6 +1652,8 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
         print(f"  flaky, left out of comparisons: {len(receipt['flaky'])}")
     for cid in receipt["unexpected"][:20]:
         print(f"  unexpected: {cid} ({receipt['cases'][cid]['status']})")
+    for cid in receipt["leaked_state"][:20]:
+        print(f"  LeakedState: {leak_line(receipt['cases'][cid]['leaked_state'][0])}")
     if receipt["arm_exercised"] is False:
         print(f"  arm-not-exercised: {options.switch}={options.arm} had 0 hits")
     for error in receipt["infra_errors"][:10]:
@@ -1492,6 +1728,8 @@ def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
+    if args.order_parity and not (args.base_run and args.head_run and not args.baselines):
+        raise UsageError("--order-parity compares two existing runs: give --base-run and --head-run")
     out = args.out or DEFAULT_OUT_BASE / ("diff-" + new_run_id())
     check_out_dir(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -1513,7 +1751,8 @@ def cmd_diff(args: argparse.Namespace) -> int:
             raise UsageError("; ".join(base_errors + head_errors))
         return compare_views(base, head, a_dir=write_merged(base, out / "a-merged"), b_dir=write_merged(head, out / "b-merged"),
                              out=out, labels=("base", "head"), partial=args.partial, expected=[],
-                             rules=comparison_rules(head, args.expectations_root), as_json=args.json)
+                             rules=comparison_rules(head, args.expectations_root), as_json=args.json,
+                             order_parity=args.order_parity)
     if args.product == "app":
         fleet = HERE / "fleet.py"
         if not fleet.is_file():
@@ -1872,6 +2111,9 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
     diff.add_argument("--baselines-root", type=Path, default=DEFAULT_BASELINES_ROOT)
     diff.add_argument("--partial", action="store_true", help="compare a shard subset; the result says partial")
+    diff.add_argument("--order-parity", action="store_true",
+                      help="with --base-run/--head-run: one config run in two orders or batch limits (shuffle "
+                           "seeds, --batch-limit 1); every verdict and every LeakedState must match")
     diff.add_argument("--fresh", action="store_true",
                       help="on the VM, rerun both sides even when the queue has a receipt (confirm, flake checks)")
     diff.add_argument("--out", type=Path, help="comparison directory")

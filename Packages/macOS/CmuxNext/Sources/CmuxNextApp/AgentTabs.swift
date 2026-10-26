@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -63,6 +64,8 @@ final class AgentTabStore {
     /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
     /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
     var turns: AgentTurnStateStore = .shared
+    /// New tabs' `create.tab` waits (the content cache's): a chat tab's release or rekey here is its close or move there.
+    weak var createTabs: CreateTabTimings?
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapability.agentSessionTabs.rawValue) }

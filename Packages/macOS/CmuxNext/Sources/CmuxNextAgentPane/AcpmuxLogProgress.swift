@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// The acpmux daemon's start progress, read from its log: a daemon that still writes its log is
 /// still starting (it loads chats, adopts agents, reads the login environment). The launch waits
@@ -30,12 +31,14 @@ nonisolated final class AcpmuxLogProgress: Sendable {
 
     deinit { source?.cancel() }
 
-    /// Returns once the log has had no write for `stall`. Cancellable.
+    /// Returns once the log has had no write for `stall`. Cancellable. The stall is a flexible,
+    /// no-sooner deadline: it sleeps with ``WakeLeeway``'s tolerance for `stall`.
     func stalled(for stall: Duration) async throws {
+        let tolerance = WakeLeeway.window(delay: stall).tolerance
         var due = lastWrite.withLock { $0 } + stall
         while ContinuousClock.now < due {
-            // wakeup-allow: the stall deadline itself; it wakes again only when a log write moved it.
-            try await Task.sleep(until: due, clock: .continuous)
+            // wakeup-allow: deadline the stall deadline itself; it wakes again only when a log write moved it.
+            try await ContinuousClock().sleep(until: due, tolerance: tolerance)
             due = lastWrite.withLock { $0 } + stall
         }
     }

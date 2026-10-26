@@ -127,7 +127,7 @@
     "allow_crashes": {
       "type": "array",
       "items": {"$ref": "#/$defs/allowCrash"},
-      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes.",
+      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes. I17 counts an exit in the step whose turn or settled checkpoint first shows the rise of crashes.counts (one first shown at a step's before checkpoint belongs to the step before it); when the checkpoints before that one are missing or not comparable, the exit belongs to every step it could have happened in, and an entry for any of them covers it. An exit during the teardown needs an entry without steps. Each exit takes one of the first matching entry's max.",
       "x-oracle-crash-scope": {
         "error": "{pointer}: step \"{step}\" ends a {kind} process, but no allow_crashes entry of kind {kind} lists it in its steps",
         "countError": "{pointer}: {count} steps end a {kind} process, but the allow_crashes entries of kind {kind} allow at most {max}"

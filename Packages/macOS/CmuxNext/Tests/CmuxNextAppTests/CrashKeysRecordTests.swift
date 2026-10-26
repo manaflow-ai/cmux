@@ -23,6 +23,17 @@ struct CrashKeysRecordTests {
         #expect(!text.contains("4242"), "a thread port never leaves the process: \(text)")
     }
 
+    /// The crash path's block exists before any crash handler that reads it is installed, also when the run
+    /// marker's `run.signal` does not open: the uncaught-exception handler is installed by then, and the block was
+    /// made only after that open, so the first write moved into `attachCrashKeys`, after the handlers.
+    @Test func theCrashKeysBlockExistsWhenTheSignalFileDoesNotOpen() async {
+        let directory = CrashChild.directory("crash-keys-no-signal", parent: getpid())
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await #expect(processExitsWith: .success) {
+            await CrashKeysChild.markRunWithNoSignalFile()
+        }
+    }
+
     @Test func aRecordReadBackKeepsOnlyWhatTheCrashPathWrites() throws {
         let planted = "crash_keys action_id=12 path=/Users/someone/secret pane_kind=0x41 cef_state=-1 "
             + "daemon_epoch=99999999999999999999999 token=abc hung_kind_0=300 hung_kind_1=2\n"
@@ -95,5 +106,19 @@ enum CrashKeysChild {
             CrashChild.badAccess()
         }
         withExtendedLifetime(marker) {}
+    }
+
+    /// The run marker's start with `run.signal` a folder, so its open fails and the start returns there; exits 0
+    /// when the crash keys' block exists after it, 1 when it does not, 2 when it existed before.
+    @MainActor
+    static func markRunWithNoSignalFile() async {
+        let directory = CrashChild.directory("crash-keys-no-signal", parent: getppid())
+        if CrashReporter.crashKeysBlockIsPrepared { exit(2) }
+        try? FileManager.default.createDirectory(at: directory.appending(path: "run.signal", directoryHint: .isDirectory),
+                                                 withIntermediateDirectories: true)
+        let marker = AppRunMarker(directory: directory)
+        let prepared = CrashReporter.crashKeysBlockIsPrepared
+        withExtendedLifetime(marker) {}
+        exit(prepared ? 0 : 1)
     }
 }

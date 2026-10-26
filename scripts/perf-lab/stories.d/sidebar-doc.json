@@ -1,0 +1,17 @@
+{
+  "id": "sidebar-doc",
+  "tier": "T1",
+  "description": "Commit cost of personal sidebar writes at 2000 workspaces at the daemon socket (sidebar-doc-bench.py): a headless daemon of the measured build times workspace.create, workspace.place, workspace_group.update and sidebar.move per request, with one sidebar-doc-v1 event subscriber open.",
+  "command": ["scripts/cmux-next/sidebar-doc-bench.py", "--count", "2000", "--samples", "40", "--subscriber", "doc"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_doc\\.doc\\.(workspace_create|workspace_place|workspace_group_update|sidebar_move)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 120,
+  "needs": [],
+  "owner": "a590",
+  "component": "Sidebar>Document"
+}

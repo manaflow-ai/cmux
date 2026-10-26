@@ -1,5 +1,5 @@
 import AppKit
-import os
+import CmuxNextCompat
 
 /// When a window's host pressure indicator samples the host (cmux#22662: a new dev
 /// surface ships off). It samples only while the Debug Settings toggle
@@ -36,7 +36,7 @@ import os
 /// window never leaves a subscriber behind that would keep the monitor's timer running.
 nonisolated final class HostPressureSubscription: Sendable {
     let service: HostPressureService
-    private let live = OSAllocatedUnfairLock(initialState: true)
+    private let live = Mutex(true)
 
     @MainActor init(_ service: HostPressureService) {
         self.service = service
@@ -65,7 +65,7 @@ nonisolated final class HostPressureSubscription: Sendable {
 
 /// Tasks cancelled together from any thread (a view's nonisolated deinit included).
 nonisolated final class HostPressureTasks: Sendable {
-    private let tasks = OSAllocatedUnfairLock<[Task<Void, Never>]>(initialState: [])
+    private let tasks = Mutex<[Task<Void, Never>]>([])
 
     func add(_ task: Task<Void, Never>) {
         tasks.withLock { $0.append(task) }

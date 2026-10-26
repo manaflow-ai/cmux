@@ -12,8 +12,8 @@ enum WireGenError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .usage(let detail):
-            "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH --identity-output PATH "
-                + "--method-table-output PATH"
+            "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH [--identity-output PATH] "
+                + "[--method-table-output PATH] [--event-output PATH [--event-import MODULE]] (at least one output)"
         case .unreadable(let path, let reason): "\(path): cannot read: \(reason)"
         case .malformed(let path, let reason): "\(path): not a schema file: \(reason)"
         case .unwritable(let path, let reason): "\(path): cannot write: \(reason)"
@@ -22,30 +22,48 @@ enum WireGenError: Error, CustomStringConvertible {
     }
 }
 
-/// The command line: every option exactly once, each followed by a path.
+/// The command line: every option at most once, each followed by its value. The two schemas are
+/// required, and at least one output; a run writes only the outputs it is given.
 struct WireGenArguments {
-    static let flags = ["--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output"]
+    static let flags = [
+        "--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output", "--event-output",
+        "--event-import",
+    ]
 
     let sdkSchema: URL
     let resourceOperations: URL
-    let identityOutput: URL
+    /// Where `WireSchemaIdentity.built` goes (IdentityEmitter).
+    let identityOutput: URL?
     /// Where `MethodTable.schema` goes (TableEmitter).
-    let methodTableOutput: URL
+    let methodTableOutput: URL?
+    /// Where `DaemonWireEvent` goes (EventEmitter).
+    let eventOutput: URL?
+    /// The module `DaemonWireEvent` imports `WireEventSet` from when it is built outside CmuxNextIPC
+    /// (CmuxNextIPCTests builds the fixture schema's set).
+    let eventImport: String?
 
     init(_ argv: [String]) throws(WireGenError) {
         var values: [String: String] = [:]
         var iterator = argv.makeIterator()
         while let flag = iterator.next() {
             guard Self.flags.contains(flag) else { throw WireGenError.usage("unknown argument \(flag)") }
-            guard let value = iterator.next() else { throw WireGenError.usage("\(flag) needs a path") }
+            guard let value = iterator.next() else { throw WireGenError.usage("\(flag) needs a value") }
             guard values.updateValue(value, forKey: flag) == nil else {
                 throw WireGenError.usage("\(flag) given twice")
             }
         }
         sdkSchema = try Self.path("--sdk-schema", in: values)
         resourceOperations = try Self.path("--resource-operations", in: values)
-        identityOutput = try Self.path("--identity-output", in: values)
-        methodTableOutput = try Self.path("--method-table-output", in: values)
+        identityOutput = values["--identity-output"].map { URL(fileURLWithPath: $0) }
+        methodTableOutput = values["--method-table-output"].map { URL(fileURLWithPath: $0) }
+        eventOutput = values["--event-output"].map { URL(fileURLWithPath: $0) }
+        eventImport = values["--event-import"]
+        guard identityOutput != nil || methodTableOutput != nil || eventOutput != nil else {
+            throw WireGenError.usage("no output: give --identity-output, --method-table-output or --event-output")
+        }
+        guard eventImport == nil || eventOutput != nil else {
+            throw WireGenError.usage("--event-import needs --event-output")
+        }
     }
 
     private static func path(_ flag: String, in values: [String: String]) throws(WireGenError) -> URL {

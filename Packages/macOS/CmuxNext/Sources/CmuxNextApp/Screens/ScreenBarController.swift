@@ -35,6 +35,7 @@ final class ScreenBarController {
     init(content: WorkspaceContentController) {
         self.content = content
         view = TabStripView(model: model, input: content.services.inputTap)
+        view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true

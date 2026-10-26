@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePageInterval } from "../../../pages/shared/pageLifecycle";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import type { HarnessHealth } from "../HarnessHealthNotice";
@@ -33,6 +34,9 @@ type HostRead = { output?: string; next?: number; exit?: { code?: number; signal
 
 /// How long the page waits for a sign-in started from it.
 const SIGN_IN_WAIT_MS = 3 * 60 * 1000;
+
+/// The sign-ins the page waits for: their harnesses, when the wait ends, and whether a check is out.
+type SignInWait = { ids: string[]; ends: number; busy: boolean };
 /// Output kept to find the last line.
 const TAIL = 4096;
 
@@ -125,21 +129,26 @@ export function HarnessesScreen({
   const waiting = Object.keys(progress)
     .filter((harness) => progress[harness]?.kind === "waiting")
     .join("\n");
+  // A sign-in started here: checked until it lands (the row turns ready) or the wait ends. The
+  // checks rest while the page is hidden, and showing the page checks nothing (a read never catches
+  // up on show): the next check comes one period later. The wait's end is wall time.
+  const signIn = useRef<SignInWait | undefined>(undefined);
   useEffect(() => {
-    // A sign-in started here: checked until it lands (the row turns ready) or the wait ends.
-    if (!waiting) return;
-    const ids = waiting.split("\n");
-    const ends = Date.now() + SIGN_IN_WAIT_MS;
-    let busy = false;
-    const timer = setInterval(() => {
-      if (busy) return;
-      if (Date.now() > ends) {
-        for (const id of ids) mark(id, undefined);
+    signIn.current = waiting
+      ? { ids: waiting.split("\n"), ends: Date.now() + SIGN_IN_WAIT_MS, busy: false }
+      : undefined;
+  }, [waiting]);
+  usePageInterval(
+    () => {
+      const wait = signIn.current;
+      if (!wait || wait.busy) return;
+      if (Date.now() > wait.ends) {
+        for (const id of wait.ids) mark(id, undefined);
         return;
       }
-      busy = true;
+      wait.busy = true;
       void Promise.all(
-        ids.map((id) =>
+        wait.ids.map((id) =>
           callNative("harness.health", { id, refresh: true })
             .then((reply) => {
               if (remember(id, reply)?.auth !== "signedOut") mark(id, undefined);
@@ -147,11 +156,11 @@ export function HarnessesScreen({
             .catch(() => undefined),
         ),
       ).finally(() => {
-        busy = false;
+        wait.busy = false;
       });
-    }, signInPollMs);
-    return () => clearInterval(timer);
-  }, [callNative, waiting, signInPollMs]);
+    },
+    waiting ? signInPollMs : null,
+  );
   useEscapeCloses(true, onClose);
   const rows = harnessRows(catalog, acpmux, health, checking);
   const inFolder = cwd ? { cwd } : {};
