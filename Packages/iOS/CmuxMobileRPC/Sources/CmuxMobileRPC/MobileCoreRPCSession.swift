@@ -233,7 +233,7 @@ actor MobileCoreRPCSession {
         let installedLease = installedConnectLease
         let registry = connectAttemptRegistry
         if let connecting {
-            Task.detached {
+            Task {
                 await registry.handOffPhysicalCleanup(
                     lease: connecting.lease
                 ) {
@@ -254,7 +254,7 @@ actor MobileCoreRPCSession {
             }
         }
         if installedTransport != nil || installedLease != nil {
-            Task.detached {
+            Task {
                 await registry.handOffPhysicalCleanup(
                     lease: installedLease
                 ) {
