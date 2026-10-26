@@ -1,9 +1,12 @@
 import CmuxNextCompat
 public import Foundation
+public import Observation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
 /// beside the launch snapshot: after a relaunch that tab opens as the chat with its draft, not as
 /// the New Tab page. Once the chat has a session acpmux keeps its draft, and this copy is gone.
+/// Observable, so a reader of one tab's text (the refactor oracle's agents facet) hears it change.
+@Observable
 public final class AgentUnsentDrafts {
     public static let fileName = "agent-unsent-drafts.json"
     /// A longer text is not kept (acpmux's own draft limit).
@@ -44,6 +47,9 @@ public final class AgentUnsentDrafts {
 
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
+
+    /// Tab `key`'s kept text; nil when it holds none.
+    public func draft(for key: String) -> String? { drafts[key] }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it.
     public func set(_ text: String, for key: String) {

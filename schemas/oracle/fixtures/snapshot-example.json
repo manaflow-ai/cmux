@@ -584,7 +584,7 @@
       "needsYou": 0,
       "workspaces": [{"workspace": "ws_000000000000000000000000000000b1", "unread": 0, "needsYou": 0}]
     },
-    "agents": {"sessions": []},
+    "agents": {"sessions": [], "home": []},
     "terminals": {
       "list": [
         {

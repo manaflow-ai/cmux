@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDesign
@@ -34,6 +35,11 @@ extension AppServices: OracleHost {
                 return OracleSettingsFacet.Reading(effectiveSha256: applied.effectiveSha256, nonDefaultKeys: applied.nonDefaultKeys(),
                                                    motionEnabled: motion.animationsEnabled, motionSpeed: motion.speed.timeScale,
                                                    reduceMotion: motion.reduceMotion)
+            },
+            // Agent chat tabs with acpmux's lane for their session (this Mac's watch, then the Chief home's), and
+            // each Home Messages view's conversation.
+            OracleAgentsFacet { [weak self] in
+                self?.oracleAgents { AgentLaneStore.shared.lane($0) ?? AgentLaneStore.chief.lane($0) }
             },
         ])
     }

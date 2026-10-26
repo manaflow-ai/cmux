@@ -27,7 +27,17 @@ final class TopHomePageView: NSView {
     private(set) var rows: [InboxRow] = []
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
-    private(set) var shown: ConversationID?
+    /// The conversation the transcript column shows. Observable (the page is not a model, so by hand): a
+    /// reader such as the refactor oracle's agents facet hears the switch.
+    private(set) var shown: ConversationID? {
+        get {
+            observation.access(self, keyPath: \.shown)
+            return shownConversation
+        }
+        set { observation.withMutation(of: self, keyPath: \.shown) { shownConversation = newValue } }
+    }
+    private var shownConversation: ConversationID?
+    private let observation = ObservationRegistrar()
     /// The New Message page (Messages' New Message: a page, not a sheet).
     /// Kept while hidden when the person typed something, with its row in the list.
     private(set) var newMessage: HomeNewMessageView?
@@ -510,3 +520,5 @@ final class TopHomePageView: NSView {
         window.beginSheet(panel)
     }
 }
+
+extension TopHomePageView: Observable {}

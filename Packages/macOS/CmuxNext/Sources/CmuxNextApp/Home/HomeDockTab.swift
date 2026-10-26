@@ -55,6 +55,11 @@ final class HomeDockTab: InternalPageProvider {
         pending[tabID, default: []].append(body)
     }
 
+    /// Each docked Home's Messages view by provider key, once made.
+    var messagesViews: [(key: String, view: TopHomePageView)] {
+        views.compactMap { key, view in view.messages.map { (key, $0) } }
+    }
+
     /// The docked Home's view in the live tree, once its tab has shown.
     static func view(_ services: AppServices) -> HomeDockView? {
         guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,

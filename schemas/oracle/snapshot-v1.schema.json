@@ -40,7 +40,8 @@
   "x-oracle-id-unpatterned": {
     "surface": "daemon surface handle; only in snapshot.get tabs[].surface, a typed field",
     "agentSession": "acpmux session id; only in typed fields of snapshot.get and the agents facet",
-    "intent": "app intent id; only in the typed intents.pending[].intent"
+    "intent": "app intent id; only in the typed intents.pending[].intent",
+    "conversation": "Home conversation id (the Chief owner's or Cloud's); only in the typed agents.home[].conversation"
   },
   "x-oracle-open-keys": [
     {"key": "^(.+_)?at_ms$|^since_ms$", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}},
@@ -3008,22 +3009,23 @@
           ]
         },
         "agents": {
-          "description": "Agent sessions, turns, approvals and draft hashes.",
+          "description": "Each agent chat tab's acpmux session (the store's tab record, acpmux's lane from the app's watch) and the conversation each Home Messages view shows. Hashes only: no prompt, reply, title or draft text.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/agents",
             "v0": null,
             "provider": "OracleAgentsFacet",
             "task": "p15-oracle-043",
-            "from": "agent session store (hashes only)"
+            "from": "agent chat tab records, the acpmux lane mirror, the unsent-draft store and the Home pages (hashes only)"
           },
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["sessions"],
+              "required": ["sessions", "home"],
               "properties": {
                 "sessions": {
+                  "description": "one row per agent chat tab, a new chat with no session yet too",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions"},
                   "type": "array",
                   "x-oracle-order": "set",
@@ -3033,31 +3035,37 @@
                     "required": ["session", "agent", "state", "turn", "pendingApprovals", "draftSha256", "workspace", "tab"],
                     "properties": {
                       "session": {
+                        "description": "the tab record's acpmux session; null for a new chat before its first prompt",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/session"},
-                        "type": "string",
+                        "type": ["string", "null"],
                         "x-oracle-id-kind": "agentSession"
                       },
                       "agent": {
-                        "description": "claude, codex, ...",
+                        "description": "the harness the tab records (claude, codex, ...), else the lane's; null while unknown",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/agent"},
-                        "type": "string"
+                        "type": ["string", "null"]
                       },
                       "state": {
+                        "description": "acpmux's lane state for the session; unknown with no lane (no session, the watch down, another machine's chat)",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/state"},
-                        "type": "string"
+                        "type": "string",
+                        "enum": ["working", "input", "idle", "failed", "lost", "unknown"]
                       },
                       "turn": {
+                        "description": "acpmux's turnCount for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/turn"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "pendingApprovals": {
+                        "description": "acpmux's pendingPermissions for the session; 0 with no lane",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/pendingApprovals"},
                         "type": "integer",
                         "minimum": 0
                       },
                       "draftSha256": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256"},
+                        "description": "sha256 of the composer text the app keeps for a new chat (AgentUnsentDrafts); null when none. A started chat's draft is acpmux's and the page's (webviews facet)",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/draftSha256", "derive": "sha256"},
                         "type": ["string", "null"],
                         "pattern": "^sha256:[0-9a-f]{64}$"
                       },
@@ -3070,6 +3078,37 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/sessions/*/tab"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "tab"
+                      }
+                    }
+                  }
+                },
+                "home": {
+                  "description": "each Home Messages view: a window's Home top page, a Home tab, the docked Home",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home"},
+                  "type": "array",
+                  "x-oracle-order": "set",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["window", "tab", "conversation"],
+                    "properties": {
+                      "window": {
+                        "description": "the window whose Home top page this is; null for a tab",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/window"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "window"
+                      },
+                      "tab": {
+                        "description": "the Home tab or docked Home tab; null for a top page",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/tab"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "tab"
+                      },
+                      "conversation": {
+                        "description": "the conversation the view shows (selected in its list); null on New Message or before one shows",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/conversation"},
+                        "type": ["string", "null"],
+                        "x-oracle-id-kind": "conversation"
                       }
                     }
                   }
