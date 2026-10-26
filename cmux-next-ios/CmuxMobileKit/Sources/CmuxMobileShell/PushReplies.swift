@@ -73,7 +73,8 @@ public final class PushReplies {
     /// Read from the app's own defaults: launch never waits on the App Group
     /// (its container lookup blocked the main thread past the launch watchdog
     /// in a build signed without it, TestFlight 1.2.0 (20261026194905)).
-    @ObservationIgnored private(set) var requireFaceID = PushActions(defaults: .standard).requireFaceID
+    @ObservationIgnored private var faceIDSync = PushFaceIDSync(local: PushActions(defaults: .standard).requireFaceID)
+    var requireFaceID: Bool { faceIDSync.local }
     /// The last write of the choice for the content extension (serial, off main).
     @ObservationIgnored private var sharedPreferenceWrite: Task<Void, Never>?
     /// Retries of "Couldn't reach" in the app's own storage (review H1).
@@ -97,16 +98,19 @@ public final class PushReplies {
 
     /// Settings → Require Face ID changed (AppLock): the buttons follow it.
     func setRequireFaceID(_ on: Bool) {
-        PushActions.setRequireFaceID(on, defaults: .standard)
-        // The content extension reads it from the push keychain group (and the
-        // App Group, when the build has one), written off the main thread in order.
-        let previous = sharedPreferenceWrite
-        sharedPreferenceWrite = Task.detached(priority: .utility) {
-            await previous?.value
-            PushSharedPreference.live(group: await PushAppGroup.resolved()).setRequireFaceID(on)
+        // Called from every RootView body pass (AppLockController.init): an unchanged value writes nothing.
+        let writes = faceIDSync.set(on)
+        if writes.local { PushActions.setRequireFaceID(on, defaults: .standard) }
+        if writes.shared {
+            // The content extension reads it from the push keychain group (and the
+            // App Group, when the build has one), written off the main thread in order.
+            let previous = sharedPreferenceWrite
+            sharedPreferenceWrite = Task.detached(priority: .utility) {
+                await previous?.value
+                PushSharedPreference.live(group: await PushAppGroup.resolved()).setRequireFaceID(on)
+            }
         }
-        guard on != requireFaceID else { return }
-        requireFaceID = on
+        guard writes.local else { return }
         // Only an app has a notification center (a test host has none, and asking it throws).
         guard Bundle.main.bundleURL.pathExtension == "app" else { return }
         registerCategories()

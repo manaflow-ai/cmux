@@ -243,3 +243,30 @@ public struct PushSharedPreference {
         defaults?.set(on, forKey: PushActions.requireFaceIDKey)
     }
 }
+
+/// Which stores a Require Face ID call writes. `AppLockController.init` runs in
+/// `RootView.body`, so the same value arrives on every body pass: a write then
+/// (a `UserDefaults.standard` write wakes `@AppStorage` readers, which run the
+/// body again) loops the first frame forever. Only a change writes.
+public struct PushFaceIDSync: Sendable, Equatable {
+    /// The app's own defaults' value.
+    public private(set) var local: Bool
+    /// The value last written to the stores the extension reads; nil before the first write.
+    public private(set) var shared: Bool?
+
+    public struct Writes: Sendable, Equatable {
+        public var local: Bool
+        public var shared: Bool
+    }
+
+    public init(local: Bool) {
+        self.local = local
+    }
+
+    public mutating func set(_ on: Bool) -> Writes {
+        let writes = Writes(local: on != local, shared: on != shared)
+        local = on
+        shared = on
+        return writes
+    }
+}

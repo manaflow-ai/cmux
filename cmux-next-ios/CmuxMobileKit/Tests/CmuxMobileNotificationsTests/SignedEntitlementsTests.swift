@@ -88,4 +88,15 @@ import Testing
         #expect(!PushSharedPreference(keychain: keychain, defaults: nil).requireFaceID)
         #expect(!defaults.bool(forKey: PushActions.requireFaceIDKey))
     }
+
+    /// RootView's body sets the choice on every pass: only a change writes, so the
+    /// first frame cannot loop on its own defaults write.
+    @Test func anUnchangedFaceIDChoiceWritesNothing() {
+        var sync = PushFaceIDSync(local: false)
+        #expect(sync.set(false) == .init(local: false, shared: true))
+        for _ in 0..<50 { #expect(sync.set(false) == .init(local: false, shared: false)) }
+        #expect(sync.set(true) == .init(local: true, shared: true))
+        #expect(sync.set(true) == .init(local: false, shared: false))
+        #expect(sync.local)
+    }
 }
