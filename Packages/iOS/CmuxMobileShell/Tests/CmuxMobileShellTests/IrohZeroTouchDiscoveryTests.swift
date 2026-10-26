@@ -67,6 +67,33 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func failedPrivatePathPairingKeepsTheConnectedMac() async throws {
+        let active = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let unavailable = try candidate(deviceID: "mac-b", endpointByte: "b")
+        let fixture = try await makeFixture(
+            discovery: ScriptedIrohDiscovery(snapshots: [[active], [active, unavailable]]),
+            reportedDeviceID: "mac-a",
+            failingRouteIDs: ["iroh-mac-b"]
+        )
+        defer { fixture.cleanup() }
+        #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        let activeClient = try #require(fixture.shell.remoteClient)
+        fixture.shell.discoveredIrohMacs = [unavailable]
+        let attemptsBefore = fixture.factory.attemptedRouteIDs().filter { $0 == "iroh-mac-b" }.count
+
+        #expect(!(await fixture.shell.connectDiscoveredIrohMac(
+            macDeviceID: unavailable.deviceID,
+            instanceTag: unavailable.instanceTag,
+            directOnlyDialCandidates: [CmxIrohDirectDialCandidate(address: "100.64.0.2", port: 52074)]
+        )))
+
+        #expect(fixture.factory.attemptedRouteIDs().filter { $0 == "iroh-mac-b" }.count > attemptsBefore)
+        #expect(fixture.shell.connectionState == .connected)
+        #expect(fixture.shell.connectedMacDeviceID == "mac-a")
+        #expect(fixture.shell.remoteClient === activeClient)
+    }
+
+    @Test
     func canonicalUUIDDeviceIDComparisonIgnoresLetterCase() async throws {
         let canonicalID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         let fixture = try await makeFixture(
