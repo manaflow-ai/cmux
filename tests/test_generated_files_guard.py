@@ -201,6 +201,34 @@ class GuardTests(unittest.TestCase):
                                   (ROOT / guard.BASELINE).read_text(encoding="utf-8"), [])
         self.assertTrue(rules.generators)
 
+    def test_the_repository_outputs_module_loads_detached(self):
+        """load_exports runs generated_outputs.py from a temporary directory, not the checkout, so
+        everything it reads beside itself must be written there too. It reads
+        scripts/cmux-next/settings-exports.txt, the one list of the settings exports, and without
+        that file the import raised FileNotFoundError and the whole check died (review of #23915)."""
+        exports = guard.load_exports(
+            (ROOT / guard.OUTPUTS).read_text(encoding="utf-8"),
+            (ROOT / guard.SETTINGS_EXPORTS).read_text(encoding="utf-8"))
+        self.assertTrue(exports)
+        patterns = {pattern for pats, _ in exports for pattern in pats}
+        self.assertIn("schemas/settings/settings-schema.json", patterns)
+
+    def test_exports_at_a_revision_carry_that_revisions_list(self):
+        """rules_at reads both files at the same revision, so a revision that adds an export to the
+        list has it in the rules there and not at the one before."""
+        outputs = ("from pathlib import Path\n"
+                   "_listed = [l.split('#', 1)[0].strip() for l in "
+                   "(Path(__file__).resolve().parent / 'settings-exports.txt').read_text().splitlines()]\n"
+                   "OUTPUTS = ((tuple(p for p in _listed if p), r'^in/', 'settings'),)\n")
+        repo = Repo(Path(self.tmp.name) / "revision-list")
+        repo.commit({guard.MANIFEST: manifest(), guard.OUTPUTS: outputs,
+                     guard.SETTINGS_EXPORTS: "out/a.json\n"})
+        head = repo.commit({guard.SETTINGS_EXPORTS: "out/a.json\nout/b.json\n", "out/b.json": "{}\n"})
+        self.assertEqual({p for pats, _ in guard.rules_at(repo.root, head).exports for p in pats},
+                         {"out/a.json", "out/b.json"})
+        self.assertEqual({p for pats, _ in guard.rules_at(repo.root, head + "~1").exports for p in pats},
+                         {"out/a.json"})
+
 
 if __name__ == "__main__":
     unittest.main()

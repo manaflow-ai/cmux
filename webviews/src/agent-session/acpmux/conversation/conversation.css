@@ -2384,7 +2384,7 @@ a.cv-sha:focus-visible {
   max-width: none;
   margin: 2px 0 6px 22px;
 }
-.cv-received__details > .cv-tool-output {
+.cv-received__details .cv-tool-output {
   margin: 2px 0 0;
 }
 .cv-rotor.is-flipped {

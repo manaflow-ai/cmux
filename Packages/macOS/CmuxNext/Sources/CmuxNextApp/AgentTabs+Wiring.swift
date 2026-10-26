@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -109,6 +110,7 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
+        tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
@@ -325,5 +327,28 @@ extension AgentTabStore {
         }
         services.madeAgentTabs = tabs
         return tabs
+    }
+
+    /// The agent avatars on `model`'s page, for every agent view (tabs, spares and standalone chats):
+    /// its cards ask for them, its chat menu sets and removes them over `view`'s window.
+    func wireAgentAvatars(_ model: AgentPaneModel, view: AgentPaneView) {
+        model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
+        model.onSetAgentAvatar = { [weak self, weak view] session in
+            guard let self, let agentAvatars else { return nil }
+            let src = await agentAvatars.choose(session, window: view?.window)
+            if src != nil { agentAvatarChanged(session) }
+            return src
+        }
+        model.onRemoveAgentAvatar = { [weak self] session in
+            self?.agentAvatars?.remove(session)
+            self?.agentAvatarChanged(session)
+        }
+    }
+
+    /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a
+    /// Set or Remove in one pane reaches the cards and chips that other panes draw of the same session.
+    func agentAvatarChanged(_ session: String) {
+        for view in views.values { view.agentAvatarChanged(session) }
+        for view in standaloneViews.allObjects { view.agentAvatarChanged(session) }
     }
 }
