@@ -111,14 +111,14 @@ import Testing
     /// toast (one id, replaced in place) that names every machine, with each reason in its tooltip;
     /// closed, it stays closed for that build, also after a relaunch, and a later build's failure
     /// shows again.
-    @Test @MainActor func failuresShareOneToastThatStaysClosedForItsBuild() throws {
+    @Test @MainActor func failuresShareOneToastThatStaysClosedForItsBuild() async throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("daemon-update-\(UUID().uuidString)/notice-closed")
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         var shown: [DaemonUpdateBoard.Notice] = []
-        func board() -> DaemonUpdateBoard {
-            let board = DaemonUpdateBoard()
-            board.closedNoticeFile = file
+        func board() async -> DaemonUpdateBoard {
+            let board = DaemonUpdateBoard(closedNoticeFile: file)
             board.showNotice = { shown.append($0); return nil }
+            await board.settled()
             return board
         }
         func failed(_ name: String, reason: String = "Bootstrap failed: 125: Domain does not support specified action",
@@ -126,7 +126,7 @@ import Testing
             DaemonUpdateEvent(id: "acpmux-peer:\(name)", displayName: name, sshHost: name,
                               state: .failed(reason: reason, rolledBack: rolledBack), notify: true, build: build)
         }
-        let first = board()
+        let first = await board()
         first.apply(failed("lab-mini"))
         first.apply(failed("build-box", reason: "rollback failed too (125)", rolledBack: true))
         first.apply(failed("tidy-yellow-tern", reason: "the new daemon did not answer"))
@@ -143,13 +143,39 @@ import Testing
         // Closed: no toast for this build again, in this run or after a relaunch.
         shown.last?.closed()
         first.apply(failed("cloud-vm"))
-        let relaunched = board()
+        await first.settled()
+        let relaunched = await board()
         relaunched.apply(failed("lab-mini"))
         #expect(shown.count == 3, "a failure toast came back after it was closed for this build")
         // A later build's failure shows.
         relaunched.apply(failed("lab-mini", build: "fedcba987"))
         #expect(shown.count == 4)
         #expect(shown.last?.toast.message.contains("lab-mini") == true)
+    }
+
+    /// The closed build is read off the main actor: a failure that comes first waits for it, and
+    /// shows only when its build is not the one closed in an earlier run.
+    @Test @MainActor func aFailureBeforeTheClosedBuildIsReadWaitsForIt() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("daemon-update-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent("notice-closed")
+        try Data("abc123def".utf8).write(to: file)
+        var shown: [String] = []
+        func failed(build: String) -> DaemonUpdateEvent {
+            DaemonUpdateEvent(id: "acpmux-peer:lab-mini", displayName: "lab-mini", state: .failed(reason: "disk full", rolledBack: false),
+                              notify: true, build: build)
+        }
+        let closed = DaemonUpdateBoard(closedNoticeFile: file)
+        closed.showNotice = { shown.append($0.toast.message); return nil }
+        closed.apply(failed(build: "abc123def"))
+        await closed.settled()
+        #expect(shown.isEmpty, "a failure of the build closed in an earlier run showed")
+        let later = DaemonUpdateBoard(closedNoticeFile: file)
+        later.showNotice = { shown.append($0.toast.message); return nil }
+        later.apply(failed(build: "fedcba987"))
+        await later.settled()
+        #expect(shown.count == 1)
     }
 
     /// Only the person closes the notice for the build. Its window closing (the toast center ends

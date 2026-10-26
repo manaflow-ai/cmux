@@ -61,18 +61,55 @@ public final class DaemonUpdateBoard {
     /// Where the build whose notice the person closed is kept, so it stays closed after a relaunch;
     /// nil keeps it in memory only. Only ``shared`` keeps the app's file: a board a test makes
     /// never reads or writes it.
-    @ObservationIgnored var closedNoticeFile: URL?
+    let closedNoticeFile: URL?
     @ObservationIgnored private var closedBuild: String?
+    /// The read of ``closedNoticeFile`` (off the main actor); until it ends, failures are kept but
+    /// shown only once it says whether their build was closed.
+    @ObservationIgnored private var closedRead: Task<Void, Never>?
+    /// The last write of ``closedNoticeFile``; each waits for the one before, so the newest close wins.
+    @ObservationIgnored private var closedWrite: Task<Void, Never>?
     /// The failures the notice shows: of one build (the newest that failed), by target id.
     @ObservationIgnored private var failures: [String: DaemonUpdateEvent] = [:]
     @ObservationIgnored private var failureBuild: String?
     /// The notice showing now, so a new one replaces it wherever it is: one at a time.
     @ObservationIgnored private var shown: CmuxToastHandle?
 
-    public init() {}
+    public init() {
+        closedNoticeFile = nil
+    }
 
     init(closedNoticeFile: URL?) {
         self.closedNoticeFile = closedNoticeFile
+        guard let closedNoticeFile else { return }
+        // task-owner: the board; one read of a few bytes, then it ends
+        closedRead = Task { [weak self] in
+            let build = await Self.readClosed(closedNoticeFile)
+            self?.didReadClosed(build)
+        }
+    }
+
+    /// Returns once ``closedNoticeFile`` is read and every close so far is written (tests).
+    func settled() async {
+        await closedRead?.value
+        await closedWrite?.value
+    }
+
+    @concurrent nonisolated private static func readClosed(_ file: URL) async -> String? {
+        try? String(contentsOf: file, encoding: .utf8)
+    }
+
+    @concurrent nonisolated private static func writeClosed(_ build: String, to file: URL) async {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        try? Data(build.utf8).write(to: file, options: .atomic)
+    }
+
+    private func didReadClosed(_ build: String?) {
+        closedRead = nil
+        // A close in this run since wins over the file.
+        if closedBuild == nil { closedBuild = build }
+        if let failureBuild, failureBuild == closedBuild { failures = [:] }
+        showFailures()
     }
 
     /// What ``noticeWindow(key:main:ordered:rules:)`` asks of a window; ``live`` reads AppKit and
@@ -114,13 +151,18 @@ public final class DaemonUpdateBoard {
             return
         }
         let build = event.build ?? ""
-        guard event.notify, !isClosed(build) else { return }
+        guard event.notify, closedBuild != build else { return }
         if failureBuild != build {
             failures = [:]
             failureBuild = build
         }
         failures[event.id] = event
-        guard let toast = Self.noticeToast(Array(failures.values)) else { return }
+        showFailures()
+    }
+
+    /// Shows (or replaces) the one notice of ``failures``, unless the closed build is still being read.
+    private func showFailures() {
+        guard closedRead == nil, let build = failureBuild, let toast = Self.noticeToast(Array(failures.values)) else { return }
         let previous = shown
         // The same window replaces the previous toast in place (its handle ends `replaced`, which
         // is no close).
@@ -131,14 +173,6 @@ public final class DaemonUpdateBoard {
             previous.onDismiss = nil
             previous.dismiss()
         }
-    }
-
-    /// Whether the person closed the notice of `build`, in this run or an earlier one.
-    private func isClosed(_ build: String) -> Bool {
-        if closedBuild == nil {
-            closedBuild = closedNoticeFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
-        }
-        return closedBuild == build
     }
 
     /// The person closed the notice of `build`: no notice for it again, also after a relaunch. A
@@ -154,9 +188,12 @@ public final class DaemonUpdateBoard {
             shown = nil
         }
         guard let file = closedNoticeFile else { return }
-        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                                 attributes: [.posixPermissions: 0o700])
-        try? Data(build.utf8).write(to: file, options: .atomic)
+        let before = closedWrite
+        // task-owner: the board (`closedWrite`); one small write off the main actor after the one before, then it ends
+        closedWrite = Task {
+            await before?.value
+            await Self.writeClosed(build, to: file)
+        }
     }
 
     /// The tooltip line of target `id`, nil when it has no update state.
