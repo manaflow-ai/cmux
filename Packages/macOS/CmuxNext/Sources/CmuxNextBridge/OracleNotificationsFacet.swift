@@ -3,10 +3,11 @@ public import CmuxNextDaemon
 public import CmuxNextOracle
 
 /// The oracle's `notifications` facet (p15-oracle-042, schemas/oracle/snapshot-v1.schema.json `notifications`): the
-/// unread count the Dock badge shows, and per workspace its unread count and how many of its tabs need you. Counts
-/// only: a notification's title and body never go in. Chromium's app badge is one number the badge manager keeps per
-/// app from the model, never read back from the Dock (chrome/browser/badging/badge_manager.cc); this facet reads the
-/// daemon store's mirrored counts the same way, in the snapshot's main-actor turn, with no disk or database read.
+/// unread count the Dock badge shows, and per workspace its unread count and its Needs you. Counts only: a
+/// notification's title and body never go in. Chromium's app badge is one number the badge manager keeps per app from
+/// the model, never read back from the Dock (chrome/browser/badging/badge_manager.cc); this facet reads the daemon
+/// store's mirrored counts and the agent lanes the same way, in the snapshot's main-actor turn, with no disk or
+/// database read.
 public nonisolated struct OracleNotificationsFacet: OracleFacetProvider {
     /// One workspace with something unread or something that needs you.
     public nonisolated struct Workspace: Sendable, Hashable {
@@ -14,8 +15,8 @@ public nonisolated struct OracleNotificationsFacet: OracleFacetProvider {
         public var id: String
         /// What the workspace adds to the badge: its unread tabs, or 1 when it has none and is marked unread.
         public var unread: Int
-        /// Its tabs whose unread notification is an ask (an approval, a question, a plan review: a warning) or an
-        /// error, the notifications that wait on the person (`TabModel.holdsUnreadAsk`).
+        /// Its agent chats that wait on the person, the product's Needs you: a lane waiting on input, read or not.
+        /// A failed turn is not one.
         public var needsYou: Int
 
         public init(id: String, unread: Int, needsYou: Int) {
@@ -49,34 +50,42 @@ public nonisolated struct OracleNotificationsFacet: OracleFacetProvider {
         }
 
         /// The counts of `store` and Home's unread conversations (`homeUnread`, conversation ids), as the Dock badge
-        /// counts them (`NotificationCenterService.unreadCount`).
-        @MainActor public init(store: DaemonStore, homeUnread: [String]) {
-            unread = store.unreadBadge(homeUnread: homeUnread)
-            workspaces = store.workspaces.compactMap { workspace in
+        /// counts them (`NotificationCenterService.unreadCount`), with each workspace's Needs you from `needsYou`.
+        /// Nil while a workspace's tree is not mirrored: its unread count is the daemon's rollup, but no rollup says
+        /// which of its chats wait, so the facet cannot give the state the person would see there.
+        /// - Throws: A workspace with a count has no public id, so no schema id can name it.
+        @MainActor public init?(store: DaemonStore, homeUnread: [String],
+                                needsYou: (WorkspaceModel) -> Int) throws(OracleFacetError) {
+            var workspaces: [Workspace] = []
+            // A pending create's workspace is the app's overlay, not daemon state: nothing in it is unread yet.
+            for workspace in store.workspaces where !workspace.isProvisional {
+                guard !workspace.screens.isEmpty else { return nil }
                 let tabs = workspace.unreadCount
                 let unread = tabs == 0 && workspace.markedUnread ? 1 : tabs
-                var needsYou = 0
-                for screen in workspace.screens {
-                    for pane in screen.panes { needsYou += pane.tabs.reduce(0) { $0 + (Self.asks($1) ? 1 : 0) } }
+                let asks = needsYou(workspace)
+                guard unread > 0 || asks > 0 else { continue }
+                guard let id = workspace.resourceID?.rawValue else {
+                    throw OracleFacetError("workspace \(workspace.id) has \(unread) unread and \(asks) needs-you but no public id")
                 }
-                guard unread > 0 || needsYou > 0 else { return nil }
-                return Workspace(id: workspace.resourceID?.rawValue ?? workspace.id, unread: unread, needsYou: needsYou)
+                workspaces.append(Workspace(id: id, unread: unread, needsYou: asks))
             }
-        }
-
-        /// The tab's unread notification is a warning or an error, still to be seen.
-        @MainActor private static func asks(_ tab: TabModel) -> Bool {
-            guard tab.hasUnread, let level = tab.notification?.level else { return false }
-            return level == .warning || level == .error
+            self.init(unread: store.unreadBadge(homeUnread: homeUnread), workspaces: workspaces)
         }
     }
 
     public var facet: OracleFacet { .notifications }
     public let capture: OracleFacetCapture
 
-    /// - Parameter read: The counts now, read in the snapshot's main-actor turn.
-    public init(read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> Reading) {
-        capture = .mainActor { () throws(OracleFacetError) -> OracleValue in try read().value }
+    /// - Parameter read: The counts now, read in the snapshot's main-actor turn; nil when they cannot be compared
+    ///   (``Reading/init(store:homeUnread:needsYou:)``).
+    public init(read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> Reading?) {
+        capture = .mainActor { () throws(OracleFacetError) -> OracleValue in
+            guard let reading = try read() else {
+                return .notComparable(reason: "a workspace's tree is not mirrored, so its Needs you is unknown",
+                                      task: OracleFacet.notifications.task)
+            }
+            return reading.value
+        }
     }
 }
 #endif

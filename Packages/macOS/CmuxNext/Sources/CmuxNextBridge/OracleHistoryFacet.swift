@@ -1,8 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CryptoKit
 public import CmuxNextDaemon
 public import CmuxNextOracle
-import Foundation
 
 /// The oracle's `history` facet (p15-oracle-042, schemas/oracle/snapshot-v1.schema.json `history`): the closed items
 /// Recently Closed, Search Tabs and Reopen Closed can bring back, newest first. Chromium's TabRestoreService keeps
@@ -57,12 +55,12 @@ public nonisolated struct OracleHistoryFacet: OracleFacetProvider {
             text.flatMap { $0.isEmpty || $0 == "about:blank" ? nil : $0 }
         }
 
-        /// The schema's object. The title's home directory becomes `$HOME` before it is hashed (the schema's
-        /// `x-oracle-rewrite: path` on a `derive: sha256` field), so one case gives one hash in every run.
-        public func value(home: String?) -> OracleValue {
+        /// The schema's object. The title's case root and home become `$ROOT` and `$HOME` before it is hashed (the
+        /// schema's `x-oracle-rewrite: path` on a `derive: sha256` field), so one case gives one hash in every run.
+        public func value(paths: OraclePaths) -> OracleValue {
             [
                 "kind": .string(kind),
-                "title": .string(OracleHistoryFacet.hash(OracleHistoryFacet.rewritingHome(title, home: home))),
+                "title": .string(paths.hash(title)),
                 "url": url.map(OracleValue.string) ?? .null,
                 "workspace": workspace.map(OracleValue.string) ?? .null,
             ]
@@ -70,50 +68,21 @@ public nonisolated struct OracleHistoryFacet: OracleFacetProvider {
     }
 
     public var facet: OracleFacet { .history }
-    public let capture: OracleFacetCapture
+    private let read: @MainActor @Sendable () throws(OracleFacetError) -> [ClosedItem]
 
-    /// - Parameters:
-    ///   - home: This process's home directory, rewritten to `$HOME` in each title before it is hashed.
-    ///   - read: The reopen candidates now, newest first, as Recently Closed lists them; read in the snapshot's
-    ///     main-actor turn.
-    public init(home: String?, read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> [ClosedItem]) {
-        capture = .mainActor { () throws(OracleFacetError) -> OracleValue in
-            ["closed": .array(try read().map { Closed($0).value(home: home) })]
+    /// - Parameter read: The reopen candidates now, newest first, as Recently Closed lists them; read in the
+    ///   snapshot's main-actor turn.
+    public init(read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> [ClosedItem]) {
+        self.read = read
+    }
+
+    public var capture: OracleFacetCapture { capturing(paths: .unchanged) }
+
+    /// Each title hashed after the request's case root and home prefixes are rewritten.
+    public func capturing(paths: OraclePaths) -> OracleFacetCapture {
+        .mainActor { [read] () throws(OracleFacetError) -> OracleValue in
+            ["closed": .array(try read().map { Closed($0).value(paths: paths) })]
         }
-    }
-
-    /// `sha256:<hex>` of `text`'s UTF-8 bytes (the schema's `derive: sha256`).
-    public static func hash(_ text: String) -> String {
-        "sha256:" + SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
-
-    /// `text` with each whole-path occurrence of `home` written `$HOME`, as normalize.py's `_Rewriter` does for
-    /// `path`: a match inside a longer name (`/Users/ab` in `/Users/abc`) stays.
-    public static func rewritingHome(_ text: String, home: String?) -> String {
-        guard var home, !home.isEmpty else { return text }
-        while home.hasSuffix("/") { home.removeLast() }
-        guard !home.isEmpty else { return text }
-        var result = "", copied = text.startIndex, from = text.startIndex
-        while let match = text.range(of: home, range: from..<text.endIndex) {
-            let before = match.lowerBound > text.startIndex ? text[text.index(before: match.lowerBound)] : nil
-            let after = match.upperBound < text.endIndex ? text[match.upperBound] : nil
-            guard !isNameCharacter(before), !isNameCharacter(after) else {
-                from = text.index(after: match.lowerBound)
-                continue
-            }
-            result += text[copied..<match.lowerBound]
-            result += "$HOME"
-            copied = match.upperBound
-            from = match.upperBound
-        }
-        result += text[copied...]
-        return result
-    }
-
-    /// normalize.py's path-name class, `[A-Za-z0-9._~-]`.
-    private static func isNameCharacter(_ character: Character?) -> Bool {
-        guard let character, character.isASCII else { return false }
-        return character.isLetter || character.isNumber || "._~-".contains(character)
     }
 }
 #endif

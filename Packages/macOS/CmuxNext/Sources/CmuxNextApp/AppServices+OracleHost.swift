@@ -1,9 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextOracle
-import Foundation
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
 /// bench builds only: a Release build compiles neither this conformance nor any provider in the list. The
@@ -11,8 +12,7 @@ import Foundation
 /// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
 extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets {
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
-        return OracleFacets([
+        OracleFacets([
             // The input check `debug.desync` runs and the window problems `debug.focus` reports, now.
             OracleInvariantsFacet { [weak self] in
                 guard let self, let monitor = input.monitor, let result = monitor.check() else { return nil }
@@ -27,16 +27,20 @@ extension AppServices: OracleHost {
                 }
             },
             OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
-            // What Recently Closed lists, from the daemons' mirrored closed history.
-            OracleHistoryFacet(home: homeDirectory) { [weak self] () throws(OracleFacetError) -> [ClosedItem] in
+            // What Recently Closed lists, from the daemons' mirrored closed history. Each title is hashed after the
+            // request's `paths` (the case root and home, as normalize.py gets them) are rewritten.
+            OracleHistoryFacet { [weak self] () throws(OracleFacetError) -> [ClosedItem] in
                 guard let self else { throw OracleFacetError("the app services are gone") }
                 let closed = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: self)
                 return TabSearchFactsBuilder.listed(closed) { ($0.item, $0.daemon.machineID) }.map(\.item)
             },
-            // The Dock badge and each workspace's unread and needs-you counts, from this Mac's daemon store.
-            OracleNotificationsFacet { [weak self] () throws(OracleFacetError) -> OracleNotificationsFacet.Reading in
+            // The Dock badge and each workspace's unread count, from this Mac's daemon store, and its Needs you:
+            // the agent chats in it whose acpmux lane waits on the person, as the sidebar row and Priority view read it.
+            OracleNotificationsFacet { [weak self] () throws(OracleFacetError) -> OracleNotificationsFacet.Reading? in
                 guard let self else { throw OracleFacetError("the app services are gone") }
-                return OracleNotificationsFacet.Reading(store: daemon.store, homeUnread: home.unreadConversations.map(\.rawValue))
+                return try OracleNotificationsFacet.Reading(store: daemon.store, homeUnread: home.unreadConversations.map(\.rawValue)) {
+                    AgentLaneStore.shared.needsYou(in: $0, turns: .shared)
+                }
             },
         ])
     }

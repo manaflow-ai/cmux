@@ -37,7 +37,8 @@ public struct OracleRecorderControl: Sendable {
     public var methods: [ControlMethod] {
         [
             // Params: `clear` (empty the ring), `arm` (true: arm with `facets`, the facet names, all when
-            // absent; false: disarm), `mark` (a label: record a checkpoint of the armed facets now, the
+            // absent, and `paths`, the prefixes hashed path fields rewrite as `debug.oracle.snapshot` does; false:
+            // disarm), `mark` (a label: record a checkpoint of the armed facets now, the
             // runner's `settled`). Applied whole or not at all: a refused request changes nothing, and an
             // accepted one clears, then arms or disarms, then marks. The result is the status, plus
             // `checkpoint` for an arm or a mark.
@@ -69,7 +70,7 @@ public struct OracleRecorderControl: Sendable {
     }
 
     /// The `debug.oracle.recorder` params as one request. Refuses a param of the wrong type and
-    /// `facets` without `arm: true`; the recorder refuses the rest before it changes anything.
+    /// `facets` or `paths` without `arm: true`; the recorder refuses the rest before it changes anything.
     private static func request(_ params: [String: JSONValue],
                                 facets: OracleFacets) throws(ControlError) -> OracleRecorderRequest {
         let clear = try flag(params["clear"], name: "clear") ?? false
@@ -78,10 +79,12 @@ public struct OracleRecorderControl: Sendable {
         let arming: OracleRecorderRequest.Arming?
         switch arm {
         case true?:
-            arming = try .arm(facets, requested(params["facets"]))
+            arming = try .arm(facets.rewriting(OracleControl.paths(params["paths"])), requested(params["facets"]))
         case false?, nil:
-            if let names = params["facets"], !names.isNull {
-                throw ControlError.invalidParams("facets needs arm: true", data: ["param": "facets"])
+            for name in ["facets", "paths"] {
+                if let value = params[name], !value.isNull {
+                    throw ControlError.invalidParams("\(name) needs arm: true", data: ["param": .string(name)])
+                }
             }
             arming = arm == false ? .disarm : nil
         }

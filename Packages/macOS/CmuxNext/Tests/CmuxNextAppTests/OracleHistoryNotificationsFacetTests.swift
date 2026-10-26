@@ -1,9 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 @testable import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 @testable import CmuxNextApp
 import CmuxNextBridge
-import CmuxNextBrowserTabs
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextOracle
@@ -11,10 +12,10 @@ import Foundation
 import Testing
 
 /// The oracle's `history` and `notifications` facets (p15-oracle-042). History lists what Recently Closed can reopen,
-/// newest first, from the daemons' mirrored closed items, with titles hashed after the home directory becomes
-/// `$HOME`; notifications gives the Dock badge and each workspace's unread and needs-you counts from the store.
-/// Both read model values in the snapshot's main-actor turn: no disk, no database.
-/// Run: `swift test --filter OracleHistoryNotificationsFacetTests`.
+/// newest first, from the daemons' mirrored closed items, with titles hashed after the runner's case root and home
+/// become `$ROOT` and `$HOME`; notifications gives the Dock badge, each workspace's unread count from the store and
+/// its Needs you from the agent lanes the sidebar reads. Both read model values in the snapshot's main-actor turn: no
+/// disk, no database. Run: `swift test --filter OracleHistoryNotificationsFacetTests`.
 @MainActor @Suite(.serialized) struct OracleHistoryNotificationsFacetTests {
     // MARK: History
 
@@ -23,22 +24,45 @@ import Testing
         return ClosedItem(id: id, kind: .tab, workspaceID: ResourceID("ws_web"), closedAtMs: ms, screens: [.init(tabs: [tab])])
     }
 
-    @Test func candidatesAreNewestFirstWithoutBlankPagesAndAPageClosedTwiceOnce() {
+    /// A daemon handshake that serves the state resources (closed history).
+    private static func identity() throws -> DaemonIdentity {
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"oracle-history-test","generation":"g1","capabilities":["\#(DaemonCapability.stateResources.rawValue)"]}"#
+        return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
+    }
+
+    /// The app's own facet list over this Mac's daemon, its mirrored closed history set to `closed` in that order.
+    private static func services(closed: [ClosedItem]) throws -> AppServices {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        store.apply(.connected(try identity(), generationChanged: false))
+        var mirror = SessionStateMirror()
+        mirror.closed = closed
+        store.session.apply(.snapshot(mirror), in: store)
+        return services
+    }
+
+    /// Through the host's real read (`DaemonClosedHistory.entries`, then Recently Closed's filter): the daemon's items
+    /// arrive out of order and the facet lists them newest first, an untouched New Tab page left out and a page closed
+    /// twice listed once, at its newest close.
+    @Test func candidatesAreNewestFirstWithoutBlankPagesAndAPageClosedTwiceOnce() throws {
         let shell = ClosedItem.Tab(kind: "terminal", name: "build", cwd: "/tmp/case")
         let terminal = ClosedItem(id: "closed_2", kind: .tab, workspaceID: ResourceID("ws_1"), closedAtMs: 2,
                                   screens: [.init(tabs: [shell])])
-        let closed: [(item: ClosedItem, machine: String)] = [
-            (Self.browser("closed_4", "https://example.com/a", at: 4), "local"),
-            (Self.browser("closed_3", "about:blank", at: 3, empty: true), "local"),
-            (terminal, "local"),
-            (Self.browser("closed_1", "https://example.com/a", at: 1), "local"),
-        ]
-        // The host's read: Recently Closed's list of the daemons' closed items.
-        let candidates = TabSearchFactsBuilder.listed(closed) { $0 }.map { OracleHistoryFacet.Closed($0.item) }
-        #expect(candidates == [
+        let services = try Self.services(closed: [
+            Self.browser("closed_1", "https://example.com/a", at: 1),
+            Self.browser("closed_4", "https://example.com/a", at: 4),
+            terminal,
+            Self.browser("closed_3", "about:blank", at: 3, empty: true),
+            Self.browser("closed_5", "https://example.com/b", at: 5),
+        ])
+        let snapshot = try #require(try services.makeOracleFacets().beginCapture([.history]).completed)
+        let expected: [OracleHistoryFacet.Closed] = [
+            .init(kind: "browser", title: "https://example.com/b", url: "https://example.com/b", workspace: "ws_web"),
             .init(kind: "browser", title: "https://example.com/a", url: "https://example.com/a", workspace: "ws_web"),
             .init(kind: "terminal", title: "build", workspace: "ws_1"),
-        ])
+        ]
+        #expect(snapshot["history"] == ["closed": .array(expected.map { $0.value(paths: .unchanged) })])
     }
 
     @Test func eachItemKindNamesWhatAReopenRecreates() {
@@ -58,64 +82,121 @@ import Testing
         #expect(closed.allSatisfy { $0.url == nil }, "only a closed browser tab has an address")
     }
 
-    @Test func theTitleIsHashedAfterTheHomeDirectoryBecomesHome() throws {
-        #expect(OracleHistoryFacet.rewritingHome("/Users/me/src (zsh)", home: "/Users/me/") == "$HOME/src (zsh)")
-        #expect(OracleHistoryFacet.rewritingHome("cd /Users/me && ls /Users/me", home: "/Users/me") == "cd $HOME && ls $HOME")
-        #expect(OracleHistoryFacet.rewritingHome("/Users/meow/src", home: "/Users/me") == "/Users/meow/src",
-                "a longer name that starts with the home path is kept")
-        #expect(OracleHistoryFacet.rewritingHome("/Users/me/src", home: nil) == "/Users/me/src")
-
-        let shell = ClosedItem.Tab(kind: "terminal", cwd: "/Users/me/src")
-        let items = [ClosedItem(id: "closed_1", kind: .tab, workspaceID: ResourceID("ws_1"), screens: [.init(tabs: [shell])])]
-        let facet = OracleHistoryFacet(home: "/Users/me") { items }
-        let snapshot = try #require(try OracleFacets([facet]).beginCapture([.history]).completed)
-        let entry: OracleValue = [
-            "kind": "terminal", "title": .string(OracleHistoryFacet.hash("$HOME/src")), "url": nil, "workspace": "ws_1",
-        ]
-        #expect(snapshot["history"] == ["closed": [entry]])
-        #expect(OracleHistoryFacet.hash("$HOME/src") == OracleTabsFacet.Tab.hash("$HOME/src"), "one derive for every facet")
+    /// An unnamed shell's title is its cwd, under the case's state root, which here sits inside the hermetic home:
+    /// the facet hashes `$ROOT/...`, as normalize.py would write the title before a hash, and one case hashes the
+    /// same in every run whatever its state root.
+    @Test func aTitleUnderTheRootHashesAsRootEvenWhenTheRootIsInsideTheHome() throws {
+        func snapshot(root: String, home: String) throws -> OracleValue? {
+            let shells = [ClosedItem.Tab(kind: "terminal", cwd: "\(root)/src"), ClosedItem.Tab(kind: "terminal", cwd: "\(home)/notes")]
+            let items = shells.enumerated().map { index, shell in
+                ClosedItem(id: "closed_\(index)", kind: .tab, workspaceID: ResourceID("ws_1"), screens: [.init(tabs: [shell])])
+            }
+            let facets = OracleFacets([OracleHistoryFacet { items }]).rewriting(try OraclePaths(root: [root], home: [home]))
+            return try facets.beginCapture([.history]).completed?["history"]
+        }
+        let first = try snapshot(root: "/Users/me/.cache/o/ab12cd/0001", home: "/Users/me")
+        let entry = { (title: String) -> OracleValue in
+            ["kind": "terminal", "title": .string(OracleValue.sha256(title)), "url": nil, "workspace": "ws_1"]
+        }
+        #expect(first == ["closed": [entry("$ROOT/src"), entry("$HOME/notes")]])
+        #expect(try snapshot(root: "/tmp/o/zz99yy/0002", home: "/tmp/o/zz99yy/0002-home") == first, "another run's root and home")
     }
 
     // MARK: Notifications
 
-    private static func tab(_ surface: UInt64, unread: Bool, level: NotificationLevel?) -> TabSnapshot {
+    private static let host = "install:oracle-notifications"
+
+    private static func tab(_ surface: UInt64, unread: Bool, level: NotificationLevel?, session: String? = nil) -> TabSnapshot {
         let marker = TabNotification(notification: NotificationID(rawValue: surface), unread: unread, level: level, source: "agent")
-        return TabSnapshot(surface: SurfaceID(rawValue: surface), terminalResourceID: ResourceID(rawValue: "term_\(surface)"),
-                           notification: marker)
+        guard let session else {
+            return TabSnapshot(surface: SurfaceID(rawValue: surface), terminalResourceID: ResourceID(rawValue: "term_\(surface)"),
+                               notification: marker)
+        }
+        var tab = TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .conversation, cwd: nil)
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: session, harness: "claude"))
+        tab.notification = marker
+        return tab
     }
 
-    private static func workspace(_ id: UInt64, marked: Bool = false, tabs: [TabSnapshot]) -> WorkspaceSnapshot {
+    private static func workspace(_ id: UInt64, marked: Bool = false, resource: Bool = true, tabs: [TabSnapshot]) -> WorkspaceSnapshot {
         let pane = PaneSnapshot(id: PaneID(rawValue: id), tabs: tabs)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: id), layout: .leaf(PaneID(rawValue: id)), panes: [pane])
-        return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: id), key: nil, resourceID: ResourceID(rawValue: "ws_\(id)"), name: "w\(id)",
-                                 screens: [screen], markedUnread: marked)
+        return WorkspaceSnapshot(id: WorkspaceHandle(rawValue: id), key: nil, resourceID: resource ? ResourceID(rawValue: "ws_\(id)") : nil,
+                                 name: "w\(id)", screens: [screen], markedUnread: marked)
     }
 
-    @Test func theCountsAreTheBadgeAndEachWorkspacesUnreadAndAsks() {
+    /// The lanes acpmux reports for this Mac's chats: `states` by session.
+    private static func lanes(_ states: [String: String]) throws -> (AgentLaneStore, AgentTurnStateStore) {
+        let lanes = AgentLaneStore(), turns = AgentTurnStateStore()
+        turns.localHost = host
+        for (session, state) in states {
+            lanes.lanes[session] = try #require(AgentActivityLane.of(summary: ["sessionId": session, "name": session, "lane": ["state": state]]))
+        }
+        return (lanes, turns)
+    }
+
+    private static func reading(_ store: DaemonStore, lanes: AgentLaneStore, turns: AgentTurnStateStore,
+                                homeUnread: [String] = []) throws(OracleFacetError) -> OracleNotificationsFacet.Reading? {
+        try OracleNotificationsFacet.Reading(store: store, homeUnread: homeUnread) { lanes.needsYou(in: $0, turns: turns) }
+    }
+
+    /// Needs you is the chats that wait on the person, as the sidebar and Priority view show it: an ask the person
+    /// has seen but not answered still counts, an unread error of a failed turn is unread but not needs-you.
+    @Test func needsYouIsTheChatsWaitingOnThePersonReadOrNot() throws {
         _ = NSApplication.shared
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [
-            // An unread finished turn, an unread ask, a read error.
-            Self.workspace(1, tabs: [Self.tab(11, unread: true, level: .info), Self.tab(12, unread: true, level: .warning),
-                                     Self.tab(13, unread: false, level: .error)]),
+            // A chat that asks, its notification already seen; an unread finished shell turn beside it.
+            Self.workspace(1, tabs: [Self.tab(11, unread: false, level: .warning, session: "s-asks"),
+                                     Self.tab(12, unread: true, level: .info)]),
+            // A failed chat with its unread error.
+            Self.workspace(2, tabs: [Self.tab(21, unread: true, level: .error, session: "s-failed")]),
             // Marked unread by hand, nothing unread in it.
-            Self.workspace(2, marked: true, tabs: [Self.tab(21, unread: false, level: .info)]),
+            Self.workspace(3, marked: true, tabs: [Self.tab(31, unread: false, level: .info)]),
             // Nothing to count: left out.
-            Self.workspace(3, tabs: [Self.tab(31, unread: false, level: nil)]),
+            Self.workspace(4, tabs: [Self.tab(41, unread: false, level: nil)]),
         ]))
+        let (lanes, turns) = try Self.lanes(["s-asks": "input", "s-failed": "failed"])
 
-        let reading = OracleNotificationsFacet.Reading(store: store, homeUnread: [])
-        #expect(reading.unread == 3)
+        let reading = try #require(try Self.reading(store, lanes: lanes, turns: turns))
         #expect(reading.unread == store.unreadBadge(), "the facet's unread is the Dock badge")
-        #expect(reading.workspaces == [.init(id: "ws_1", unread: 2, needsYou: 1), .init(id: "ws_2", unread: 1, needsYou: 0)])
-        #expect(reading.needsYou == 1)
+        #expect(reading.workspaces == [.init(id: "ws_1", unread: 1, needsYou: 1), .init(id: "ws_2", unread: 1, needsYou: 0),
+                                       .init(id: "ws_3", unread: 1, needsYou: 0)])
         #expect(reading.value == [
             "unread": 3, "needsYou": 1,
-            "workspaces": [["workspace": "ws_1", "unread": 2, "needsYou": 1], ["workspace": "ws_2", "unread": 1, "needsYou": 0]],
+            "workspaces": [["workspace": "ws_1", "unread": 1, "needsYou": 1], ["workspace": "ws_2", "unread": 1, "needsYou": 0],
+                           ["workspace": "ws_3", "unread": 1, "needsYou": 0]],
         ])
 
-        let withHome = OracleNotificationsFacet.Reading(store: store, homeUnread: ["conv_a", "conv_a"])
+        let withHome = try #require(try Self.reading(store, lanes: lanes, turns: turns, homeUnread: ["conv_a", "conv_a"]))
         #expect(withHome.unread == 4, "an unread Home conversation adds one to the badge, once")
+    }
+
+    /// A workspace whose tree is not mirrored has the daemon's unread rollup but nothing that says which chats wait:
+    /// the facet is not comparable rather than a needs-you of 0 that would turn into N when the person opens it.
+    @Test func aWorkspaceThatIsNotMirroredMakesTheFacetNotComparable() throws {
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [
+            Self.workspace(1, tabs: [Self.tab(11, unread: true, level: .info)]),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: nil, resourceID: ResourceID(rawValue: "ws_2"), name: "lazy",
+                              screens: [], unreadCount: 2),
+        ]))
+        let (lanes, turns) = try Self.lanes([:])
+        #expect(try Self.reading(store, lanes: lanes, turns: turns) == nil)
+
+        let facets = OracleFacets([OracleNotificationsFacet { () throws(OracleFacetError) in try Self.reading(store, lanes: lanes, turns: turns) }])
+        let value = try #require(try facets.beginCapture([.notifications]).completed?["notifications"])
+        #expect(value["status"] == "not-comparable")
+        #expect(value["task"] == .string(OracleFacet.notifications.task))
+    }
+
+    /// A counted workspace with no public id fails the snapshot: printing another handle would break the schema's
+    /// `ws_` id, and leaving it out would hide its counts.
+    @Test func aCountedWorkspaceWithNoPublicIDFails() throws {
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [Self.workspace(1, resource: false, tabs: [Self.tab(11, unread: true, level: .info)])]))
+        let (lanes, turns) = try Self.lanes([:])
+        #expect(throws: OracleFacetError.self) { _ = try Self.reading(store, lanes: lanes, turns: turns) }
     }
 
     @Test func theAppListProvidesBothFacets() {
@@ -141,8 +222,7 @@ import Testing
             let closing = try #require(pane.tabs.last)
             try await connection.renameTab(closing.surface, to: name)
             try await PinnedPageTests.until({ closing.name == name }, report: { "\(String(describing: closing.name))" })
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let title = OracleValue.string(OracleHistoryFacet.hash(OracleHistoryFacet.rewritingHome(name, home: home)))
+            let title = OracleValue.string(OracleValue.sha256(name))
             let newest = { () -> OracleValue? in
                 guard case .array(let closed)? = try? services.makeOracleFacets().beginCapture([.history]).completed?["history"]?["closed"]
                 else { return nil }
