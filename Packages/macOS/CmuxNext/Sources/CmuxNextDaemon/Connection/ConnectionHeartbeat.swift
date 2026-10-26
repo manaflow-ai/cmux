@@ -43,7 +43,7 @@ final class ConnectionHeartbeat: Sendable {
     }
 
     private func tick(_ transport: LineTransport, every interval: Duration, misses limit: Int, run: UInt64) async {
-        let answered = (try? await transport.request(cmd: IdentifyRequest.command, timeout: interval) { id in
+        let answered = (try? await transport.request(cmd: IdentifyRequest.commandName, timeout: interval) { id in
             try WireCoding.encodeRequest(IdentifyRequest(), id: id)
         }) != nil
         let close = state.withLock { state -> Bool? in

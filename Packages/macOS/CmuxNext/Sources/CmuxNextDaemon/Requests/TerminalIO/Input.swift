@@ -3,7 +3,7 @@ public import Foundation
 /// Writes to a PTY. `bytes` travels as standard base64.
 public struct SendInputRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "send"
+    public static let commandName: DaemonCommandName = "send"
     public var surface: SurfaceID
     public var text: String?
     public var bytes: Data?
@@ -37,7 +37,7 @@ public struct SendTerminalInputRequest: DaemonRequest {
         /// True when the terminal was still being created: the bytes wait in the daemon.
         public var queued: Bool?
     }
-    public static let command = "send"
+    public static let commandName: DaemonCommandName = "send"
     public var terminalID: String
     public var bytes: Data
     public init(terminalID: String, bytes: Data) {
@@ -73,7 +73,7 @@ public struct TerminalInputUnclaimed: Decodable, Sendable, Equatable {
 
 public struct SendKeyRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "send-key"
+    public static let commandName: DaemonCommandName = "send-key"
     public var surface: SurfaceID
     public var keys: [String]
     public init(surface: SurfaceID, keys: [String]) {
@@ -94,7 +94,7 @@ public struct AttachSurfaceRequest: DaemonRequest {
             case sizeState = "size_state"
         }
     }
-    public static let command = "attach-surface"
+    public static let commandName: DaemonCommandName = "attach-surface"
     public var surface: SurfaceID?
     public var expectedGeneration: DaemonGeneration?
     /// The public terminal id `term_…` (a tab's `terminal_resource_id`).

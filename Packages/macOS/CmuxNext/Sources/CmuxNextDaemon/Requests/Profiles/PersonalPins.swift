@@ -7,7 +7,7 @@ public struct ChangedResponse: Decodable, Sendable, Equatable {
 /// Pins a workspace to one room (Move Workspace to Room), replacing any pin.
 public struct PinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
-    public static let command = "pin-workspace"
+    public static let commandName: DaemonCommandName = "pin-workspace"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
@@ -21,7 +21,7 @@ public struct PinWorkspaceRequest: DaemonRequest {
 
 public struct UnpinWorkspaceRequest: DaemonRequest {
     public typealias Response = ChangedResponse
-    public static let command = "unpin-workspace"
+    public static let commandName: DaemonCommandName = "unpin-workspace"
     public static let requiredCapability: String? = DaemonCapability.profiles.rawValue
     public var sessionID: String
     public var workspaceKey: WorkspaceKey
