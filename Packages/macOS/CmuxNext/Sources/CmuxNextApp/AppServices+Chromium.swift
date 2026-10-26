@@ -61,11 +61,9 @@ extension AppServices {
         let resizeFence = features.isEnabled(.cefResizeFence)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys] stores, deadlines, source in
-                                      let engine = CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
-                                                             contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
-                                                             pumpInput: pumpInput)
-                                      engine.useResizeFence(resizeFence)
-                                      return engine
+                                      CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
+                                                contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
+                                                pumpInput: pumpInput).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
