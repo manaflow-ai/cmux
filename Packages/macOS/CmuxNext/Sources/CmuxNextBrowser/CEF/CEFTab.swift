@@ -17,7 +17,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public var state: BrowserTabState { machine.state }
     public internal(set) var favicon: NSImage?
-    public internal(set) var pendingPrompts: [BrowserPrompt] = []
+    public internal(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts (``BrowserPageWaiting``), resumed by the setters of
+    /// `machine` and `pendingPrompts`.
+    @ObservationIgnored let pageWaiters: PageWaiters
     public internal(set) var extensionActions: [CEFExtensionAction] = []
     public internal(set) var openExtensionPopup: String?
     @ObservationIgnored public var extensionActionAnchor: ((String) -> CGRect?)?
@@ -59,7 +64,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// change reaches the page (`CEFTab+ColorScheme`).
     @ObservationIgnored var colorScheme: BrowserColorScheme = .system
 
-    var machine = BrowserTabStateMachine()
+    var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false
@@ -194,6 +201,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         self.profileID = profile
         self.host = host
         self.runtime = runtime
+        pageWaiters = PageWaiters(deadlines: runtime.waitDeadlines)
         let layout = CEFDevToolsLayout.remembered
         devToolsController = CEFDevToolsController(layout: layout)
         devTools = BrowserDevToolsState(dock: layout.dock)
@@ -282,6 +290,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()
+        pageWaiters.pageEnded()
         host.removed(self)
         if !isClosed {
             isClosed = true
@@ -467,6 +476,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()
+        pageWaiters.pageEnded()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {

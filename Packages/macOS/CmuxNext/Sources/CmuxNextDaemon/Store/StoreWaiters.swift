@@ -12,10 +12,9 @@ import Foundation
 /// waiters from the change itself the same way, never from a poll (`base/one_shot_event.h`,
 /// `TabStripModelObserver::OnTabStripModelChanged` in chrome/browser/ui/tabs/tab_strip_model_observer.h).
 ///
-/// Every wait has a timeout: a deadline on the main thread's one deadline queue (``AlignedWakeups``
-/// over ``MainWakeUpQueue``, Chromium's `WakeUpQueue` in base/task/sequence_manager/wake_up_queue.h),
-/// so all pending waits share its heap and its aligned wakes and no waiter has a Task or timer of
-/// its own. A wait resumes with nil when its deadline passes or when the waiting task is cancelled.
+/// Every wait has a timeout on the main thread's one deadline queue; the waits themselves are a
+/// ``KeyedWaiters`` (CmuxNextWakeups), the engine a page's waits share (`PageWaiters`, task 028).
+/// This type adds what the index needs: the slots an apply touched are settled once, after it.
 @MainActor final class StoreWaiters {
     /// The key a waiter is filed under: the index key whose change can satisfy it.
     enum Slot: Hashable, Sendable {
@@ -33,31 +32,27 @@ import Foundation
     /// The `WakeupLedger` owner of the waits' timeouts.
     static let deadlineOwner = "DaemonStore.waiters"
 
-    private let deadlines: AlignedWakeups
-    private var waiting: [Slot: [UInt64: any StoreWait]] = [:]
+    private let keyed: KeyedWaiters<Slot, DaemonStore>
     /// Slots with waiters whose key changed since the last ``settleTouched(in:)``.
     private var touched: Set<Slot> = []
     /// The index was rebuilt (a full snapshot): every slot is read at the next settle.
     private var touchedAll = false
-    private var nextSerial: UInt64 = 0
-    /// ``untilPending(_:)`` calls waiting for a count.
-    private var pendingWatchers: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     /// Waiter conditions read since creation, at registration and at settle (tests: a waiter
     /// for one key reads nothing when another key changes).
-    private(set) var evaluations = 0
+    var evaluations: Int { keyed.evaluations }
     /// Waiters still waiting.
-    private(set) var pendingCount = 0
+    var pendingCount: Int { keyed.pendingCount }
 
     /// - Parameter deadlines: Where the waits' timeouts go: the main thread's one deadline queue.
     init(deadlines: AlignedWakeups) {
-        self.deadlines = deadlines
+        keyed = KeyedWaiters(deadlines: deadlines, deadlineOwner: Self.deadlineOwner)
     }
 
     // MARK: Index hooks
 
     /// A tab record was keyed under `id`, `surface` and `resource`.
     func noteTabKeyed(id: String, surface: SurfaceID, resource: ResourceID?) {
-        guard !waiting.isEmpty else { return }
+        guard !keyed.isEmpty else { return }
         touch(.tabID(id))
         touch(.tabSurface(surface))
         if let resource { touch(.tabResource(resource)) }
@@ -65,28 +60,28 @@ import Foundation
 
     /// A tab record keyed under `id` and `surface` was dropped (it may be keyed again in the same apply: a move).
     func noteTabUnkeyed(id: String, surface: SurfaceID) {
-        guard !waiting.isEmpty else { return }
+        guard !keyed.isEmpty else { return }
         touch(.tabIDGone(id))
         touch(.tabSurfaceGone(surface))
     }
 
     /// A workspace record was keyed under `id` and `resource`.
     func noteWorkspaceKeyed(id: String, resource: ResourceID?) {
-        guard !waiting.isEmpty else { return }
+        guard !keyed.isEmpty else { return }
         touch(.workspaceID(id))
         if let resource { touch(.workspaceResource(resource)) }
     }
 
     /// The index was rebuilt without dropping its records one by one.
     func noteRebuilt() {
-        if !waiting.isEmpty { touchedAll = true }
+        if !keyed.isEmpty { touchedAll = true }
     }
 
     /// `slot`'s state changed outside the index (loaded, connection).
     func note(_ slot: Slot) { touch(slot) }
 
     private func touch(_ slot: Slot) {
-        if waiting[slot] != nil { touched.insert(slot) }
+        if keyed.hasWaiters(slot) { touched.insert(slot) }
     }
 
     // MARK: Settle
@@ -95,20 +90,16 @@ import Foundation
     /// apply that touched them is complete, so a tab that a move drops and keys again is not gone.
     func settleTouched(in store: DaemonStore) {
         guard touchedAll || !touched.isEmpty else { return }
-        let slots = touchedAll ? Array(waiting.keys) : Array(touched)
+        let slots = touchedAll ? keyed.slots : Array(touched)
         touched.removeAll()
         touchedAll = false
-        for slot in slots { settle(slot, in: store) }
+        for slot in slots { keyed.settle(slot, with: store) }
     }
 
     /// Reads `slot`'s conditions now (a change no apply wraps: the connection state).
     func settle(_ slot: Slot, in store: DaemonStore) {
         touched.remove(slot)
-        guard let waiters = waiting[slot] else { return }
-        for (serial, waiter) in waiters.sorted(by: { $0.key < $1.key }) {
-            evaluations += 1
-            if waiter.resumeIfReady(in: store) { take(slot, serial) }
-        }
+        keyed.settle(slot, with: store)
     }
 
     // MARK: Waiting
@@ -117,84 +108,12 @@ import Foundation
     /// nil after `timeout` or when the calling task is cancelled.
     func value<Value: Sendable>(of slot: Slot, in store: DaemonStore, timeout: Duration,
                                 read: @escaping @MainActor (DaemonStore) -> Value?) async -> Value? {
-        evaluations += 1
-        if let value = read(store) { return value }
-        guard !Task.isCancelled else { return nil }
-        nextSerial &+= 1
-        let serial = nextSerial
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Value?, Never>) in
-                // Cancelled between the check above and here: the handler's hop finds nothing to drop.
-                guard !Task.isCancelled else { return continuation.resume(returning: nil) }
-                // Strong: the queue keeps the waiters until the deadline resumes this wait, whoever drops the store.
-                let ticket = deadlines.schedule(owner: Self.deadlineOwner, after: timeout) { self.abandon(slot, serial) }
-                file(PendingStoreWait(continuation: continuation, ticket: ticket, read: read), under: slot, serial)
-            }
-        } onCancel: {
-            // task-owner: one hop to the main actor that owns the waiters; a waiter already resumed is not found.
-            Task { @MainActor in self.abandon(slot, serial) }
-        }
+        await keyed.value(of: slot, now: store, timeout: timeout, read: read)
     }
 
     /// Returns once at least `count` waiters are waiting (tests: a wait started in a task has filed itself).
     func untilPending(_ count: Int) async {
-        guard pendingCount < count else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            pendingWatchers.append((count, continuation))
-        }
-    }
-
-    private func file(_ waiter: any StoreWait, under slot: Slot, _ serial: UInt64) {
-        waiting[slot, default: [:]][serial] = waiter
-        pendingCount += 1
-        guard !pendingWatchers.isEmpty else { return }
-        let ready = pendingWatchers.filter { $0.count <= pendingCount }
-        pendingWatchers.removeAll { $0.count <= pendingCount }
-        for watcher in ready { watcher.continuation.resume() }
-    }
-
-    private func abandon(_ slot: Slot, _ serial: UInt64) {
-        take(slot, serial)?.abandon()
-    }
-
-    /// Drops the waiter and its pending deadline; nil when it already resumed.
-    @discardableResult
-    private func take(_ slot: Slot, _ serial: UInt64) -> (any StoreWait)? {
-        guard let waiter = waiting[slot]?.removeValue(forKey: serial) else { return nil }
-        pendingCount -= 1
-        if waiting[slot]?.isEmpty == true {
-            waiting[slot] = nil
-            touched.remove(slot)
-        }
-        deadlines.cancel(waiter.ticket)
-        return waiter
-    }
-}
-
-/// One waiter: resumed exactly once, by ``resumeIfReady(in:)`` or ``abandon()``, after which
-/// ``StoreWaiters`` drops it and cancels its timeout.
-@MainActor private protocol StoreWait {
-    /// Its timeout on the deadline queue.
-    var ticket: AlignedWakeups.Ticket { get }
-    /// Resumes with the condition's value when it holds; whether it did.
-    func resumeIfReady(in store: DaemonStore) -> Bool
-    /// Resumes with nil (timeout, cancel).
-    func abandon()
-}
-
-@MainActor private struct PendingStoreWait<Value: Sendable>: StoreWait {
-    let continuation: CheckedContinuation<Value?, Never>
-    let ticket: AlignedWakeups.Ticket
-    let read: @MainActor (DaemonStore) -> Value?
-
-    func resumeIfReady(in store: DaemonStore) -> Bool {
-        guard let value = read(store) else { return false }
-        continuation.resume(returning: value)
-        return true
-    }
-
-    func abandon() {
-        continuation.resume(returning: nil)
+        await keyed.untilPending(count)
     }
 }
 
