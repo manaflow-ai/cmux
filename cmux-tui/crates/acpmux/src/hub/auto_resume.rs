@@ -109,6 +109,16 @@ fn continue_text(error: &str, reason: &str) -> String {
     )
 }
 
+/// The cut turn whose retry decision Stop settles when it takes the chat's `mark`: one whose
+/// turn ended and is not settled yet (`Ending`), or whose retry waits, its time set or not.
+/// A retry that fired or a turn that runs records its own end.
+fn settled_by_stop(mark: Option<&Mark>) -> Option<String> {
+    match mark {
+        Some(Mark::Ending(turn) | Mark::Waiting { turn, .. }) => Some(turn.clone()),
+        _ => None,
+    }
+}
+
 /// How many times [`settled_retry_row`] reads a chat's mark for one row.
 const ROW_READS: usize = 3;
 
@@ -315,11 +325,10 @@ impl Hub {
             if ending.is_some() {
                 pending.remove(&session.id);
                 drop(pending);
-                self.settled_unretried(
-                    session,
-                    turn_id,
-                    if ending == Some(false) { "stopped" } else { "not_retried" },
-                );
+                // Stopped: Stop recorded it when it took the mark (`stop_auto_resume`).
+                if ending == Some(true) {
+                    self.settled_unretried(session, turn_id, "not_retried");
+                }
             }
             return;
         };
@@ -406,6 +415,7 @@ impl Hub {
     /// ending now gets none, however it ends.
     pub(super) fn stop_auto_resume(&self, session: &Session) {
         let mut pending = self.auto_resumes.lock();
+        let settles = settled_by_stop(pending.get(&session.id));
         let (ending, fired) = match pending.get(&session.id) {
             Some(Mark::Ending(t)) => (Some(t.clone()), false),
             Some(Mark::Firing(t) | Mark::Stopping(t)) => (Some(t.clone()), true),
@@ -418,6 +428,12 @@ impl Hub {
             (None, Some(t)) => pending.insert(id, Mark::Stopped(t)),
             (None, None) => pending.remove(&id),
         };
+        drop(pending);
+        // A row may have shown this turn's retry being decided: watchers and peers hear it
+        // settle, though an idle Stop records nothing else (Codex review, round 3).
+        if let Some(turn) = settles {
+            self.settled_unretried(session, &turn, "stopped");
+        }
     }
 
     /// Starts the chat's turn (`run_prompt`). A continuation (`after` its cut turn) that Stop
@@ -667,6 +683,26 @@ mod tests {
             prompt_id: "p".into(),
             turn_id: turn.into(),
         }
+    }
+
+    /// Stop settles a turn whose retry is being decided or waits, with or without its time:
+    /// with retries off, nothing else records that decision (Codex review, round 3).
+    #[test]
+    fn stop_settles_an_ending_or_waiting_turn() {
+        let wake = || Wake(Arc::new(Notify::new()));
+        let unset = Mark::Waiting { turn: "t1".into(), retry: None, _wake: wake() };
+        assert_eq!(settled_by_stop(Some(&unset)).as_deref(), Some("t1"));
+        let set = Mark::Waiting { turn: "t1".into(), retry: Some(retry("t1")), _wake: wake() };
+        assert_eq!(settled_by_stop(Some(&set)).as_deref(), Some("t1"));
+        assert_eq!(settled_by_stop(Some(&Mark::Ending("t1".into()))).as_deref(), Some("t1"));
+        for mark in [
+            Mark::Firing("t1".into()),
+            Mark::Stopped("t1".into()),
+            Mark::Stopping("t1".into()),
+        ] {
+            assert_eq!(settled_by_stop(Some(&mark)), None);
+        }
+        assert_eq!(settled_by_stop(None), None);
     }
 
     /// A row reads its chat's mark again when the retry it read is gone by the time it checks
