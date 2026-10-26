@@ -2489,10 +2489,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      # The dSYMs of every nightly-next build, kept 90 days next to the build: a crash or hang
-      # report symbolicates from here when the Sentry download is not available (2026-10-10:
-      # a read with a scoped token got 403 for nightly 38005665577; the upload above works).
-      - name: Keep the nightly-next dSYMs (90 days)
+      # The dSYMs of every nightly-next build, a handoff to publish-nightly, which keeps a
+      # published build's dSYMs on R2 (nightly-next/next/dsyms/): a crash or hang report
+      # symbolicates from there when the Sentry download is not available (2026-10-10: a read
+      # with a scoped token got 403 for nightly 38005665577; the upload above works). Seven
+      # days, as the unsigned-resume inputs: resume-unsigned-nightly.py reads this artifact's
+      # name as the build's exact source commit. Not 90: Actions storage is not an archive.
+      - name: Keep the nightly-next dSYMs for publication
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true')
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2500,7 +2503,7 @@ jobs:
           name: nightly-next-dsyms-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           path: build-universal/Build/Products/Release/**/*.dSYM
           if-no-files-found: warn
-          retention-days: 90
+          retention-days: 7
           compression-level: 6
 
       - name: Finish the dSYM upload to Sentry
@@ -5774,6 +5777,41 @@ jobs:
               echo "Assets, release metadata, and appcasts for \`$HEAD_SHA\` are published, but \`$CHANNEL_RELEASE_TAG\` was not advanced. The next eligible publication will retry the marker without republishing this commit."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      # A published nightly-next build's dSYMs, on R2 for as long as the build is out there
+      # (build-nightly-app's artifact lives seven days). Only once the publication is live
+      # (tag updated or stale), only for this run's own build (a recovered or resumed build's
+      # dSYMs are in its source run, and Sentry has every build's), and never deciding the
+      # publication: both steps continue on error. Write-once, one key per build.
+      - name: Download the published build's dSYMs
+        id: published-dsyms
+        if: always() && needs.decide.outputs.track == 'nightly-next' && steps.source.outputs.source == 'own' && (steps.tag-outcome.outputs.tag_status == 'updated' || steps.tag-outcome.outputs.tag_status == 'stale')
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: nightly-next-dsyms-${{ steps.source.outputs.build_sha }}
+          path: ${{ runner.temp }}/published-dsyms/dSYMs
+
+      - name: Keep the published build's dSYMs on R2
+        if: always() && steps.published-dsyms.outcome == 'success'
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          BUILD: ${{ steps.source.outputs.build }}
+          BUILD_SHA: ${{ steps.source.outputs.build_sha }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/published-dsyms.tar.gz"
+          tar -C "$RUNNER_TEMP/published-dsyms" -czf "$archive" dSYMs
+          key="${NIGHTLY_NEXT_R2_PREFIX}dsyms/${BUILD_SHA}/${BUILD}/dSYMs.tar.gz"
+          python3 "$PUBLISH_TOOLING/ci/nightly-next-guard.py" r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+          python3 "$PUBLISH_TOOLING/ci/upload-r2-object.py" --file "$archive" --endpoint-url "$R2_ENDPOINT" \
+            --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type application/gzip \
+            --cache-control "private, max-age=0" --write-once
+          echo "Published build $BUILD dSYMs: r2://$NIGHTLY_NEXT_R2_BUCKET/$key ($(du -h "$archive" | cut -f1))" >> "$GITHUB_STEP_SUMMARY"
 
   # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
   # copies, if any: the newest build on the cmux NEXT feed when it is newer than
