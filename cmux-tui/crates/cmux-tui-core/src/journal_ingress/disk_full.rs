@@ -1,37 +1,12 @@
-//! A full disk is not a broken store.
-//!
-//! SQLite answers `SQLITE_FULL` while the disk (or the user's quota) is
-//! full, and the same write succeeds once there is room again. Before, the
-//! writer treated it like a store that rejects the write: a batch of
-//! background events failed six quick retries, the writer stopped, and the
-//! session journal stayed off until the daemon restarted. Now the writer
-//! keeps the batch and tries it again, 1 s after the first failure and
-//! doubling to every 60 s, for as long as the disk stays full; the first
-//! commit that succeeds turns journaling back on.
-//!
-//! What stays bounded meanwhile:
-//! - Callers that wait on a receipt (barriers, producers, frontend events,
-//!   registry intents) are answered at once with the disk-full error, as a
-//!   store error answered them before: the ones in the failed batch, the
-//!   ones already queued (drained at each try), and new ones (refused at
-//!   admission while background events are held). Only events nobody waits
-//!   on are kept.
-//! - The kept events are at most one batch's worth (64 terminal chunks plus
-//!   256 durable events); later ones are dropped and counted. The lanes keep
-//!   their bounded queues.
-//! - A background event (terminal resize or output gap) that finds its full
-//!   queue while the disk is full is dropped and counted, instead of
-//!   blocking its producer until there is room. The count is logged when
-//!   journaling resumes.
-//! - With nothing kept there is nothing to retry: admission opens again, and
-//!   the next waiter's own commit (which fails at once on a full disk)
-//!   answers it.
-//! - A refused waiter also wakes the writer to try again now (at most once
-//!   per `RETRY_INITIAL`), so once there is room the next caller finds the
-//!   journal back within a second, not after the backoff's 60 s.
-//!
-//! The retry wait ends early when admission closes (shutdown), and the
-//! writer then stops as it does at a deadline during shutdown.
+//! A full disk is not a broken store: `SQLITE_FULL` passes once there is
+//! room. The writer keeps the events nobody waits on (at most one batch's
+//! worth; more are dropped and counted) and retries them 1 s after the first
+//! failure, doubling to every 60 s, until a commit succeeds; journaling then
+//! resumes with no restart. Meanwhile every waiter (barrier, producer,
+//! frontend event, registry intent) gets the disk-full error at once, whether
+//! in the batch, queued or new, and a refused waiter wakes the retry (at most
+//! once a second). A background event that finds its queue full is dropped
+//! and counted rather than blocking its producer. Shutdown ends the wait.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -191,7 +166,8 @@ impl DiskFullRetry {
 
     /// Fails every waiter in `batch`, `pending` and the queues, and keeps at
     /// most [`KEEP_MAX`] background events in `batch` (the rest are dropped
-    /// and counted).
+    /// and counted). Each queue is drained at most its capacity, so a
+    /// producer that refills it meanwhile never makes this longer.
     fn answer_waiters(
         &self,
         receivers: &JournalIngressReceivers,
@@ -200,23 +176,37 @@ impl DiskFullRetry {
         error: &str,
     ) {
         let state = &receivers.state;
-        let mut all = std::mem::take(batch);
-        all.extend(pending.drain(..).flatten());
-        let terminal = super::drain_lane(&receivers.terminal, &mut all, usize::MAX, usize::MAX);
-        let durable = super::drain_lane(&receivers.durable, &mut all, usize::MAX, usize::MAX);
-        state.stats.drained(super::JournalLane::Terminal, terminal);
-        state.stats.drained(super::JournalLane::Durable, durable);
-        if terminal + durable != 0 {
+        let held = std::mem::take(batch).into_iter().chain(pending.drain(..).flatten());
+        let (mut kept, mut dropped) = (Vec::new(), 0_u64);
+        let mut sort = |queued: QueuedJournalEvent| {
+            if queued.completion.is_some() {
+                super::complete_batch_error(std::slice::from_ref(&queued), error.to_string());
+            } else if kept.len() < KEEP_MAX {
+                kept.push(queued);
+            } else {
+                dropped += 1;
+            }
+        };
+        held.for_each(&mut sort);
+        let mut drained = [0_usize; 2];
+        let lanes = [
+            (&receivers.terminal, super::JOURNAL_TERMINAL_QUEUE_CAPACITY),
+            (&receivers.durable, super::JOURNAL_DURABLE_QUEUE_CAPACITY),
+        ];
+        for (count, (lane, capacity)) in drained.iter_mut().zip(lanes) {
+            while *count < capacity
+                && let Ok(queued) = lane.try_recv()
+            {
+                *count += 1;
+                sort(queued);
+            }
+        }
+        state.stats.drained(super::JournalLane::Terminal, drained[0]);
+        state.stats.drained(super::JournalLane::Durable, drained[1]);
+        if drained[0] + drained[1] != 0 {
             state.publish_queue_space();
         }
-        let (waiting, mut kept): (Vec<_>, Vec<_>) =
-            all.into_iter().partition(|queued| queued.completion.is_some());
-        super::complete_batch_error(&waiting, error.to_string());
-        if kept.len() > KEEP_MAX {
-            let dropped = kept.len() - KEEP_MAX;
-            kept.truncate(KEEP_MAX);
-            state.disk_full.dropped.fetch_add(dropped as u64, Ordering::Relaxed);
-        }
+        state.disk_full.dropped.fetch_add(dropped, Ordering::Relaxed);
         *batch = kept;
     }
 
@@ -277,48 +267,28 @@ mod tests {
 
     #[test]
     fn a_full_disk_is_told_from_a_store_error() {
-        let full = rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-            Some("database or disk is full".into()),
-        );
-        assert!(is_disk_full(&anyhow::Error::from(full).context("append session journal")));
-        #[cfg(unix)]
-        assert!(is_disk_full(&std::io::Error::from_raw_os_error(libc::ENOSPC).into()));
-        let constraint = rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
-            None,
-        );
-        assert!(!is_disk_full(&constraint.into()));
+        use std::io::{Error, ErrorKind};
+        let sqlite = |code| rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None);
+        let full = || sqlite(rusqlite::ffi::SQLITE_FULL);
+        assert!(is_disk_full(&anyhow::Error::from(full()).context("append session journal")));
+        assert!(!is_disk_full(&sqlite(rusqlite::ffi::SQLITE_CONSTRAINT).into()));
         assert!(!is_disk_full(&anyhow::anyhow!("database or disk is full")));
-        // Wrapped in another io::Error (`source()` skips the payload).
-        let sqlite_full = || {
-            rusqlite::Error::SqliteFailure(
-                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_FULL),
-                None,
-            )
-        };
-        let mut wrapped = vec![
-            std::io::Error::other(std::io::Error::from(std::io::ErrorKind::StorageFull)),
-            std::io::Error::other(sqlite_full()),
-            std::io::Error::other(std::io::Error::other(sqlite_full())),
-        ];
+        // Also wrapped in another io::Error, whose `source()` skips the payload.
+        let mut wrapped = vec![Error::from(ErrorKind::StorageFull), Error::other(full())];
         #[cfg(unix)]
-        for code in [libc::ENOSPC, libc::EDQUOT] {
-            wrapped.push(std::io::Error::other(std::io::Error::from_raw_os_error(code)));
-        }
-        for error in wrapped {
+        wrapped.extend([libc::ENOSPC, libc::EDQUOT].map(Error::from_raw_os_error));
+        for error in wrapped.into_iter().map(Error::other) {
             let text = error.to_string();
             assert!(is_disk_full(&anyhow::Error::from(error).context("write")), "{text}");
         }
-        let other = std::io::Error::other(std::io::Error::from(std::io::ErrorKind::NotFound));
-        assert!(!is_disk_full(&other.into()));
+        assert!(!is_disk_full(&Error::other(Error::from(ErrorKind::NotFound)).into()));
     }
 
     #[test]
     fn a_background_event_is_dropped_not_blocked_while_the_disk_is_full() {
         let (sender, _receivers) = JournalIngressSender::new(true);
         sender.state.disk_full.full.store(true, Ordering::Release);
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 31)).unwrap());
+        let terminal_id = Arc::new(term(31));
         let event = || JournalIngressEvent::TerminalOutput {
             terminal_id: terminal_id.clone(),
             generation: Arc::from("disk-full-generation"),
@@ -336,43 +306,74 @@ mod tests {
     }
 
     #[test]
+    fn answering_waiters_drains_a_bounded_amount_while_producers_refill() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.unwrap();
+        let terminal_id = Arc::new(term(33));
+        let event = move || JournalIngressEvent::TerminalOutput {
+            terminal_id: terminal_id.clone(),
+            generation: Arc::from("refill-generation"),
+            occurred_at_ms: 1,
+            bytes: b"x".to_vec(),
+        };
+        // A waiter queued behind the background events.
+        let (completion, result) = sync_channel(1);
+        let barrier = QueuedJournalEvent {
+            event: JournalIngressEvent::TerminalBarrier,
+            completion: Some(super::super::JournalIngressCompletion::Durable {
+                sender: completion,
+                deadline: Instant::now() + Duration::from_secs(30),
+                commit_fence: Arc::default(),
+            }),
+        };
+        sender.terminal_sender.as_ref().unwrap().try_send(barrier).ok().unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let refill = {
+            let (stop, sender) = (stop.clone(), sender.terminal_sender.clone().unwrap());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    let queued = QueuedJournalEvent { event: event(), completion: None };
+                    let _ = sender.try_send(queued);
+                }
+            })
+        };
+        let (mut batch, mut pending) = (Vec::new(), VecDeque::new());
+        let started = Instant::now();
+        DiskFullRetry::new().answer_waiters(&receivers, &mut batch, &mut pending, "full");
+        let elapsed = started.elapsed();
+        stop.store(true, Ordering::Release);
+        refill.join().unwrap();
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+        assert!(batch.len() <= KEEP_MAX && batch.iter().all(|queued| queued.completion.is_none()));
+        assert_eq!(result.try_recv().expect("the waiter is answered").unwrap_err(), "full");
+    }
+
+    #[test]
     fn a_full_disk_pauses_the_journal_writer_until_there_is_room() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-journal-disk-full-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
+        let id = crate::workspace_registry::new_uuid_v4();
+        let root = std::env::temp_dir().join(format!("cmux-journal-disk-full-{id}"));
         let mux =
-            Mux::open_persistent("journal-disk-full", crate::SurfaceOptions::default(), &root)
-                .unwrap();
+            Mux::open_persistent("disk-full", crate::SurfaceOptions::default(), &root).unwrap();
         let (failed, failed_receiver) = sync_channel(1);
         mux.install_journal_failure_notifier_for_test(failed);
         mux.flush_terminal_journal().unwrap();
-
-        // The database may not grow: every commit that needs a page fails
-        // with SQLITE_FULL, as on a full disk.
+        // The database may not grow: a commit that needs a page fails with
+        // SQLITE_FULL, as on a full disk.
         mux.set_registry_max_page_count_for_test(None).unwrap();
-        let terminal_id = Arc::new(TerminalPublicId::parse(format!("term_{:032x}", 32)).unwrap());
-        let generation: Arc<str> = Arc::from("disk-full-generation");
+        let (terminal_id, generation) = (Arc::new(term(32)), Arc::<str>::from("disk-full"));
         let while_full = vec![b'f'; 1024 * 1024];
         mux.journal_terminal_output(terminal_id.clone(), generation.clone(), while_full.clone());
-        // A barrier behind it is answered at once with the disk-full error,
-        // and so is one sent once the writer holds the output; the writer
-        // does not stop.
+        // A barrier sent before the writer holds the output, and one after,
+        // are answered at once; the writer does not stop.
         for _ in 0..2 {
             let started = Instant::now();
             let error = mux.flush_terminal_journal().unwrap_err().to_string();
             assert!(error.contains("out of disk space"), "{error}");
             assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
         }
-        assert!(mux.journal_disk_full_for_test());
-        assert!(
-            failed_receiver.try_recv().is_err(),
-            "a full disk must not fail the journal writer for good"
-        );
-
-        // Room again: the writer's next try commits the kept output (a
-        // refused waiter wakes it), and new output follows it.
+        assert!(mux.journal_disk_full_for_test() && failed_receiver.try_recv().is_err());
+        // Room again: a refused waiter wakes the writer, whose next try
+        // commits the kept output; new output follows it.
         mux.set_registry_max_page_count_for_test(Some(1 << 30)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while mux.journal_disk_full_for_test() {
@@ -380,24 +381,17 @@ mod tests {
             let _ = mux.flush_terminal_journal();
             std::thread::sleep(Duration::from_millis(20));
         }
-        mux.flush_terminal_journal().unwrap();
         mux.journal_terminal_output(terminal_id, generation, b"after".to_vec());
         mux.flush_terminal_journal().unwrap();
-        assert!(!mux.journal_disk_full_for_test());
-        let outputs = mux
-            .session_journal_after(0, 1024)
-            .unwrap()
-            .records
-            .into_iter()
-            .filter(|record| record.kind == "terminal.output")
-            .filter_map(|record| record.terminal_output)
-            .collect::<Vec<_>>();
-        let mut expected = while_full;
-        expected.extend_from_slice(b"after");
-        assert_eq!(outputs.concat(), expected, "the output kept while the disk was full commits");
-        assert!(failed_receiver.try_recv().is_err());
-        assert!(!mux.daemon_shutdown_requested());
+        let records = mux.session_journal_after(0, 1024).unwrap().records.into_iter();
+        let output = records.filter_map(|record| record.terminal_output).collect::<Vec<_>>();
+        assert_eq!(output.concat(), [while_full, b"after".to_vec()].concat());
+        assert!(failed_receiver.try_recv().is_err() && !mux.daemon_shutdown_requested());
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn term(index: u128) -> TerminalPublicId {
+        TerminalPublicId::parse(format!("term_{index:032x}")).unwrap()
     }
 }

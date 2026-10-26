@@ -1196,8 +1196,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if batch.is_empty() {
                                 break;
                             }
-                            // Only output nobody waits on is kept: the wait
-                            // was for room, not past a caller's deadline.
+                            // Only events nobody waits on are kept: no deadline.
                             retry_deadline = Instant::now() + journal_durable_wait();
                             continue;
                         }

@@ -1624,10 +1624,8 @@ export function devboxDaemonUnit(): string {
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
     "After=network.target",
-    // Never give up (as acpmux.service): no start limit, so a crash loop or a
-    // full disk is retried until the daemon stays up, 3 s then backing off to
-    // 60 s (RestartSteps/RestartMaxDelaySec need systemd 254+; an older one
-    // ignores them and restarts every 3 s).
+    // Never give up (as acpmux.service): no start limit, 3 s backing off to 60 s
+    // (RestartSteps/RestartMaxDelaySec: systemd 254+; older ones restart every 3 s).
     "StartLimitIntervalSec=0",
     "",
     "[Service]",

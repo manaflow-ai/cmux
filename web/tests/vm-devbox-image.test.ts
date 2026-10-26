@@ -725,8 +725,7 @@ test "$daemon_pid" = fixture
   });
 
   test("the cmux-tui units never give up after repeated failed starts", () => {
-    // A full disk failed the daemon in a loop and the default start limit left
-    // the unit failed; like acpmux.service, these retry, backing off to 60 s.
+    // Like acpmux.service: no start limit, retries back off to 60 s.
     for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
       const service = unit.indexOf("[Service]");
       expect(unit.indexOf("StartLimitIntervalSec=0\n")).toBeGreaterThan(0);

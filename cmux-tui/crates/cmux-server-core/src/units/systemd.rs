@@ -2,10 +2,8 @@
 //!
 //! The main unit runs the frozen `cmux host run` with `Type=notify` (it
 //! sends `READY=1` when the session host answers) and `KillMode=process`
-//! (terminal hosts survive a restart). It never gives up: no start limit
-//! (`StartLimitIntervalSec=0`), so a crash loop or a full disk is retried,
-//! 3 s backing off to 60 s (`RestartSteps=`, `RestartMaxDelaySec=`: systemd
-//! 254+, ignored by an older one). It is not hardened with
+//! (terminal hosts survive a restart). It never gives up (no start limit;
+//! 3 s backing off to 60 s on systemd 254+). It is not hardened with
 //! `ProtectHome`, `NoNewPrivileges` or read-only mounts, because the
 //! terminals it hosts are ordinary shells that need home directories and
 //! `sudo`. App servers get the strict hardening in their own template unit.

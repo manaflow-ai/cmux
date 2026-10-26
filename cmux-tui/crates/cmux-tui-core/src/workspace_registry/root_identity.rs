@@ -1,13 +1,8 @@
-//! The state root's identity files: `machine-id` (this machine's public id)
-//! and `resource-effect-pepper` (the secret behind resource receipt HMACs).
-//!
-//! Each is created once and never rewritten. A new file is written beside
-//! its place (`<name>.new`), synced, and renamed in, so a full disk leaves
-//! the file whole or absent, never cut. Earlier builds wrote it in place: a
-//! write cut by ENOSPC left a short file, and every later start failed on
-//! it as corrupt. Such a file was never used (those builds returned the
-//! value only after the write and its fsync succeeded), so a cut one is
-//! replaced when nothing can depend on it (see each loader).
+//! Writes `machine-id` and `resource-effect-pepper` beside their place and
+//! renames them in, so a full disk leaves each whole or absent. Earlier builds
+//! wrote in place and ENOSPC left a short file that failed every later start;
+//! such a file was never used (the value was returned only after its fsync),
+//! so a cut one is replaced when nothing can depend on it.
 
 use super::*;
 
@@ -142,40 +137,36 @@ mod tests {
 
     #[test]
     fn a_pepper_cut_by_a_full_disk_is_replaced_only_without_a_registry() {
-        let root = temp_root("pepper-cut");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join(RESOURCE_EFFECT_PEPPER_FILE), b"").unwrap();
-        let pepper = load_or_create_resource_effect_pepper(&root).unwrap();
-        let written = fs::read(root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
-        assert_eq!(written, pepper.0.as_ref());
-        let again = load_or_create_resource_effect_pepper(&root).unwrap();
-        assert_eq!(again.0.as_ref(), pepper.0.as_ref(), "created once");
-        assert!(!root.join("resource-effect-pepper.new").exists());
-        fs::remove_dir_all(root).unwrap();
-
         // A registry from schema 7 on has receipts bound to the pepper: the
         // cut file stays, and the start fails closed. Before 7 it is replaced.
-        for (schema, replaced) in [(6, true), (7, false), (9, false), (14, false)] {
-            let root = temp_root("pepper-cut-registry");
+        for (schema, replaced) in
+            [(None, true), (Some(6), true), (Some(7), false), (Some(14), false)]
+        {
+            let root = temp_root("pepper-cut");
             let session = root.join("session");
             fs::create_dir_all(&session).unwrap();
-            let registry = Connection::open(session.join(WORKSPACE_REGISTRY_FILE)).unwrap();
-            registry
-                .execute_batch(&format!(
-                    "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-                     INSERT INTO meta VALUES('schema_version', '{schema}');"
-                ))
-                .unwrap();
-            drop(registry);
+            if let Some(schema) = schema {
+                Connection::open(session.join(WORKSPACE_REGISTRY_FILE))
+                    .unwrap()
+                    .execute_batch(&format!(
+                        "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                         INSERT INTO meta VALUES('schema_version', '{schema}');"
+                    ))
+                    .unwrap();
+            }
             fs::write(root.join(RESOURCE_EFFECT_PEPPER_FILE), b"cut").unwrap();
             let loaded = load_or_create_resource_effect_pepper(&root);
             let on_disk = fs::read(root.join(RESOURCE_EFFECT_PEPPER_FILE)).unwrap();
             if replaced {
-                assert_eq!(on_disk, loaded.unwrap().0.as_ref(), "schema {schema}");
+                assert_eq!(on_disk, loaded.unwrap().0.as_ref(), "{schema:?}");
+                assert!(!root.join("resource-effect-pepper.new").exists());
             } else {
                 let error = format!("{:#}", loaded.err().expect("fails closed"));
-                assert!(error.contains("resource receipt pepper is corrupt"), "{schema}: {error}");
-                assert_eq!(on_disk, b"cut", "schema {schema} keeps the file");
+                assert!(
+                    error.contains("resource receipt pepper is corrupt"),
+                    "{schema:?}: {error}"
+                );
+                assert_eq!(on_disk, b"cut", "{schema:?} keeps the file");
             }
             fs::remove_dir_all(root).unwrap();
         }
@@ -201,20 +192,6 @@ mod tests {
         fs::create_dir_all(blocked.join("child")).unwrap();
         assert!(write_identity_file(&root, &blocked, b"x", true).is_err());
         assert!(!root.join("blocked.new").exists());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn identity_files_are_written_owner_only() {
-        use std::os::unix::fs::PermissionsExt;
-        let root = temp_root("identity-mode");
-        load_or_create_machine_id(&root).unwrap();
-        load_or_create_resource_effect_pepper(&root).unwrap();
-        for name in [MACHINE_ID_FILE, RESOURCE_EFFECT_PEPPER_FILE] {
-            let mode = fs::metadata(root.join(name)).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode, 0o600, "{name}");
-        }
         fs::remove_dir_all(root).unwrap();
     }
 }

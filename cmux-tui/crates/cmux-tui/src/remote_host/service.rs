@@ -433,15 +433,7 @@ mod imp {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        // Written beside its place and renamed in: a full disk never leaves
-        // a cut unit for daemon-reload to load.
-        let staged = path.with_extension("service.new");
-        if let Err(error) =
-            std::fs::write(&staged, unit).and_then(|()| std::fs::rename(&staged, &path))
-        {
-            let _ = std::fs::remove_file(&staged);
-            return Err(error.into());
-        }
+        replace_unit(&path, |file| file.write_all(unit.as_bytes()))?;
         // No user manager (a headless login without linger, `su`, a
         // container): leave no unit behind, so `installed()` stays false
         // and the caller starts `serve` detached instead.
@@ -450,6 +442,23 @@ mod imp {
             return Err(e);
         }
         Ok(format!("systemd user unit {SYSTEMD_UNIT}"))
+    }
+
+    /// Writes the unit beside its place, syncs it (a full NFS disk may fail
+    /// only there), renames it in and syncs the folder; never a cut unit.
+    pub(super) fn replace_unit(
+        path: &Path,
+        write: impl FnOnce(&mut File) -> std::io::Result<()>,
+    ) -> std::io::Result<()> {
+        let staged = path.with_extension("service.new");
+        let result = File::create(&staged)
+            .and_then(|mut file| write(&mut file).and_then(|()| file.sync_all()))
+            .and_then(|()| std::fs::rename(&staged, path));
+        if result.is_err() {
+            let _ = std::fs::remove_file(&staged);
+            return result;
+        }
+        path.parent().map_or(Ok(()), |dir| File::open(dir)?.sync_all())
     }
 
     pub(super) fn stop() {
@@ -536,5 +545,30 @@ mod imp {
 
     pub(super) fn installed() -> Option<String> {
         None
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod unit_write_tests {
+    use std::io::Write as _;
+
+    #[test]
+    fn a_failed_unit_write_keeps_the_previous_unit() {
+        let dir = std::env::temp_dir().join(format!("cmux-host-unit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-host-remote.service");
+        std::fs::write(&path, "old\n").unwrap();
+        let full = || std::io::Error::from(std::io::ErrorKind::StorageFull);
+        let error = super::imp::replace_unit(&path, |file| {
+            file.write_all(b"cut")?;
+            Err(full())
+        })
+        .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::StorageFull);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "old\n");
+        assert!(!path.with_extension("service.new").exists());
+        super::imp::replace_unit(&path, |file| file.write_all(b"new\n")).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new\n");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
