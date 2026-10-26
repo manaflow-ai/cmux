@@ -16,6 +16,10 @@ const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/comp
   "",
 );
 const baseStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+const sharedStyles = readFileSync(
+  join(import.meta.dir, "../src/agent-session/acpmux/composerFooterShared.css"),
+  "utf8",
+);
 
 /** The declarations of every rule whose selector is exactly `selector`, in source order. */
 function rules(selector: string): string[] {
@@ -36,6 +40,12 @@ test("the quiet row's chips get the native pill inset, 8 px from the text", () =
   // The last declaration wins, as in the cascade.
   const insets = foot.map((body) => px(body, "--acpmux-row-inset")).filter((value) => value !== undefined);
   expect(insets[insets.length - 1]).toBe(8);
+});
+
+test("both composer harnesses use the measured 16 px footer gap token", () => {
+  expect(sharedStyles).toMatch(/--acpmux-composer-footer-gap\s*:\s*16px/);
+  const foot = rules(".acpmux-composer-foot").join(";");
+  expect(foot).toMatch(/margin-top\s*:\s*var\(--acpmux-composer-footer-gap\)/);
 });
 
 test("each chip's pill is padded by the row's inset", () => {
