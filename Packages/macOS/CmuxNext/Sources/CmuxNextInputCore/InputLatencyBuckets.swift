@@ -37,6 +37,11 @@ public struct InputLatencyBuckets: Sendable, Equatable {
         counts[Self.bucket(forNanos: nanos)] &+= 1
     }
 
+    /// Adds `other`'s count to each bucket.
+    public mutating func add(_ other: InputLatencyBuckets) {
+        for index in counts.indices { counts[index] &+= other.counts[index] }
+    }
+
     /// Values counted.
     public var total: UInt64 {
         counts.reduce(0, &+)

@@ -194,6 +194,7 @@ impl WorkspaceRegistry {
     /// [`MAX_ARCHIVES`] and, of their screens, only the newest that fit in
     /// `blob_budget_bytes` ([`ARCHIVE_BLOB_BUDGET_BYTES`] outside tests).
     /// Returns the closed groups whose terminal lost its screen here.
+    #[track_caller]
     pub(crate) fn put_terminal_archives(
         &mut self,
         archives: &[ArchiveRow<'_>],
@@ -278,6 +279,7 @@ impl WorkspaceRegistry {
     }
 
     /// The archive of public terminal `terminal_id`.
+    #[track_caller]
     pub(crate) fn terminal_archive(
         &self,
         terminal_id: &str,
@@ -309,6 +311,7 @@ impl WorkspaceRegistry {
 
     /// Whether a closed-history group can reopen public terminal
     /// `terminal_id` (its record names it).
+    #[track_caller]
     pub(crate) fn closed_history_mentions_terminal(
         &self,
         terminal_id: &str,

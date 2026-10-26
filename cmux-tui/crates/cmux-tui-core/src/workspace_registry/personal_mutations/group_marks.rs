@@ -16,6 +16,7 @@ impl WorkspaceRegistry {
     /// commit). The icon is the shared icon string: one emoji, an SF Symbol
     /// name or a stored image or SVG, checked in this transaction so no blob
     /// sweep runs in between.
+    #[track_caller]
     pub(crate) fn set_personal_group_icon_in(
         tx: &Transaction<'_>,
         id: &str,
@@ -44,6 +45,7 @@ impl WorkspaceRegistry {
 
     /// Pin (save) or unpin group `id` inside the caller's transaction (the
     /// v2 `workspace_group.update {pinned}` commit).
+    #[track_caller]
     pub(crate) fn set_personal_group_pinned_in(
         tx: &Transaction<'_>,
         id: &str,

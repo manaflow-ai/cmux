@@ -48,6 +48,8 @@ pub(super) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    // The operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let operation = request.envelope.operation.wire_name();
     let store = Store::open(mux, operation)?;
     let result = match request.envelope.operation {

@@ -95,6 +95,16 @@
       "what": "the always-on main run-loop turn meter: its four observer callouts per turn, the sendEvent input span and each scheduled task's span (MainTurnMeter, CmuxApplication.sendEvent); budget < 100 ns per turn over the clock reads",
       "bench": "CMUX_MAIN_TURN_BENCH=1 swift test -c release --filter MainTurnMeterBench (ns per turn), on macOS 26 and 27",
       "owner": "Performance Lead"
+    },
+    "terminal-feed": {
+      "what": "one terminal output chunk parsed on its TerminalOutputLane (ghostty_surface_process_output, microseconds for an echoed key, about 1 ms for 256 KiB) inside its terminal.feed hang scope (HangWatch.watch: two stores and no system call once p09-observability-066 fills the slots)",
+      "bench": "scripts/cmux-next/bench-typing.py (echo: output parsed stage p95); the scope's own cost: swift test -c release --filter HangWatchTests (p09-observability-066 open and close cost)",
+      "owner": "PL-typing"
+    },
+    "daemon-request": {
+      "what": "every daemon request and connection frame, key input included: the request watchdog's slot claim, clock read and release (cmux-tui-core server/request_watchdog.rs begin and RequestScope end)",
+      "bench": "cargo test -p cmux-tui-core --release --lib -- request_watchdog_begin_bench --ignored --nocapture (ns per run), then scripts/cmux-next/bench-typing.py",
+      "owner": "PL-conn"
     }
   }
 }

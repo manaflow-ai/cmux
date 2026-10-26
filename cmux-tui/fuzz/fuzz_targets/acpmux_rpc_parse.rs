@@ -1,5 +1,7 @@
-//! acpmux JSON-RPC lines (`rpc::Message::parse`, `from_value`): every line a
-//! peer, client or agent sends the daemon goes through them.
+//! acpmux JSON-RPC lines (`rpc::Message::parse`): every line a peer, client
+//! or agent sends the daemon goes through it. `parse` is `serde_json` then
+//! `Message::from_value`, so every JSON value reaches `from_value` here; a
+//! host's tapped message (`agent.rs`, `Entry::Tap`) is such a value too.
 //!
 //! Invariants past "no panic": a parsed message writes a line that parses
 //! again, and one write and read normalizes it (`result: null` stays, an
@@ -11,14 +13,9 @@ use acpmux::rpc::Message;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let message = match std::str::from_utf8(data) {
-        Ok(line) => Message::parse(line),
-        Err(_) => match serde_json::from_slice(data) {
-            Ok(value) => Message::from_value(value),
-            Err(_) => return,
-        },
-    };
-    let Ok(message) = message else { return };
+    // serde_json rejects bytes that are not UTF-8, so such input reaches nothing.
+    let Ok(line) = std::str::from_utf8(data) else { return };
+    let Ok(message) = Message::parse(line) else { return };
     let line = message.to_line();
     assert!(Message::parse(&line).is_ok(), "a written message does not parse: {line}");
     let once = Message::from_value(message.to_value()).expect("a written message reads back");

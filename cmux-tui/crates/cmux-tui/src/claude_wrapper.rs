@@ -14,12 +14,11 @@ use std::fs;
 use std::io::Read as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
-use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context as _;
+use cmux_process::Command;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 
@@ -665,6 +664,9 @@ mod launch_classification {
         Some(2)
     }
 }
+
+#[cfg(test)]
+mod exec_tests;
 
 #[cfg(test)]
 mod tests {

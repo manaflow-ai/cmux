@@ -10,7 +10,7 @@ import WebKit
 /// balanced and tagged with the asking page.
 @MainActor
 struct PageWebUITraceTests {
-    private let descriptor = PageDescriptor(id: "test.webui-trace", resource: "webui-trace", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-trace", resource: "webui-trace", processGroup: .solo, namespaces: [])
 
     /// A page view writing to `recorder`; with `load`, it starts its first document in `chromium` (WebKit
     /// when nil). The configuration has no scheme handler, so a WebKit load never commits.
@@ -162,7 +162,7 @@ private struct SchemeRig {
     let root: URL
     let handler: PageSchemeHandler
     let view: PageWebView
-    private let descriptor = PageDescriptor(id: "test.webui-scheme", resource: "webui-scheme", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-scheme", resource: "webui-scheme", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("webui-scheme-\(UUID().uuidString)", isDirectory: true)
@@ -235,9 +235,11 @@ final class PageTraceRecorder: PageTraceSink {
     private var open: [UInt64] = []
     private var endedParts: [UInt64] = []
 
-    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64) {
+    @discardableResult
+    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64) -> Bool {
         records.append(Record(phase: .begin, name: name, arg0: arg0, arg1: arg1))
         open.append(arg0)
+        return true
     }
 
     func end(_ name: SignpostName, arg0: UInt64, arg1: UInt64) {
@@ -247,8 +249,10 @@ final class PageTraceRecorder: PageTraceSink {
         onEnd?(part)
     }
 
-    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64) {
+    @discardableResult
+    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64) -> Bool {
         records.append(Record(phase: .asyncBegin, name: name, arg0: arg0, arg1: id))
+        return true
     }
 
     func asyncEnd(_ name: SignpostName, id: UInt64, arg0: UInt64) {

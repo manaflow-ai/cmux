@@ -26,6 +26,8 @@ pub(super) fn list(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // The operation runs git to completion on this request thread.
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let limit = fields
         .get("limit")
         .and_then(Value::as_u64)

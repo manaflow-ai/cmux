@@ -118,6 +118,7 @@ fn reduce_column_update(
 }
 
 impl Mux {
+    #[track_caller]
     pub(super) fn resource_update_column(
         self: &Arc<Self>,
         selectors: ResourceSelectors,

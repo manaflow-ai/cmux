@@ -380,7 +380,8 @@ check it.
 - Merge conflicts. Family-scoped ids avoid collisions; api-compat-check before every push; hot files serialized
   (rule 11); sniffer tasks edit only their own ROUTES.
 - Build time. Generated Swift is limited to `clients: macos` methods, in a leaf target, per-family files; task
-  194 measures leaf-edit and schema-edit rebuilds before and after.
+  194 measures leaf-edit and schema-edit rebuilds before and after. The method table (023) is one file: it is
+  small data, and every output is rewritten on any schema edit, so per-family files would gain nothing.
 - Head-of-line. Streams stay off by default (095) until 056, 072, 086, 087, 099 and 144 land and B1 shows IPC-8;
   task 094 flips the default with that evidence.
 - Scope. The CLI-to-app control socket, cmux-pane-protocol and acpmux keep their own framing in this push.

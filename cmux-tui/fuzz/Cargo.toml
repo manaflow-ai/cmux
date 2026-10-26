@@ -1,8 +1,9 @@
-# Coverage-guided fuzz targets for cmux-tui decoders (cargo fuzz, libFuzzer),
-# as Chromium's testing/libfuzzer targets. Its own workspace and lock with a
-# pinned nightly (rust-toolchain.toml): the main workspace's Cargo.toml and
-# Cargo.lock never change for it. scripts/cmux-next/rust-fuzz.sh runs it with
-# the resource limits (p10-stability-017).
+# libFuzzer targets for cmux-tui decoders (plans/cmux-next/chrome-parity/p10-stability.md,
+# tasks 017-021). Its own workspace and lock, so the main cmux-tui Cargo.toml and
+# Cargo.lock never change for a fuzz target. Build and run with cargo-fuzz on the
+# nightly in rust-toolchain.toml; seeds are in corpus/<target>/. Task 018 created this
+# workspace; later batches (017, 019-021) add [[bin]] entries, dependencies and their lock
+# delta here and never add these files again (p10-stability.md, 017's landing order).
 [package]
 name = "cmux-tui-fuzz"
 version = "0.0.0"
@@ -13,22 +14,142 @@ publish = false
 cargo-fuzz = true
 
 [workspace]
+members = ["."]
 
 [dependencies]
 libfuzzer-sys = "0.4"
+cmux-link = { path = "../crates/cmux-link" }
+cmux-rd-proto = { path = "../crates/cmux-rd-proto" }
+cmux-transport = { path = "../crates/cmux-transport" }
+cmux-wg = { path = "../crates/cmux-wg", features = ["fuzzing"] }
+serde = "1"
+# Batch 3 (task 019): acpmux.
 acpmux = { path = "../crates/acpmux" }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "time"] }
 toml = "0.8"
 
-# A panic, an overflow or a debug assertion is a finding, as in a debug build.
+# A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
+# build with DCHECKs on.
 [profile.release]
 debug = 1
-overflow-checks = true
 debug-assertions = true
+overflow-checks = true
 
-# acpmux (p10-stability-019): one target per decoder.
+# Batch 2 (task 018): cmux-rd-proto, cmux-transport, cmux-link, cmux-wg.
+[[bin]]
+name = "rd_proto_bulk"
+path = "fuzz_targets/rd_proto_bulk.rs"
+test = false
+doc = false
+bench = false
 
+[[bin]]
+name = "rd_proto_clock"
+path = "fuzz_targets/rd_proto_clock.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_datagram"
+path = "fuzz_targets/rd_proto_datagram.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_feedback"
+path = "fuzz_targets/rd_proto_feedback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_frame"
+path = "fuzz_targets/rd_proto_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_input"
+path = "fuzz_targets/rd_proto_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_stream"
+path = "fuzz_targets/rd_proto_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_relay_frame"
+path = "fuzz_targets/transport_relay_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_probe"
+path = "fuzz_targets/transport_probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_stun"
+path = "fuzz_targets/transport_stun.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_dial"
+path = "fuzz_targets/link_dial.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_stamp"
+path = "fuzz_targets/link_stamp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_packet"
+path = "fuzz_targets/wg_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_config"
+path = "fuzz_targets/wg_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_mesh_packet"
+path = "fuzz_targets/wg_mesh_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_owner_session"
+path = "fuzz_targets/link_owner_session.rs"
+test = false
+doc = false
+bench = false
+
+# Batch 3 (task 019): acpmux.
 [[bin]]
 name = "acpmux_rpc_parse"
 path = "fuzz_targets/acpmux_rpc_parse.rs"

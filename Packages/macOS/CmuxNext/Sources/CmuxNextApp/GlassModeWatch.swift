@@ -1,24 +1,39 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextEnergy
 
-/// Calls back when the glass mode pages draw (`GlassLensMode.current`) changes: the Debug choice `glass.lens`,
-/// Reduce Transparency (system or Debug override) or Low Power Mode. Events only, nothing polls.
+/// Resolves the glass mode pages draw and calls back when it changes: the Debug choice `glass.lens`,
+/// Reduce Transparency (system or Debug override) or the energy monitor's Low Power Mode (system or
+/// `debug.low_power_mode`). Events only, nothing polls.
 final class GlassModeWatch {
-    private var shown: GlassLensMode
-    private let onChange: @MainActor () -> Void
+    /// The mode pages draw now (the App hands it to `ThemeStore.setGlassMode`).
+    private(set) var mode: GlassLensMode
+    private let store: TunableStore
+    private let reduceTransparency: ReduceTransparency
+    private let lowPowerMode: LowPowerMode
+    private let onChange: @MainActor (GlassLensMode) -> Void
     /// The glass tunable's observation loop (read by the release tests).
     private(set) var settings: Task<Void, Never>?
     private var lowPower: LowPowerModeObservation?
     private var display: MainActorObservation?
 
-    init(onChange: @escaping @MainActor () -> Void) {
-        shown = .current
+    /// - Parameters:
+    ///   - store: Where the `glass.lens` choice lives.
+    ///   - reduceTransparency: Reduce Transparency and its Debug override.
+    ///   - lowPowerMode: The app's Low Power Mode (its energy monitor's); the default, fixed off, is for tests.
+    ///   - onChange: Called with the new mode when it is not the one last seen.
+    init(store: TunableStore = .shared, reduceTransparency: ReduceTransparency = .shared,
+         lowPowerMode: LowPowerMode = LowPowerMode(enabled: false), onChange: @escaping @MainActor (GlassLensMode) -> Void) {
+        self.store = store
+        self.reduceTransparency = reduceTransparency
+        self.lowPowerMode = lowPowerMode
+        mode = GlassLensMode.current(store: store, reduceTransparency: reduceTransparency, lowPowerMode: lowPowerMode.isEnabled)
         self.onChange = onChange
-        settings = Task { [weak self] in
-            for await _ in ObservationStream({ GlassLensMode.tunable.value }) { self?.check() }
+        settings = Task { [weak self, store] in
+            for await _ in ObservationStream({ GlassLensMode.tunable.value(in: store) }) { self?.check() }
         }
-        lowPower = LowPowerMode.system.observe { [weak self] _ in self?.check() }
+        lowPower = lowPowerMode.observe { [weak self] _ in self?.check() }
         display = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
             self?.check()
         }
@@ -33,9 +48,9 @@ final class GlassModeWatch {
 
     /// Calls back when the mode is not the one last seen.
     func check() {
-        let now = GlassLensMode.current
-        guard now != shown else { return }
-        shown = now
-        onChange()
+        let now = GlassLensMode.current(store: store, reduceTransparency: reduceTransparency, lowPowerMode: lowPowerMode.isEnabled)
+        guard now != mode else { return }
+        mode = now
+        onChange(now)
     }
 }

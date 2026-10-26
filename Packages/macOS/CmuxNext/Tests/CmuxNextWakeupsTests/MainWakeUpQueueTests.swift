@@ -13,7 +13,7 @@ struct MainWakeUpQueueTests {
 
     @Test("Five flexible entries at 100-110 ms fire as two aligned wakes, in deadline order")
     func fiveEntriesTwoWakes() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         for at: UInt64 in [110, 100, 107, 103, 105] {
             rig.queue.insert(owner: "e\(at)", at: at * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(at) }
@@ -32,7 +32,8 @@ struct MainWakeUpQueueTests {
 
     @Test("Aligned fire dates are exact multiples of the grid in uptime ns", arguments: [WakeLeeway.defaultAlignment, WakeLeeway.saverAlignment])
     func gridMultiples(alignment: Duration) throws {
-        let rig = Rig(alignment: alignment)
+        let saver = alignment == WakeLeeway.saverAlignment
+        let rig = WakeUpQueueRig(energy: EnergyPolicySource(EnergyPolicy(saverReason: saver ? .setting : nil)))
         let grid = alignment.nanosecondCount
         var deadline: UInt64 = 900 * Self.ms + 123_457
         for step in 0..<40 {
@@ -74,12 +75,12 @@ struct MainWakeUpQueueTests {
 
     @Test("A precise entry fires at its own deadline with no tolerance")
     func preciseIsNotAligned() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         rig.queue.insert(owner: "flex", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(100) }
         let precise = 10 * Self.ms + 123
         rig.queue.insert(owner: "precise", at: precise, window: .window(delay: .milliseconds(10), policy: .precise)) { log.ran.append(10) }
-        #expect(rig.timer.arms.last == FakeTimer.Arm(date: precise, tolerance: 0))
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: precise, tolerance: 0))
         rig.fire()
         #expect(log.ran == [10])
         #expect(rig.timer.armedDate == 104 * Self.ms)
@@ -87,7 +88,7 @@ struct MainWakeUpQueueTests {
 
     @Test("Cancelling the earliest entry re-arms for the next; cancelling the last parks the timer")
     func cancelRearms() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let first = rig.queue.insert(owner: "a", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
         let second = rig.queue.insert(owner: "b", at: 200 * Self.ms, window: .window(delay: .milliseconds(100))) {}
         #expect(rig.timer.armedDate == 104 * Self.ms)
@@ -100,7 +101,7 @@ struct MainWakeUpQueueTests {
 
     @Test("An insert that does not move the fire date earlier makes no re-arm call")
     func sameEarliestNoRearm() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         rig.queue.insert(owner: "a", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
         rig.queue.insert(owner: "b", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
         rig.queue.insert(owner: "c", at: 101 * Self.ms, window: .window(delay: .milliseconds(100))) {}
@@ -114,7 +115,7 @@ struct MainWakeUpQueueTests {
 
     @Test("An entry inserted during a fire that is already due runs in the same pass")
     func dueInsertDuringFire() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         let queue = rig.queue
         queue.insert(owner: "outer", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
@@ -131,7 +132,7 @@ struct MainWakeUpQueueTests {
 
     @Test("Entries of one owner that share a wake count as one ledger record")
     func oneRecordPerOwnerPerFire() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         for at: UInt64 in [100, 101, 102] {
             rig.queue.insert(owner: "same", at: at * Self.ms, window: .window(delay: .milliseconds(100))) {}
         }
@@ -143,7 +144,7 @@ struct MainWakeUpQueueTests {
 
     @Test("A new top with a later fire date re-arms later, so the wake runs both entries")
     func newLaterTopRearms() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         rig.queue.insert(owner: "flex", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) { log.ran.append(100) }
         rig.queue.insert(owner: "precise", at: 106 * Self.ms, window: .window(delay: .milliseconds(10), policy: .precise)) {
@@ -157,20 +158,20 @@ struct MainWakeUpQueueTests {
 
     @Test("A deadline that has passed arms for now with the tolerance left to its latest time")
     func pastDeadlineToleranceFromNow() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         rig.uptime.now = 5_020 * Self.ms
         rig.queue.insert(owner: "soon", at: 4_950 * Self.ms, window: .window(delay: .seconds(1))) {}
-        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_020 * Self.ms, tolerance: 30 * Self.ms),
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 5_020 * Self.ms, tolerance: 30 * Self.ms),
                 "aligned 5 s has passed: fire now, by the 5.05 s latest")
         rig.queue.insert(owner: "late", at: 2_000 * Self.ms, window: .window(delay: .seconds(1))) {}
-        #expect(rig.timer.arms.last == FakeTimer.Arm(date: 5_020 * Self.ms, tolerance: 0),
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 5_020 * Self.ms, tolerance: 0),
                 "an overdue top re-arms the same date with no tolerance")
         #expect(rig.timer.arms.count == 2)
     }
 
     @Test("A fire after a cancel re-armed the timer later runs nothing early")
     func cancelRacingFireRunsNothingEarly() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         let first = rig.queue.insert(owner: "a", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
             log.ran.append(100)
@@ -188,7 +189,7 @@ struct MainWakeUpQueueTests {
 
     @Test("An entry that spins a nested run loop does not stop later deadlines")
     func nestedRunLoopStillFires() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         let queue = rig.queue
         queue.insert(owner: "menu", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {
@@ -206,7 +207,7 @@ struct MainWakeUpQueueTests {
 
     @Test("4 threads x 1000 concurrent inserts lose nothing and never move the fire date later")
     func concurrentInserts() {
-        let rig = Rig()
+        let rig = WakeUpQueueRig()
         let log = RunLog()
         Self.insertConcurrently(into: rig.queue, log: log)
         #expect(rig.queue.count == 4_000)
@@ -220,6 +221,100 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1 && rig.queue.count == 0)
     }
 
+    // MARK: Energy Saver (p14-energy-023)
+
+    @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")
+    func saverRealignsFlexibleEntries() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy)
+        let log = RunLog()
+        rig.queue.insert(owner: "flex", after: .milliseconds(100)) { log.ran.append(100) }
+        rig.queue.insert(owner: "late", after: .milliseconds(450)) { log.ran.append(450) }
+        rig.queue.insert(owner: "precise", after: .milliseconds(30), policy: .precise) { log.ran.append(30) }
+        rig.queue.insert(owner: "seconds", after: .seconds(5)) { log.ran.append(5_000) }
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 30 * Self.ms], "8 ms grid, then the exact precise date")
+        let armsBefore = rig.timer.arms.count
+
+        energy.update(EnergyPolicy(saverReason: .lowPowerMode))
+
+        #expect(rig.timer.arms.count == armsBefore, "the precise entry still fires first, at the same date: no re-arm")
+        rig.fire()
+        #expect(log.ran == [30])
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 108 * Self.ms, tolerance: 0),
+                "the 32 ms grid would say 128 ms; the entry keeps its 108 ms latest (AdjustDelayedRunTime)")
+        rig.queue.insert(owner: "posted", after: .milliseconds(100)) { log.ran.append(130) }
+        rig.fire()
+        #expect(log.ran == [30, 100])
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 160 * Self.ms, tolerance: 2 * Self.ms),
+                "inserted under the saver at 30 ms: 32 ms leeway, 130 ms on the 32 ms grid")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 458 * Self.ms, tolerance: 0), "480 ms clamped to its 458 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 5_000 * Self.ms, tolerance: 500 * Self.ms),
+                "a whole-second entry keeps its grid and its 10% leeway")
+        rig.fire()
+        #expect(log.ran == [30, 100, 130, 450, 5_000])
+    }
+
+    @Test("Inserts under the saver take its 32 ms leeway; a switch back snaps them to the 8 ms grid at once")
+    func switchBackAndCancel() {
+        let energy = EnergyPolicySource(EnergyPolicy(saverReason: .setting))
+        let rig = WakeUpQueueRig(energy: energy)
+        let first = rig.queue.insert(owner: "a", after: .milliseconds(100)) {}
+        rig.queue.insert(owner: "b", after: .milliseconds(200)) {}
+        #expect(rig.timer.armedDate == 128 * Self.ms, "made under the saver: on the 32 ms grid")
+
+        energy.update(.normal)
+
+        #expect(rig.timer.armedDate == 104 * Self.ms, "back on the 8 ms grid: an earlier re-arm")
+        #expect(rig.queue.cancel(first))
+        #expect(rig.timer.armedDate == 200 * Self.ms)
+    }
+
+    @Test("An explicit sub-second window follows the grid too; whole-second ones and unchanged alignments do not")
+    func explicitWindowFollowsTheGrid() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy)
+        rig.queue.insert(owner: "explicit", at: 100 * Self.ms, window: .window(delay: .milliseconds(100))) {}
+        rig.queue.insert(owner: "seconds", at: 2_000 * Self.ms, window: .window(delay: .seconds(2))) {}
+        energy.update(EnergyPolicy(onBattery: true))
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms], "the alignment did not change: no re-arm")
+
+        energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
+
+        #expect(rig.timer.arms.map(\.date) == [104 * Self.ms, 108 * Self.ms], "128 ms clamped to the 108 ms latest")
+        rig.fire()
+        #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 2_000 * Self.ms, tolerance: 200 * Self.ms))
+    }
+
+    @Test("A hidden entry keeps its whole-second fence under the saver: it never snaps to the 32 ms grid")
+    func hiddenEntryIgnoresTheSaverGrid() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy, start: 10_000 * Self.ms + 1)
+        let log = RunLog()
+        rig.queue.insertHidden(owner: "hidden", after: .milliseconds(100)) { log.ran.append(1) }
+        #expect(rig.timer.armedDate == 11_000 * Self.ms)
+
+        energy.update(EnergyPolicy(saverReason: .setting))
+
+        #expect(rig.timer.armedDate == 11_000 * Self.ms, "the saver moves only flexible sub-second entries")
+        rig.fire()
+        #expect(log.ran == [1])
+    }
+
+    @Test("A released queue stops observing the energy policy")
+    func releasedQueueStopsObserving() {
+        let energy = EnergyPolicySource()
+        weak var released: MainWakeUpQueue?
+        do {
+            let rig = WakeUpQueueRig(energy: energy)
+            released = rig.queue
+            #expect(energy.observerCount == 1)
+        }
+        #expect(released == nil)
+        #expect(energy.observerCount == 0)
+    }
+
     nonisolated private static func insertConcurrently(into queue: MainWakeUpQueue, log: RunLog) {
         DispatchQueue.concurrentPerform(iterations: 4) { thread in
             for index in 0..<1_000 {
@@ -230,86 +325,8 @@ struct MainWakeUpQueueTests {
     }
 }
 
-/// The queue under test with a fake timer, a fake uptime and its own ledger.
-@MainActor
-private struct Rig {
-    let timer = FakeTimer()
-    let uptime = FakeUptime()
-    let ledger = WakeupLedger(uptime: { 0 })
-    let queue: MainWakeUpQueue
-
-    init(alignment: Duration = WakeLeeway.defaultAlignment) {
-        let timer = timer, uptime = uptime
-        queue = MainWakeUpQueue(alignment: alignment, ledger: ledger, uptime: { uptime.now }) { _ in timer }
-    }
-
-    /// Moves the uptime to the armed date and runs the timer's callout.
-    func fire() {
-        if let date = timer.armedDate { uptime.now = date }
-        timer.fired()
-        queue.fire()
-    }
-
-    var fires: UInt64 { count(MainWakeUpQueue.ledgerOwner, reason: "fire") }
-    func deadlines(of owner: String) -> UInt64 { count(owner, reason: "deadline") }
-
-    private func count(_ owner: String, reason: String) -> UInt64 {
-        ledger.snapshot().first { $0.owner == owner && $0.reason == reason }?.count ?? 0
-    }
-}
-
 @MainActor
 private final class RunLog {
     var ran: [UInt64] = []
     var count = 0
-}
-
-/// Records each arm and park. The queue calls it from the inserting threads and the test reads it on the
-/// main actor, so the record is behind its own lock.
-private final class FakeTimer: MainWakeUpTimer, Sendable {
-    struct Arm: Equatable, Sendable {
-        var date: UInt64
-        var tolerance: UInt64
-    }
-
-    private struct Record {
-        var arms: [Arm] = []
-        var parks = 0
-        var armedDate: UInt64?
-    }
-
-    private let record = Mutex(Record())
-
-    var arms: [Arm] { record.withLock { $0.arms } }
-    var parks: Int { record.withLock { $0.parks } }
-    var armedDate: UInt64? { record.withLock { $0.armedDate } }
-
-    func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {
-        record.withLock { record in
-            record.arms.append(Arm(date: date, tolerance: tolerance))
-            record.armedDate = date
-        }
-    }
-
-    func park() {
-        record.withLock { record in
-            record.parks += 1
-            record.armedDate = nil
-        }
-    }
-
-    /// What CFRunLoop does to the parked repeating timer when it fires: the next date is a park.
-    func fired() {
-        record.withLock { $0.armedDate = nil }
-    }
-}
-
-/// The test's uptime, read by the queue from any thread.
-private final class FakeUptime: Sendable {
-    private let value = Atomic<UInt64>(0)
-
-    var now: UInt64 {
-        get { value.load(ordering: .relaxed) }
-        set { value.store(newValue, ordering: .relaxed) }
-    }
 }
