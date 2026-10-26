@@ -72,6 +72,9 @@ public final class WorkspaceAutoNamer {
         var workspaceID: String
         var daemonGeneration: DaemonGeneration?
         var nameRevision: UInt64
+        var frontTabID: String
+        var frontAgentSession: AgentSessionRef
+        var name: String
     }
 
     /// - Parameters:
@@ -102,20 +105,16 @@ public final class WorkspaceAutoNamer {
     func pending() -> [Rename] {
         _ = retryRevision
         let targets = workspaces()
-        let live = Set(targets.map {
-            Submission(machineID: $0.machineID, workspaceID: $0.workspace.id,
-                       daemonGeneration: $0.daemonGeneration, nameRevision: $0.nameRevision)
-        })
-        submitted.formIntersection(live)
+        submitted.removeAll { submission in
+            !targets.contains { target in self.matchesTarget(submission, target: target) }
+        }
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
         var renames: [Rename] = []
         for target in targets {
             let workspace = target.workspace
-            let submission = Submission(machineID: target.machineID, workspaceID: workspace.id,
-                                        daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision)
             guard target.supportsNameSource, workspace.kind != SidebarMapping.homeKind, workspace.app == nil,
-                  !submitted.contains(submission), target.nameSource != .user,
+                  target.nameSource != .user,
                   rule.confirmsRename(currentName: workspace.name, currentTitle: workspace.title,
                                       nameSource: target.nameSource, nameRevision: target.nameRevision),
                   let front = focusedFront(workspace), let agentSession = front.agentSession,
@@ -123,9 +122,15 @@ public final class WorkspaceAutoNamer {
                                                 isLocalMachine: target.machineID == DaemonCommandScope.localMachine,
                                                 supportsNameSource: target.supportsNameSource, alreadyRenamed: false,
                                                 nameSource: target.nameSource, nameRevision: target.nameRevision) else { continue }
-            renames.append(Rename(machineID: target.machineID, workspaceID: workspace.id,
-                                  daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision,
-                                  frontTabID: front.id, frontAgentSession: agentSession, name: name))
+            let candidate = Rename(machineID: target.machineID, workspaceID: workspace.id,
+                                   daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision,
+                                   frontTabID: front.id, frontAgentSession: agentSession, name: name)
+            let submission = self.submission(for: candidate)
+            // Keep at most the current title for a target. A late completion for an
+            // older title then cannot clear a newer same-revision submission.
+            submitted.removeAll { old in self.matchesTarget(old, target: target) && old != submission }
+            guard !submitted.contains(submission) else { continue }
+            renames.append(candidate)
         }
         return renames
     }
@@ -134,6 +139,18 @@ public final class WorkspaceAutoNamer {
     /// queued rename cannot cross a focus, tab-session, or title change.
     private func focusedFront(_ workspace: WorkspaceModel) -> TabModel? {
         SidebarMapping.shared.frontTab(workspace, selectedTab: { [selection] pane in selection(workspace, pane) })
+    }
+
+    private func submission(for candidate: Rename) -> Submission {
+        Submission(machineID: candidate.machineID, workspaceID: candidate.workspaceID,
+                    daemonGeneration: candidate.daemonGeneration, nameRevision: candidate.nameRevision,
+                    frontTabID: candidate.frontTabID, frontAgentSession: candidate.frontAgentSession,
+                    name: candidate.name)
+    }
+
+    private func matchesTarget(_ submission: Submission, target: Target) -> Bool {
+        submission.machineID == target.machineID && submission.workspaceID == target.workspace.id
+            && submission.daemonGeneration == target.daemonGeneration && submission.nameRevision == target.nameRevision
     }
 
     /// Reads the target and focused chat again before both scheduling and sending.
@@ -162,8 +179,7 @@ public final class WorkspaceAutoNamer {
     /// skipping it releases the submission and wakes observation for a later retry.
     func apply(_ renames: [Rename]) {
         for candidate in renames {
-            let submission = Submission(machineID: candidate.machineID, workspaceID: candidate.workspaceID,
-                                        daemonGeneration: candidate.daemonGeneration, nameRevision: candidate.nameRevision)
+            let submission = self.submission(for: candidate)
             guard !submitted.contains(submission), let target = currentTarget(for: candidate) else { continue }
             submitted.insert(submission)
             let maySend: @MainActor @Sendable () -> Bool = { [weak self] in
@@ -174,8 +190,17 @@ public final class WorkspaceAutoNamer {
                 }
                 return true
             }
-            let queued = rename(target, candidate.name, maySend) { _ in }
+            let queued = rename(target, candidate.name, maySend) { [weak self] in
+                self?.acceptedSendFailed(submission)
+            }
             if !queued { submitted.remove(submission) }
         }
+    }
+
+    /// An accepted daemon task can fail after `maySend` succeeds. Release only
+    /// that exact candidate; no observation wakeup means failures stay idle until
+    /// a real title/focus/ownership change produces a new candidate.
+    private func acceptedSendFailed(_ submission: Submission) {
+        submitted.remove(submission)
     }
 }
