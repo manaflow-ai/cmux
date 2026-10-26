@@ -175,6 +175,8 @@ void HostContext::Resume() {
     waiting_.pop_front();
     Handle(message);
   }
+  // Held since the start: with no page shown now, the host may nap.
+  UpdatePageActivity();
 }
 
 void HostContext::Handle(control::Message& message) {
@@ -442,9 +444,23 @@ bool HostContext::KeepPageVisibility(const control::Message& message) {
   const int32_t visibility = peek.I32();
   // A malformed op is the generated case's to refuse.
   if (!peek.ok() || !peek.AtEnd()) return true;
-  if (!page_visibility_.count(client) && page_visibility_.size() >= kMaxPageVisibilities) return false;
+  auto kept = page_visibility_.find(client);
+  if (kept == page_visibility_.end() && page_visibility_.size() >= kMaxPageVisibilities) return false;
+  const bool was_shown = kept != page_visibility_.end() && kept->second == CMUX_SHIM_PAGE_VISIBLE;
   page_visibility_[client] = visibility;
+  const bool shown = visibility == CMUX_SHIM_PAGE_VISIBLE;
+  if (shown == was_shown) return true;
+  if (shown) {
+    ++shown_pages_;
+  } else {
+    --shown_pages_;
+  }
+  UpdatePageActivity();
   return true;
+}
+
+void HostContext::UpdatePageActivity() {
+  if (page_activity_) page_activity_->SetShownPages(shown_pages_);
 }
 
 bool HostContext::PlaceFrame(const Header& frame) {
@@ -712,7 +728,14 @@ void HostContext::Bind(int32_t client_id, int chromium_id) {
 void HostContext::Forget(int32_t client_id, int chromium_id) {
   chromium_of_.erase(client_id);
   geometry_awaiting_.erase(client_id);
-  page_visibility_.erase(client_id);
+  if (auto visibility = page_visibility_.find(client_id); visibility != page_visibility_.end()) {
+    const bool was_shown = visibility->second == CMUX_SHIM_PAGE_VISIBLE;
+    page_visibility_.erase(visibility);
+    if (was_shown) {
+      --shown_pages_;
+      UpdatePageActivity();
+    }
+  }
   client_of_.erase(chromium_id);
   text_input_.Forget(chromium_id);  // the fork ends the watch with the page
   wheel_acks_.Forget(chromium_id);

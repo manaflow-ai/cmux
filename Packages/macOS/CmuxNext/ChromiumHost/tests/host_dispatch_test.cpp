@@ -9,7 +9,8 @@
 // ways; Chromium focuses a page only inside cmux's set_focus; a page's
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
-// (task 053); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// (task 053); the host holds its App Nap activity while a page shows (task
+// p14-energy-128); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,7 @@
 #include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_page_activity.h"
 #include "host_switches.h"
 
 #include "generated/host_dispatch.inc"
@@ -261,6 +263,12 @@ struct Fixture {
     return out;
   }
   void Start() {
+    Initialize();
+    host.Resume();
+    Sent();
+  }
+  // Start up to initialize's call: the host waits for it to return (Resume).
+  void Initialize() {
     host.Attach();
     host.OnMessages({Hello()});
     Writer init;
@@ -275,8 +283,6 @@ struct Fixture {
     const char* switches[] = {"--a"};
     init.StrList(switches, 1);
     host.OnMessages({Op(kOpInitialize, 1, init)});
-    host.Resume();
-    Sent();
   }
 };
 
@@ -935,6 +941,80 @@ void PageVisibilityAppliesAtTheDetach() {
          "a malformed op is bad");
 }
 
+// Task p14-energy-128: the host holds its App Nap activity while cmux shows one of its pages and
+// lets App Nap apply when every page is hidden or occluded. It starts held, through Chromium's
+// start; 1 shown page begins it, 0 ends it, and the same count again changes nothing.
+void PageShowActivityHoldsWhileAPageShows() {
+  {
+    std::vector<bool> holds;
+    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    Check(activity.held() && holds == std::vector<bool>{true}, "the activity begins at the start");
+    activity.SetShownPages(1);
+    activity.SetShownPages(2);
+    Check(holds.size() == 1, "a shown page while held does not begin it again");
+    activity.SetShownPages(0);
+    activity.SetShownPages(0);
+    Check(!activity.held() && holds == (std::vector<bool>{true, false}), "0 ends it, once");
+    activity.SetShownPages(1);
+    activity.SetShownPages(1);
+    Check(activity.held() && holds == (std::vector<bool>{true, false, true}) && activity.edges() == 3,
+          "1 begins it again, once");
+  }
+
+  auto visibility = [](Fixture& f, int32_t browser, int32_t value) {
+    Writer w;
+    w.I32(browser);
+    w.I32(value);
+    f.host.OnMessages({Op(kOpBrowserSetPageVisibility, 0, w)});
+  };
+  {
+    // Through the dispatcher: the count is cmux's visibility posts, per browser.
+    Fixture f;
+    std::vector<bool> holds;
+    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    f.host.SetPageShowActivity(&activity);
+    f.Start();
+    Check(!activity.held() && holds == (std::vector<bool>{true, false}),
+          "with no page shown once initialize returned, the start's activity ends");
+    CreateWindow(f, kMinted, 9);
+    f.Sent();
+    holds.clear();
+    shim.calls.clear();
+    visibility(f, kMinted, CMUX_SHIM_PAGE_VISIBLE);
+    Check(activity.held() && holds == std::vector<bool>{true}, "a shown page begins it");
+    Expect(shim.calls, {"visibility 3 0"}, "and its visibility still goes to the fork");
+    visibility(f, kMinted, CMUX_SHIM_PAGE_VISIBLE);
+    visibility(f, 5, CMUX_SHIM_PAGE_VISIBLE);
+    visibility(f, kMinted, CMUX_SHIM_PAGE_HIDDEN);
+    Check(f.host.shown_pages() == 1 && holds.size() == 1, "repeats and a second page do not churn");
+    visibility(f, 5, CMUX_SHIM_PAGE_OCCLUDED);
+    Check(f.host.shown_pages() == 0 && !activity.held() && holds == (std::vector<bool>{true, false}),
+          "every page hidden or occluded ends it");
+    visibility(f, 5, CMUX_SHIM_PAGE_HIDDEN);
+    Check(holds.size() == 2, "hidden after occluded changes nothing");
+    visibility(f, kMinted, CMUX_SHIM_PAGE_VISIBLE);
+    Check(activity.held() && holds.size() == 3, "a page shown again begins it");
+    shim.live = 0;
+    Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+    Check(f.host.shown_pages() == 0 && !activity.held() && holds.size() == 4, "the shown page's close ends it");
+    Expect(f.delegate.calls, {"initialize /root", "closed"}, "no bad message");
+  }
+  {
+    // A page shown while Chromium started (its post waited for initialize): the start's activity
+    // carries on into the page's, with no end between.
+    Fixture f;
+    std::vector<bool> holds;
+    PageShowActivity activity([&holds](bool held) { holds.push_back(held); });
+    f.host.SetPageShowActivity(&activity);
+    f.Initialize();
+    visibility(f, 5, CMUX_SHIM_PAGE_VISIBLE);
+    Check(f.host.shown_pages() == 0, "the post waits for initialize");
+    f.host.Resume();
+    Check(f.host.shown_pages() == 1 && activity.held() && holds == std::vector<bool>{true},
+          "held from the start through the shown page");
+  }
+}
+
 cmux_host::Header GeometryFrame(int32_t browser, int32_t width, int32_t height, int32_t x, int32_t y) {
   cmux_host::Header frame;
   frame.kind = cmux_host::kGeometry;
@@ -1212,6 +1292,7 @@ int main() {
   PageDisplayFollowsCreation();
   LayerHostingDetachesThePageWindow();
   PageVisibilityAppliesAtTheDetach();
+  PageShowActivityHoldsWhileAPageShows();
   GeometryOnlyOnChange();
   GeometryStatsReply();
   WipeZeroes();

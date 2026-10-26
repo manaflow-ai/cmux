@@ -3,7 +3,9 @@
 # host_mirror.mm and host_text_input.mm, no AppKit in them, so as C++) against
 # the generated cases gen-chromium-host-wire.py writes for this header and ops
 # JSON (into a scratch root, never the checkout), and runs:
-#   host_dispatch_test.cpp  the dispatcher alone, frame by frame
+#   host_dispatch_test.cpp  the dispatcher alone, frame by frame, and the App
+#                           Nap activity it holds while a page shows
+#                           (host_page_activity.h, task p14-energy-128)
 #   host_text_input_test.cpp  the text input pushes, alone and through the
 #                           dispatcher (task p01-process-044)
 #   host_resize_test.cpp    a page's resize and its fence (host_resize.h),
@@ -21,8 +23,8 @@
 # Linux and macOS.
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
-# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h, the
-# generator's host output or the ops JSON.
+# host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
+# host_page_activity.h, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
