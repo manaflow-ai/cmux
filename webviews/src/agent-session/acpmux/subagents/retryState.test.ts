@@ -6,6 +6,7 @@ import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
 import {
   askPrompt,
+  isRetryContinuation,
   readRetry,
   retryActionOf,
   retrying,
@@ -142,6 +143,13 @@ describe("the fold keeps a subagent's retry", () => {
     change(fold, { state: "running", retry: null });
     expect(fold.all()[0]!.retriedOut).toBeUndefined();
   });
+});
+
+test("acpmux's continuations are recognized; a person's prompt is not", () => {
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "auto_resume", attempt: 1, manual: true } } })).toBe(true);
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_retry", subagentId: "a" } } })).toBe(true);
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "subsession_message" } } })).toBe(false);
+  expect(isRetryContinuation({})).toBe(false);
 });
 
 describe("which rows get which Retry", () => {

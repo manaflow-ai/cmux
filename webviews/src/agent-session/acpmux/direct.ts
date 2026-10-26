@@ -1,3 +1,4 @@
+import { isRetryContinuation } from "./subagents/retryState";
 import type { SwitchPort } from "./harnessSwitch";
 import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
@@ -3336,7 +3337,10 @@ export class AcpmuxDirectClient {
         // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
         // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
-        const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+        // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
+        // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
+        const blank =
+          !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
         const incoming = received
           ? undefined
           : blank

@@ -79,6 +79,14 @@ export function retryLabel(t: Translate, retry: RetryState): string {
   return t((retry.reason && REASON[retry.reason]) || "retry.waiting", values);
 }
 
+/// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the
+/// person's: its provenance is `auto_resume` (a turn's retry, automatic or manual) or
+/// `subagent_retry` (a subagent resumed by its agent id).
+export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | undefined): boolean {
+  const kind = (msg?._meta?.provenance as { kind?: unknown } | undefined)?.kind;
+  return kind === "auto_resume" || kind === "subagent_retry";
+}
+
 /// What a row's Retry does: `daemon` asks acpmux, `ask` asks the chat's agent.
 export type RetryAction = "daemon" | "ask";
 
