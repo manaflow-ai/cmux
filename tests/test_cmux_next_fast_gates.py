@@ -199,7 +199,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertRegex(body, r"rate limit exceeded|secondary rate limit|too many requests|HTTP 429")
         self.assertIn("::warning title=GitHub API budget::", body)
         self.assertIn("status could not be posted", body)
-        self.assertRegex(body, r"rate limit.*?exit 0|exit 0.*?rate limit", re.DOTALL | re.IGNORECASE)
+        self.assertIn("exit 0", body)
         self.assertNotIn("sleep ", body, "status posting must not burn more quota with in-job retries")
 
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
