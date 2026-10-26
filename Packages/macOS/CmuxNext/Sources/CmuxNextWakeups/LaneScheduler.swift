@@ -50,7 +50,10 @@ import Dispatch
 /// (``CmuxNextSignposts/SignpostName/taskRun``) on its slot thread, with its lane, priority and queue wait
 /// (plans/cmux-next/trace.md "Blocking calls and lane jobs"): Chrome's `ThreadPool_RunTask` event in
 /// `TaskTracker::RunTask` (base/task/thread_pool/task_tracker.cc), which carries the task's priority and queueing
-/// time. Off, an item pays one relaxed load, at its post.
+/// time. The wait counts from the item's post: a plain lane item's is its submit here, a ``WorkSequence`` item's is
+/// its post to the sequence (``postStamp()``), so it includes the wait behind the items in front of it, as Chrome
+/// stamps a sequenced task's queue time when it is posted (base/task/thread_pool/sequence.cc). Off, an item pays one
+/// relaxed load, at its post.
 ///
 /// ``raise(_:to:awaited:)`` moves a queued item up to a higher list, and gives a running one a QoS override
 /// on its slot thread until it ends (Chrome's `UpdateableSequencedTaskRunner::UpdatePriority` and
@@ -343,6 +346,21 @@ final class LaneScheduler: Sendable {
         case queued(WorkPriority)
     }
 
+    /// Where a submitted item's `task.run` queue wait starts.
+    enum PostStamp {
+        /// At this submit: the item is posted to the lane now.
+        case atSubmit
+        /// At an earlier post (a ``WorkSequence`` item, which waited behind its sequence first): the ``postStamp()``
+        /// taken then, nil when the `task` category was off then.
+        case taken(UInt64?)
+    }
+
+    /// The trace clock now while the `task` category records, else nil: the stamp an item takes at its post, from
+    /// which its `task.run` slice counts the queue wait. One relaxed load while the category is off.
+    func postStamp() -> UInt64? {
+        trace.isEnabled(.task) ? trace.nowNanos() : nil
+    }
+
     /// Queues `job` at `priority`. Refused when `cancelled` holds (read under the lock, so a concurrent
     /// ``remove(_:)`` either finds the item or makes this refuse it) or the lane is shut down and `job`
     /// may not run any more (only a ``ShutdownBehavior/blockShutdown`` item is still taken).
@@ -351,10 +369,13 @@ final class LaneScheduler: Sendable {
     /// (a ``WorkHandle``'s) gets a QoS override when ``raise(_:to:awaited:)`` finds it running; the others skip
     /// recording their thread, except a block-shutdown item below user-blocking, which ``close()`` raises. After
     /// ``close()`` a block-shutdown item starts at `.userInitiated`; on a `shared` lane it is queued at
-    /// ``WorkPriority/userBlocking`` (quit waits for it).
+    /// ``WorkPriority/userBlocking`` (quit waits for it). `postStamp` says where its `task.run` queue wait starts.
     func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil, raisable: Bool = false,
-                unless cancelled: () -> Bool) -> Submitted {
-        let tracedPost = trace.isEnabled(.task) ? trace.nowNanos() : nil
+                postStamp stamp: PostStamp = .atSubmit, unless cancelled: () -> Bool) -> Submitted {
+        let tracedPost = switch stamp {
+        case .atSubmit: postStamp()
+        case .taken(let stamped): stamped
+        }
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = state.closed && liftsBlockItems ? WorkPriority.userBlocking : priority

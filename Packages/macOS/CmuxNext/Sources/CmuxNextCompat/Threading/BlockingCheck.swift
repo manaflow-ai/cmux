@@ -12,7 +12,7 @@ public import Darwin
 ///
 /// In every build, while a trace records the `task` category, the call is one `task.blocking_call` interval
 /// (its kind and site, plans/cmux-next/trace.md) through ``BlockingTraceHook``, as Chrome's `ScopedBlockingCall`
-/// writes its `ScopedBlockingCall` trace event (base/threading/scoped_blocking_call.cc). Off, that is one relaxed
+/// writes its `ScopedBlockingCall` trace event (base/threading/scoped_blocking_call.cc). Off, that is one acquiring
 /// load and one branch.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (base/threading/scoped_blocking_call.h): Chrome asserts blocking is

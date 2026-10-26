@@ -53,6 +53,22 @@ struct BlockingCallTraceTests {
         #expect(slices.first?.arg0 == UInt64(BlockingKind.fileIO.traceCode) | UInt64(line) << 8)
     }
 
+    @Test("Tracing on: a CPU-intensive call is one cpu-intensive slice at its line, whatever its size")
+    func cpuIntensiveCallWritesOneSlice() throws {
+        let (runtime, ring) = Self.routingRuntime()
+        runtime.setCategories(.task)
+        defer { runtime.setCategories([]) }
+
+        let line: UInt = #line + 1
+        let value = cpuIntensiveCall(size: 1, limit: 1_024) { 7 }
+
+        #expect(value == 7)
+        let slices = try Self.ownSlices(ring)
+        #expect(slices.map(\.phase) == [.begin, .end])
+        #expect(slices.first?.arg0 == UInt64(BlockingKind.cpuIntensive.traceCode) | UInt64(line) << 8)
+        #expect(BlockingKind.cpuIntensive.traceCode == 12)
+    }
+
     @Test("A thrown error still ends the slice")
     func aThrowEndsTheSlice() throws {
         struct Failed: Error {}

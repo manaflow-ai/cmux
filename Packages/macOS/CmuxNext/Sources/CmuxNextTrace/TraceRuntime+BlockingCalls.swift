@@ -3,7 +3,7 @@ import CmuxNextCompat
 /// The `task.blocking_call` intervals of the process's checked blocking calls (p02-threads task 124,
 /// plans/cmux-next/trace.md "Blocking calls and lane jobs"). A runtime that routes them (``shared``) hands
 /// ``CmuxNextCompat/BlockingTraceHook`` its sink while its `task` category records, so a call with the category off
-/// pays the hook's one relaxed load. Chrome writes the same interval from `ScopedBlockingCall`
+/// pays the hook's one acquiring load. Chrome writes the same interval from `ScopedBlockingCall`
 /// (base/threading/scoped_blocking_call.cc).
 extension TraceRuntime {
     /// The name of one checked blocking call's slice (category `task`, interned): begin arg0 the kind's

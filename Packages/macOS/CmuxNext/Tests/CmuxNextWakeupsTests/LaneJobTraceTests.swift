@@ -99,6 +99,35 @@ import Testing
                                        0xFF << 8 | UInt64(WorkPriority.userVisible.rawValue)])
     }
 
+    /// A sequence item's queue wait counts from its post to the sequence, so it includes the time it waited behind
+    /// the item in front of it, not only the time from the hand-off to the lane.
+    @Test func aSequenceItemsWaitIncludesTheTimeBehindTheItemInFront() async {
+        let records = RunRecords(), uptime = TestUptime()
+        let runtime = records.runtime(uptime: { uptime.read() })
+        runtime.setCategories(.task)
+        let work = BackgroundWork(cpuWidth: 1, label: "test.trace-sequence", onQueued: { _, _ in }, uptimeNanos: nil,
+                                  taskHooks: .none, trace: runtime)
+        let sequence = work.sequence("test.trace-sequence.saves")
+        let release = DispatchSemaphore(value: 0)
+        let (started, start) = AsyncStream.makeStream(of: Void.self)
+
+        sequence.post(.userVisible) {
+            start.yield()
+            release.wait()  // the files lane may block: the second item waits behind this one in the sequence
+        }
+        var startedIterator = started.makeAsyncIterator()
+        _ = await startedIterator.next()
+        sequence.post(.userVisible) {}
+        uptime.advance(3_000_000)
+        release.signal()
+        await records.wait(4)
+
+        let begins = records.all.filter { $0.phase == .begin }
+        #expect(begins.map(\.arg1) == [0, 3_000])
+        #expect(begins.map(\.arg0) == [UInt64(BlockingLane.files.rawValue) << 8 | UInt64(WorkPriority.userVisible.rawValue),
+                                       UInt64(BlockingLane.files.rawValue) << 8 | UInt64(WorkPriority.userVisible.rawValue)])
+    }
+
     /// A lane whose trace never records reads no trace clock for its items.
     @Test func anItemWithTracingOffReadsNoTraceClock() async {
         let records = RunRecords(), uptime = TestUptime()

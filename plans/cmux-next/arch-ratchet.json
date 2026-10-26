@@ -674,7 +674,7 @@
       "date": "2026-10-26",
       "row": "stateful_singletons",
       "allow": 1,
-      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one relaxed load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
+      "why": "p02-threads-124: CmuxNextCompat BlockingTraceHook.process, one word holding the trace sink that records the process's checked blocking calls (0 while the task category is off, so a blockingCall pays one acquiring load in every build). blockingCall is a free function that every module's seams call on any thread, inside locks and before the composition root exists, so it has no instance to take the hook through; and Compat sits below CmuxNextTrace, so it cannot read TraceRuntime.shared itself. Only TraceRuntime.shared stores into it, when its task category turns on or off. Chrome: ScopedBlockingCall writes its trace event through the process-wide TraceLog (base/threading/scoped_blocking_call.cc)."
     }
   ],
   "observer_wrappers": [

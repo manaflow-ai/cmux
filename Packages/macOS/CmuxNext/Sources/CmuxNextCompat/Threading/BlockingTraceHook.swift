@@ -39,7 +39,7 @@ public final class BlockingTraceSink: Sendable {
 }
 
 /// The trace hook of ``blockingCall(_:fileID:line:_:)``, in every build, Release included: one word that holds
-/// the sink recording the process's blocking calls, 0 while none does. Off, a blocking call pays one relaxed
+/// the sink recording the process's blocking calls, 0 while none does. Off, a blocking call pays one acquiring
 /// load and one branch for it (p02-threads task 124).
 ///
 /// Chrome writes the same interval from `ScopedBlockingCall` (base/threading/scoped_blocking_call.cc,
@@ -63,10 +63,11 @@ public final class BlockingTraceHook: Sendable {
 
     init() {}
 
-    /// The sink that records the process's blocking calls now; nil while none does. One relaxed load.
+    /// The sink that records the process's blocking calls now; nil while none does. One acquiring load: it pairs
+    /// with ``update(_:recording:)``'s store, so the sink's fields are initialized before a caller reads them.
     @inlinable @inline(__always)
     static var recordingSink: BlockingTraceSink? {
-        let address = process.recording.load(ordering: .relaxed)
+        let address = process.recording.load(ordering: .acquiring)
         guard address != 0, let pointer = UnsafeRawPointer(bitPattern: UInt(address)) else { return nil }
         return Unmanaged<BlockingTraceSink>.fromOpaque(pointer).takeUnretainedValue()
     }

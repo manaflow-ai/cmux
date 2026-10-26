@@ -138,13 +138,14 @@ public final class BackgroundWork: Sendable {
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
-    /// system lane's ``mayBlockThreshold``, and a ``ThreadQoSOverride`` that counts the overrides a raise or
-    /// shutdown puts on running items.
+    /// system lane's ``mayBlockThreshold``, a ``ThreadQoSOverride`` that counts the overrides a raise or
+    /// shutdown puts on running items, and the trace runtime the lanes' `task.run` slices go to.
     init(cpuWidth: Int, filesWidths: FilesLaneWidths = .standard, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks,
-         mayBlockClock: any Clock<Duration> = ContinuousClock(), qosOverride: ThreadQoSOverride = .system) {
+         mayBlockClock: any Clock<Duration> = ContinuousClock(), qosOverride: ThreadQoSOverride = .system,
+         trace: TraceRuntime = .shared) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.filesWidths = filesWidths
@@ -166,7 +167,7 @@ public final class BackgroundWork: Sendable {
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
                                  compensation: compensation, hangWatching: watching, qosOverride: qosOverride,
-                                 lane: lane)
+                                 lane: lane, trace: trace)
         }
     }
 
