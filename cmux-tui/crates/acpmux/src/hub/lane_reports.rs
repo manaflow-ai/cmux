@@ -963,6 +963,30 @@ mod tests {
         hub.kill(&lane, true).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn a_report_turn_that_failed_to_start_still_reports() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        // A worker's report starts the lane's turn 1, whose agent then fails to start: the lane
+        // is stuck, and its parent must hear it.
+        lane.meta.lock().unwrap().turn_count = 1;
+        hub.lane_turn_started(&lane, Some(&json!({"kind": KIND, "from": "s1"})));
+        hub.lane_turn_ended(&lane, false, 1);
+        for _ in 0..150 {
+            if parent.meta().turn_count > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(parent.meta().turn_count, 1, "the failed start never reached the parent");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
     #[test]
     fn the_last_reply_is_read_from_the_start_of_its_turn_however_many_records_it_streamed() {
         let rec = |seq: u64, kind: &str| crate::store::EventRecord {
