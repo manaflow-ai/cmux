@@ -29,6 +29,14 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
     }
 
+    /// Chromium Host: whether this tab's page view (``ChromiumHostPageView/InputTarget/view``) is
+    /// `window`'s first responder, so its keys go to the page and the host reports the chords the
+    /// page leaves unhandled (p01-process-030).
+    public func hostedPageHasKeys(in window: NSWindow) -> Bool {
+        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, page.inputTarget == .view else { return false }
+        return window.firstResponder === page
+    }
+
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {
         abs(frame.minX - rect.minX) <= 2 && abs(frame.minY - rect.minY) <= 2

@@ -10,6 +10,7 @@
 #include "include/cef_resource_request_handler.h"
 #include "command_line_switches.h"
 #include "external_url.h"
+#include "host_key_seqs.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
 #include "page_scheme_registration.h"
@@ -78,6 +79,20 @@
 #pragma clang diagnostic pop
 
 namespace cmux_shim {
+
+static_assert(HostKeySeqs::kMatched == static_cast<uint32_t>(EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN |
+                                                             EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN),
+              "HostKeySeqs matches the flags the person pressed");
+
+// The key-downs the Chromium Host sent (NoteHostKeyDown); empty in process.
+static HostKeySeqs& host_key_seqs() {
+  static HostKeySeqs seqs;
+  return seqs;
+}
+
+void NoteHostKeyDown(int browser_id, uint32_t seq, const CefKeyEvent& event) {
+  if (event.type == KEYEVENT_RAWKEYDOWN) host_key_seqs().Note(browser_id, seq, event.native_key_code, event.modifiers);
+}
 
 namespace {
 
@@ -534,6 +549,7 @@ class Client : public CefClient,
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    host_key_seqs().Forget(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
     TakeHostClose(id);
@@ -612,6 +628,9 @@ class Client : public CefClient,
 
   // MARK: Keyboard
 
+  // In process: cmux's key router first (key_fn). The Chromium Host passes
+  // no key_fn: cmux decided in CmuxApplication.sendEvent before it sent the
+  // key, so the host never asks cmux before the page (p01-process-030).
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event,
                      bool*) override {
     Host& h = host();
@@ -628,25 +647,40 @@ class Client : public CefClient,
   // is a letter, with or without Shift, while no editable field has focus
   // (single-key page shortcuts such as link hints). Everything else goes on
   // to Chromium's own accelerators.
+  //
+  // In the Chromium Host (no unhandled_key handler) a chord cmux sent is
+  // reported as KEY_UNHANDLED with its seq (request) and b bit 1, and stops
+  // here: cmux runs the shortcut it held or re-dispatches the key to its
+  // menus, as Chrome's browser takes a key its renderer left unhandled
+  // (ui/base/cocoa/command_dispatcher.mm). Every report carries the seq.
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event) override {
     constexpr int kEscape = 0x1B;
+    constexpr int64_t kShift = 1;
+    constexpr int64_t kChord = 2;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
     constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
     if (event.type != KEYEVENT_RAWKEYDOWN) {
       return false;
     }
+    const int id = browser->GetIdentifier();
+    const int seq = static_cast<int>(host_key_seqs().Take(id, event.native_key_code, event.modifiers));
+    const bool command_or_control = (event.modifiers & (EVENTFLAG_COMMAND_DOWN | EVENTFLAG_CONTROL_DOWN)) != 0;
+    const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? kShift : 0;
     Host& h = host();
-    if (h.unhandled_key && os_event && (event.modifiers & (EVENTFLAG_COMMAND_DOWN | EVENTFLAG_CONTROL_DOWN)) &&
-        h.unhandled_key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0) {
+    if (h.unhandled_key && os_event && command_or_control &&
+        h.unhandled_key(h.ctx, id, (__bridge void*)os_event) != 0) {
+      return true;
+    }
+    if (!h.unhandled_key && seq != 0 && command_or_control) {
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, seq, event.windows_key_code, kChord | shift);
       return true;
     }
     if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
-      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, seq, kEscape);
     } else if (event.windows_key_code >= 'A' && event.windows_key_code <= 'Z' && !(event.modifiers & kChordModifiers) &&
                !event.focus_on_editable_field && !event.is_system_key) {
-      const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? 1 : 0;
-      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, event.windows_key_code, shift);
+      Emit(CMUX_SHIM_KEY_UNHANDLED, id, seq, event.windows_key_code, shift);
     }
     return false;
   }

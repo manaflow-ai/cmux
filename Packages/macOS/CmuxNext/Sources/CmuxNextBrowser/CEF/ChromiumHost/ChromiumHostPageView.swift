@@ -26,7 +26,7 @@ import QuartzCore
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
 /// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``). With
+/// menu actions become wire frames for ``sink``; keys in ChromiumHostPageView+Keys.swift). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -62,6 +62,15 @@ public final class ChromiumHostPageView: NSView {
     private(set) var crashOverlay: NSView?
     /// The layer-hosting view that shows the context, under every other subview.
     let surface: Surface
+    /// The key-downs sent to the page that it may still report unhandled (``takeUnhandledKey(seq:)``,
+    /// ChromiumHostPageView+Keys.swift).
+    var keyDowns = ChromiumHostKeyDowns()
+    /// Where a key the page left unhandled goes when no cmux action was held for it: the main
+    /// menu, as Chrome re-dispatches such a key (`ui/base/cocoa/command_dispatcher.mm`,
+    /// `-redispatchKeyEvent:`). Tests pass a recorder.
+    var redispatchTarget: @MainActor (NSEvent) -> Bool = { NSApp.mainMenu?.performKeyEquivalent(with: $0) ?? false }
+    /// True while ``redispatch(_:)`` runs: the page view does not take the key back.
+    var isRedispatching = false
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only).
@@ -164,6 +173,7 @@ public final class ChromiumHostPageView: NSView {
         observeWindow()
         if window == nil {
             lastGeometry = nil
+            keyDowns.removeAll()
             onLeftWindow?()
         } else {
             presentedRectDidChange()
@@ -340,22 +350,6 @@ extension ChromiumHostPageView {
     private func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    // MARK: Keys
-
-    public override func keyDown(with event: NSEvent) { key(event, phase: 0) }
-    public override func keyUp(with event: NSEvent) { key(event, phase: 1) }
-    public override func flagsChanged(with event: NSEvent) { key(event, phase: 2) }
-
-    private func key(_ event: NSEvent, phase: Int32) {
-        var frame = ChromiumHostFrame(.key, v: [phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)],
-                                      flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
-        if event.type != .flagsChanged {
-            frame.ch = event.characters?.utf16.first ?? 0
-            frame.unmod = event.charactersIgnoringModifiers?.utf16.first ?? 0
-        }
-        sink?(frame)
     }
 
     // MARK: Edit menu
