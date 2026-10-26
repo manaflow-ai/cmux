@@ -70,6 +70,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     var onComposerHeightChange: (() -> Void)?
     var onInfoChange: ((ConversationInfo, String?, Bool) -> Void)?
     let layoutCache = MacMessageLayoutCache()
+    /// Opens a link clicked in a bubble's text (tests capture it).
+    var openURL: (URL) -> Void = { NSWorkspace.shared.open($0) }
     let keyboard = MacConversationKeyboardState()
     let audioPlayer = ConversationAudioPlayer()
     lazy var audioComposer = MacAudioComposer(controller: self)
@@ -1390,7 +1392,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         if let text = rowView.rowLayout?.textFrame, text.contains(local),
            let url = link(in: model, at: CGPoint(x: local.x - text.minX, y: local.y - text.minY), width: text.width) {
-            NSWorkspace.shared.open(url)
+            openURL(url)
             return true
         }
         if rowView.contentFrame.contains(local), model.message.seq != nil, isHold(after: event) {

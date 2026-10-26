@@ -1,0 +1,27 @@
+{
+  "id": "tenacity-a672-not-landed",
+  "owner": "a672",
+  "about": "a report that did not land gets the agent sent back to land it",
+  "history": [
+    {
+      "kind": "user",
+      "text": "get the Home paste fix landed today"
+    },
+    {
+      "kind": "talk",
+      "text": "- a903: landing the Home paste fix"
+    }
+  ],
+  "turns": [
+    {
+      "text": "[a903] Fix done and pushed to branch a903-home-paste (not on feat-cmux-next): the pre-push hook failed on cmux-tui/src/lib.rs, a file I did not touch. Tests green locally.",
+      "tail": "Subagents at work now: a903.",
+      "checks": [
+        {
+          "type": "judge",
+          "rubric": "PASS when the assistant takes an action (tell/control/spawn tool call) to get the fix onto feat-cmux-next (for example tells a903 to rebase and push, or to push with --no-verify since the hook fails only on an untouched file and say so), and reports briefly. FAIL when it only relays the report, or asks the person what to do."
+        }
+      ]
+    }
+  ]
+}

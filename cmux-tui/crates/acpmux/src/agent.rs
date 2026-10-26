@@ -60,6 +60,13 @@ pub enum Inbound {
     /// bypasses this queue, so a turn sends one before it settles: the agent's
     /// last notifications (the reply text) are applied first.
     Barrier(tokio::sync::oneshot::Sender<()>),
+    /// The history the agent of this generation replayed on `session/load` (or a fork's prime)
+    /// is all in front of this: the session's preview takes that agent's words again
+    /// (`ReplayHold` in `hub/lifecycle.rs`). Queued through the agent's own sender, behind
+    /// everything its reader already queued.
+    ReplayDone {
+        agent: u64,
+    },
 }
 
 /// Logs one wire message. The `u64` is the agent host entry it logs, when
@@ -157,6 +164,9 @@ pub struct ChildAgent {
     next_id: AtomicI64,
     pending: Arc<Mutex<Pending>>,
     tap: Tap,
+    /// The queue its reader hands requests and notifications to: an item sent here lands
+    /// behind every one the reader already sent (a pooled agent's goes through its hold).
+    inbound: mpsc::Sender<Inbound>,
     pub pid: Option<u32>,
     /// This agent among every one the daemon ran, never reused: what its notifications carry
     /// (`Inbound::Notification`), so the hub knows one from an agent it already replaced.
@@ -193,6 +203,14 @@ struct CodexLink {
     /// Held from a translator call until its lines are queued for stdin, so
     /// the reader and writers send them in the translator's order.
     order: Mutex<()>,
+}
+
+/// A session update whose news is only the agent process's own to give: Claude Code's /context
+/// breakdown, its account's usage limits. One a replaced process sends is not the chat's.
+pub fn process_state(params: &Value) -> bool {
+    params
+        .pointer("/update/_meta/acpmux")
+        .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
 }
 
 impl ChildAgent {
@@ -274,6 +292,7 @@ impl ChildAgent {
             next_id: AtomicI64::new(1),
             pending: pending.clone(),
             tap: tap.clone(),
+            inbound: inbound.clone(),
             pid,
             translator: translator.clone(),
             codex,
@@ -517,8 +536,8 @@ impl ChildAgent {
         None
     }
 
-    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
-    /// answering a turn that ended before, is dropped (`tap_live`). Waits for a breakdown being
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown or usage limits it
+    /// still sends, answering a turn that ended before, are dropped (`tap_live`). Waits for a breakdown being
     /// logged right now, so what the caller logs next comes after it.
     pub fn retire(&self) {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -529,14 +548,13 @@ impl ChildAgent {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Runs `log` for `m`, unless `m` is a /context breakdown update from a retired agent (None).
+    /// Runs `log` for `m`, unless `m` is a /context breakdown or usage limits update
+    /// (`process_state`) from a retired agent (None).
     /// For such an update the retire lock is held across the check and `log`.
     fn tap_live<R>(&self, m: &Message, log: impl FnOnce() -> R) -> Option<R> {
         let context = matches!(m, Message::Notification { method, params }
             if method == crate::rpc::method::SESSION_UPDATE
-                && params
-                    .as_ref()
-                    .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some()));
+                && params.as_ref().is_some_and(process_state));
         if !context {
             return Some(log());
         }
@@ -766,6 +784,12 @@ impl ChildAgent {
             }
         }
         true
+    }
+
+    /// Queue [`Inbound::ReplayDone`] behind what the reader queued so far, waiting for room.
+    /// False when the queue is closed.
+    pub async fn queue_replay_done(&self) -> bool {
+        self.inbound.send(Inbound::ReplayDone { agent: self.generation }).await.is_ok()
     }
 
     /// Send a request and wait for its response.
@@ -1016,6 +1040,7 @@ impl ChildAgent {
             next_id: AtomicI64::new(adopted.max_out_id.max(0) + 1),
             pending,
             tap,
+            inbound: inbound.clone(),
             pid: adopted.harness_pid,
             translator: None,
             codex: None,

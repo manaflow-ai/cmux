@@ -13,11 +13,14 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         /// The machine's resources from the link's last reading (`health` on the peer row, read
         /// every 60 s by the daemon); nil for a build that does not report them or before the first.
         public let resources: Resources?
+        /// Where the daemon reaches it (`ssh://cosmic-gray`); nil when the row names none.
+        public let url: String?
 
-        public init(name: String, connected: Bool, resources: Resources? = nil) {
+        public init(name: String, connected: Bool, resources: Resources? = nil, url: String? = nil) {
             self.name = name
             self.connected = connected
             self.resources = resources
+            self.url = url
         }
     }
 
@@ -75,7 +78,8 @@ public nonisolated struct AcpmuxPeerList: Sendable {
     static func peers(_ result: [String: Any]) -> [Peer] {
         (result["peers"] as? [[String: Any]] ?? []).compactMap { peer in
             guard let name = peer["name"] as? String, !name.isEmpty else { return nil }
-            return Peer(name: name, connected: peer["connected"] as? Bool ?? false, resources: Resources.parse(peer["health"]))
+            return Peer(name: name, connected: peer["connected"] as? Bool ?? false, resources: Resources.parse(peer["health"]),
+                        url: (peer["url"] as? String).flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 }
