@@ -752,7 +752,8 @@ impl Hub {
                         waiting.retain(|q| q.msg.get("turnId") != turn_id);
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                    // and it has no `_meta.provenance` (the person rewrote it).
+                    // and it has no `_meta.provenance` (the person rewrote it), unless the edit
+                    // kept a person's own (`author.rs`).
                     "queue_updated" => {
                         if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
                         {
@@ -776,6 +777,10 @@ impl Hub {
                                 q.msg.get_mut("_meta").and_then(Value::as_object_mut)
                             {
                                 meta.remove("provenance");
+                            }
+                            if let Some(p) = e.msg.pointer("/_meta/provenance") {
+                                let kept = json!({"provenance": p});
+                                crate::no_panic::JsonExt::set(&mut q.msg, "_meta", kept);
                             }
                             // The person's now (`digest.rs`), and no sender's to replace.
                             if let Some(fields) = q.msg.as_object_mut() {

@@ -270,7 +270,10 @@ impl Hub {
                 .ok_or_else(|| refusal(-32002, "withdraw.not_found", &missing))
         };
         let mut found = lookup()?;
-        if found.provenance.is_none() {
+        // A person's prompt (`author.rs`) is no agent message either.
+        if found.provenance.is_none()
+            || crate::author::of_provenance(found.provenance.as_ref()).is_some()
+        {
             let message = "the prompt is the person's own, not an agent message";
             return Err(refusal(-32602, "withdraw.not_a_message", message));
         }
