@@ -19,7 +19,10 @@ so the bench itself adds no wakeups to the app. When the build has
 `debug.wakeups`, the ledger owners and active frame clients are recorded
 too. Pass criteria (defaults, per process; tune with flags): app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
-Chromium helpers < 1% on the static and hidden pages.
+Chromium helpers < 1% on the static and hidden pages. The Chromium Host app's
+browser process (cef-host, the Debug-only host prototype) is reported, not
+judged: it does the app's in-process Chromium work, so the helper limit does
+not fit it and it has no limit of its own yet.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
@@ -39,7 +42,6 @@ import os
 import shutil
 import signal
 import socket
-import subprocess
 import sys
 import tempfile
 import time
@@ -47,8 +49,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
-
-STATIC_PAGE_HTML = "<!doctype html><title>idle</title><h1>static page</h1><p>no script, no animation</p>"
+from tab_pages import TabPages, chromium_children, process_table  # noqa: E402  (re-exported: other benches import them here)
 
 # ---------------------------------------------------------------------------
 # Process usage (proc_pid_rusage, RUSAGE_INFO_V4)
@@ -76,33 +77,13 @@ def usage(pid: int):
     return ticks * _tb.numer // _tb.denom, buf[4] + buf[5], buf[9]
 
 
-def run(argv, env=None):
-    return subprocess.run(argv, capture_output=True, text=True, env=env).stdout
-
-
-def process_table():
-    """[(pid, ppid, command)] for every process, from one `ps` call (pgrep
-    fails intermittently on a heavily loaded machine)."""
-    rows = []
-    for line in run(["ps", "-axo", "pid=,ppid=,command="]).splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-            rows.append((int(parts[0]), int(parts[1]), parts[2]))
-    return rows
-
-
 def classify(app_pid: int, bundle: str):
-    """{pid: kind} for the app, its Chromium helpers, the daemon and hosts."""
-    kinds = {app_pid: "app"}
+    """{pid: kind} for the app, its Chromium helpers (tab_pages.chromium_kind), the daemon and hosts."""
+    table = process_table()
+    kinds = {app_pid: "app", **chromium_children(app_pid, table)}
     tui = os.path.join(bundle, "Contents/Resources/bin/cmux-tui")
-    for pid, ppid, cmd in process_table():
-        if ppid == app_pid and " Helper" in cmd:
-            kind = "cef-helper"
-            for name in ("Renderer", "GPU", "Plugin", "Alerts"):
-                if f"({name})" in cmd:
-                    kind = f"cef-{name.lower()}"
-            kinds[pid] = kind
-        elif cmd.startswith(tui):
+    for pid, _ppid, cmd in table:
+        if cmd.startswith(tui):
             kinds[pid] = "terminal-host" if "__terminal-host" in cmd else "daemon"
     return kinds
 
@@ -252,6 +233,8 @@ def criteria(scenario, result, args):
             limit_cpu, limit_wake = args.max_cpu, args.max_wakeups
         elif kind == "terminal-host":
             limit_cpu, limit_wake = args.max_host_cpu, args.max_host_wakeups
+        elif kind == "cef-host":
+            continue  # reported, not judged (module docstring)
         elif scenario != "terminals":
             limit_cpu, limit_wake = args.max_helper_cpu, None
         else:
@@ -272,7 +255,7 @@ def main():
     parser.add_argument("--measure", type=float, default=60)
     parser.add_argument("--settle", type=float, default=20)
     parser.add_argument("--scenarios", default="terminals,chromium-static,chromium-hidden,minimized")
-    parser.add_argument("--url", help="page for the Chromium scenarios (default: a static local file)")
+    parser.add_argument("--url", help="page for the Chromium scenarios (default: tab_pages.py's plain page on a local server)")
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
     parser.add_argument("--max-cpu", type=float, default=0.5)
@@ -314,11 +297,10 @@ def main():
             node = node.setdefault(part, {})
         node[parts[-1]] = json.loads(raw)
     report_env = {"env": sorted(args.env), "settings": sorted(args.setting)}
+    pages = None
     if not args.url:
-        page = os.path.join(scratch, "static.html")
-        with open(page, "w") as handle:
-            handle.write(STATIC_PAGE_HTML)
-        args.url = "file://" + page
+        pages = TabPages(default_kind="plain")
+        args.url = pages.url()
     # One launch path for GUI benches (bench_launch.py): the console-session check, a refusal when this app already
     # runs, the tag's socket in the state folder, and the reason when the app does not come up.
     bench = BenchApp(bundle, out=args.out or scratch, config=config, window=None, screen="last", env=env,
@@ -367,6 +349,8 @@ def main():
             # The app's quit, then TERM and KILL of its own PID, then the tag's daemons (tag_teardown.py).
             bench.stop()
             report["teardown"] = "bench_launch"
+        if pages:
+            pages.close()
     report["failures"] = failures
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)

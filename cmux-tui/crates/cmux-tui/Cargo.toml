@@ -21,6 +21,10 @@ iroh-transport = ["cmux-remote/iroh-transport"]
 # a loaded DLL is not scanned that way. Without this feature cmux-tui.exe is
 # the whole program on every platform (dev builds, tests).
 windows-thin-exe = []
+# Correctness-oracle items, here and in cmux-tui-core: code behind
+# cfg(any(debug_assertions, feature = "oracle")). Off by default; release
+# builds never have it. The oracle builds `--profile oracle --features oracle`.
+oracle = ["cmux-tui-core/oracle"]
 
 # The whole program. src/main.rs stays the crate root (its dispatch tables are
 # where they always were); the cmux-tui binary is a small entry point that

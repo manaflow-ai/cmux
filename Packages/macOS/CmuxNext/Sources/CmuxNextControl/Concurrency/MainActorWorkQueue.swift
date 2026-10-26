@@ -284,7 +284,8 @@ public final class MainActorWorkQueue: Sendable {
     }
 
     private func popNext() -> MainActorWorkItem? {
-        state.withLock { state in
+        let board = frameSource.mainTaskBoard
+        let (next, drainInputSoon) = state.withLock { state -> (MainActorWorkItem?, Bool) in
             while !state.ready.isEmpty {
                 let connection = state.ready.removeFirst()
                 guard let item = state.queues[connection]?.popFirst() else {
@@ -292,12 +293,40 @@ public final class MainActorWorkQueue: Sendable {
                     continue
                 }
                 state.stats.pending -= 1
-                if state.queues[connection]?.count ?? 0 > 0 {
-                    state.ready.append(connection)
-                } else {
+                guard let head = state.queues[connection]?.first else {
                     state.queues[connection] = nil
+                    return (item, false)
                 }
-                return item
+                state.ready.append(connection)
+                // An injected key that waited behind this request is now the head of its
+                // connection: it goes ahead of the other connections, as one queued there does.
+                guard head.workClass == .input else { return (item, false) }
+                state.urgent.append(UrgentInput(connection: connection, item: head))
+                if let board { head.countAsPendingInput(on: board) }
+                guard !state.inputDrainPending else { return (item, false) }
+                state.inputDrainPending = true
+                return (item, true)
+            }
+            return (nil, false)
+        }
+        if drainInputSoon { frameSource.scheduleSoon { [self] in drainInput() } }
+        return next
+    }
+
+    /// The next item when its class may start now: an injected key behind its connection's
+    /// requests asks as input, so the automation budget and the typing burst's rate never hold it.
+    /// Only main-actor code pops, so the peeked item is the one popped.
+    @MainActor
+    private func nextToRun(_ budget: MainFrameBudget?) -> MainActorWorkItem? {
+        guard let budget else { return popNext() }
+        guard let workClass = nextWorkClass(), budget.mayRun(workClass) else { return nil }
+        return popNext()
+    }
+
+    private func nextWorkClass() -> MainWorkClass? {
+        state.withLock { state -> MainWorkClass? in
+            for connection in state.ready {
+                if let item = state.queues[connection]?.first { return item.workClass }
             }
             return nil
         }
@@ -310,10 +339,12 @@ public final class MainActorWorkQueue: Sendable {
         var ran = 0
         var maxWait: Duration = .zero
         let budget = frameSource.mainFrameBudget
-        // With the app's budget: one request at a time while the automation class may run (it
+        // The drain runs inside the frame batcher's task; each request is a task of its own.
+        budget?.markRunningTaskAsBatch()
+        // With the app's budget: one request at a time while its class may run (automation
         // yields to a person's pending input and to the frame's visible updates). Without: the
         // queue's own budget, at least one request per drain.
-        while budget?.mayRun(.automation) ?? true, let item = popNext() {
+        while let item = nextToRun(budget) {
             let began = clock.now
             let didRun: Bool
             if let budget, let owner = item.owner {

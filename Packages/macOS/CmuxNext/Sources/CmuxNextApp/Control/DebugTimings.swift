@@ -59,7 +59,9 @@ enum DebugTimings {
     private nonisolated static let counterReader = StartupCounterReader()
 
     /// Records a launch mark (milliseconds since process start) once per
-    /// name, from any thread.
+    /// name, from any thread. The first record of a name goes to
+    /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
+    /// bench's pipe when one was passed.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         // First, so the mark's own work (the lock, the pipe write) never reaches the counters.
         let sample = counterReader.sample(atMilestone: name)
