@@ -200,6 +200,8 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -438,6 +440,8 @@ on:
       - tests/test_cmux_next_release_build_retention.py
       - tests/test_cmux_next_dev_release_host_root.py
       - tests/test_cmux_next_dev_release_import_out.py
+      - tests/test_xcode_build_timeline.py
+      - scripts/ci/xcode_build_timeline.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -1696,6 +1700,7 @@ jobs:
           python3 tests/test_cmux_next_release_build_retention.py
           python3 tests/test_cmux_next_dev_release_host_root.py
           python3 tests/test_cmux_next_dev_release_import_out.py
+          python3 tests/test_xcode_build_timeline.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
