@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 698,
-    "mcp": 616
+    "verbs": 699,
+    "mcp": 617
   },
   "nouns": [
     {
@@ -237,7 +237,7 @@
         },
         {
           "command": "cmux agent toggle-acp-inspector",
-          "title": "Toggle Session Info",
+          "title": "Toggle Event Inspector",
           "id": "agentPane.toggleInspector",
           "mcp": true
         },
@@ -252,6 +252,12 @@
           "title": "Toggle Thread Minimap",
           "id": "agentPane.toggleMinimap",
           "mcp": true
+        },
+        {
+          "command": "cmux agent toggle-session-info",
+          "id": "agentPane.toggleSessionInfo",
+          "mcp": true,
+          "title": "Toggle Session Info"
         },
         {
           "command": "cmux agent toggle-ui-pointer",
