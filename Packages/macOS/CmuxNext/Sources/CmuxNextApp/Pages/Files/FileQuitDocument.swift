@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
 /// One file page document in the R96 quit hook: shared by every tab that shows the file, unsaved
@@ -116,7 +117,8 @@ final class FileQuitDocument: QuitUnsavedParticipant {
             let answers = FlushAnswer(done, waiting: flushes.count)
             // task-owner: the quit's wait for the pages; ends when all answered or at the timeout
             let deadline = Task { @MainActor in
-                do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded quit flush
+                // wakeup-allow: bounded the quit's one wait for its pages to save, cancelled when all answered
+                do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                 answers.finish()
             }
             answers.onFinish = { deadline.cancel() }
