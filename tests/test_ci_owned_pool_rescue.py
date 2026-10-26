@@ -2637,6 +2637,82 @@ class Tokens(unittest.TestCase):
             rescue.GitHub("repo-token", "o/r").run(1)
         self.assertEqual(seen, [("GET", "Bearer repo-token")])
 
+    def refusing(self, refusals):
+        """urlopen that refuses the first requests with `refusals` (code, headers, body), then answers {}."""
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.full_url, request.headers["Authorization"]))
+            if refusals:
+                code, headers, body = refusals.pop(0)
+                raise rescue.urllib.error.HTTPError(request.full_url, code, "refused", headers, io.BytesIO(body))
+            return Response(b"{}")
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_a_re_run_refused_for_the_rate_limit_waits_and_is_sent_again(self):
+        # Run 40340830337: cancelled, then its re-run refused and never sent.
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited), (429, {"Retry-After": "7"}, b"")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.request("POST", "/actions/runs/7/rerun-failed-jobs")
+        self.assertEqual(waits, [60, 120, 7])
+        self.assertEqual([entry[:2] for entry in seen], [("POST", f"{rescue.API}/repos/o/r/actions/runs/7/rerun-failed-jobs")] * 4)
+        self.assertTrue(all(entry[2] == "Bearer repo-token" for entry in seen))
+
+    def test_a_spent_budget_waits_for_its_reset(self):
+        reset = str(int(rescue.time.time()) + 100)
+        seen, patch = self.refusing([(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset}, b"{}")])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            api.cancel(7)
+        self.assertEqual(len(seen), 2)
+        self.assertTrue(100 <= waits[0] <= 106, waits)
+
+    def test_a_permission_403_is_not_waited_for(self):
+        seen, patch = self.refusing([(403, {}, b'{"message": "Resource not accessible by integration"}')])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual((len(seen), waits), (1, []))
+
+    def test_rate_limit_waits_are_bounded(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = waits.append
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+        self.assertEqual(sum(waits), rescue.RATE_LIMIT_WAIT_SECONDS)
+        self.assertTrue(all(wait <= rescue.RATE_LIMIT_MAX_WAIT_SECONDS for wait in waits))
+
+    def test_an_app_read_refused_for_the_rate_limit_falls_back_then_waits(self):
+        limited = b'{"message": "API rate limit exceeded for installation."}'
+        seen, patch = self.refusing([(403, {}, limited), (403, {}, limited)])
+        waits = []
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.sleep = waits.append
+            api.run(1)
+        self.assertEqual([entry[2] for entry in seen], ["Bearer app-token", "Bearer repo-token", "Bearer repo-token"])
+        self.assertEqual(waits, [60])
+
     def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
             encoding="utf-8"))["jobs"]["rescue"]["steps"]
@@ -2783,13 +2859,13 @@ class Workflow(unittest.TestCase):
         timeout = self.doc["jobs"]["rescue"]["timeout-minutes"] * 60
         self.assertGreaterEqual(timeout, rescue.JOB_TIMEOUT_SECONDS)
         # A sweeper adopts runs, then gives a rescue under way its grace, within a hosted job's 6 hours.
-        self.assertLessEqual(rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS,
+        self.assertLessEqual(rescue.SWEEP_SECONDS + rescue.RESCUE_GRACE_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS,
                              timeout - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
         self.assertLessEqual(timeout, 6 * 60 * 60)
         watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
         # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
         self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
-        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
+        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS + rescue.RATE_LIMIT_WAIT_SECONDS,
                              rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
 

@@ -449,11 +449,14 @@ FORCE_CANCEL_AGAIN_SECONDS = 5 * 60
 # A rescue may run this long past the watch's end, so a refusal found late
 # in the watch still gets its cancel settled and its re-run.
 RESCUE_GRACE_SECONDS = 25 * 60
+# Room for the rate-limit waits (RATE_LIMIT_WAIT_SECONDS, which must equal it).
+_RATE_LIMIT_ROOM_SECONDS = 15 * 60
 # Kept back from the job timeout for checkout and the summary.
 JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
 # ci-owned-pool-rescue.yml's timeout-minutes: the longest watch (an E2E
 # run's), its rescue grace, and the margin.
-JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
+JOB_TIMEOUT_SECONDS = (E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + _RATE_LIMIT_ROOM_SECONDS
+                       + JOB_TIMEOUT_MARGIN_SECONDS)
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails within the runner's setup; a real failure of the first
@@ -905,6 +908,39 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
+# A request GitHub refuses for a rate limit waits and is tried again instead of ending the watch.
+# A rescue that cancelled a run and then lost its re-run to a refusal left the run cancelled for
+# good (2026-10-26: nightly-next run 40340830337 at e22f9384 was cancelled at 14:36:06Z and the
+# watch "gave up: HTTP Error 403" at 14:37:38Z, so the tip never built). The repository's
+# GITHUB_TOKENs share one installation budget and a secondary limit that sends no reset, so a
+# refusal waits Retry-After, or until x-ratelimit-reset when the budget reads spent, or else
+# 60, 120, 240, then 300 s; one job waits at most RATE_LIMIT_WAIT_SECONDS in all, which the
+# job timeout keeps room for (JOB_TIMEOUT_SECONDS, ci-owned-pool-rescue.yml's timeout-minutes).
+RATE_LIMIT_WAIT_SECONDS = _RATE_LIMIT_ROOM_SECONDS
+RATE_LIMIT_FIRST_WAIT_SECONDS = 60
+RATE_LIMIT_MAX_WAIT_SECONDS = 300
+
+
+def rate_limit_wait(code: int, headers: Mapping[str, str], body: str, now: float, tries: int) -> float | None:
+    """Seconds to wait before retrying a refused request, or None when it is not a rate limit.
+
+    A permission 403 has no Retry-After, no spent budget and no "rate limit" in its message."""
+    if code not in (403, 429):
+        return None
+    get = {str(key).lower(): str(value) for key, value in (headers or {}).items()}.get
+    retry_after = (get("retry-after") or "").strip()
+    remaining = (get("x-ratelimit-remaining") or "").strip()
+    limited = code == 429 or bool(retry_after) or remaining == "0" or "rate limit" in body.lower()
+    if not limited:
+        return None
+    if retry_after.isdigit():
+        return max(float(retry_after), 1.0)
+    reset = (get("x-ratelimit-reset") or "").strip()
+    if remaining == "0" and reset.isdigit() and int(reset) > now:
+        return int(reset) - now + 5
+    return float(min(RATE_LIMIT_FIRST_WAIT_SECONDS << min(tries, 8), RATE_LIMIT_MAX_WAIT_SECONDS))
+
+
 class GitHub:
     """The Actions API. Reads may use `read_token`, writes always use `token`.
 
@@ -922,6 +958,34 @@ class GitHub:
         self.repo = repo
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
+        self.sleep: Callable[[float], None] = time.sleep
+        self.rate_limit_waited = 0.0  # this watch's waits for rate limits (RATE_LIMIT_WAIT_SECONDS)
+        self.rate_limit_tries = 0
+
+    def _wait_for_rate_limit(self, method: str, path: str, error: urllib.error.HTTPError) -> bool:
+        """Wait out a GITHUB_TOKEN request's rate-limit refusal; False when it is not one or the budget is spent."""
+        try:
+            said = error.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 - the body only explains the refusal
+            said = ""
+        headers = dict(error.headers.items()) if error.headers is not None else {}
+        wait = rate_limit_wait(error.code, headers, said, time.time(), self.rate_limit_tries)
+        if wait is None:
+            return False
+        left = RATE_LIMIT_WAIT_SECONDS - self.rate_limit_waited
+        if left < 1:
+            return False
+        wait = min(wait, left)
+        self.rate_limit_tries += 1
+        self.rate_limit_waited += wait
+        shown = {key: value for key, value in headers.items()
+                 if key.lower().startswith(("x-ratelimit", "retry-after", "x-github-request-id"))}
+        print(f"::notice title=GitHub API budget::{method} {path} was refused for a rate limit "
+              f"(HTTP {error.code}, {shown or 'no rate-limit headers'}: {said.strip()[:200]}); "
+              f"waiting {wait:.0f}s ({self.rate_limit_waited - wait:.0f}s waited so far)",
+              file=sys.stderr, flush=True)
+        self.sleep(wait)
+        return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None) -> Any:
         headers = self.read_headers if method == "GET" and not own_token else self.headers
@@ -933,7 +997,12 @@ class GitHub:
                 seen = getattr(response, "headers", None) or {}
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
+            self.rate_limit_tries = 0
         except urllib.error.HTTPError as error:
+            if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
+                # The same request again, after the wait (a refused request did nothing on GitHub's side).
+                return self.request(method, path, own_token=own_token,
+                                    body=json.loads(data) if data is not None else None)
             if error.code not in (401, 403) or headers is self.headers:
                 raise
             if error.code == 403:
