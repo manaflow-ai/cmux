@@ -1,6 +1,8 @@
 import CmuxNextCompat
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextLaunch
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -40,5 +42,27 @@ extension HomeService {
                 cache.save(source.launchSnapshot(archivedChiefs: directory.archivedChiefs))
             }
         }
+    }
+
+    /// Posts ``start()`` (the Chief owner and cloud link), the chats feed and its importers and the New Tab
+    /// page's feeds: never before the first frame. Each is one ``LaunchNeedPosts`` start, after startup by
+    /// default; right after the first frame once a Home view or an agent page shows (`TopHomePageView`,
+    /// ``homeDidOpen(asked:)``, `AgentTabStore.pageShown`), as Chrome starts what a visible tab needs first
+    /// and posts the rest through `AfterStartupTaskUtils::PostTask` (chrome/browser/after_startup_task_utils.cc).
+    /// A Home view's first frame is the last launch's list (``primeHomeList()``), so it waits for none of them.
+    /// The pages' chat clicks and All chats pager are wired at launch (`AgentPageChats.wirePager`): no feed.
+    func postLaunchFeeds(startup: StartupScheduler) {
+        launchFeeds = LaunchNeedPosts(startup: startup, starts: [
+            .init("Home.start", needed: "Home.startNeeded") { [weak self] in self?.start() },
+            .init("ChatsFeed.keepCurrent", needed: "ChatsFeed.keepCurrentNeeded") { [weak self] in self?.services.chatsFeed?.keepCurrent() },
+            .init("ProjectsImport.start", needed: "ProjectsImport.startNeeded") { [weak self] in if let s = self?.services { s.projectsImport.start(feed: s.chatsFeed) } },
+            .init("AgentPageChats.wire", needed: "AgentPageChats.wireNeeded") { [weak self] in
+                if let s = self?.services, let feed = s.chatsFeed { AgentPageChats.wire(s.agentTabs, to: feed, opener: s.chatsOpener) }
+            },
+            .init("NewTabClosed.wire", needed: "NewTabClosed.wireNeeded") { [weak self] in if let s = self?.services { NewTabClosed.wire(s.agentTabs, services: s) } },
+            .init("NewTabPlacesFeed.wire", needed: "NewTabPlacesFeed.wireNeeded") { [weak self] in if let s = self?.services { NewTabPlacesFeed.wire(s.agentTabs, services: s) } },
+            .init("NewTabWeather.wire", needed: "NewTabWeather.wireNeeded") { [weak self] in if let s = self?.services { NewTabWeather.wire(s.agentTabs, services: s) } },
+        ])
+        launchFeeds?.post()
     }
 }

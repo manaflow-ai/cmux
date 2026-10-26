@@ -54,7 +54,7 @@ public final class ServiceObservation<Value> {
     /// The last value applied (Equatable values only).
     private var last: Value?
     /// Written to fire the armed tracking, so the registrar drops it.
-    private let signal = VisibleObservationCancelSignal()
+    private let signal = ObservationCancelSignal()
     /// A tracking is registered and has not fired.
     private var armed = false
     /// The armed tracking's generation; a callback of an older one is stale.

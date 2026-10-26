@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
+import CmuxNextLaunch
 import CmuxNextMacScreen
 import CmuxNextPages
 import CmuxNextRemote
@@ -20,8 +21,9 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
-    /// Given to every terminal session this cache makes (``TerminalModifierWatch``).
+    /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
     let terminalModifiers: TerminalModifierWatch?
+    let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -84,8 +86,14 @@ final class TabContentCache {
     let pageRequests = BrowserPageRequests()
     /// Chromium pages being created (ChromiumWarmup waits for none, `onPagesSettled`).
     private(set) var pendingBrowsers: Set<String> = [] {
-        didSet { if pendingBrowsers.isEmpty, !oldValue.isEmpty { onPagesSettled?() } }
+        didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
+    /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
+    private var awaitingRead: Set<String> = [] {
+        didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
+    }
+    /// A page is being made or waits for the launch read (ChromiumWarmup waits for none).
+    var hasPendingPages: Bool { !pendingBrowsers.isEmpty || !awaitingRead.isEmpty }
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
@@ -102,6 +110,9 @@ final class TabContentCache {
     var defersRestoredPages = false
     /// Tabs whose deferred page the user started.
     var startedDeferred: Set<String> = []
+    /// The launch read every browser tab's page waits for before an engine makes it (the browser
+    /// profiles, p08-startup-028); nil: none.
+    var enginesAwait: LaunchReadEvent?
     /// Agent marks of tabs (`TabContentCache+AgentDriven`); kept across hibernation and restarts of the page.
     var agentMarks = TabAgentMarks()
     /// Creates a Chromium page (asynchronous; a seam for tests).
@@ -125,8 +136,7 @@ final class TabContentCache {
     /// Presentation changed: the blank-pane invariant, the input monitor and the browser host subscribe.
     let presentationChanges = PresentationChangeSubscribers()
     weak var sessionDelegate: (any TerminalSessionDelegate)?
-    /// Routes app shortcuts before a Chromium page window sees them (a CEF
-    /// page window is key, so `ShellWindow` never gets the key).
+    /// Routes app shortcuts before a Chromium page window sees them (a CEF page window is key, so `ShellWindow` never gets the key).
     weak var keyRouter: KeyRouter?
     /// A page's chrome hands the keyboard back to page `key` (find bar
     /// closed, address bar editing ended); the App routes it through the window's focus coordinator.
@@ -137,8 +147,7 @@ final class TabContentCache {
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
     var makeExtensionMenuHandler: ((String) -> (any ExtensionMenuHandling)?)?
-    /// Page `key`'s docked DevTools opened (and takes the keyboard) or
-    /// closed; the App routes it through the window's focus coordinator.
+    /// Page `key`'s docked DevTools opened (and takes the keyboard) or closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
@@ -151,10 +160,11 @@ final class TabContentCache {
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
-        (self.daemon, self.terminalModifiers, self.chromium, self.resizes) = (daemon, terminalModifiers, chromium, resizes)
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil, mainWork: MainWorkScheduler) {
+        (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)
@@ -196,7 +206,8 @@ final class TabContentCache {
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
-                                  hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
+                                  hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
+                                  endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
@@ -267,6 +278,7 @@ final class TabContentCache {
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
+        if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url) { return tracked(install(page, for: key), tab) }
@@ -295,6 +307,25 @@ final class TabContentCache {
         return nil
     }
 
+    /// No page yet: once `read` is done the page is made for the tab (shown or not) and panes showing it re-show,
+    /// unless the tab was released first. One step per tab: a release forgets it, so a stale step does nothing.
+    private func awaitLaunchRead(_ read: LaunchReadEvent, _ key: String) -> BrowserEntry? {
+        guard awaitingRead.insert(key).inserted else { return nil }
+        read.post { [weak self] in
+            guard let self, awaitingRead.contains(key) else { return }
+            let entry = tabModel(key).flatMap { browser(for: $0) }  // a Chromium page in creation reports when it is ready
+            awaitingRead.remove(key)
+            if entry != nil || !pendingBrowsers.contains(key) { onBrowserReady?(key) }
+        }
+        return nil
+    }
+
+    /// Returns once no launch read holds browser pages: at once when none does (callers that need a page now).
+    func enginesReady() async {
+        guard let read = enginesAwait, !read.isSignaled else { return }
+        await withCheckedContinuation { done in read.post { done.resume() } }
+    }
+
     /// The URL a browser record may open here. A record from a remote
     /// machine's tree opens only web pages (`RemoteRelayPolicy`): a remote
     /// host must not make this Mac load `file:` or `javascript:` content or
@@ -311,24 +342,6 @@ final class TabContentCache {
     private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?) async -> BrowserTabConfiguration {
         await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(
             id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default, initialURL: url))
-    }
-
-    /// `base` with the remote-localhost store of `tab` (every Chromium page a
-    /// tab gets goes through here, a hibernated page waking included). A
-    /// failed proxy start leaves the page blank, never on this Mac's localhost.
-    func chromiumConfiguration(for tab: TabModel?, base: BrowserTabConfiguration) async -> BrowserTabConfiguration {
-        guard let tab, let configureBrowser else { return base }
-        if let configured = await configureBrowser(tab, base.initialURL, base) { return configured }
-        var blank = base
-        blank.initialURL = nil
-        blank.restoreState = nil
-        blank.navigationGuard = .noLoopback
-        return blank
-    }
-
-    /// The tab with durable id `key` on any machine.
-    func tabModel(_ key: String) -> TabModel? {
-        browserTabs.tabModel(key) ?? findTab?(key)
     }
 
     /// Re-creates Chromium page `key` in the other remote-localhost store
@@ -465,7 +478,7 @@ final class TabContentCache {
         onRelease?(key)
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); awaitingRead.remove(key)
         hibernation?.forget(key); pageLifecycle?.remove(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

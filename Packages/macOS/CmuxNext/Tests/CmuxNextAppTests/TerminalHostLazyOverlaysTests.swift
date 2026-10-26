@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// A new terminal builds no Restart, Retry or "Sized for" button: each is a rounded NSButton whose
@@ -11,7 +12,7 @@ import Testing
     }
 
     @Test func aNewTerminalHasNoButtons() {
-        let host = TerminalHostView()
+        let host = TerminalHostView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         host.showStatus(.connected)
         host.onRestart = {}
         host.showSizedFor(nil)
@@ -20,7 +21,7 @@ import Testing
     }
 
     @Test func restartShowsOnceTheShellEndedWithAnAction() {
-        let host = TerminalHostView()
+        let host = TerminalHostView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         host.showStatus(.exited)
         #expect(Self.buttons(in: host).isEmpty, "no action: no button")
         var restarted = false
@@ -38,7 +39,7 @@ import Testing
     }
 
     @Test func retryShowsOnlyForAFailedAttach() {
-        let host = TerminalHostView()
+        let host = TerminalHostView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         host.showStatus(.disconnected(.connectionLost, reconnecting: true))
         host.showStatus(.disconnected(.turnedOffByOrganization, reconnecting: false))
         #expect(Self.buttons(in: host).isEmpty)
@@ -51,7 +52,7 @@ import Testing
     }
 
     @Test func sizedForBuildsTheChipWhenItShows() {
-        let host = TerminalHostView()
+        let host = TerminalHostView(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let notice = TerminalSizedFor(deviceName: "Maya's iPhone", deviceKind: "iphone", sameDevice: false,
                                       grid: TerminalGridSize(columns: 54, rows: 44))
         host.showSizedFor(notice)

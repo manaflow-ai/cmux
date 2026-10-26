@@ -11,8 +11,8 @@
 //! A session without durable state keeps them in memory. Both are bounded:
 //! entries older than 7 days go, and at most 256 stay (oldest go first).
 
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -139,7 +139,7 @@ impl Journal {
     pub(super) fn finish(&self) {
         match &self.place {
             Place::Disk(path) => {
-                let _ = fs::remove_file(path);
+                let _ = files::remove_file(path);
             }
             Place::Memory(name) => {
                 memory().lock().unwrap_or_else(PoisonError::into_inner).1.remove(name);
@@ -151,24 +151,24 @@ impl Journal {
 /// Removes entries older than [`MAX_AGE`], then the oldest past
 /// [`MAX_ENTRIES`].
 pub(super) fn prune(directory: &Path, now: SystemTime) {
-    let Ok(listing) = fs::read_dir(directory) else { return };
+    let Ok(listing) = files::read_dir(directory) else { return };
     let mut entries: Vec<(SystemTime, PathBuf)> = listing
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
-        .filter_map(|path| Some((fs::metadata(&path).ok()?.modified().ok()?, path)))
+        .filter_map(|path| Some((files::metadata(&path).ok()?.modified().ok()?, path)))
         .collect();
     entries.retain(|(modified, path)| {
         let expired = now.duration_since(*modified).is_ok_and(|age| age > MAX_AGE);
         if expired {
-            let _ = fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
         !expired
     });
     if entries.len() > MAX_ENTRIES {
         entries.sort();
         for (_, path) in &entries[..entries.len() - MAX_ENTRIES] {
-            let _ = fs::remove_file(path);
+            let _ = files::remove_file(path);
         }
     }
 }

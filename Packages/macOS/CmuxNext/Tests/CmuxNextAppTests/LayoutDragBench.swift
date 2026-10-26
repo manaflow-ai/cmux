@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
@@ -44,7 +45,7 @@ struct LayoutDragBench {
             ]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s",
                                 focusedPane: "p1")
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless],
                               backing: .buffered, defer: false)
             window.contentView = root

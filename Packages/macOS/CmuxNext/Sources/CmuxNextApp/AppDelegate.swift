@@ -247,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let profilesDirectory = BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID)
         services.browserProfiles.load(directory: profilesDirectory, importStore: services.onboarding.importStore)
         DebugTimings.markLaunch("dfl.first_window_hooks")
-        services.home.start()
+        services.home.startWorkspace()  // the restore's first workspace waits for ensure_home; the Chief owner is a feed post
         mouseSideButtons.start { [weak services] in _ = services?.registry.perform($0 == .back ? "focusHistoryBack" : "focusHistoryForward") }
         services.keybindingsFile.start()
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
@@ -320,8 +320,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.palettes.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
             services?.windows.active.map { SettingsPaletteSource.themeColors($0.themeScope.tokens) } ?? []
         }
-        services.history.startDaemonSync(settings: settings)
-        services.locationTrail.watchScope(settings: settings)
+        // Neither the first frame nor a page engine reads these (p08-startup-028).
+        LaunchServicePosts.browserFollows(historyDaemonSync: { [weak services] in services?.history.startDaemonSync(settings: settings) },
+                                          locationTrailScope: { [weak services] in services?.locationTrail.watchScope(settings: settings) }).post(on: order.startup)
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor  // the palette's recorder writes through it once built
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
@@ -339,13 +340,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.followEnergySaver(settings)
         services.mobile.follow(settings, launch: services.environment.launch)
-        services.chatsFeed?.keepCurrent()
-        services.projectsImport.start(feed: services.chatsFeed)
-        if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
+        // A page's chat clicks and All chats pages work from its first frame; the feeds come after it (p08-startup-027).
         AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
-        NewTabClosed.wire(services.agentTabs, services: services)
-        NewTabPlacesFeed.wire(services.agentTabs, services: services)
-        NewTabWeather.wire(services.agentTabs, services: services)
+        services.home.postLaunchFeeds(startup: order.startup)
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -359,6 +356,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         // Agent- and bench-launched builds never take system-wide keys from the person's app.
         if !environment.isolatedLaunch { services.globalHotKeys.start() }
+        // What an engine reads when it makes a page or starts, before any does (managed policy included).
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)

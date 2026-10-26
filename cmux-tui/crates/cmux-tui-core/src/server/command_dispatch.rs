@@ -113,7 +113,9 @@ pub(super) fn handle_command_with_cancellation(
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
-        Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
+        Command::MachineListeningTcp => {
+            anyhow::bail!("machine-listening-tcp requires the asynchronous request path")
+        }
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,

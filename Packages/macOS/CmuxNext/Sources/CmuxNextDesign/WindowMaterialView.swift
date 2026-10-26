@@ -44,8 +44,6 @@ public final class WindowMaterialView: NSView {
     /// The window's key tracker; it says whether the window looks inactive and calls
     /// ``updateInactiveTint()`` when that flips.
     private var keyFamily: WindowKeyFamily?
-    /// Posted when `appearance.inactiveWindowDim` changes (``DesignSettings/inactiveWindowDim``).
-    public static let inactiveDimDidChange = Notification.Name("WindowMaterialView.inactiveDimDidChange")
     /// The keyboard left the window's family: another app, or a window that is not this one, its
     /// child (a Chromium page window, popup, palette) or its sheet. Only then does the window look
     /// inactive (Leo 2026-10-21: "on itself? that should never happen"); a window whose family

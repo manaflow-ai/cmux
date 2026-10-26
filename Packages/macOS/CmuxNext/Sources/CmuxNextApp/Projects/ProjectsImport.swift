@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -68,6 +69,8 @@ final class ProjectsImport {
     private var sent: [String: Int] = [:]
     private var sending: Task<Void, Never>?
     private var sendAgain = false
+    /// The local daemon's connection (``armConnection()``).
+    private var connectionWatch: FrameObservation<ObjectIdentifier?>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "projects-import")
 
     init(services: AppServices) { self.services = services }
@@ -85,16 +88,16 @@ final class ProjectsImport {
         relay()
     }
 
+    /// A new local daemon connection relays again (its `project.sync` first): one `.automation` apply per change,
+    /// as the daemon gets the projects with no window on screen.
     private func armConnection() {
-        guard let daemon = services?.machines.local else { return }
-        withObservationTracking {
-            _ = daemon.connection
-        } onChange: { [weak self] in
-            // task-owner: one hop per connection change, re-arms itself; ends with the relay
-            Task { @MainActor [weak self] in
-                self?.armConnection()
-                self?.relay()
-            }
+        guard connectionWatch == nil, let services else { return }
+        let daemon = services.machines.local
+        connectionWatch = FrameObservation(owner: "projects.import.connection", delivery: .automation,
+                                           on: services.mainWork) { [weak daemon] in
+            daemon?.connection.map { ObjectIdentifier($0) }
+        } onChange: { [weak self] _ in
+            self?.relay()
         }
     }
 

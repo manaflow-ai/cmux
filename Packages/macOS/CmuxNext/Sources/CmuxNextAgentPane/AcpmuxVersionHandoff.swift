@@ -130,7 +130,7 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
-            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)")
+            let queue = DispatchQueue(label: "cmux.next.agent-pane.acpmux-exit.\(pid)", qos: .userInitiated)
             nonisolated(unsafe) let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
             let finish: @Sendable (Bool) -> Void = { exited in
                 guard once.first() else { return }

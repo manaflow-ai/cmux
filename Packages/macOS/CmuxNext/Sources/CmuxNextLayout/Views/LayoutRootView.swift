@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextSignposts
+public import CmuxNextWakeups
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -36,6 +37,9 @@ public final class LayoutRootView: NSView {
     /// This window's `motion.frame` and `motion.run` signposts.
     let motionTrace: LayoutMotionTrace
     private var observationTask: Task<Void, Never>?
+    /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
+    /// overlay, applied once per frame (made in `init`).
+    private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
     let inputTap: InputEventTap?
@@ -157,13 +161,15 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
+    /// `mainWork` is the app's main-thread scheduler: the Debug Settings looks of the panes' overlays
+    /// and the drop highlight follow through it.
     /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
     /// their own trace runtime.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil,
+                input: InputEventTap? = nil, mainWork: MainWorkScheduler,
                 motionSignposter: Signposter = .motion) {
         self.model = model
         inputTap = input
@@ -199,6 +205,7 @@ public final class LayoutRootView: NSView {
             guard let self, self.highlightStepsOnFrames else { return }
             self.driver.start()
         }
+        followLooks(on: mainWork)
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
@@ -212,6 +219,20 @@ public final class LayoutRootView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    /// One watch per root for the panes' attention look, not one per pane: a change reaches every
+    /// overlay in one apply, as Chrome's `Widget::ThemeChanged` reaches its views
+    /// (ui/views/widget/widget.cc). A pane made later reads the look when its overlay is made.
+    private func followLooks(on mainWork: MainWorkScheduler) {
+        highlight.follow(on: mainWork)
+        // node-free: the root has no VisibilityNode; the apply only recolors the panes' rings.
+        attentionLookWatch = FrameObservation(owner: "Layout.attentionLook", delivery: .visible(nil), on: mainWork) {
+            AttentionHighlightLook.tunable.value
+        } onChange: { [weak self] look in
+            guard let self else { return }
+            for host in self.context.hosts.values { host.chrome.setAttentionLook(look) }
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -546,7 +567,6 @@ public final class LayoutRootView: NSView {
             // Pan events that waited in the last frame show first, then the springs step.
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
-            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {

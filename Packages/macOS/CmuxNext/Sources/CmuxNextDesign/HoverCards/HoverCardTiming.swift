@@ -19,8 +19,3 @@ public nonisolated struct HoverCardTiming {
     /// slides over (`HoverCardPanel`).
     public static let reshowWindow: Duration = .milliseconds(500)
 }
-
-extension DesignSettings {
-    /// Posted when `hoverCardsEnabled` changes (the hover card coordinator hides a shown card).
-    public static let hoverCardsDidChange = Notification.Name("CmuxNextDesign.DesignSettings.hoverCardsDidChange")
-}

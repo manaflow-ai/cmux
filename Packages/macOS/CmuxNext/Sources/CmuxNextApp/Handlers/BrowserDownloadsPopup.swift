@@ -33,6 +33,8 @@ final class BrowserDownloadsPopup {
     private weak var buttons: BrowserToolbarButtonsView?
     /// The automatic close of a popup that opened by itself.
     private let autoClose = DemandTimer(owner: "Browser.downloadsPopup")
+    /// The shown popup's rows (``followRows(on:)``); a show replaces it and a close ends it.
+    private var rowsWatch: FrameObservation<RowShape>?
 
     private init() {
         popup.onDismiss = { [weak self] in self?.closed() }
@@ -45,10 +47,11 @@ final class BrowserDownloadsPopup {
     var shownFrame: CGRect? { popup.isShown ? popup.cardFrame : nil }
 
     /// The Downloads button: opens the popup, or closes it when it is open there.
-    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) {
+    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler,
+                showFolder: @escaping () -> Void) {
         guard let anchor = buttons.popupAnchor(for: .downloads) else { return }
         if popup.isShown, self.anchor === anchor { return close() }
-        show(list, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: true)
+        show(list, anchor: anchor, buttons: buttons, work: work, showFolder: showFolder, makeKey: true)
     }
 
     /// A download finished in a tab whose toolbar is on screen: opens the
@@ -57,14 +60,15 @@ final class BrowserDownloadsPopup {
     /// hidden, the app or its window is not active), so the caller falls
     /// back to the notice over the tab.
     @discardableResult
-    func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) -> Bool {
+    func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler,
+                      showFolder: @escaping () -> Void) -> Bool {
         // The Downloads button itself, or More when it is collapsed; never the bare toolbar.
         guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.superview,
               let window = anchor.window, window.isKeyWindow || window.isMainWindow,
               !anchor.isHiddenOrHasHiddenAncestor else { return false }
         // Already open (a click, or another download): it stays as it is and lists the new row.
         if popup.isShown { return true }
-        guard show(list, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: false) else { return false }
+        guard show(list, anchor: anchor, buttons: buttons, work: work, showFolder: showFolder, makeKey: false) else { return false }
         model.entered = false
         autoClose.schedule(after: Self.autoCloseDelay) { @MainActor [weak self] in
             guard let self, !self.model.entered else { return }
@@ -79,11 +83,10 @@ final class BrowserDownloadsPopup {
     }
 
     @discardableResult
-    private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtonsView,
+    private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtonsView, work: MainWorkScheduler,
                       showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
         guard let window = anchor.window else { return false }
         cancelAutoClose()
-        generation += 1
         if let old = self.anchor, old !== anchor { self.buttons?.setPopupOpen(false, anchor: old) }
         self.anchor = anchor
         self.buttons = buttons
@@ -115,7 +118,7 @@ final class BrowserDownloadsPopup {
                          preferred: .below, trailing: true, makeKey: makeKey) != nil else { return false }
         buttons.setPopupOpen(true, anchor: anchor)
         buttons.onDetach = { [weak self] in self?.close() }
-        followRows()
+        followRows(on: work)
         return true
     }
 
@@ -127,20 +130,25 @@ final class BrowserDownloadsPopup {
         return content
     }
 
-    /// Bumped by every show and close: an observation of an earlier show stops.
-    private var generation = 0
+    /// The rows' shape the popup's size depends on. The Clear row comes and goes with the finished rows, without a
+    /// row count change.
+    private struct RowShape: Equatable {
+        var count: Int
+        var canClear: Bool
+    }
 
-    /// While the popup shows, a row added or removed resizes it under the button.
-    private func followRows() {
+    /// While the popup shows, a row added or removed resizes it under the button: one apply per change, in the
+    /// visible class.
+    private func followRows(on work: MainWorkScheduler) {
+        rowsWatch?.cancel()
+        rowsWatch = nil
         guard popup.isShown, let list = model.list else { return }
-        let current = generation
         let model = model
-        // The Clear row comes and goes with the finished rows, without a row count change.
-        _ = withObservationTracking { (list.items.count, model.canClear) } onChange: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.generation == current else { return }
-                self.resize()
-            }
+        // node-free: the popup is its own panel, and the watch lives only while it shows (`closed()` ends it).
+        rowsWatch = FrameObservation(owner: "browser.downloads-popup.rows", delivery: .visible(nil), on: work) {
+            RowShape(count: list.items.count, canClear: model.canClear)
+        } onChange: { [weak self] _ in
+            self?.resize()
         }
     }
 
@@ -153,14 +161,14 @@ final class BrowserDownloadsPopup {
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
         popup.show(size: CGSize(width: ceil(size.width), height: ceil(size.height)), anchor: rect, in: window,
                    preferred: .below, trailing: true, makeKey: popup.panel.isKeyWindow)
-        followRows()
     }
 
     private func cancelAutoClose() { autoClose.cancel() }
 
     private func closed() {
         cancelAutoClose()
-        generation += 1
+        rowsWatch?.cancel()
+        rowsWatch = nil
         buttons?.onDetach = nil
         if let anchor { buttons?.setPopupOpen(false, anchor: anchor) }
         anchor = nil

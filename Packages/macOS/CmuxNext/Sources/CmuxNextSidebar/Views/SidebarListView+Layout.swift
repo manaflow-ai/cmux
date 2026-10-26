@@ -149,6 +149,7 @@ extension SidebarListViewComponents {
         suppressHoverEffects = true
         defer { suppressHoverEffects = previousHoverSuppression }
         defer { updateHover() }
+        defer { watchRows(layoutChanged: true) } // once the rows are drawn: a stale row on screen is patched before the commit
         let old = displayed
         displayed = layout
         onApply?(layout)
@@ -383,6 +384,7 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        watchRows(layoutChanged: false)
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }

@@ -73,6 +73,8 @@ public final class HomeSidebarView: NSView {
     public override init(frame: NSRect) {
         HomeReduceMotion.install()
         super.init(frame: frame)
+        // Reduce Motion changes still or restart the typing bubbles already pulsing (the list observes nothing itself).
+        HomeReduceMotion.follow(list)
         wantsLayer = true
         list.frame = bounds
         addSubview(list)

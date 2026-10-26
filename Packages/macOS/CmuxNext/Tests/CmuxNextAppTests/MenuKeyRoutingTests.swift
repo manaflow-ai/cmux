@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import GhosttyNextKit
 import Testing
@@ -75,7 +76,7 @@ import CmuxNextFocusUI
                                                claims: claims, keyNames: keyNames)
 
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         // The theme config owns `user` (and frees it).
         session.setTheme(GhosttyThemeConfig(config: user, themeName: "cmux-next-test", colors: nil))

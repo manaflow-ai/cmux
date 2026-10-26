@@ -74,7 +74,7 @@ final class FindPaneService: InternalPageProvider {
         return ContentViewState(scroll: view.resultsScroll, search: view.field.stringValue, selection: view.cursor)
     }
 
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
         guard let view = content as? FindSectionView, let query = state.search, !query.isEmpty else { return }
         view.restore(query: query, cursor: state.selection, scroll: state.scroll)
     }

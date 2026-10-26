@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// The TextBox composer (inventory row 23): a multi-line input under a terminal. Return sends its
@@ -39,7 +40,7 @@ struct TextBoxComposerTests {
     static func harness() throws -> Harness {
         _ = NSApplication.shared
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)

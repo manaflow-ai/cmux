@@ -295,7 +295,7 @@ struct EditorDiscardTests {
         #expect(state.scroll == before.resultsScroll)
 
         let after = Self.findView()
-        service.restoreViewState(state, for: "tab", content: after)
+        await service.restoreViewState(state, for: "tab", content: after)
         #expect(after.field.stringValue == "needle")
         for _ in 0..<200 where after.cursor == nil { await Task.yield() }
         #expect(after.cursor == FindSectionView.cursor(of: Self.match))
@@ -306,7 +306,7 @@ struct EditorDiscardTests {
         let view = Self.findView()
         let state = await service.saveViewState(for: "tab", content: view)
         #expect(state.search == "")
-        service.restoreViewState(state, for: "tab", content: view)
+        await service.restoreViewState(state, for: "tab", content: view)
         #expect(view.model.query == "")
     }
 

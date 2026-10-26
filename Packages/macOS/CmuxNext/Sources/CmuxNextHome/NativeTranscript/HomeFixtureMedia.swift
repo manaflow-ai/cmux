@@ -78,7 +78,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private let width: Int, height: Int, frames: Int
     private var next = 0
-    private let queue = DispatchQueue(label: "cmux.home.fixture.video")
+    private let queue = DispatchQueue(label: "cmux.home.fixture.video", qos: .utility)
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput, adaptor: AVAssetWriterInputPixelBufferAdaptor,
          width: Int, height: Int, frames: Int) {
