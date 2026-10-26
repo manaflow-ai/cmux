@@ -3,6 +3,7 @@
 //! admission before anything parses or dispatches it.
 
 use super::*;
+use cmux_threads::checked::sync as waits;
 
 pub(super) fn handle_connection_with_permit(
     mux: Arc<Mux>,
@@ -66,7 +67,7 @@ pub(super) fn serve_line_connection(
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
         disconnect_client(&mux, client, false);
-        let _ = writer_thread.join();
+        let _ = waits::join(writer_thread);
         return;
     }
     let mut hello = client_hello::HelloGate::new(transport);
@@ -141,6 +142,6 @@ pub(super) fn serve_line_connection(
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     }
     disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
+    let _ = waits::join(writer_thread);
     drop(connection_permit);
 }

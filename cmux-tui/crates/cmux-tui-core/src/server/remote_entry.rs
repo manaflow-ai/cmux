@@ -26,6 +26,10 @@
 //! conversation principal is `remote_<install>`, never `user_local`.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
+use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -88,10 +92,10 @@ impl Drop for RemoteEntryServer {
         if let Some(thread) = self.thread.take()
             && woke
         {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
         if file_identity(&self.path).is_some_and(|identity| identity == self.identity) {
-            let _ = std::fs::remove_file(&self.path);
+            let _ = files::remove_file(&self.path);
         }
         // Daemon shutdown: running link dials (byte streams included) end
         // now, not at their idle timeout.
@@ -100,7 +104,7 @@ impl Drop for RemoteEntryServer {
 }
 
 fn file_identity(path: &Path) -> Option<(u64, u64)> {
-    std::fs::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
+    files::symlink_metadata(path).ok().map(|metadata| (metadata.dev(), metadata.ino()))
 }
 
 /// Listen on `path` (mode 0600, in a 0700 directory it creates) and serve
@@ -130,18 +134,20 @@ pub(super) fn serve_remote_entry_with(
 ) -> anyhow::Result<RemoteEntryServer> {
     if let Some(directory) = path.parent() {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-        std::fs::DirBuilder::new().mode(0o700).recursive(true).create(directory)?;
-        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))?;
+        scoped_blocking_call(BlockingKind::Fs, || {
+            fs::DirBuilder::new().mode(0o700).recursive(true).create(directory)
+        })?;
+        files::set_permissions(directory, fs::Permissions::from_mode(0o700))?;
     }
     if path.exists() {
         match UnixStream::connect(path) {
             Ok(_) => anyhow::bail!("remote entry {} is already in use", path.display()),
-            Err(_) => std::fs::remove_file(path)?,
+            Err(_) => files::remove_file(path)?,
         }
     }
     let listener = cmux_unix_socket::bind(path)?;
     if let Err(error) = platform::restrict_file(path) {
-        let _ = std::fs::remove_file(path);
+        let _ = files::remove_file(path);
         return Err(error.into());
     }
     let identity = file_identity(path)

@@ -6,6 +6,7 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::ipc_reply;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -938,7 +939,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(Refusal::of(error));
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = ipc_reply(|| receiver.recv_timeout(CALL_TIMEOUT));
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

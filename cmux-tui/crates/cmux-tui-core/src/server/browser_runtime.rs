@@ -27,6 +27,7 @@
 //! - `browser-runtime-stop {id, runtime}` answers `{stopped: true}`.
 
 use std::collections::HashMap;
+use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -38,6 +39,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use cmux_process::{Child, Command, Stdio};
+use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
+use cmux_threads::checked::{fs as files, sync as waits};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -123,9 +126,10 @@ impl BrowserRuntimes {
     }
 
     /// The installed host: its version (the name of the directory that
-    /// `current` names) and its executable.
+    /// `current` names) and its executable. It reads the disk: work items
+    /// and the start thread call it, never the reader thread.
     fn installed(&self) -> Option<(String, PathBuf)> {
-        let version = std::fs::canonicalize(self.root()?.join("current")).ok()?;
+        let version = files::canonicalize(self.root()?.join("current")).ok()?;
         let executable = executable_in(&version);
         if !executable.is_file() {
             return None;
@@ -359,19 +363,16 @@ fn launch(
     let runtime_id = runtimes.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let root = runtimes.root().ok_or("the browser has no install directory")?;
     let logs = root.join("logs");
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(&logs)
-        .map_err(|error| format!("cannot create {}: {error}", logs.display()))?;
+    scoped_blocking_call(BlockingKind::Fs, || {
+        fs::DirBuilder::new().recursive(true).mode(0o700).create(&logs)
+    })
+    .map_err(|error| format!("cannot create {}: {error}", logs.display()))?;
     let log = logs.join(format!("runtime-{}-{runtime_id}.log", std::process::id()));
-    let log_file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&log)
-        .map_err(|error| format!("cannot create {}: {error}", log.display()))?;
+    let log_file = files::open_with(
+        fs::File::options().create(true).write(true).truncate(true).mode(0o600),
+        &log,
+    )
+    .map_err(|error| format!("cannot create {}: {error}", log.display()))?;
     let mut command = Command::new(executable);
     command.args(["--serve", "--listen", "127.0.0.1:0", "--lifeline"]);
     if let Some(url) = url {
@@ -408,7 +409,7 @@ fn launch(
             })
     });
     let port = match (written, reader) {
-        (Some(Ok(())), Some(Ok(_))) => match line_rx.recv_timeout(START_TIMEOUT) {
+        (Some(Ok(())), Some(Ok(_))) => match waits::recv_timeout(&line_rx, START_TIMEOUT) {
             Ok(Some(line)) => listening_port(&line),
             Ok(None) | Err(_) => None,
         },
@@ -444,7 +445,7 @@ fn new_secret() -> Result<String, String> {
 
 /// The end of a host's log, on one line (a start failure's reason).
 fn log_tail(log: &Path) -> String {
-    let Ok(mut file) = std::fs::File::open(log) else { return String::new() };
+    let Ok(mut file) = files::open(log) else { return String::new() };
     let length = file.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     let _ = file.seek(SeekFrom::Start(length.saturating_sub(LOG_TAIL_BYTES)));
     let mut bytes = Vec::new();
@@ -466,7 +467,7 @@ fn stop(runtime: Runtime) {
             }
             let _ = child.wait();
         }
-        let _ = std::fs::remove_file(&log);
+        let _ = files::remove_file(&log);
     };
     // A stop thread that cannot start leaves the host to its closed
     // lifeline: it exits by itself, unreaped until the daemon ends.

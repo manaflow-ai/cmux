@@ -25,6 +25,7 @@
 //! `agent_session.home_unconfirmed` otherwise), so one click never trusts a
 //! whole home folder.
 
+use cmux_threads::checked::fs as files;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -144,7 +145,7 @@ fn own_agent_tab(mux: &Mux, surface: SurfaceId) -> bool {
 /// home folder are refused, the home folder needs `home_confirmed`. Fails
 /// closed: with no home folder known, every folder needs `home_confirmed`.
 pub(super) fn home_rule(cwd: &str, home_confirmed: bool) -> Result<(), Refusal> {
-    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
+    let canonical = |path: &std::path::Path| files::canonicalize(path).ok();
     // A folder that does not exist is acpmux's to refuse.
     let Some(cwd) = canonical(cwd.as_ref()) else { return Ok(()) };
     if cwd.parent().is_none() {

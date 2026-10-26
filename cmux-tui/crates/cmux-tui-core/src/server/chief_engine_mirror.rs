@@ -11,13 +11,24 @@
 //! `<home>/optchat/tools.sock`), `<home>/c/<last 8 of id>` for another Chief
 //! (chief_brains.rs `brain_home`). A daemon that knows neither writes
 //! nothing (the record still holds the engine).
+//!
+//! The record commits on a request thread under the registry lock, so the
+//! file write is a work item ([`EngineMirror`]): one write at a time per
+//! file, the latest engine wins, as Chrome's ImportantFileWriter writes on
+//! its own sequence (base/files/important_file_writer.h).
 
+use std::collections::HashMap;
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::work::{Lane, Priority, Shutdown, Work};
 use serde_json::{Map, Value};
 
 use crate::chief_registry::{ChiefRecord, DEFAULT_CHIEF, Engine};
+use crate::panic_free::RecoverPoison;
 
 /// The engine file of Chief `chief`: from the brains home when the daemon
 /// runs brains, else (the default Chief only) from the tools socket's home.
@@ -54,43 +65,91 @@ pub(super) fn merged(existing: Option<Map<String, Value>>, engine: &Engine) -> M
     file
 }
 
-/// Writes `record`'s engine into its Chief's engine file (through a 0600
-/// temporary file and a rename). Best effort: a failure is logged, the
-/// record write stands.
-pub(super) fn mirror(record: &ChiefRecord) {
-    let brains_home = crate::chief_brains::configured_home();
-    let socket = super::chief_inspect::tools_socket();
-    let Some(path) = engine_file(&record.id, brains_home.as_deref(), socket.as_deref()) else {
-        return;
-    };
-    if let Err(error) = write(&path, &record.engine) {
-        eprintln!("cmux-tui: Chief {} engine to {}: {error:#}", record.id, path.display());
+/// The engine-file writes not yet made, by file. A file has at most one
+/// work item at a time; it writes the latest engine, then any that came
+/// while it wrote. The lock never covers the write.
+#[derive(Default)]
+pub(crate) struct EngineMirror {
+    files: Arc<Mutex<HashMap<PathBuf, Queued>>>,
+}
+
+struct Queued {
+    chief: String,
+    /// The engine to write next; `None` while the item writes the last one.
+    engine: Option<Engine>,
+}
+
+impl EngineMirror {
+    /// Queues `record`'s engine for its Chief's engine file and returns at
+    /// once: a request thread calls it under the registry lock. Best effort:
+    /// a failed write is logged, the record write stands.
+    pub(super) fn mirror(&self, work: &Work, record: &ChiefRecord) {
+        let brains_home = crate::chief_brains::configured_home();
+        let socket = super::chief_inspect::tools_socket();
+        let Some(path) = engine_file(&record.id, brains_home.as_deref(), socket.as_deref()) else {
+            return;
+        };
+        self.queue(work, path, &record.id, record.engine.clone());
+    }
+
+    fn queue(&self, _work: &Work, path: PathBuf, chief: &str, engine: Engine) {
+        if let Err(error) = write(&path, &engine) {
+            eprintln!("cmux-tui: Chief {chief} engine to {}: {error:#}", path.display());
+        }
+    }
+}
+
+/// The work item: writes `path`'s queued engine until none is left. A panic
+/// in a write drops the entry, so the next change starts a new item.
+fn write_queued(files: &Mutex<HashMap<PathBuf, Queued>>, path: &Path) {
+    struct Forget<'a>(&'a Mutex<HashMap<PathBuf, Queued>>, &'a Path);
+    impl Drop for Forget<'_> {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                self.0.lock().recover_poison().remove(self.1);
+            }
+        }
+    }
+    let _forget = Forget(files, path);
+    loop {
+        let (chief, engine) = {
+            let mut queue = files.lock().recover_poison();
+            let Some(queued) = queue.get_mut(path) else { return };
+            let Some(engine) = queued.engine.take() else {
+                queue.remove(path);
+                return;
+            };
+            (queued.chief.clone(), engine)
+        };
+        if let Err(error) = write(path, &engine) {
+            eprintln!("cmux-tui: Chief {chief} engine to {}: {error:#}", path.display());
+        }
     }
 }
 
 /// [`mirror`]'s write.
 pub(super) fn write(path: &Path, engine: &Engine) -> anyhow::Result<()> {
-    let existing = std::fs::read(path)
+    let existing = files::read(path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .and_then(|value| value.as_object().cloned());
     let file = merged(existing, engine);
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        files::create_dir_all(dir)?;
     }
     let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
+    let mut options = fs::File::options();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut out = options.open(&tmp)?;
+    let mut out = files::open_with(&options, &tmp)?;
     let mut bytes = serde_json::to_vec_pretty(&Value::Object(file))?;
     bytes.push(b'\n');
     crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
     out.write_all(&bytes)?;
-    out.sync_all()?;
+    files::sync_all(&out)?;
     drop(out);
-    std::fs::rename(&tmp, path)?;
+    files::rename(&tmp, path)?;
     Ok(())
 }
 
@@ -149,16 +208,48 @@ mod tests {
         ));
         let path = dir.join("optchat").join("engine.json");
         write(&path, &engine(Some("opencode"), Some("byo/llama"), None)).expect("write");
-        let value: Value =
-            serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("json");
+        let value: Value = serde_json::from_slice(&fs::read(&path).expect("read")).expect("json");
         assert_eq!(value["harness"], "opencode");
         assert_eq!(value["model"], "byo/llama");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+            let mode = fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
             assert_eq!(mode, 0o600);
         }
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A registry commit queues the engine on a request thread, under the
+    /// registry lock: the file write is a work item, and the last engine
+    /// queued is the one on disk (p02-threads 220). Panic mode: a write left
+    /// on the request thread fails here at its call site.
+    #[test]
+    fn a_queued_engine_is_written_off_the_request_thread_and_the_last_wins() {
+        use super::super::request_thread_test_support::on_request_thread;
+        use cmux_threads::work::WorkConfig;
+
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-engine-mirror-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let path = dir.join("optchat").join("engine.json");
+        let work = Arc::new(Work::new(WorkConfig::default()).expect("work"));
+        let mirror = Arc::new(EngineMirror::default());
+        let (request_work, request_mirror, request_path) =
+            (Arc::clone(&work), Arc::clone(&mirror), path.clone());
+        on_request_thread(move || {
+            for harness in ["codex", "opencode", "claude"] {
+                let engine = engine(Some(harness), None, None);
+                request_mirror.queue(&request_work, request_path.clone(), "chief_1", engine);
+            }
+        });
+        // Shutdown waits for block items: the queued write is done after it.
+        work.shutdown();
+        let value: Value = serde_json::from_slice(&fs::read(&path).expect("read")).expect("json");
+        assert_eq!(value["harness"], "claude");
+        assert!(mirror.files.lock().recover_poison().is_empty(), "no write left queued");
+        let _ = fs::remove_dir_all(&dir);
     }
 }

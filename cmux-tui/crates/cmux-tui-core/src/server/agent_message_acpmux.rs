@@ -5,6 +5,7 @@
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::ipc_reply;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
@@ -98,7 +99,7 @@ impl crate::mux::Mux {
             link.close();
             return Handover::Unreachable;
         }
-        let handover = match hearing.recv_timeout(ACCEPT_TIMEOUT) {
+        let handover = match ipc_reply(|| hearing.recv_timeout(ACCEPT_TIMEOUT)) {
             Ok(Heard::Accepted | Heard::Answered(Ok(_))) => Handover::Delivered,
             // A session moving to another machine takes prompts again later.
             Ok(Heard::Answered(Err(LinkError::Rpc(message, data))))

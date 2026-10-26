@@ -9,6 +9,7 @@
 //! is served: path segments are plain names (no `..`, no dot files, no
 //! percent escapes), and the resolved file must stay under the bundle root.
 
+use cmux_threads::checked::fs as files;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -173,7 +174,7 @@ fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
 }
 
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+    let file = files::open(path)?;
     if file.metadata()?.len() > PAGE_FILE_MAX_BYTES {
         return Err(std::io::Error::other("page file too large"));
     }
@@ -223,7 +224,7 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
         return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
-    let resolved = std::fs::canonicalize(&exe).ok();
+    let resolved = files::canonicalize(&exe).ok();
     [Some(exe), resolved]
         .into_iter()
         .flatten()

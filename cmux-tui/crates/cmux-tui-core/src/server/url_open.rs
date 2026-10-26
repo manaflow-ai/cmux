@@ -3,6 +3,7 @@
 //! projections, claims each request, then acknowledges actual browser delivery.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::ipc_reply;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
@@ -192,7 +193,8 @@ pub(super) fn start(
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
     let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
-        let opened = receiver.recv_timeout(DEADLINE).unwrap_or(false);
+        // Waits on the app, another process.
+        let opened = ipc_reply(|| receiver.recv_timeout(DEADLINE)).unwrap_or(false);
         worker_mux.control_clients.url_opens.cancel(&request_id);
         reply.reply(|| respond(&worker_writer, worker_id, opened));
     });

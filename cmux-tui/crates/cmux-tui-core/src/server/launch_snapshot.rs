@@ -13,6 +13,9 @@
 //! to a temporary file that is renamed over the old one, owner-only.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
+use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::thread::JoinHandle;
@@ -70,7 +73,7 @@ impl LaunchSnapshotWriter {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 
@@ -87,7 +90,7 @@ impl Drop for LaunchSnapshotWriter {
     fn drop(&mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -250,23 +253,23 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<()> {
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
     let result = (|| -> anyhow::Result<()> {
-        let mut options = std::fs::OpenOptions::new();
+        let mut options = fs::File::options();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        let mut file = options.open(&temporary)?;
+        let mut file = files::open_with(&options, &temporary)?;
         crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
         file.write_all(&bytes)?;
-        file.sync_data()?;
+        files::sync_data(&file)?;
         drop(file);
-        std::fs::rename(&temporary, path)?;
+        files::rename(&temporary, path)?;
         Ok(())
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = files::remove_file(&temporary);
     }
     result
 }
@@ -285,7 +288,7 @@ mod tests {
     }
 
     fn read_snapshot(path: &Path) -> Option<Value> {
-        serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+        serde_json::from_slice(&fs::read(path).ok()?).ok()
     }
 
     /// Waits until the snapshot file satisfies `accept` (the writer settles
@@ -365,7 +368,7 @@ mod tests {
         });
 
         // Written atomically: no temporary file is left next to it.
-        let leftovers = std::fs::read_dir(path.parent().unwrap())
+        let leftovers = fs::read_dir(path.parent().unwrap())
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -376,14 +379,14 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "tab titles and paths are private to the user");
         }
 
         drop(writer);
         mux.shutdown();
         drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -433,7 +436,7 @@ mod tests {
         drop(writer);
         mux.shutdown();
         drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -479,7 +482,7 @@ mod tests {
         drop(writer);
         mux.shutdown();
         drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -521,7 +524,7 @@ mod tests {
         drop(writer);
         mux.shutdown();
         drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

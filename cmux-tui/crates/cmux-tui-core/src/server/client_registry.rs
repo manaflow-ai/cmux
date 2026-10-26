@@ -323,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Chief engine-file writes queued by registry commits (chief_engine_mirror.rs).
+    pub(super) engine_mirror: super::chief_engine_mirror::EngineMirror,
     /// Size leases of connections with `size-lease-v1` (size_lease.rs).
     pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
@@ -389,6 +391,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            engine_mirror: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),

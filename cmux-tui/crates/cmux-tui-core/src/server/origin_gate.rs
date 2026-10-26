@@ -14,6 +14,7 @@ use crate::request_origin::{
     valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
+use cmux_threads::checked::fs as files;
 
 /// Applies the origin rules to one parsed `cmux.protocol/2` line, then
 /// validates and dispatches the same parse. The origin rules run before
@@ -391,12 +392,12 @@ const MOBILE_HOST_NAME: &str = "cmux-mobile-host";
 fn is_bundled_mobile_host_path(path: &Path) -> bool {
     static SIBLING: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     let sibling = SIBLING.get_or_init(|| {
-        let own = std::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
-        let sibling = std::fs::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
-        std::fs::metadata(&sibling).ok()?.is_file().then_some(sibling)
+        let own = files::canonicalize(std::env::current_exe().ok()?).ok()?;
+        let sibling = files::canonicalize(own.parent()?.join(MOBILE_HOST_NAME)).ok()?;
+        files::metadata(&sibling).ok()?.is_file().then_some(sibling)
     });
     let Some(sibling) = sibling else { return false };
-    std::fs::canonicalize(path).is_ok_and(|path| &path == sibling)
+    files::canonicalize(path).is_ok_and(|path| &path == sibling)
 }
 
 /// The executable of the accepted peer, read so that a process that reused

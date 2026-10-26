@@ -10,6 +10,7 @@
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
+use cmux_threads::checked::ipc_reply;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
@@ -118,7 +119,8 @@ impl AcpmuxLink {
             self.forget(id);
             return Err(LinkError::Closed);
         }
-        let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
+        let result =
+            ipc_reply(|| receiver.recv_timeout(timeout)).unwrap_or(Err(LinkError::Timeout));
         self.forget(id);
         result
     }

@@ -3,6 +3,7 @@
 //! (plans/cmux-next/identity.md section 4), then token or pairing auth.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::net::{SocketAddr, TcpListener};
 
 use tungstenite::protocol::CloseFrame;
@@ -40,7 +41,7 @@ impl Drop for WebSocketServer {
             let _ = stream.set_nodelay(true);
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -470,7 +471,7 @@ fn handle_websocket_connection_with_permit(
     }
     let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
     disconnect_client(&mux, client, false);
-    let _ = writer_thread.join();
+    let _ = waits::join(writer_thread);
     let _ = websocket.close(None);
     drop(connection_permit);
 }
@@ -534,7 +535,7 @@ fn authenticate_websocket(
         return None;
     }
 
-    match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
+    match waits::recv_timeout(&decision, Duration::from_secs(challenge.expires_in)) {
         Ok(PairingDecision::Approved { credential }) => websocket
             .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
             .is_ok()

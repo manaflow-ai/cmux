@@ -153,6 +153,34 @@ fn wait_for_file(path: &Path) -> bool {
     false
 }
 
+/// The install is on disk: `browser-runtime-status` reads it on a work item
+/// and the reader thread goes on (p02-threads 220). Panic mode: a read left
+/// on the reader thread fails here at its call site.
+#[test]
+fn status_reads_the_install_off_the_reader_thread() {
+    use super::super::request_thread_test_support::{next_reply, on_request_thread};
+    use super::super::{BoundedOutbound, ClientTransport, MessageWriter, QueuedSink};
+
+    let root = scratch("status-offreq");
+    install(&root, "v-offreq", STAND_IN_HOST);
+    let mux = daemon("rt-status-offreq", &root);
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    mux.control_clients
+        .set_info(client, None, None, Some(vec![BROWSER_RUNTIME_CAPABILITY.to_owned()]))
+        .unwrap();
+    let request_mux = mux.clone();
+    let line = json!({"id": 1, "cmd": "browser-runtime-status"}).to_string();
+    let handled =
+        on_request_thread(move || super::try_handle(&request_mux, client, &line, &writer));
+    assert_eq!(handled, Some(true));
+    let reply = next_reply(&outbound);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["data"]["installed"], json!("v-offreq"), "{reply}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn browser_runtime_is_refused_until_the_connection_opts_in() {
     let root = scratch("opt-in");

@@ -2878,6 +2878,10 @@ mod loopback_forward_tests;
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
 
+#[cfg(test)]
+#[path = "server/request_thread_test_support.rs"]
+mod request_thread_test_support;
+
 #[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]
 mod agent_inventory_tests;

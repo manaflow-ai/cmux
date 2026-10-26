@@ -513,7 +513,7 @@ fn mutate(
                 None => created && record.engine != chief_registry::Engine::default(),
             };
             if !replayed && operation != Op::ChiefProfileDelete && engine_changed {
-                super::chief_engine_mirror::mirror(&record);
+                mux.control_clients.engine_mirror.mirror(&mux.work, &record);
             }
             if !replayed
                 && let Some(pending) = mux.chiefs().brains.chief_written(

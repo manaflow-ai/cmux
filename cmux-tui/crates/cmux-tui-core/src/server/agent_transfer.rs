@@ -70,6 +70,7 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -782,13 +783,13 @@ fn guard_for(host: &AgentTransferHost, cwd: &str) -> Result<(Value, String), Fai
     if cwd.is_empty() || cwd.len() > MAX_PATH_BYTES || !path.is_absolute() {
         return Err(Refusal::BadRequest.into());
     }
-    let home = std::fs::canonicalize(&host.home).map_err(|_| Refusal::Unavailable)?;
-    let folder = std::fs::canonicalize(path)
+    let home = files::canonicalize(&host.home).map_err(|_| Refusal::Unavailable)?;
+    let folder = files::canonicalize(path)
         .ok()
         .filter(|folder| folder.is_dir())
         .ok_or(Refusal::OutsideRoots)?;
     let (control, root) = if host.cloud {
-        let root = std::fs::canonicalize(home.join("work"))
+        let root = files::canonicalize(home.join("work"))
             .ok()
             .filter(|root| root.is_dir())
             .ok_or(Refusal::OutsideRoots)?;

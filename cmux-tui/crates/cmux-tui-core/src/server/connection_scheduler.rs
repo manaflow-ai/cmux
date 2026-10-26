@@ -4,6 +4,7 @@
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -345,7 +346,7 @@ impl ConnectionSurfaceScheduler {
             && state.active_creations == 0;
         drop(state);
         if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
-            let _ = dispatcher.join();
+            let _ = waits::join(dispatcher);
         }
         drained
     }
