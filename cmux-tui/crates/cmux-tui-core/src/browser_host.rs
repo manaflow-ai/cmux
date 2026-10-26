@@ -471,3 +471,23 @@ fn inherited_fds_only(fds: &[libc::c_int], max_fd: libc::c_int) -> std::io::Resu
 #[cfg(unix)]
 #[path = "browser_host_activation.rs"]
 mod activation;
+
+#[cfg(all(test, unix))]
+mod fd_tests {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+
+    /// A failed exec after the descriptor step comes back as the spawn
+    /// error. Closing every descriptor closed `Command::spawn`'s exec-error
+    /// pipe: the child aborted and the spawn looked successful.
+    #[test]
+    fn failed_exec_after_inherited_fds_only_is_a_spawn_error() {
+        let (read, _write) = std::io::pipe().expect("pipe");
+        let fds = vec![read.as_raw_fd()];
+        let mut command = std::process::Command::new("/nonexistent/cmux-browser-host");
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe { command.pre_exec(move || super::inherited_fds_only(&fds, 4096)) };
+        let error = command.spawn().expect_err("exec of a missing binary");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+    }
+}
