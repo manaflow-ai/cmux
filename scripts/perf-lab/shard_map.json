@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 17590,
-            "T2": 20520
+            "T2": 22650
           },
           "stories": {
             "T1": [
@@ -66,10 +66,15 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cli-storm",
+              "cli-storm-stress",
               "command-pan-stress",
+              "daemon-spawn",
               "launch-after-reboot",
               "new-surfaces-stress",
               "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
               "sidebar-churn-typing",
               "typing-flood-stress"
             ]
@@ -86,7 +91,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 20520
+            "T2": 22650
           },
           "stories": {
             "T2": [
@@ -107,10 +112,15 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "cli-storm",
+              "cli-storm-stress",
               "command-pan-stress",
+              "daemon-spawn",
               "launch-after-reboot",
               "new-surfaces-stress",
               "perceived-speed",
+              "script-storm",
+              "script-storm-stress",
               "sidebar-churn-typing",
               "typing-flood-stress"
             ]

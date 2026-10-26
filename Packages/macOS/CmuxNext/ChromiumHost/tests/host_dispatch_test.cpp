@@ -90,6 +90,9 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char*) {
   shim.calls.push_back("devtools " + std::to_string(browser_id) + " " + method);
   return shim.devtools_result;
 }
+void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int, int, int, int) {
+  shim.calls.push_back("placement " + std::to_string(browser_id) + (parent_view ? " view" : " noview"));
+}
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
   shim.calls.push_back("nav_state " + std::to_string(browser_id));
@@ -429,6 +432,66 @@ void DevTools() {
   Expect(f.Sent(), {"event 13 3 501", "ack 41"}, "a refused call is a DEVTOOLS_RESULT for its minted id, before the ack");
 }
 
+// devtools_set_placement's view (task 024): the placement stands for every
+// DevTools of the inspected browser, Chromium's own opens too (context menu
+// Inspect), so a DevTools close keeps it and its view. The view closes with
+// the inspected browser or a placement that replaces it.
+void DevToolsPlacementView() {
+  Fixture f;
+  f.Start();
+  Writer create;
+  create.I32(kMinted);
+  create.I32(42);
+  create.ViewToken(9);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://b/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 20, create)});
+  auto place = [&](uint32_t token, uint64_t view) {
+    Writer w;
+    w.I32(kMinted);
+    w.ViewToken(view);
+    w.I32(0);
+    w.I32(0);
+    w.I32(400);
+    w.I32(300);
+    f.host.OnMessages({Op(kOpDevtoolsSetPlacement, token, w)});
+  };
+  shim.calls.clear();
+  place(21, 12);
+  Expect(shim.calls, {"placement 3 view"}, "the placement reaches the shim for Chromium's browser, with the host's view");
+  Expect(f.views.calls, {"open 9", "open 12"}, "the DevTools placement opens its own view");
+
+  Emit(CMUX_SHIM_DEVTOOLS_CLOSED, 3, 0);
+  Emit(CMUX_SHIM_DEVTOOLS_CLOSED, 3, 0);
+  Expect(shim.calls, {"placement 3 view"}, "a closed DevTools leaves the placement standing for the next open");
+  Expect(f.views.calls, {"open 9", "open 12"}, "a closed DevTools keeps its placement's view");
+
+  place(22, 12);
+  Expect(f.views.calls, {"open 9", "open 12", "open 12"}, "the same view placed again stays open");
+
+  place(23, 0);
+  Expect(shim.calls, {"placement 3 view", "placement 3 view", "placement 3 noview"},
+         "a placement in a window of its own reaches the shim with no view");
+  Expect(f.views.calls, {"open 9", "open 12", "open 12", "close 12"},
+         "a placement in a window of its own closes the view it replaced");
+  Emit(CMUX_SHIM_DEVTOOLS_CLOSED, 3, 0);
+  Check(f.views.calls.size() == 4, "a DevTools close after it releases nothing");
+
+  place(24, 13);
+  place(25, 14);
+  Expect(f.views.calls, {"open 9", "open 12", "open 12", "close 12", "open 13", "open 14", "close 13"},
+         "a placement that names another view closes the one it replaced");
+
+  shim.calls.clear();
+  Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+  Expect(f.views.calls,
+         {"open 9", "open 12", "open 12", "close 12", "open 13", "open 14", "close 13", "close 14", "close 9"},
+         "the inspected browser's close closes its DevTools view and its page view");
+  Check(shim.calls.empty(), "the shim forgets a closed browser's placement itself");
+}
+
 void FocusOnlyFromCmux() {
   Fixture f;
   f.Start();
@@ -530,6 +593,7 @@ int main() {
   MintedWindow();
   MintedTab();
   DevTools();
+  DevToolsPlacementView();
   FocusOnlyFromCmux();
   Shutdown();
   BadMessages();

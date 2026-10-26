@@ -133,9 +133,13 @@ AGENT_MARK = "agent_pane.handshake_end"
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
     ("main_start", "process start -> main()"),
+    ("main.environment_frozen", "main: environment prepared and frozen"),
     ("main.warmup_started", "main: launch warm-up started"),
+    ("main.app_environment", "main: app environment and state paths"),
+    ("main.launch_reads", "main: launch reads posted"),
     ("main.prestart", "main: daemon prestart"),
-    ("main.nsapp", "main: NSApp and delegate"),
+    ("main.delegate", "main: launch order and delegate"),
+    ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
@@ -206,6 +210,9 @@ MARKS = [
     ("startup_complete", "startup complete (StartupScheduler)"),
 ]
 STARTUP_COMPLETE = "startup_complete"
+# P1, main() on the main thread (p08-startup 033): from its first mark to NSApplication.run, per run.
+MAIN_SPAN = ("main_start", "main.run")
+MAIN_BUDGET_MS = 10.0
 # The completion's reason, an instant time mark `startup_complete.<reason>` sent with it (LaunchOrder).
 COMPLETION_INSTANT = STARTUP_COMPLETE + "."
 FAILSAFE = "failsafe"
@@ -904,6 +911,19 @@ def run_values(marks):
     return shown
 
 
+def main_span_summary(runs):
+    """The main() span (MAIN_SPAN) of each run as a spread against MAIN_BUDGET_MS: a distribution of per-run
+    spans, not the gap between two medians. None when no run has both marks (a build before them)."""
+    start, end = MAIN_SPAN
+    spans = [run[end] - run[start] for run in runs if is_number(run.get(start)) and is_number(run.get(end))]
+    if not spans:
+        return None
+    values = spread(spans)
+    cells = "  ".join(f"{column} {value:.1f}" for column, value in values.items())
+    over = sum(span > MAIN_BUDGET_MS for span in spans)
+    return f"  main(): {start} -> {end} ms {cells}  n {len(spans)}; {over} over {MAIN_BUDGET_MS:g} ms"
+
+
 def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
@@ -1273,6 +1293,9 @@ def main():
             print(f"  {'phase':<46} {spread_header()} {'gap':>8}  n")
             for label, mark, values, gap, count in table(runs):
                 print(f"  {label:<46} {spread_cells(values)} {gap:>+8.0f}  {count}")
+            span = main_span_summary(runs)
+            if span:
+                print(span)
             for line in value_summary(runs, args.temperature):
                 print(line)
             if args.hangs:

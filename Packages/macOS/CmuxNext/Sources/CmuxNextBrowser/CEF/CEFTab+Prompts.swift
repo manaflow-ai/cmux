@@ -44,9 +44,11 @@ extension CEFTab {
     /// limiter (`DownloadRequestLimiter`, which would ask with its own
     /// bubble before cmux sees the download) gets the profile default
     /// "allow". CEF does not set defaults of an incognito context; there
-    /// Chromium's limiter stays as it is.
+    /// Chromium's limiter stays as it is. In host mode the read is a REPLY.
     func leaveAutomaticDownloadsToCmux(_ browser: Int32) {
-        guard runtime.contentSetting(browser, url: nil, kind: .automaticDownloads) != .allow else { return }
-        runtime.setContentSetting(browser, url: "", kind: .automaticDownloads, value: .allow)
+        runtime.contentSetting(browser, url: nil, kind: .automaticDownloads) { [runtime] setting in
+            guard setting != .allow else { return }
+            runtime.setContentSetting(browser, url: "", kind: .automaticDownloads, value: .allow)
+        }
     }
 }

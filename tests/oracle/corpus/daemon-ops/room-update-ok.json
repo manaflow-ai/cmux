@@ -57,7 +57,8 @@
       "args": {
         "method": "room.update",
         "params": {
-          "room": "$step:fx-room#/value/id"
+          "room": "$step:fx-room#/value/id",
+          "name": "oracle"
         },
         "idempotencyKey": "room-update-ok.call"
       },

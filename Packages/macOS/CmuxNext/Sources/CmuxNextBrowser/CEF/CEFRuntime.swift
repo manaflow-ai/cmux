@@ -59,7 +59,7 @@ final class CEFRuntime {
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
     private(set) lazy var accessibility = CEFAccessibility(
-        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        apply: { [weak self] browser, enabled in self?.setPageAccessibility(browser, enabled) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
@@ -68,6 +68,8 @@ final class CEFRuntime {
     /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
     /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
     var pointerFrames: FrameInputCoalescers?
+    /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
+    var chromiumFeatures: [String] = []
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -113,6 +115,12 @@ final class CEFRuntime {
     /// Replies that arrived before their caller awaited.
     var earlySiteReplies: [Int32: CEFSiteReply] = [:]
     var nextSiteReply: Int32 = 1
+    /// Host mode: where async exports answer (``sendAsync(_:)``); nil in process, where each call does.
+    var hostReplies: CEFHostReplyRoute?
+    /// Host mode: the last page view token minted (``mintPageViewToken()``).
+    var lastPageViewToken: UInt64 = 0
+    /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
+    var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
@@ -146,6 +154,8 @@ final class CEFRuntime {
     var pumpInput: CEFPumpInputSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
+    /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
+    private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
     private var switchStorage: [UnsafeMutablePointer<CChar>?] = []
     /// The off-main library load; every concurrent first tab awaits it.
@@ -354,29 +364,6 @@ final class CEFRuntime {
         }
     }
 
-    enum BootError: Error, CustomStringConvertible {
-        case notEmbedded
-        case untrusted(String)
-        case shim(CEFShimLibrary.LoadError)
-        case framework(String)
-        /// Host mode: no Chromium Host to attach to (the reason).
-        case host(String)
-        /// NSApp is not a CefAppProtocol NSApplication subclass.
-        case application
-        case initialize
-
-        var description: String {
-            switch self {
-            case .notEmbedded: "runtime not embedded"
-            case .untrusted(let item): "runtime signature: \(item)"
-            case .shim(let error): "shim: \(error)"
-            case .framework(let message), .host(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
-            case .initialize: "CefInitialize failed"
-            }
-        }
-    }
-
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
     nonisolated static func loadLibrary(
@@ -419,6 +406,7 @@ final class CEFRuntime {
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
+        hostReplies = try CEFHostReplyRoute.route(for: library)
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
@@ -426,10 +414,15 @@ final class CEFRuntime {
             if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
                 logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
             }
+            // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
+            // keep the ms path. No request comes before CefInitialize, so the pump need not exist yet.
+            let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
+            logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
-                gate: pumpGate
+                gate: pumpGate,
+                absoluteRunTimes: absoluteRunTimes
             )
             self.pump = pump
             if let pumpInput, let input {
@@ -444,11 +437,13 @@ final class CEFRuntime {
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
+            chromiumFeatures: chromiumFeatures,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
         )
         builtInAdBlockerLoaded = !switchSet.builtInExtensions.isEmpty
+        processReusePerRendererDevTools = switchSet.arguments.contains(CEFSwitches.processReusePerRendererDevTools)
         logger.notice("built-in extensions: \(switchSet.builtInExtensions.count, privacy: .public)")
         loadsUnpackedExtensions = !switchSet.loadExtensions.isEmpty
         shim.setExtensionDeveloperMode(loadsUnpackedExtensions ? 1 : 0)
@@ -547,6 +542,11 @@ final class CEFRuntime {
         guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
         hosts[host.key] = nil
         if lastShownHost === host { lastShownHost = nil }
+    }
+
+    /// Builds or drops `browser`'s page accessibility tree (`CEFAccessibility`). A post: nothing to read back.
+    func setPageAccessibility(_ browser: Int32, _ enabled: Bool) {
+        shim?.setAccessibility(browser, enabled ? 1 : 0)
     }
 
     func makeRequestToken() -> Int32 {

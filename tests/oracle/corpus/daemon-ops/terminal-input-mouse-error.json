@@ -61,7 +61,8 @@
         "params": {
           "kind": "oracle-not-in-enum",
           "row": 1,
-          "column": 1
+          "column": 1,
+          "button": "left"
         },
         "idempotencyKey": "terminal-input-mouse-error.call"
       },

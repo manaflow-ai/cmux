@@ -38,7 +38,8 @@
       "args": {
         "method": "room.update",
         "params": {
-          "room": ""
+          "room": "",
+          "name": "oracle"
         },
         "idempotencyKey": "room-update-error.call"
       },

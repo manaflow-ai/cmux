@@ -150,5 +150,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked"
   ]
 }

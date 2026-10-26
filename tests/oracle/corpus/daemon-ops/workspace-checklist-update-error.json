@@ -59,7 +59,8 @@
       "args": {
         "method": "workspace_checklist.update",
         "params": {
-          "item": ""
+          "item": "",
+          "text": "oracle"
         },
         "idempotencyKey": "workspace-checklist-update-error.call"
       },

@@ -59,7 +59,8 @@
       "args": {
         "method": "column.update",
         "params": {
-          "column": "oracle"
+          "column": "oracle",
+          "dock": false
         },
         "idempotencyKey": "column-update-error.call"
       },

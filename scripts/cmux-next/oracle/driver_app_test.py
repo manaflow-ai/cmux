@@ -382,6 +382,11 @@ class AppSessionTest(unittest.TestCase):
         self.assertEqual(session.run_case(case(wrong), {"case_id": "actions/x"})["status"], "Failure")
         user = dict(NEW_WORKSPACE, args={"action": "workspace.new", "entrypoint": "key"})
         self.assertEqual(session.run_case(case(user), {"case_id": "actions/x"})["status"], "Crash")
+        # The reply gives no details: an errorDetails check is a Crash, never a silent pass.
+        detailed = dict(refused, expect={**refused["expect"], "errorDetails": {"extra": {"code": "x"}}})
+        result = session.run_case(case(detailed), {"case_id": "actions/x"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("errorDetails", result["message"])
 
     def test_other_drivers_ops_and_unsupported_environment_fail_loudly(self) -> None:
         session = self.session()

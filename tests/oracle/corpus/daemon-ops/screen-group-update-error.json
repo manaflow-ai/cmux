@@ -38,7 +38,8 @@
       "args": {
         "method": "screen_group.update",
         "params": {
-          "screen_group": ""
+          "screen_group": "",
+          "name": "oracle"
         },
         "idempotencyKey": "screen-group-update-error.call"
       },

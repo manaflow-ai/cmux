@@ -4,8 +4,63 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 201,
-  "excluded": {},
+  "covered": 148,
+  "verdicts": "not run",
+  "excluded": {
+    "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
+    "browser.activate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.back": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.forward": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.key": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.mouse": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.input.text": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "chief.profile.adopt": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
+    "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
+    "column.update": "placeholders params.column: p15-oracle-066 tunes the success case",
+    "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
+    "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
+    "conversation.typing": "placeholders params.conversation: p15-oracle-069 tunes the success case",
+    "frontend_projection.put": "placeholders params.frontend_id, params.window_id, target.frontend_projection: p15-oracle-070 tunes the success case",
+    "git.checkpoint.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.checkpoint.pin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.checkpoint.unpin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.commit": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.push": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.worktree.apply": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.worktree.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "git.worktree.remove": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
+    "history.backups.purge": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
+    "history.entries.remove": "placeholders params.ids[0]: p15-oracle-070 tunes the success case",
+    "history.restore": "placeholders params.restore_id: p15-oracle-070 tunes the success case",
+    "history.visit.import": "placeholders params.path: p15-oracle-070 tunes the success case",
+    "notification.ack": "placeholders params.client_id: p15-oracle-070 tunes the success case",
+    "pairing_request.resolve": "placeholders target.pairing_request: p15-oracle-070 tunes the success case",
+    "pane.split_ratio.set": "placeholders params.split_id: p15-oracle-066 tunes the success case",
+    "participant.avatar.set": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
+    "project.add": "placeholders params.path: p15-oracle-068 tunes the success case",
+    "project.observe": "placeholders params.entries[0].path: p15-oracle-068 tunes the success case",
+    "project.remove": "placeholders params.path: p15-oracle-068 tunes the success case",
+    "project.update": "placeholders params.path: p15-oracle-068 tunes the success case",
+    "session.journal.append": "placeholders params.event.producer_id: p15-oracle-063 tunes the success case",
+    "session.journal.hook.put": "placeholders params.manifest.hook_id: p15-oracle-063 tunes the success case",
+    "session.journal.producer.put": "placeholders params.manifest.producer_id: p15-oracle-063 tunes the success case",
+    "sidebar.group.ungroup": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.group.update": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.item.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.item.update": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.move": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
+    "sidebar.pin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
+    "sidebar.section.move": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.section.remove": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.section.update": "placeholders params.id: p15-oracle-062 tunes the success case",
+    "sidebar.unpin": "placeholders params.items[0]: p15-oracle-062 tunes the success case",
+    "window_record.delete": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
+    "window_record.put": "placeholders params.install_id, params.window_id: p15-oracle-070 tunes the success case",
+    "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
+  },
   "missing": [],
   "families": {
     "browser": 17,
@@ -47,6 +102,7 @@
         "error": "daemon-ops/agent-message-release-error"
       },
       "fixture": [
+        "fx-workspace",
         "fx-message"
       ],
       "error": {
@@ -62,7 +118,9 @@
         "success": "daemon-ops/agent-message-send-ok",
         "error": "daemon-ops/agent-message-send-error"
       },
-      "fixture": [],
+      "fixture": [
+        "fx-workspace"
+      ],
       "error": {
         "code": "validation.invalid",
         "field": "body",
@@ -77,6 +135,7 @@
         "error": "daemon-ops/agent-message-unsend-error"
       },
       "fixture": [
+        "fx-workspace",
         "fx-message"
       ],
       "error": {
@@ -117,6 +176,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -147,6 +207,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -233,6 +294,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -262,6 +324,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -291,6 +354,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -320,6 +384,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -349,6 +414,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -378,6 +444,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -444,6 +511,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -668,7 +736,8 @@
         "field": "closed",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "a fresh daemon has no closed group to reopen; the family task closes one first"
     },
     "column.update": {
       "family": "layout",
@@ -782,7 +851,8 @@
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.checkpoint.pin": {
       "family": "git",
@@ -801,7 +871,8 @@
       "placeholders": [
         "params.checkpoint_id",
         "params.pin_id"
-      ]
+      ],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.checkpoint.unpin": {
       "family": "git",
@@ -820,7 +891,8 @@
       "placeholders": [
         "params.checkpoint_id",
         "params.pin_id"
-      ]
+      ],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.commit": {
       "family": "git",
@@ -836,7 +908,8 @@
         "field": "message",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.push": {
       "family": "git",
@@ -852,7 +925,8 @@
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.worktree.apply": {
       "family": "git",
@@ -868,7 +942,8 @@
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.worktree.create": {
       "family": "git",
@@ -884,7 +959,8 @@
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "git.worktree.remove": {
       "family": "git",
@@ -900,7 +976,8 @@
         "field": "path",
         "rule": "value has too few UTF-8 bytes"
       },
-      "placeholders": []
+      "placeholders": [],
+      "gap": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"
     },
     "history.backups.purge": {
       "family": "misc",
@@ -1829,7 +1906,8 @@
         "error": "daemon-ops/screen-group-remove-screens-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-screen-group"
       ],
       "error": {
         "code": "validation.invalid",
@@ -2691,7 +2769,8 @@
         "error": "daemon-ops/tab-group-remove-tabs-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-tab-group"
       ],
       "error": {
         "code": "validation.invalid",

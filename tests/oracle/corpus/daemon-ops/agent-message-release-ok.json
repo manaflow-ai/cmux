@@ -29,6 +29,26 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "agent-message-release-ok.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "fx-message",
       "op": "resource.call",
       "target": {
@@ -38,6 +58,9 @@
       "args": {
         "method": "agent.message.send",
         "params": {
+          "recipients": [
+            "$step:fx-workspace#/value/terminal_id"
+          ],
           "body": "oracle"
         },
         "idempotencyKey": "agent-message-release-ok.fx-message"

@@ -111,9 +111,15 @@ public struct TerminalEnvironment: Sendable {
         version: String?,
         fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
-        var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
+        ghostty(resourcesDirectory: resourcesDirectory, version: version,
+                terminfoInstalled: Self.hasInstalledGhosttyTerminfo(fileExists: fileExists))
+    }
+
+    /// The same identity on a terminfo answer already looked up
+    /// (``hasInstalledGhosttyTerminfo(home:fileExists:)``, off the main thread): no disk call.
+    public func ghostty(resourcesDirectory: String?, version: String?, terminfoInstalled: Bool) -> [String: String] {
+        var env = ["TERM": terminfoInstalled ? "xterm-ghostty" : "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
         if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
-        if Self.hasInstalledGhosttyTerminfo(fileExists: fileExists) { env["TERM"] = "xterm-ghostty" }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         return env
     }

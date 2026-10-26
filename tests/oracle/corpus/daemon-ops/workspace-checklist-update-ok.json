@@ -79,7 +79,8 @@
       "args": {
         "method": "workspace_checklist.update",
         "params": {
-          "item": "$step:fx-checklist#/value/items/0/id"
+          "item": "$step:fx-checklist#/value/items/0/id",
+          "text": "oracle"
         },
         "idempotencyKey": "workspace-checklist-update-ok.call"
       },
