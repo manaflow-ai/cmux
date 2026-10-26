@@ -158,6 +158,10 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, board: mainBoard, input: inputTap) { DebugTimings.markLaunch($0) }
+        // Main-actor jobs wait behind pending input (p04-input-076); installed as `debug.mainJobGate` says (AppServices.settings).
+        if features.isEnabled(.mainJobGate), let pending = order.mainWork.budget.pendingInput as? SessionInputPending {
+            (app as? CmuxApplication)?.jobGate = MainJobGateSwitch(pending: pending)
+        }
         DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         LaunchThreadCensus.post(on: order.startup) { LaunchMarkSink.shared.writeValue(name: $0, value: $1) } // Debug/bench: threads at the first frame (p08-startup-068)
         if let pictures = environment.windowPictures { order.startup.whenComplete { _ in pictures.dropFront() } } // decoded pictures are large
