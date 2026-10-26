@@ -206,12 +206,19 @@ export class OutputTail {
     this.keep(line);
   }
 
+  /**
+   * Old output drops off a window at a time (so the redactor runs over each dropped block once).
+   * When the dropped block ends where the redactor would still be inside a secret's value (an
+   * open quote, or a label whose value is the next line), the kept text starts with a stand-in
+   * label with the same effect, so dropping the label never exposes its value.
+   */
   private keep(line: string): void {
     this.kept += line;
-    if (this.kept.length <= SANDBOX_OUTPUT_TAIL_CHARS) return;
-    const cut = this.kept.slice(-SANDBOX_OUTPUT_TAIL_CHARS);
-    const lineStart = cut.indexOf("\n");
-    this.kept = lineStart < 0 ? "" : cut.slice(lineStart + 1);
+    if (this.kept.length <= 2 * SANDBOX_OUTPUT_TAIL_CHARS) return;
+    const lineStart = this.kept.indexOf("\n", this.kept.length - SANDBOX_OUTPUT_TAIL_CHARS);
+    if (lineStart < 0) return;
+    const context = standIn(this.kept.slice(0, lineStart));
+    this.kept = `${context ? `[earlier output omitted] ${context}` : ""}${this.kept.slice(lineStart + 1 - (context ? 1 : 0))}`;
   }
 
   toString(): string {
@@ -242,12 +249,26 @@ export class OutputTail {
 function omittedLine(head: string, tail: string): string {
   // A line that started a key block keeps saying so, so taking back a body stops there.
   const placeholder = head.includes("-----BEGIN") ? "[long line omitted] -----BEGIN" : "[long line omitted]";
-  const opensQuote = !redactReceiptText(`${head}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE);
-  if (opensQuote && !/["']/.test(tail)) return `${placeholder} secret="`;
-  if (redactReceiptText(`${tail}\n${VALUE_PROBE}`).includes(VALUE_PROBE)) return placeholder;
+  const opened = standIn(head);
+  const quote = opened.slice("secret=".length);
+  // The value the line's start opened is closed only by its own quote character in what is left.
+  if (quote && !tail.replace(/\\./g, "").includes(quote)) return `${placeholder} ${opened}`;
+  const after = standIn(tail);
+  return after ? `${placeholder} ${after}` : placeholder;
+}
+
+/**
+ * The stand-in label for text the reply drops: `secret="` (or `secret='`) when the redactor
+ * would read on past the text's end inside a quoted secret value, `secret=` when it would take
+ * the next line as a secret's value, and nothing otherwise. Probed with the receipt's own
+ * redactor, so its grammar is the one used everywhere.
+ */
+function standIn(text: string): string {
+  if (redactReceiptText(`${text}\n${VALUE_PROBE}`).includes(VALUE_PROBE)) return "";
   // Inside an open quote the redactor keeps going past a space; after a bare label it stops.
-  const quoted = !redactReceiptText(`${tail}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE);
-  return `${placeholder} secret=${quoted ? '"' : ""}`;
+  if (redactReceiptText(`${text}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE)) return "secret=";
+  const quote = /["'](?=[^"']*$)/.exec(text.replace(/\\./g, ""))?.[0] ?? '"';
+  return `secret=${quote}`;
 }
 
 /** `kept` without the key body that ends it: base64 lines back to (and with) a line holding BEGIN. */
