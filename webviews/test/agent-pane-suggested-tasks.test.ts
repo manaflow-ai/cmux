@@ -573,7 +573,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       expect(await card.locator(".cv-received__body").innerText()).toBe(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
-      expect(await card.getByRole("button", { name: "Details" }).count()).toBe(0);
+      expect(await card.getByRole("button", { name: "Details" }).count()).toBe(1);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the prompt as the agent got it (cmux's envelope, message id and note) waits behind
       // Details.
