@@ -11,21 +11,41 @@ package import CmuxNextWakeups
 /// ``window`` old (a hide's plan asks for the first, the page's baseline); the caller reads the renderers off the main
 /// actor, hands the reading to ``land(_:generation:)`` and plans again, so a page busy at the hide freezes at the first
 /// plan the app makes anyway ``window`` or more later, never later than the grace.
+///
+/// A page's share is its renderers' CPU between two readings, as Chrome's `CPUMeasurementMonitor` measures
+/// (components/performance_manager/resource_attribution/cpu_measurement_monitor.cc): each renderer's delta since its
+/// previous reading, split evenly between the tabs it serves now. A renderer read for the first time counts from that
+/// reading, and a page counts only when it stayed hidden from the reading before to the one after.
 package nonisolated struct SaverCPUFreeze: Sendable {
-    /// One reading: each read page's renderer CPU time so far, and when it was read.
+    /// One reading: the renderers that serve a read page, and when they were read.
     package struct Reading: Sendable {
-        package var cpu: [String: Duration]
+        /// One renderer: its CPU time so far and every tab it serves now (shown tabs too, which take their part).
+        package struct Renderer: Sendable {
+            package var id: ProcessUsage.Renderer
+            package var cpu: Duration
+            package var tabs: [String]
+
+            package init(id: ProcessUsage.Renderer, cpu: Duration, tabs: [String]) {
+                self.id = id
+                self.cpu = cpu
+                self.tabs = tabs
+            }
+        }
+
+        package var renderers: [Renderer]
         package var at: ContinuousClock.Instant
 
-        package init(cpu: [String: Duration], at: ContinuousClock.Instant) {
-            self.cpu = cpu
+        package init(renderers: [Renderer], at: ContinuousClock.Instant) {
+            self.renderers = renderers
             self.at = at
         }
     }
 
-    /// A reading the caller is to take: the pages to read, and the generation ``land(_:generation:)`` checks.
+    /// A reading the caller is to take: the pages to read, when each last hid, and the generation
+    /// ``land(_:generation:)`` checks.
     package struct Request: Sendable, Equatable {
         package var keys: [String]
+        package var hiddenSince: [String: ContinuousClock.Instant]
         package var generation: UInt64
     }
 
@@ -37,9 +57,12 @@ package nonisolated struct SaverCPUFreeze: Sendable {
     /// Each hidden page's CPU share of one core between its last two readings.
     package private(set) var proportions: [String: Double] = [:]
     package private(set) var lastReadingAt: ContinuousClock.Instant?
-    private var baseline: [String: (cpu: Duration, at: ContinuousClock.Instant)] = [:]
+    /// Each renderer's CPU time at ``lastReadingAt``.
+    private var baseline: [ProcessUsage.Renderer: Duration] = [:]
+    /// When each page of the last reading had last hid, as its request saw it.
+    private var hiddenSince: [String: ContinuousClock.Instant] = [:]
     /// The reading asked for and not landed yet.
-    private var measuring: UInt64?
+    private var measuring: Request?
     private var generation: UInt64 = 0
 
     package init() {}
@@ -53,18 +76,21 @@ package nonisolated struct SaverCPUFreeze: Sendable {
             self = SaverCPUFreeze(generation: generation)
             return (candidates, nil)
         }
-        for candidate in candidates {
-            // A reading from before the page last hid counts time it showed: its window starts again.
-            if let before = baseline[candidate.key], before.at < now - .seconds(candidate.hiddenFor) - .milliseconds(1) {
-                baseline[candidate.key] = nil
-                proportions[candidate.key] = nil
+        let hides = candidates.map { (key: $0.key, at: now - .seconds($0.hiddenFor)) }
+        for hide in hides {
+            // Shown since its last request, even while that reading was out: its share counts time it showed. The last
+            // reading is still its baseline when it came after the new hide.
+            if let read = hiddenSince[hide.key], !Self.sameHide(read, hide.at) {
+                hiddenSince[hide.key] = lastReadingAt.flatMap { $0 > hide.at + .milliseconds(1) ? hide.at : nil }
+                proportions[hide.key] = nil
             }
         }
         var read: Request?
         if !candidates.isEmpty, measuring == nil, lastReadingAt.map({ now - $0 >= Self.window }) ?? true {
             generation &+= 1
-            measuring = generation
-            read = Request(keys: candidates.map(\.key), generation: generation)
+            read = Request(keys: hides.map { $0.key }, hiddenSince: Dictionary(hides.map { ($0.key, $0.at) }) { first, _ in first },
+                           generation: generation)
+            measuring = read
         }
         let planned = candidates.map { candidate in
             var busy = candidate
@@ -74,20 +100,30 @@ package nonisolated struct SaverCPUFreeze: Sendable {
         return (planned, read)
     }
 
-    /// Takes the reading of request `generation`: each page read before gets its share since then, and every page
-    /// read now is the next window's baseline. A page whose time went back (a renderer it shared left) gets no share.
+    /// Takes the reading of request `generation`: each renderer read before adds its delta since then, split between
+    /// the tabs it serves now, to each read page hidden since that reading; every renderer read now is the next
+    /// window's baseline. A renderer whose time went back (a new process on its id) adds nothing.
     /// - Returns: False when the reading no longer applies (the saver ended, or a newer one was asked for): nothing changed.
     @discardableResult
     package mutating func land(_ reading: Reading, generation: UInt64) -> Bool {
-        guard measuring == generation else { return false }
+        guard let request = measuring, request.generation == generation else { return false }
         measuring = nil
         var next: [String: Double] = [:]
-        for (key, cpu) in reading.cpu {
-            guard let before = baseline[key], reading.at > before.at, cpu >= before.cpu else { continue }
-            next[key] = (cpu - before.cpu) / (reading.at - before.at)
+        if let since = lastReadingAt, reading.at > since {
+            let span = reading.at - since
+            let stayedHidden = Set(request.keys.filter { key in
+                guard let before = hiddenSince[key], let now = request.hiddenSince[key] else { return false }
+                return Self.sameHide(before, now)
+            })
+            for renderer in reading.renderers where !renderer.tabs.isEmpty {
+                guard let before = baseline[renderer.id], renderer.cpu >= before else { continue }
+                let share = (renderer.cpu - before) / span / Double(renderer.tabs.count)
+                for tab in renderer.tabs where stayedHidden.contains(tab) { next[tab, default: 0] += share }
+            }
         }
         proportions = next
-        baseline = reading.cpu.mapValues { (cpu: $0, at: reading.at) }
+        baseline = Dictionary(reading.renderers.map { ($0.id, $0.cpu) }) { first, _ in first }
+        hiddenSince = request.hiddenSince
         lastReadingAt = reading.at
         return true
     }
@@ -96,21 +132,20 @@ package nonisolated struct SaverCPUFreeze: Sendable {
         self.generation = generation
     }
 
-    /// The reading of `keys` from the tabs' renderers (`tabs`) and the sampled renderer processes (`renderers`).
-    package static func reading(of keys: Set<String>, tabs: [ProcessUsage.TabRenderers],
-                                renderers: [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)]) -> Reading {
-        Reading(cpu: cpuTime(ProcessUsage.perTab(tabs, renderers: renderers)).filter { keys.contains($0.key) }, at: .now)
+    /// Two hide instants of one page are the same hide (they come back from seconds hidden, so they differ by rounding).
+    private static func sameHide(_ a: ContinuousClock.Instant, _ b: ContinuousClock.Instant) -> Bool {
+        (a < b ? b - a : a - b) <= .milliseconds(1)
     }
 
-    /// Each tab's CPU time: a renderer several tabs share is split evenly between them, as Chrome's resource
-    /// attribution splits a process's CPU between its frames (components/performance_manager/resource_attribution/
-    /// cpu_measurement_monitor.cc), so a hidden page is not charged in full for a shown page of the same site.
-    package static func cpuTime(_ usage: [ProcessUsage.TabUsage]) -> [String: Duration] {
-        var cpu: [String: Duration] = [:]
-        for tab in usage {
-            let nanos = tab.renderers.reduce(0.0) { $0 + Double($1.usage.cpuNanos) / Double(max($1.tabs.count, 1)) }
-            cpu[tab.tab] = .nanoseconds(Int64(nanos.rounded()))
-        }
-        return cpu
+    /// The reading of `keys` from the tabs' renderers (`tabs`) and the sampled renderer processes (`renderers`): each
+    /// renderer that serves one of `keys`, with every tab it serves.
+    package static func reading(of keys: Set<String>, tabs: [ProcessUsage.TabRenderers],
+                                renderers: [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)],
+                                at: ContinuousClock.Instant = .now) -> Reading {
+        Reading(renderers: renderers.compactMap { sample -> Reading.Renderer? in
+            let served = ProcessUsage.tabs(tabs, servedBy: sample.renderer).map(\.tab)
+            guard served.contains(where: { keys.contains($0) }) else { return nil }
+            return Reading.Renderer(id: sample.renderer, cpu: .nanoseconds(Int64(clamping: sample.usage.cpuNanos)), tabs: served)
+        }, at: at)
     }
 }

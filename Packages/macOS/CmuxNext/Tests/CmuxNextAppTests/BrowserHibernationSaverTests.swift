@@ -85,15 +85,37 @@ struct BrowserHibernationSaverTests {
         let start = ContinuousClock.now
         var rule = SaverCPUFreeze()
         let first = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
-        #expect(rule.land(.init(cpu: ["a": .zero], at: start), generation: first.generation))
+        #expect(rule.land(Self.reading(["a": .zero], at: start), generation: first.generation))
         let second = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10)], saver: true, now: start + .seconds(10)).read)
-        #expect(rule.land(.init(cpu: ["a": .seconds(5)], at: start + .seconds(10)), generation: second.generation))
+        #expect(rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(10)), generation: second.generation))
         #expect(abs((rule.proportions["a"] ?? 0) - 0.5) < 1e-9)
         // Hidden again 1 s ago, after both readings: its share is dropped, so it does not count as past the grace.
         let planned = rule.pastGrace([.init(key: "a", hiddenFor: 1)], saver: true, now: start + .seconds(12))
         #expect(planned.candidates.first?.hiddenFor == 1)
         #expect(planned.read == nil, "a reading was asked for inside the window")
         #expect(rule.proportions["a"] == nil)
+        // The next window starts at the hide's first reading.
+        let third = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 9)], saver: true, now: start + .seconds(20)).read)
+        #expect(rule.land(Self.reading(["a": .seconds(9)], at: start + .seconds(20)), generation: third.generation))
+        #expect(rule.proportions["a"] == nil, "a window that started before the hide counted")
+    }
+
+    /// Shown and hidden again while a reading was out: that reading's share covers time it showed, so it is dropped,
+    /// and the reading, taken after the new hide, is the next window's baseline.
+    @Test func aPageShownWhileItsReadingWasOutStartsAgain() throws {
+        let start = ContinuousClock.now
+        var rule = SaverCPUFreeze()
+        let first = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
+        #expect(rule.land(Self.reading(["a": .zero], at: start), generation: first.generation))
+        let second = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10)], saver: true, now: start + .seconds(10)).read)
+        // Shown at 10.2 s and busy, hidden again at 10.5 s; the renderers are read at 11 s.
+        #expect(rule.land(Self.reading(["a": .seconds(5)], at: start + .seconds(11)), generation: second.generation))
+        let planned = rule.pastGrace([.init(key: "a", hiddenFor: 0.5)], saver: true, now: start + .seconds(11))
+        #expect(planned.candidates.first?.hiddenFor == 0.5, "a page busy while it showed counted as past the grace")
+        #expect(rule.proportions["a"] == nil)
+        let third = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 10.5)], saver: true, now: start + .seconds(21)).read)
+        #expect(rule.land(Self.reading(["a": .seconds(8)], at: start + .seconds(21)), generation: third.generation))
+        #expect(abs((rule.proportions["a"] ?? 0) - 0.3) < 1e-9)
     }
 
     /// A reading asked for before the saver ended lands on nothing, even once the saver is back and asked again.
@@ -103,28 +125,80 @@ struct BrowserHibernationSaverTests {
         let stale = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 0)], saver: true, now: start).read)
         _ = rule.pastGrace([.init(key: "a", hiddenFor: 1)], saver: false, now: start + .seconds(1))
         let fresh = try #require(rule.pastGrace([.init(key: "a", hiddenFor: 2)], saver: true, now: start + .seconds(2)).read)
-        #expect(!rule.land(.init(cpu: ["a": .zero], at: start), generation: stale.generation))
+        #expect(!rule.land(Self.reading(["a": .zero], at: start), generation: stale.generation))
         #expect(rule.lastReadingAt == nil)
-        #expect(rule.land(.init(cpu: ["a": .zero], at: start + .seconds(2)), generation: fresh.generation))
+        #expect(rule.land(Self.reading(["a": .zero], at: start + .seconds(2)), generation: fresh.generation))
     }
 
     /// A renderer two tabs share is split between them: a hidden page beside a busy shown page of its site is not busy.
-    @Test func aSharedRendererIsSplitBetweenItsTabs() {
-        func usage(pid: pid_t, cpu: UInt64) -> ProcessUsage {
-            ProcessUsage(pid: pid, parent: 1, path: "renderer", cpuNanos: cpu, wakeups: 0, interruptWakeups: 0,
-                         packageIdleWakeups: 0, energyNanojoules: 0, physFootprint: 0, uptimeNanos: 0)
-        }
+    @Test func aSharedRendererIsSplitBetweenItsTabs() throws {
         let tabs = [
             ProcessUsage.TabRenderers(tab: "shown", title: "", pid: 10, rendererClients: [1]),
             ProcessUsage.TabRenderers(tab: "hidden", title: "", pid: 10, rendererClients: [1, 2]),
         ]
-        let renderers = [
-            (renderer: ProcessUsage.Renderer(pid: 10, clientID: 1), usage: usage(pid: 10, cpu: 8_000_000_000)),
-            (renderer: ProcessUsage.Renderer(pid: 11, clientID: 2), usage: usage(pid: 11, cpu: 1_000_000_000)),
+        let shares = try Self.shares(of: "hidden", tabs: (tabs, tabs), cpu: [
+            (renderer: Self.renderer(10, 1), first: 100_000_000_000, second: 108_000_000_000),
+            (renderer: Self.renderer(11, 2), first: 50_000_000_000, second: 51_000_000_000),
+        ])
+        // 8 s over 10 s split in two, and its own 1 s over 10 s; the shown page is not read and gets nothing.
+        #expect(abs((shares["hidden"] ?? 0) - 0.5) < 1e-9)
+        #expect(shares["shown"] == nil)
+    }
+
+    /// The shown page of a shared renderer leaves between two readings: the idle hidden page gets the renderer's
+    /// delta, not a jump to its whole lifetime's time.
+    @Test func aSharedRendererLosingATabCountsOnlyItsDelta() throws {
+        let both = [
+            ProcessUsage.TabRenderers(tab: "shown", title: "", pid: 10, rendererClients: [1]),
+            ProcessUsage.TabRenderers(tab: "hidden", title: "", pid: 10, rendererClients: [1]),
         ]
-        let cpu = SaverCPUFreeze.cpuTime(ProcessUsage.perTab(tabs, renderers: renderers))
-        #expect(cpu["shown"] == .seconds(4))
-        #expect(cpu["hidden"] == .seconds(5))
+        let shares = try Self.shares(of: "hidden", tabs: (both, [both[1]]), cpu: [
+            (renderer: Self.renderer(10, 1), first: 120_000_000_000, second: 120_100_000_000),
+        ])
+        #expect(abs((shares["hidden"] ?? 1) - 0.01) < 1e-9)
+    }
+
+    /// A renderer with a long busy life joins the idle hidden page between two readings: it counts from its first reading.
+    @Test func aRendererJoiningAPageCountsFromItsFirstReading() throws {
+        let alone = [ProcessUsage.TabRenderers(tab: "hidden", title: "", pid: 10, rendererClients: [1])]
+        let joined = [ProcessUsage.TabRenderers(tab: "hidden", title: "", pid: 10, rendererClients: [1, 2])]
+        let shares = try Self.shares(of: "hidden", tabs: (alone, joined), cpu: [
+            (renderer: Self.renderer(10, 1), first: 1_000_000_000, second: 1_100_000_000),
+            (renderer: Self.renderer(11, 2), first: 500_000_000_000, second: 500_000_000_000),
+        ])
+        #expect(abs((shares["hidden"] ?? 1) - 0.01) < 1e-9)
+    }
+
+    /// Each page its own renderer (pid and client id from its name), as the rig reads them.
+    nonisolated static func reading(_ cpu: [String: Duration], at: ContinuousClock.Instant) -> SaverCPUFreeze.Reading {
+        SaverCPUFreeze.Reading(renderers: cpu.map { key, time in
+            let id = key.unicodeScalars.reduce(Int32(1)) { ($0 &* 31) &+ Int32(bitPattern: $1.value) } & 0x7fff_ffff
+            return SaverCPUFreeze.Reading.Renderer(id: renderer(id, id), cpu: time, tabs: [key])
+        }, at: at)
+    }
+
+    nonisolated static func renderer(_ pid: pid_t, _ client: Int32) -> ProcessUsage.Renderer {
+        ProcessUsage.Renderer(pid: pid, clientID: client)
+    }
+
+    /// `key`'s share from two readings 10 s apart of the renderers' CPU (nanoseconds at each), each with the tabs as it
+    /// saw them; `key` stays hidden throughout.
+    nonisolated static func shares(of key: String, tabs: ([ProcessUsage.TabRenderers], [ProcessUsage.TabRenderers]),
+                                   cpu: [(renderer: ProcessUsage.Renderer, first: UInt64, second: UInt64)]) throws -> [String: Double] {
+        func sample(_ renderer: ProcessUsage.Renderer, _ nanos: UInt64) -> (renderer: ProcessUsage.Renderer, usage: ProcessUsage) {
+            (renderer: renderer, usage: ProcessUsage(pid: renderer.pid, parent: 1, path: "renderer", cpuNanos: nanos, wakeups: 0,
+                                                     interruptWakeups: 0, packageIdleWakeups: 0, energyNanojoules: 0,
+                                                     physFootprint: 0, uptimeNanos: 0))
+        }
+        let start = ContinuousClock.now, later = start + .seconds(10)
+        var rule = SaverCPUFreeze()
+        let first = try #require(rule.pastGrace([.init(key: key, hiddenFor: 0)], saver: true, now: start).read)
+        let before = SaverCPUFreeze.reading(of: [key], tabs: tabs.0, renderers: cpu.map { sample($0.renderer, $0.first) }, at: start)
+        #expect(rule.land(before, generation: first.generation))
+        let second = try #require(rule.pastGrace([.init(key: key, hiddenFor: 10)], saver: true, now: later).read)
+        let after = SaverCPUFreeze.reading(of: [key], tabs: tabs.1, renderers: cpu.map { sample($0.renderer, $0.second) }, at: later)
+        #expect(rule.land(after, generation: second.generation))
+        return rule.proportions
     }
 
     // MARK: Rig
@@ -172,7 +246,7 @@ struct BrowserHibernationSaverTests {
             hibernation.measureCPU = { [weak self] keys, landed in
                 guard let self else { return }
                 self.reads += 1
-                let reading = SaverCPUFreeze.Reading(cpu: self.cpu.filter { keys.contains($0.key) }, at: self.instant)
+                let reading = BrowserHibernationSaverTests.reading(self.cpu.filter { keys.contains($0.key) }, at: self.instant)
                 Task { landed(reading) }
             }
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: BrowserHibernationSaverTests.grace))
