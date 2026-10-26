@@ -82,6 +82,10 @@ export default componentEntry<Props>({
         for (const step of script) await step.run(ctx);
       },
     },
+    "start-empty": {
+      note: "Empty chat, nothing played yet: press Start subagent, New message, the header and End all to watch each motion.",
+      props: {},
+    },
     "two-running": {
       note: "Two subagents running: the header's spinner turns, and folding or opening the list moves its height on the shared fold.",
       props: { start: 2 },
