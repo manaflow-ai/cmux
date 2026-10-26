@@ -8,7 +8,7 @@
 // is kind of enough sometimes for the ... preview of the message"): the minimal-* variants. A, the
 // chip, the first line and a chevron, ships; B (a fade and "+N lines") and C (the name inline, no
 // chip) are drawn here only, over the shipped line.
-import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry, type ChipHostFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -245,6 +245,7 @@ export default agentPaneEntry({
       ]),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        avatarsChanged(ctx.document, ["parent-1"]);
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received__icon img.cv-agent-avatar"));
       },
     },

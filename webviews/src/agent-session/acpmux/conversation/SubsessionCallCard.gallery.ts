@@ -4,7 +4,7 @@
 // with what it does now and its queue, waiting on a question or a permission, failed, done), a
 // message sent to one with how it was delivered, a wait's replies, and calls still running. The
 // summary card's Subagents list shows the same sub-sessions (summary/SubagentStatusList.tsx).
-import { UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -229,6 +229,7 @@ export default agentPaneEntry({
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
         await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
       },
     },

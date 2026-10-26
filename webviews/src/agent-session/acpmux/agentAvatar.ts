@@ -5,7 +5,7 @@
 // (`agent.avatar.set`, `agent.avatar.remove`), and the host tells every pane's page of a change
 // (`cmuxAcpmuxBridge.agentAvatarChanged`). An answer is kept for the page, a change is told to
 // every card at once, and a failed ask (an older host, the page not yet connected) is not kept.
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { postNative } from "./native";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
@@ -27,6 +27,18 @@ export function setAgentAvatarHost(next: Call | undefined): void {
   pending.clear();
   changes.clear();
   drawn.clear();
+}
+
+/// Tells every card and chip that an answer changed.
+function notify(): void {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /// A card draws session `sessionId` until the returned function is called (exported for tests).
@@ -56,12 +68,13 @@ export function loadAgentAvatar(sessionId: string): Promise<string | null> {
         if ((changes.get(sessionId) ?? 0) !== asked) return avatars.get(sessionId) ?? null;
         const value = src(reply);
         avatars.set(sessionId, value);
+        notify();
         return value;
       },
       () => {
         // A failed read keeps nothing: a picture shown before a change in another pane goes, and
         // the next card that draws the session asks again.
-        if ((changes.get(sessionId) ?? 0) === asked) avatars.delete(sessionId);
+        if ((changes.get(sessionId) ?? 0) === asked && avatars.delete(sessionId)) notify();
         return null;
       },
     )
@@ -80,9 +93,7 @@ function refresh(sessionId: string, always: boolean): Promise<unknown> {
   changes.set(sessionId, (changes.get(sessionId) ?? 0) + 1);
   pending.delete(sessionId);
   if (!asked) return Promise.resolve();
-  return loadAgentAvatar(sessionId).then(() => {
-    for (const listener of listeners) listener();
-  });
+  return loadAgentAvatar(sessionId);
 }
 
 /// The host says session `sessionId`'s avatar was set or removed (in this pane or another).
@@ -108,26 +119,13 @@ export function hasAgentAvatar(sessionId: string | undefined): boolean {
 }
 
 /// Session `sessionId`'s avatar as a data URL once the host answers; undefined for none, and for
-/// no session.
+/// no session. It reads the page's answers as an external store, so every answer and change
+/// redraws the card (a memoized read of the map would keep the first, empty, answer).
 export function useAgentAvatar(sessionId: string | undefined): string | undefined {
-  const [, redraw] = useState(0);
-  useEffect(() => {
-    const listener = () => redraw((count) => count + 1);
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  }, []);
+  const avatar = useSyncExternalStore(subscribe, () => (sessionId ? avatars.get(sessionId) : undefined));
   useEffect(() => (sessionId ? drawAgentAvatar(sessionId) : undefined), [sessionId]);
   useEffect(() => {
-    if (!sessionId || avatars.has(sessionId)) return;
-    let live = true;
-    void loadAgentAvatar(sessionId).then(() => {
-      if (live) redraw((count) => count + 1);
-    });
-    return () => {
-      live = false;
-    };
+    if (sessionId && !avatars.has(sessionId)) void loadAgentAvatar(sessionId);
   }, [sessionId]);
-  return (sessionId && avatars.get(sessionId)) || undefined;
+  return avatar ?? undefined;
 }
