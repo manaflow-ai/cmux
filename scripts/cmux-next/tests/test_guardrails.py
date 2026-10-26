@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""guardrails.py's blocking rules see every blocking primitive class (p02-threads-002).
+"""guardrails.py's blocking rules see every blocking primitive class (p02-threads-002) and refuse blocking on a
+shared pool thread (p02-threads-010).
 
 Each new primitive (process launch, queue and thread waits, Security, AX, getaddrinfo, CGWindowList, LSCopy,
 NSWorkspace queries, SMAppService, AuthorizationCopyRights, sync XPC proxies, AppleScript) is refused as
 main-blocking in main-actor code and as raw-blocking in nonisolated code; the task 003 seams are refused on main
 and pass off main; the async overloads (`try await service.unregister()`) and look-alikes (`self?.launch()`,
-`icons.icon(for:)`) pass. The rules run on in-memory changes (as check() builds them), so no git is needed.
+`icons.icon(for:)`) pass. pool-blocking refuses a raw or seam call in a Task.detached or child task body, a
+`Task {` in a nonisolated function, an @concurrent function and an actor method, and passes a `work.run` closure and
+an actor with a custom executor (the HomeCache pattern). The rules run on in-memory changes (as check() builds
+them), so no git is needed.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the blocking rules:
   python3 -m pytest scripts/cmux-next/tests/test_guardrails.py
@@ -201,6 +205,179 @@ class NonBlockingTests(unittest.TestCase):
     def test_an_await_later_in_the_statement_does_not_excuse_a_sync_unregister(self):
         text = in_function("try SMAppService.mainApp.unregister(); await done()", "func f() async throws {")
         self.assertEqual(refused(SERVICE, text), {"raw-blocking"})
+
+
+# A seam call: only pool-blocking (never raw-blocking) can refuse it off main.
+SEAM = "_ = try FileManager.checked.contentsOfDirectory(atPath: path)"
+RAW = "_ = try Data(contentsOf: url)"
+# Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Store/HomeCache.swift:21-35, then a method that blocks.
+HOME_CACHE_EXECUTOR = """public actor HomeCache {
+    /// Messages kept per opened conversation.
+    public static let windowLimit = 200
+
+    /// Writes one file (data, then its URL): the default replaces it atomically (a temporary file renamed over
+    /// it, so a process end mid-write never leaves a torn file) and makes it owner-only.
+    public typealias FileWriter = @Sendable (Data, URL) throws -> Void
+
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.home.cache`): its file calls block a
+    /// thread of its own, never a cooperative pool thread, so a full pool (a stuck quit) cannot hold the
+    /// forced quit's last draft write.
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.home.cache", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
+    func save(_ path: String) throws {
+        %s
+    }
+}
+"""
+
+
+def pool(directory: str, text: str) -> bool:
+    return "pool-blocking" in refused(directory, text)
+
+
+class PoolBlockingTests(unittest.TestCase):
+    def test_a_detached_body_is_refused_in_every_target(self):
+        for header in ("Task.detached {", "Task.detached(priority: .utility) {", "Task.detached { [weak self] in",
+                       "let data = await Task.detached(operation: {"):
+            for directory in (UI, SERVICE):
+                with self.subTest(header=header, directory=directory):
+                    text = f"func f() {{\n    {header}\n        {SEAM}\n    }}\n}}\n"
+                    self.assertEqual(refused(directory, text), {"pool-blocking"})
+
+    def test_a_raw_call_in_a_detached_body_is_raw_and_pool_blocking(self):
+        text = f"func f() {{\n    Task.detached(priority: .utility) {{\n        {RAW}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), {"raw-blocking", "pool-blocking"})
+
+    def test_a_detached_header_over_lines_is_refused(self):
+        text = f"func f() {{\n    Task.detached(\n        priority: .utility\n    ) {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_child_tasks_and_global_queues_are_refused(self):
+        for opener in ("group.addTask {", "group.addTaskUnlessCancelled(priority: .high) {",
+                       "group.addTask(priority: .low, operation: {",
+                       "DispatchQueue.global(qos: .utility).async {",
+                       "DispatchQueue.concurrentPerform(iterations: 4) { _ in"):
+            with self.subTest(opener=opener):
+                text = f"func f() async {{\n    {opener}\n        {SEAM}\n    }}\n}}\n"
+                self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_a_main_actor_closure_on_the_pool_opener_is_not_pool(self):
+        text = f"func f() {{\n    Task.detached {{ @MainActor in\n        {SEAM}\n    }}\n}}\n"
+        self.assertFalse(pool(SERVICE, text))
+
+    def test_a_task_in_a_nonisolated_function_is_refused(self):
+        text = f"func f() {{\n    Task {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+        nonisolated = (f"nonisolated func f() {{\n    Task(priority: .utility) {{\n        if ready {{\n"
+                       f"            {SEAM}\n        }}\n    }}\n}}\n")
+        self.assertEqual(refused(UI, nonisolated), {"pool-blocking"})
+
+    def test_a_task_in_main_actor_code_is_not_pool(self):
+        self.assertFalse(pool(UI, f"func f() {{\n    Task {{\n        {SEAM}\n    }}\n}}\n"))
+        self.assertFalse(pool(SERVICE, f"@MainActor func f() {{\n    Task {{\n        {SEAM}\n    }}\n}}\n"))
+        self.assertFalse(pool(SERVICE, f"@MainActor\nfinal class Model {{\n    func f() {{\n        Task {{\n"
+                                       f"            {SEAM}\n        }}\n    }}\n}}\n"))
+        self.assertFalse(pool(SERVICE, f"func f() {{\n    Task {{ @MainActor in\n        {SEAM}\n    }}\n}}\n"))
+
+    def test_a_plain_nonisolated_function_is_not_pool(self):
+        self.assertFalse(pool(SERVICE, in_function(SEAM)))
+        self.assertFalse(pool(SERVICE, in_function(SEAM, "func f() async throws {")))
+
+    def test_an_at_concurrent_function_is_refused(self):
+        for header in ("@concurrent func f() async throws {", "@concurrent\nfunc f() async throws {",
+                       "@concurrent\n/// Reads it.\npublic func f(path: String) async throws {"):
+            for directory in (UI, SERVICE):
+                with self.subTest(header=header, directory=directory):
+                    self.assertEqual(refused(directory, in_function(SEAM, header)), {"pool-blocking"})
+
+    def test_an_at_concurrent_signature_over_lines_is_refused(self):
+        header = "@concurrent\npublic func f(\n    path: String\n) async throws {"
+        self.assertEqual(refused(SERVICE, in_function(SEAM, header)), {"pool-blocking"})
+
+    def test_control_flow_after_plain_statements_keeps_the_context(self):
+        """Swift statements end without `;`: `let x = 1` above `do {` must not hide the `do` (TerminalThemeStore,
+        FileOperator.newFolder and SavedEnvironments on the tip)."""
+        detached = (f"func f() {{\n    let previous = last\n    last = Task.detached(priority: .utility) {{\n"
+                    f"        await previous?.value\n        do {{\n            if ready {{\n                {SEAM}\n"
+                    f"            }}\n        }} catch {{\n        }}\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, detached), {"pool-blocking"})
+        concurrent = (f"@concurrent\npublic func f(in folder: URL) async throws -> URL {{\n    let target = folder\n"
+                      f"    do {{\n        {SEAM}\n    }} catch {{\n    }}\n    return target\n}}\n")
+        self.assertEqual(refused(SERVICE, concurrent), {"pool-blocking"})
+        actor = (f"actor Store {{\n    private func load() -> Data? {{\n        if let loaded {{ return loaded }}\n"
+                 f"        let data: Data?\n        do {{\n            {SEAM}\n        }} catch {{\n        }}\n"
+                 f"        return nil\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, actor), {"pool-blocking"})
+
+    def test_an_attribute_line_then_a_signature_over_lines_is_refused(self):
+        header = ("@concurrent static func launch(_ environment: Environment, deadline: Duration,\n"
+                  "                               onSpawn: @Sendable (pid_t) -> Void) async throws -> Endpoint {")
+        self.assertEqual(refused(SERVICE, in_function(SEAM, header)), {"pool-blocking"})
+
+    def test_an_actor_method_is_refused(self):
+        text = f"actor Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+        self.assertEqual(refused(UI, text), {"pool-blocking"})
+        locked = (f"actor Store {{\n    func save() throws {{\n        state.withLock {{ _ in\n            {SEAM}\n"
+                  f"        }}\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, locked), {"pool-blocking"})
+        in_task = f"actor Store {{\n    func save() {{\n        Task {{\n            {SEAM}\n        }}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, in_task), {"pool-blocking"})
+        computed = (f"actor Store {{\n    var names: [String] {{\n        get throws {{\n            {SEAM}\n"
+                    f"        }}\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, computed), {"pool-blocking"})
+
+    def test_an_extension_of_an_actor_in_the_file_is_refused(self):
+        text = f"actor Store {{}}\n\nextension Store {{\n    func save() throws {{\n        {SEAM}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_actor_members_that_are_not_actor_isolated_pass(self):
+        for header in ("nonisolated func save() throws {", "static func save() throws {",
+                       "@MainActor func save() throws {", "init(path: String) throws {", "deinit {"):
+            with self.subTest(header=header):
+                self.assertFalse(pool(SERVICE, f"actor Store {{\n    {header}\n        {SEAM}\n    }}\n}}\n"))
+
+    def test_a_nested_struct_in_an_actor_is_not_the_actor(self):
+        text = (f"actor Store {{\n    struct Box {{\n        func save() throws {{\n            {SEAM}\n        }}\n"
+                f"    }}\n}}\n")
+        self.assertFalse(pool(SERVICE, text))
+
+    def test_the_home_cache_executor_actor_passes(self):
+        self.assertFalse(pool(SERVICE, HOME_CACHE_EXECUTOR % SEAM))
+        self.assertFalse(pool(UI, HOME_CACHE_EXECUTOR % SEAM))
+
+    def test_the_executor_mark_on_the_actor_passes(self):
+        text = (f"// executor: com.cmuxterm.next.store\nactor Store {{\n    func save() throws {{\n        {SEAM}\n"
+                f"    }}\n}}\n")
+        self.assertFalse(pool(SERVICE, text))
+
+    def test_a_doc_comment_naming_an_executor_is_not_the_mark(self):
+        text = (f"actor Store {{\n    /// executor: callers are off the main actor\n    func save() throws {{\n"
+                f"        {SEAM}\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, text), {"pool-blocking"})
+
+    def test_a_work_run_closure_passes(self):
+        run = f"await work.run(.userVisible, mayBlock: .files) {{\n            {SEAM}\n        }}"
+        for text in (f"actor Store {{\n    func save() async throws {{\n        {run}\n    }}\n}}\n",
+                     f"@concurrent func f() async throws {{\n        {run}\n}}\n",
+                     f"func f() {{\n    Task.detached(priority: .utility) {{\n        {run}\n    }}\n}}\n"):
+            with self.subTest(text=text):
+                self.assertEqual(refused(SERVICE, text), set())
+
+    def test_a_serial_queue_closure_passes(self):
+        text = f"actor Store {{\n    func save() {{\n        queue.async {{\n            {SEAM}\n        }}\n    }}\n}}\n"
+        self.assertEqual(refused(SERVICE, text), set())
+
+    def test_the_escape_comment_passes(self):
+        text = (f"actor Store {{\n    func save() throws {{\n        // blocking-allow: fixture for the escape\n"
+                f"        {SEAM}\n    }}\n}}\n")
+        self.assertEqual(refused(SERVICE, text), set())
+
+    def test_the_rule_is_listed(self):
+        self.assertIn("pool-blocking", [rule.id for rule in guardrails.RULES])
 
 
 class SpeedTests(unittest.TestCase):

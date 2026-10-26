@@ -189,6 +189,9 @@ class RuleTests(unittest.TestCase):
         hit(self.hits, "maybe-main-blocking", "String(contentsOf: url")
         hit(self.hits, "task-priority", "Task.detached {")
         hit(self.hits, "thread-doc", "com.cmuxterm.next.unlisted")
+        # Reader.offMain is @concurrent and Store.save an actor method with no custom executor.
+        self.assertEqual({(h.enclosing_func, h.isolation) for h in self.hits if h.rule == "pool-blocking"},
+                         {("Reader.offMain", "pool"), ("Store.save", "actor")})
 
     def test_raw_blocking_lists_the_raw_primitives_main_blocking_took(self):
         raw = {(h.path.rsplit("/", 1)[1], h.text) for h in self.hits if h.rule == "raw-blocking"}
@@ -203,7 +206,7 @@ class RuleTests(unittest.TestCase):
     def test_rules_are_guardrails_own(self):
         guardrails = inventory.g
         self.assertEqual(Path(guardrails.__file__).resolve(), (SCRIPTS / "guardrails.py").resolve())
-        for rule_id in ("main-blocking", "maybe-main-blocking", "task-priority", "thread-doc"):
+        for rule_id in ("main-blocking", "pool-blocking", "maybe-main-blocking", "task-priority", "thread-doc"):
             self.assertIs(inventory.RULES[rule_id], inventory.RULE_BY_ID[rule_id].find)
 
     def test_sync_main_function_with_four_callers(self):
@@ -581,8 +584,8 @@ class CLITests(unittest.TestCase):
     def test_count_and_jsonl(self):
         counts = dict(line.split() for line in self.run_main("--count").splitlines())
         self.assertEqual({k: int(v) for k, v in counts.items()},
-                         {"main-blocking": 1, "raw-blocking": 8, "maybe-main-blocking": 1, "task-priority": 1,
-                          "thread-doc": 1})
+                         {"main-blocking": 1, "raw-blocking": 8, "pool-blocking": 2, "maybe-main-blocking": 1,
+                          "task-priority": 1, "thread-doc": 1})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",

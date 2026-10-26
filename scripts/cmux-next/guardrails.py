@@ -2051,11 +2051,16 @@ def runs_on_main(version: Version, index: int) -> bool:
     return answers[index]
 
 
-def _runs_on_main(version: Version, index: int) -> bool:
+def main_actor_lines(version: Version) -> list[bool]:
+    """Whether each line of VERSION is main-actor code by lexical scope (check-main-actor-work.py)."""
     if "main_lines" not in version.memo:
         module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
         version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, module in ui_targets())
-    main_lines = version.memo["main_lines"]
+    return version.memo["main_lines"]
+
+
+def _runs_on_main(version: Version, index: int) -> bool:
+    main_lines = main_actor_lines(version)
     declared_main = index < len(main_lines) and main_lines[index]
     code = code_of(version.lines[index])
     match = MAIN_SCAN.search(code)
@@ -2160,6 +2165,187 @@ def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter
     return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
 
 
+# pool-blocking (p02-threads-010): a blocking call on a shared pool thread. Chrome's ThreadPool runs a task without
+# MayBlock() under ScopedDisallowBlocking (base/task/thread_pool/task_tracker.cc RunTask); cmux's pools are the Swift
+# cooperative pool (Task.detached, child tasks, `Task {` off any actor, default actor executors, @concurrent) and the
+# GCD root queues. One blocked pool thread is a whole core's worth of async work stalled (the pool has one per core).
+# The body as a trailing closure, or as the `operation:` argument (`Task.detached(operation: { ... })`).
+TASK_BODY = r"(?:\s*(\([^{]*\))?\s*\{$|\s*\([^{]*\boperation:\s*\{$)"
+POOL_DETACHED = re.compile(r"\bTask\.detached" + TASK_BODY)
+POOL_CHILD = re.compile(r"\baddTask(UnlessCancelled)?" + TASK_BODY + r"|\bDispatchQueue\.global\([^{]*\)\s*\.\s*"
+                        r"async(After)?\s*(\([^{]*\))?\s*\{$|\.concurrentPerform\s*\([^{]*\)\s*\{$")
+TASK_INHERITS = re.compile(r"(?<![\w.])Task\s*(<[^{]*>)?\s*(\([^{]*\))?\s*\{$")
+CLOSURE_ON_MAIN = re.compile(r"^\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
+# Calls that run their trailing closure before they return, in the caller's isolation.
+INLINE_CALLS = (r"map|compactMap|flatMap|filter|forEach|reduce|contains|first|last|firstIndex|lastIndex|allSatisfy|"
+                r"sorted|sort|min|max|removeAll|mapValues|compactMapValues|partition|drop|prefix|split|merge|merging|"
+                r"withLock|withLockUnchecked|withUnsafe\w*|withCString|withMemoryRebound|withExtendedLifetime|"
+                r"autoreleasepool|with(?:Throwing)?(?:Discarding)?TaskGroup|with(?:Checked|Unsafe)(?:Throwing)?Continuation|"
+                r"withTaskCancellationHandler|withValue|withObservationTracking")
+INLINE_CLOSURE_CALL = re.compile(rf"\b(?:{INLINE_CALLS})\s*(?:\([^{{}}]*\))?\s*\{{$|\b(?:{INLINE_CALLS})\(\s*(?:\w+\s*:\s*)?\{{$")
+ACCESSOR_OPENER = re.compile(r"^\s*(get|set|willSet|didSet|_read|_modify)\b")
+FUNCTION_OPENER = re.compile(r"\b(func|subscript)\b|\bvar\s+`?\w+`?\s*:")
+INIT_OPENER = re.compile(r"\b(init[?!]?|deinit)\b")
+CONCURRENT = re.compile(r"@concurrent\b")
+# An isolation the declaration states for itself: a global actor, or none (`nonisolated`, a static member).
+OWN_GLOBAL_ACTOR = re.compile(r"@[A-Z]\w*Actor\b")
+NOT_INSTANCE_ISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|\bstatic\b|\bclass\s+(?=(func|var|subscript)\b)")
+TYPE_OPENER = re.compile(r"(?:^|[\s)])(?P<kind>(?:distributed\s+)?actor|class|struct|enum|extension|protocol)\s+"
+                         r"(?!(?:func|var|let|subscript|init|deinit|override|static|in|where)\b)(?P<name>[A-Za-z_][\w.]*)")
+ACTOR_EXECUTOR = re.compile(r"\bvar\s+unownedExecutor\b")
+EXECUTOR_MARK = re.compile(r"(?<!/)//\s*executor:\s*\S")  # a plain comment, not a `///` doc line
+
+
+def actor_scopes(version: Version) -> list[int | None]:
+    """For each line of VERSION, the 0-based line of the `actor` declaration whose instance methods would hold it
+    (the innermost enclosing type is that actor, or an extension of an actor this file declares), else None."""
+    if "actor_scopes" in version.memo:
+        return version.memo["actor_scopes"]
+    codes = [code_of(line) for line in version.lines]
+    actors: dict[str, int] = {}
+    for index, code in enumerate(codes):
+        for match in TYPE_OPENER.finditer(code):
+            if match.group("kind").endswith("actor"):
+                actors.setdefault(match.group("name"), index)
+    scopes: list[int | None] = []
+    stack: list[tuple[int, int | None]] = []  # (brace depth, actor line or None) per open type body
+    pending: tuple[int | None] | None = None  # (actor line or None) of a type header whose `{` has not opened yet
+    depth = 0
+    for index, code in enumerate(codes):
+        scopes.append(stack[-1][1] if stack else None)
+        match = TYPE_OPENER.search(code)
+        if match:
+            kind, name = match.group("kind"), match.group("name")
+            if kind.endswith("actor"):
+                pending = (index,)
+            elif kind == "extension":
+                pending = (actors.get(name.rsplit(".", 1)[-1]),)
+            else:
+                pending = (None,)
+        for char in code:
+            if char == "{":
+                depth += 1
+                if pending is not None:
+                    stack.append((depth, pending[0]))
+                    pending = None
+            elif char == "}":
+                while stack and stack[-1][0] >= depth:
+                    stack.pop()
+                depth -= 1
+    version.memo["actor_scopes"] = scopes
+    return scopes
+
+
+def has_custom_executor(version: Version, actor_line: int) -> bool:
+    """Whether the actor declared on ACTOR_LINE runs on its own serial executor (the HomeCache pattern,
+    Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Store/HomeCache.swift: `nonisolated var unownedExecutor`
+    over a named DispatchSerialQueue), or says so with `// executor: <label>` on or above its declaration."""
+    executors = version.memo.setdefault("actor_executors", {})
+    if actor_line not in executors:
+        scopes = actor_scopes(version)
+        executors[actor_line] = escaped(version.lines, actor_line, EXECUTOR_MARK) or any(
+            scopes[i] == actor_line and ACTOR_EXECUTOR.search(code_of(version.lines[i]))
+            for i in range(actor_line + 1, len(version.lines)))
+    return executors[actor_line]
+
+
+# A header line that continues the line above it, and a line that continues on the line below it.
+CONTINUES_ABOVE = re.compile(r"^\s*(\.|&&|\|\||\?\?|->|else\b|where\b|async\b|throws\b|rethrows\b)")
+CONTINUES_BELOW = re.compile(r"(,|\(|\[|->|=|&&|\|\||\?\?)\s*$")
+DECORATION_LINE = re.compile(r"^\s*(@|//|\*|/\*)")
+
+
+def statement_header(lines: list[str], number: int, opener: str) -> tuple[str, int]:
+    """The header of the block that opens on 1-based line NUMBER (whose code up to its `{` is OPENER), and the
+    0-based line it starts on. Unlike block_header it joins a line above only where the statement goes on (an
+    open parenthesis, a trailing `,` or a leading `.`, `else`, `async`): Swift statements end without `;`, so
+    `let x = 1` above `do {` is a statement of its own, and `@concurrent` above a signature is an attribute."""
+    parts, start = [opener], number - 1
+    depth = opener.count("(") + opener.count("[") - opener.count(")") - opener.count("]")
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES:
+        above = code_of(lines[j])
+        if not above.strip() or ATTRIBUTE_LINE.match(above):
+            break
+        if not (depth < 0 or CONTINUES_ABOVE.match(parts[0]) or CONTINUES_BELOW.search(above)):
+            break
+        parts.insert(0, above)
+        depth += above.count("(") + above.count("[") - above.count(")") - above.count("]")
+        start = j
+        j -= 1
+    return " ".join(part.strip() for part in parts), start
+
+
+def declaration_attributes(lines: list[str], start: int) -> str:
+    """The attribute lines right above a declaration whose header starts on 0-based line START (comments between
+    them are read too): `@concurrent` on its own line."""
+    found = []
+    j = start - 1
+    while j >= 0 and start - j <= HEADER_LINES and DECORATION_LINE.match(lines[j]):
+        found.append(code_of(lines[j]))
+        j -= 1
+    return " ".join(found)
+
+
+def pool_context(version: Version, index: int) -> str | None:
+    """Where VERSION's line INDEX runs if that is a shared pool thread, else None: "Task.detached", "a child task"
+    (`addTask {`, a global queue, `concurrentPerform`), "an @concurrent function", "a `Task {` in a nonisolated
+    function", or "an actor method" (an actor without a custom executor). Any other closure (`work.run {`, a
+    completion handler, a serial queue's `async {`) is not judged: it runs where its API says."""
+    answers = version.memo.setdefault("pool_context", {})
+    if index not in answers:
+        answers[index] = _pool_context(version, index)
+    return answers[index]
+
+
+def _pool_context(version: Version, index: int) -> str | None:
+    lines = version.lines
+    code = code_of(lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    in_task = False
+    for opener, number in enclosing_openers(lines, index, OPENER_STOP, prefix):
+        header, start = statement_header(lines, number, opener) if number - 1 != index else (opener, index)
+        line = code_of(lines[number - 1])
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(line) or CLOSURE_ON_MAIN.search(line[len(opener) - 1:]):
+            return None
+        if POOL_DETACHED.search(header):
+            return "Task.detached"
+        if POOL_CHILD.search(header):
+            return "a child task"
+        if TASK_INHERITS.search(header):
+            in_task = True
+            continue
+        if ACCESSOR_OPENER.search(header) or CONTROL_OPENER.search(header) or INLINE_CLOSURE_CALL.search(header):
+            continue
+        if not DECLARATION_OPENER.search(header):
+            return None  # a closure: it runs where its API says
+        if not FUNCTION_OPENER.search(header) and not INIT_OPENER.search(header):
+            return None  # a type body
+        stated = header + " " + declaration_attributes(lines, start)
+        if CONCURRENT.search(stated):
+            return "an @concurrent function"
+        if OWN_GLOBAL_ACTOR.search(stated):
+            return None
+        actor = actor_scopes(version)[number - 1]
+        if actor is not None and not NOT_INSTANCE_ISOLATED.search(stated):
+            if INIT_OPENER.search(header) and not FUNCTION_OPENER.search(header):
+                return None  # an actor's initializer and deinit run on their caller
+            return None if has_custom_executor(version, actor) else "an actor method"
+        if in_task and not main_actor_lines(version)[index]:
+            return "a `Task {` in a nonisolated function"
+        return None
+    return None
+
+
+def blocking_on_pool(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw or seam) that run on a shared pool thread (pool_context)."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and not runs_on_main(version, index) and pool_context(version, index) is not None)
+    return changed_debt(outside_seams(changes), judge)
+
+
 def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
     def judge(version: Version, index: int, code: str) -> bool:
@@ -2260,6 +2446,17 @@ BLOCKING_RULES = (
          "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
+    Rule("pool-blocking", "A blocking call (raw or seam) on a shared pool thread: in a `Task.detached` or child task "
+         "body, a `Task {` in a nonisolated function, an @concurrent function, or a method of an actor that has no "
+         "custom executor",
+         "the Swift cooperative pool has one thread per core and the GCD root queues are shared: a blocked pool "
+         "thread stalls every async job queued behind it (Chrome's ThreadPool runs a task without MayBlock() under "
+         "ScopedDisallowBlocking, base/task/thread_pool/task_tracker.cc)",
+         "run it on a BackgroundWork lane (`work.run(priority, mayBlock: .files|.system) { ... }`, or a "
+         "MayBlockRunner below CmuxNextWakeups); an actor whose methods block gets a serial executor on a named "
+         "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern) marked `// executor: <label>`",
+         "// blocking-allow: <why this blocking call may hold a pool thread>",
+         blocking_on_pool),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
