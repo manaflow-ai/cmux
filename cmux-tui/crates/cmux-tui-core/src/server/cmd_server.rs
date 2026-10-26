@@ -15,10 +15,12 @@ use super::ClientIdentityWire;
 use super::machine_usage_json;
 use super::origin_gate;
 use super::server_stats;
+use super::{AsyncReply, MessageWriter, Response, send_response};
 use crate::Mux;
 use crate::MuxEvent;
 use crate::PaneId;
 use crate::mux::DaemonHandoffRequest;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -205,8 +207,44 @@ pub(super) fn machine_usage(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     Ok(machine_usage_json(mux.machine_usage().as_ref()))
 }
 
-pub(super) fn machine_listening_tcp() -> anyhow::Result<Value> {
-    machine_listening_tcp_json()
+/// `machine-listening-tcp` runs ss or netstat to completion, so it runs on a
+/// work item of the System lane and answers from there; the request thread
+/// goes on at once (Chrome posts blocking work to a MayBlock task runner,
+/// base/task/task_traits.h). The inventory is a view's poll: UserVisible.
+pub(super) fn start_machine_listening_tcp(
+    mux: &Arc<Mux>,
+    id: Option<Value>,
+    reply: AsyncReply,
+    writer: &MessageWriter,
+) -> bool {
+    let (item_writer, item_id) = (writer.clone(), id.clone());
+    let posted =
+        mux.work.post(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, move || {
+            reply.reply(|| respond(&item_writer, item_id, machine_listening_tcp_json()));
+        });
+    posted.is_ok() || respond(writer, id, Err(anyhow::anyhow!("the daemon is shutting down")))
+}
+
+fn respond(writer: &MessageWriter, id: Option<Value>, answer: anyhow::Result<Value>) -> bool {
+    let response = match answer {
+        Ok(data) => Response {
+            id,
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_code: None,
+            error_delivery: None,
+        },
+        Err(error) => Response {
+            id,
+            ok: false,
+            data: None,
+            error: Some(error.to_string()),
+            error_code: None,
+            error_delivery: None,
+        },
+    };
+    send_response(writer, response)
 }
 
 pub(super) fn pairing_response(

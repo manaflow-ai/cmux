@@ -1,7 +1,7 @@
 //! `git.diff`, `git.status`, `git.branches`, `git.files.search` and `git.files.list`: read-only
 //! git reads of the repository a path or a terminal's working directory is in. The session host answers them
-//! without store state; each request runs git on its own connection thread,
-//! bounded by a deadline and output limits. `git.checkpoint.*` captures
+//! without store state; each request runs git on a work item of the System
+//! lane (`answer`), bounded by a deadline and output limits. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 //! `git.commit` and `git.push` are the user's own actions and run git in the
 //! user's environment (`user_run`), keyed in the mutation ledger
@@ -32,6 +32,7 @@ use std::sync::Arc;
 
 use cmux_git::run::GitFailure;
 use cmux_git::{OpenError, Repository, parse, refs, run, write_run};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use serde_json::{Value, json};
 
 use crate::Mux;
@@ -90,13 +91,69 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 /// Answers a git request of a control connection through `reply`: the
 /// encoded response envelope, or the error that still needs one (as
 /// [`crate::resource_router::handle_parsed_resource_request`] returns).
-pub(crate) fn answer(
-    mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
-    reply: impl FnOnce(Result<Value, ResourceError>) + Send + 'static,
-) {
-    debug_assert!(handles(request.envelope.operation));
-    reply(crate::resource_router::handle_parsed_resource_request(mux, request));
+///
+/// Every git operation runs git to completion, so it runs on a work item of
+/// the System lane and `reply` is called there; the request thread returns
+/// at once (Chrome posts blocking work to a MayBlock task runner,
+/// base/task/task_traits.h). Reads are what a view waits on: UserBlocking.
+/// Writes (commit, push, worktrees, checkpoints) run hooks and reach remotes
+/// for up to two minutes: UserVisible, so they never take the lane's
+/// UserBlocking slot. An item refused or dropped at shutdown still answers.
+pub(crate) fn answer<F>(mux: &Arc<Mux>, request: ParsedResourceRequest, reply: F)
+where
+    F: FnOnce(Result<Value, ResourceError>) + Send + 'static,
+{
+    let operation = request.envelope.operation;
+    debug_assert!(handles(operation));
+    let priority = if writes(operation) { Priority::UserVisible } else { Priority::UserBlocking };
+    let reply = Reply { operation, send: Some(reply) };
+    let item_mux = Arc::clone(mux);
+    // A refused body is dropped, and `Reply`'s drop answers it.
+    let _ = mux.work.post(priority, Lane::System, Shutdown::SkipOnShutdown, move || {
+        reply.send(crate::resource_router::handle_parsed_resource_request(&item_mux, request));
+    });
+}
+
+/// The answer of one git work item. Dropped unsent (shutdown refused or
+/// dropped the item), it answers that the daemon is shutting down.
+struct Reply<F: FnOnce(Result<Value, ResourceError>)> {
+    operation: ResourceOperation,
+    send: Option<F>,
+}
+
+impl<F: FnOnce(Result<Value, ResourceError>)> Reply<F> {
+    fn send(mut self, result: Result<Value, ResourceError>) {
+        if let Some(send) = self.send.take() {
+            send(result);
+        }
+    }
+}
+
+impl<F: FnOnce(Result<Value, ResourceError>)> Drop for Reply<F> {
+    fn drop(&mut self) {
+        if let Some(send) = self.send.take() {
+            send(Err(ResourceError::operation_failed(
+                self.operation.wire_name(),
+                "the daemon is shutting down",
+                json!({"code":"unavailable"}),
+            )));
+        }
+    }
+}
+
+/// Operations that change a repository or the checkpoint store.
+fn writes(operation: ResourceOperation) -> bool {
+    !matches!(
+        operation,
+        ResourceOperation::GitDiff
+            | ResourceOperation::GitStatus
+            | ResourceOperation::GitBranches
+            | ResourceOperation::GitFilesSearch
+            | ResourceOperation::GitFilesList
+            | ResourceOperation::GitCheckpointDiff
+            | ResourceOperation::GitCheckpointGet
+            | ResourceOperation::GitCheckpointList
+    )
 }
 
 pub(crate) fn dispatch(
@@ -143,7 +200,7 @@ fn open_repository(directory: &Path, operation: &'static str) -> Result<Reposito
 }
 
 fn status(repository: &Repository) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let arguments = [
         "status",
@@ -188,7 +245,7 @@ fn branches(
     repository: &Repository,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
-    // The operation runs git to completion on this request thread.
+    // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let limit = fields.get("limit").and_then(Value::as_u64).unwrap_or(DEFAULT_BRANCH_LIMIT);
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);

@@ -265,6 +265,10 @@ pub(super) fn handle_request_with_cancellation(
     if let Command::ChiefInspect(params) = cmd {
         return chief_inspect::start(mux, client, id, params, span.start_async(), writer);
     }
+    // A remote client goes on to the relay gate, which refuses it.
+    if matches!(cmd, Command::MachineListeningTcp) && !mux.is_remote_client(client) {
+        return cmd_server::start_machine_listening_tcp(mux, id, span.start_async(), writer);
+    }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);
     }

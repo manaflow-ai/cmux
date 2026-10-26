@@ -141,7 +141,7 @@ fn git_push_runs_off_the_request_thread() {
     let reply = next_reply(&outbound);
     assert_eq!(reply["id"], json!("push-1"), "{reply}");
     assert_eq!(reply["ok"], json!(true), "{reply}");
-    assert_eq!(reply["result"]["pushed_commit"], json!(tip), "{reply}");
+    assert_eq!(reply["result"]["value"]["pushed_commit"], json!(tip), "{reply}");
     assert_eq!(git(&remote, &["rev-parse", "refs/heads/main"]), tip);
     mux.shutdown();
     let _ = std::fs::remove_dir_all(&root);
