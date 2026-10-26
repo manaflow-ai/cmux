@@ -106,13 +106,16 @@ export function ProPlanCard({
     : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
   // Founder's Edition is always named; any other own price only when it is
   // below today's list price. Otherwise the line says how it is billed, so
-  // the label keeps two lines in either period and the card never jumps.
+  // the label keeps two lines in either period and the card never jumps. A
+  // yearly subscriber with such a note still sees the yearly charge, as a
+  // third line on their own card only.
   const priceNote = currentPrice?.foundersEdition
     ? labels.foundersEdition
     : shown.listMonthly !== null
       ? labels.earlySupporterPrice
       : null;
   const billingDetail = priceNote ?? billedYearly ?? labels.billedMonthly;
+  const extraBillingDetail = priceNote ? billedYearly : null;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -164,6 +167,7 @@ export function ProPlanCard({
         <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
           <span>{labels.perMonth}</span>
           <span className="truncate">{billingDetail}</span>
+          {extraBillingDetail ? <span className="truncate">{extraBillingDetail}</span> : null}
         </span>
       </div>
       <div className="mt-3">
