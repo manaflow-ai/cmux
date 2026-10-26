@@ -42,6 +42,14 @@ import Foundation
 ///
 /// Only the in-process backend makes one (``CEFInProcessPump``). In host mode the app has no
 /// pump, no ``CEFPumpTimer`` and no schedule callback; the Chromium Host runs `CefRunMessageLoop`.
+///
+/// Each pass runs with the crash keys' CEF state at ``CrashKeySlots/CEFState/inPump``:
+/// the pump runs on the main thread, so a stall or hang inside it is a phase of
+/// the main thread's episode (the watchdog's records name it `cef_pump`), not a
+/// hang-watch scope. A nested run loop inside a pass (a menu, a modal panel) runs
+/// AppKit's work, not Chromium's: its first fire of the pump puts the state back
+/// until the pass returns, as Chrome tracks a phase per run level
+/// (base/task/sequence_manager/thread_controller.cc, `RunLevelTracker`).
 final class CEFMessagePump {
     /// The wakeup ledger owner of every pump wake.
     nonisolated static let ledgerOwner = "CEFMessagePump"
@@ -76,6 +84,10 @@ final class CEFMessagePump {
     private let ledger: WakeupLedger
     /// Takes each pass's `cef.pump` interval.
     private let signposter: Signposter
+    /// The app's crash keys, told when a pass runs (nil: none).
+    private let crashKeys: CrashKeySlots?
+    /// The CEF state key before the running pass set it to `inPump`; nil between passes.
+    private var stateOutsidePass: UInt64?
     private var schedule: CEFPumpSchedule
     private var isRunning = false
     private var counters = CEFPumpStats()
@@ -109,6 +121,7 @@ final class CEFMessagePump {
     /// category's (tests pass one on their own trace runtime). `absoluteRunTimes`: CEF sends delayed work
     /// as the fork's absolute run times (``request(runTimeNanos:leewayNanos:precise:fromChromiumThread:)``),
     /// which decides how ``CEFPumpStats/earlyPasses`` tells an early pass.
+    /// `crashKeys`: the app's (`CEFRuntime` passes the composition root's), a test's own, or nil.
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
@@ -117,11 +130,13 @@ final class CEFMessagePump {
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
         starvation: RenderStarvationGuard? = nil,
         signposter: Signposter = .cef,
-        absoluteRunTimes: Bool = false
+        absoluteRunTimes: Bool = false,
+        crashKeys: CrashKeySlots? = nil
     ) {
         earlyPassWatch = CEFPumpStats.EarlyPassWatch(absoluteRunTimes: absoluteRunTimes)
         self.work = work
         self.signposter = signposter
+        self.crashKeys = crashKeys
         self.starvation = starvation
         self.timer = timer
         self.clock = clock
@@ -296,6 +311,7 @@ final class CEFMessagePump {
             // CefDoMessageLoopWork re-entered through a nested run loop (menu,
             // modal panel). The outer pass runs the pump again when it returns.
             counters.reentrantFires += 1
+            if let stateOutsidePass { crashKeys?.set(.cefState, stateOutsidePass) } // the nested loop is not the pump
             rearm()
             return
         }
@@ -306,7 +322,7 @@ final class CEFMessagePump {
         earlyPassWatch.passBegan(serving: served, at: started)
         rearm()
         let interval = signposter.beginCEFPump(reasonCode: traceReason?.traceCode ?? 0)
-        work()
+        runPass()
         let elapsed = clock() - started
         let longRun = counters.recordWorkRun(elapsed: elapsed)
         signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
@@ -314,6 +330,17 @@ final class CEFMessagePump {
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
         schedule.endWork()
         rearm()
+    }
+
+    /// One `CefDoMessageLoopWork`, with the CEF state key at `inPump` and the value before it put back after.
+    private func runPass() {
+        guard let crashKeys else { work(); return }
+        let outside = crashKeys.value(.cefState)
+        stateOutsidePass = outside
+        crashKeys.set(.cefState, CrashKeySlots.CEFState.inPump.rawValue)
+        work()
+        crashKeys.set(.cefState, outside)
+        stateOutsidePass = nil
     }
 
     private func rearm() {
