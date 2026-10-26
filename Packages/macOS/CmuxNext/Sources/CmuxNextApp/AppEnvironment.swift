@@ -169,7 +169,7 @@ struct AppEnvironment: Sendable {
     }
 
     static func terminalEnvironment(launch: LaunchIdentity, environment: [String: String]) -> [String: String] {
-        let ghostty = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: GhosttyRuntime.version, terminfoInstalled: false)
+        let ghostty = TerminalEnvironment.instance.ghostty(resourcesDirectory: nil, version: GhosttyRuntime.version)
         var terminal = ghostty.merging(launch.terminalEnvironment) { _, identity in identity }
         // `cmux chief` in this app's terminals opens this app's Chief: its
         // isolation markers are the app's own environment, which terminals

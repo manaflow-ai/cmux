@@ -12,7 +12,7 @@ struct CmxIrohPersistenceLifecycleRaceTests {
         let store = TestControllableSecureCredentialStore()
         let repository = CmxIrohBrokerCredentialRepository(
             secureStore: store,
-            installState: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+            installState: try #require(CmxIrohUserDefaultsInstallStateStore(suiteName: suiteName))
         )
         let fixture = try ClientRuntimeTestFixture()
         let binding = CmxIrohBrokerBindingMetadata(binding: fixture.binding)

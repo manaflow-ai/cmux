@@ -51,6 +51,15 @@ class GeneratedClientMixin:
     def agent_cli_update_job_resolve(self, cli: str, expected_machine_id: str, expected_session_id: str, idempotency_key: str) -> AgentCLIJobResolution:
         return self._invoke_command('agent-cli-update-job-resolve', AgentCliUpdateJobResolveRequest(cli=cli, expected_machine_id=expected_machine_id, expected_session_id=expected_session_id, idempotency_key=idempotency_key))
 
+    def agent_inventory(self, *, expected_machine_id: Union[str, MissingType] = MISSING) -> AgentInventoryResult:
+        return self._invoke_command('agent-inventory', AgentInventoryRequest(expected_machine_id=expected_machine_id))
+
+    def agent_inventory_refresh(self, expected_machine_id: str) -> AgentInventoryRefreshResult:
+        return self._invoke_command('agent-inventory-refresh', AgentInventoryRefreshRequest(expected_machine_id=expected_machine_id))
+
+    def agent_inventory_watch(self, enabled: bool, expected_machine_id: str, *, admission_receipt: Union[bool, MissingType] = MISSING, expected_watch_id: Union[str, MissingType] = MISSING) -> AgentInventoryWatchResult:
+        return self._invoke_command('agent-inventory-watch', AgentInventoryWatchRequest(enabled=enabled, expected_machine_id=expected_machine_id, admission_receipt=admission_receipt, expected_watch_id=expected_watch_id))
+
     def agent_session_attach(self, surface: Id, *, after_seq: Union[int, None, MissingType] = MISSING, before_seq: Union[int, None, MissingType] = MISSING, kinds: Union[List[str], None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> AgentSessionPage:
         return self._invoke_command('agent-session-attach', AgentSessionAttachRequest(surface=surface, after_seq=after_seq, before_seq=before_seq, kinds=kinds, limit=limit))
 
@@ -446,6 +455,9 @@ class GeneratedClientMixin:
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
+
+    def debug_daemon_locks(self) -> Any:
+        return self._invoke_command('debug-daemon-locks', DebugDaemonLocksRequest())
 
     def delete_bookmark(self, bookmark: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> DeleteBookmarkResult:
         return self._invoke_command('delete-bookmark', DeleteBookmarkRequest(bookmark=bookmark, mutation_id=mutation_id, origin=origin))
@@ -1094,6 +1106,9 @@ GeneratedClientMixin.agent_cli_intents_record.__cmux_command__ = COMMANDS['agent
 GeneratedClientMixin.agent_cli_intents_settle.__cmux_command__ = COMMANDS['agent-cli-intents-settle']
 GeneratedClientMixin.agent_cli_update_job.__cmux_command__ = COMMANDS['agent-cli-update-job']
 GeneratedClientMixin.agent_cli_update_job_resolve.__cmux_command__ = COMMANDS['agent-cli-update-job-resolve']
+GeneratedClientMixin.agent_inventory.__cmux_command__ = COMMANDS['agent-inventory']
+GeneratedClientMixin.agent_inventory_refresh.__cmux_command__ = COMMANDS['agent-inventory-refresh']
+GeneratedClientMixin.agent_inventory_watch.__cmux_command__ = COMMANDS['agent-inventory-watch']
 GeneratedClientMixin.agent_session_attach.__cmux_command__ = COMMANDS['agent-session-attach']
 GeneratedClientMixin.agent_session_cancel.__cmux_command__ = COMMANDS['agent-session-cancel']
 GeneratedClientMixin.agent_session_children.__cmux_command__ = COMMANDS['agent-session-children']
@@ -1226,6 +1241,7 @@ GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-gr
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.debug_daemon_locks.__cmux_command__ = COMMANDS['debug-daemon-locks']
 GeneratedClientMixin.delete_bookmark.__cmux_command__ = COMMANDS['delete-bookmark']
 GeneratedClientMixin.delete_browser_profile.__cmux_command__ = COMMANDS['delete-browser-profile']
 GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']

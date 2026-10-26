@@ -197,6 +197,7 @@ pub(super) fn start(
     let worker_id = id.clone();
     let cleanup_id = request_id.clone();
     let spawned = std::thread::Builder::new().name("mux-url-open".into()).spawn(move || {
+        let _lock_scope = reply.enter_lock_scope();
         // Waits on the app, another process.
         let opened = ipc_reply(|| waits::recv_timeout(&receiver, DEADLINE)).unwrap_or(false);
         worker_mux.control_clients.url_opens.cancel(&request_id);

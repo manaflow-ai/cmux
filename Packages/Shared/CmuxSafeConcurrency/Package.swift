@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.2
 
 import PackageDescription
 
@@ -9,7 +9,9 @@ import PackageDescription
 // It is the only place in Packages/ that calls os_unfair_lock_lock.
 
 /// The p10 compile-time safety settings (scripts/cmux-next/stability-settings.json fills this list).
-let stabilitySwiftSettings: [SwiftSetting] = []
+let stabilitySwiftSettings: [SwiftSetting] = [
+    .strictMemorySafety(),
+]
 
 let packageSwiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),

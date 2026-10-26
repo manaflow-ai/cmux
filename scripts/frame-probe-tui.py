@@ -5,13 +5,22 @@ Interactive terminal cadence probe for cmux notification lag.
 This is a terminal-side proxy, not a compositor frame counter. It measures how
 regularly this process can wake up and repaint a small TUI while other work,
 such as `cmux notify`, runs. Gaps over two 120 Hz intervals are the useful
-"likely missed frame interval" signal.
+"likely missed frame interval" signal. Percentiles come from
+scripts/perf-lab/perf_stats.py.
+
+`--headless SECONDS --app APP --result-dir DIR` also writes the raw samples as
+cmux-perf-result/v1 (story frame-probe-tui, session light, engine none; APP is
+the cmux bundle under test and names the build): frame_probe_tui.gap (ms, every
+frame gap), frame_probe_tui.{late_frames,hiccups,missed_intervals} (count) and,
+with --auto-notify, frame_probe_tui.notify_max (ms) and
+frame_probe_tui.notify_failed (count).
 """
 
 from __future__ import annotations
 
 import argparse
 import curses
+import importlib.util
 import os
 import shlex
 import shutil
@@ -22,7 +31,20 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Deque, Iterable
+from typing import Deque
+
+
+_spec = importlib.util.spec_from_file_location(
+    "perf_import", os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-lab", "perf_import.py")
+)
+perf_import = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(perf_import)
+perf_stats = perf_import.load("perf_stats")
+
+# result-v1 of a --headless run with --result-dir. Not a lab story: the probe runs inside a cmux terminal a person
+# watches, so its results go to the lab ingest by hand (`lab.py ingest DIR`).
+STORY = "frame-probe-tui"
+SESSION = "light"
 
 
 DEFAULT_HZ = 120.0
@@ -101,21 +123,10 @@ class FrameStats:
             "estimated_missed_intervals": self.estimated_missed_intervals,
             "last_gap_ms": gaps[-1] if gaps else 0.0,
             "avg_gap_ms": statistics.fmean(gaps) if gaps else 0.0,
-            "p95_gap_ms": percentile(gaps, 95),
-            "p99_gap_ms": percentile(gaps, 99),
+            "p95_gap_ms": perf_stats.pct(gaps, 0.95) if gaps else 0.0,
+            "p99_gap_ms": perf_stats.pct(gaps, 0.99) if gaps else 0.0,
             "max_gap_ms": self.max_gap_ms,
         }
-
-
-def percentile(values: Iterable[float], pct: float) -> float:
-    ordered = sorted(values)
-    if not ordered:
-        return 0.0
-    index = (len(ordered) - 1) * pct / 100.0
-    lower = int(index)
-    upper = min(lower + 1, len(ordered) - 1)
-    weight = index - lower
-    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
 
 
 def cmux_bin_from_args(value: str | None) -> str:
@@ -406,8 +417,12 @@ def run_headless(args: argparse.Namespace) -> int:
     interval = 1.0 / args.hz
     end_at = time.monotonic() + args.headless
     next_deadline = time.monotonic()
+    all_gaps_ms: list[float] = []  # every gap of the run: stats.gaps_ms keeps only the last --history
     while time.monotonic() < end_at or notify.running:
+        last_ns = stats.last_ns
         stats.record_frame(time.monotonic_ns())
+        if last_ns is not None:
+            all_gaps_ms.append((stats.last_ns - last_ns) / 1_000_000.0)
         next_deadline += interval
         sleep_for = next_deadline - time.monotonic()
         if sleep_for < -interval:
@@ -431,10 +446,30 @@ def run_headless(args: argparse.Namespace) -> int:
         f"notify_failed={notify.failed} "
         f"notify_max_ms={notify.max_ms:.3f}"
     )
+    if args.result_dir:
+        series = probe_series(stats, all_gaps_ms, notify if args.auto_notify else None)
+        path = perf_import.write_series(args.result_dir, STORY, SESSION, "none", series, *args.measured)
+        print(f"CMUX_FRAME_PROBE_RESULT_V1 {path}")
     if notify.last_error:
         print(f"CMUX_FRAME_PROBE_NOTIFY_ERROR {notify.last_error}", file=sys.stderr)
         return 2
     return 0
+
+
+def probe_series(stats: FrameStats, gaps_ms: list[float], notify: NotifyState | None) -> list:
+    """The result-v1 series of one headless run: every gap, the frame counters and, with a burst, notify's."""
+    series = [
+        perf_import.Series("frame_probe_tui.gap", "ms", "lower", list(gaps_ms)),
+        perf_import.Series("frame_probe_tui.late_frames", "count", "lower", [stats.late_frames]),
+        perf_import.Series("frame_probe_tui.hiccups", "count", "lower", [stats.hiccups]),
+        perf_import.Series("frame_probe_tui.missed_intervals", "count", "lower", [stats.estimated_missed_intervals]),
+    ]
+    if notify is not None:
+        series += [
+            perf_import.Series("frame_probe_tui.notify_max", "ms", "lower", [notify.max_ms]),
+            perf_import.Series("frame_probe_tui.notify_failed", "count", "lower", [notify.failed]),
+        ]
+    return series
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -485,6 +520,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="run without curses for the given number of seconds and print one summary line",
     )
     parser.add_argument(
+        "--app",
+        default=None,
+        help="with --result-dir: the cmux bundle under test, which names the build of the results",
+    )
+    parser.add_argument(
+        "--build-config",
+        choices=["bench", "bench-checks", "release", "debug"],
+        default=None,
+        help="result-v1 build config of a bench-hooks bundle that does not stamp it",
+    )
+    parser.add_argument(
+        "--result-dir",
+        default=None,
+        metavar="DIR",
+        help="with --headless and --app: write the raw samples as cmux-perf-result/v1 into DIR",
+    )
+    parser.add_argument(
         "--print-notify-command",
         action="store_true",
         help="print the default notify command and exit",
@@ -498,6 +550,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         parser.error("--notify-count must be non-negative")
     if args.notify_interval_ms < 0:
         parser.error("--notify-interval-ms must be non-negative")
+    if args.result_dir and not (args.headless > 0 and args.app):
+        parser.error("--result-dir needs --headless SECONDS and --app (a result names the build it measured)")
+    args.measured = None
+    if args.result_dir:
+        try:  # before the run: a run whose results cannot be named never starts
+            args.measured = perf_import.measured_build(args.app, args.build_config)
+        except perf_import.bench_launch().RecordError as error:
+            parser.error(f"no result-v1 can name this run: {error}")
     args.cmux_bin = cmux_bin_from_args(args.cmux_bin)
     return args
 

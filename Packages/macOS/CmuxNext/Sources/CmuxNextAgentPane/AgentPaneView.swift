@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -32,6 +32,9 @@ public final class AgentPaneView: NSView {
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    /// The app's blocking-work lanes (`AppServices.work`): a file drag reads the file's icon and an image's
+    /// bytes there (``AgentPaneFileDrag``).
+    let work: any MayBlockRunner
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
@@ -113,6 +116,8 @@ public final class AgentPaneView: NSView {
     ///
     /// - Parameters:
     ///   - model: Answers the page's host requests.
+    ///   - work: The app's blocking-work lanes (`AppServices.work`), for the reads of a file drag; tests pass
+    ///     their own `BackgroundWork`.
     ///   - source: The page to load; nil loads ``bundledPage``.
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
@@ -125,13 +130,14 @@ public final class AgentPaneView: NSView {
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+    public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
                  chatStores: AgentPaneChatStores = .keepsNothing) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        self.work = work
         warmup?.agentPageMade()
         let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.

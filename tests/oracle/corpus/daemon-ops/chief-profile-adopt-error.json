@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.chief-profile-adopt",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -38,19 +39,23 @@
       "args": {
         "method": "chief.profile.adopt",
         "params": {
-          "participant_id": ""
+          "participant_id": "agent_unknown"
         },
         "idempotencyKey": "chief-profile-adopt-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "operation": "chief.profile.adopt",
+          "reason": "not_an_agent_participant"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "participant_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a well-shaped agent id that is in no local conversation"
     }
   ],
   "invariants": [
@@ -59,8 +64,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.participant_id is a fixed placeholder, not a fixture object; chief/_tuning.json tunes it"
   ]
 }

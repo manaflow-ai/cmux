@@ -226,6 +226,7 @@ pub(super) fn start(
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
+        let _lock_scope = reply.enter_lock_scope();
         let answer = inspect_with(&mux, client, params, None);
         reply.reply(|| respond(&thread_writer, reply_id, answer));
     });

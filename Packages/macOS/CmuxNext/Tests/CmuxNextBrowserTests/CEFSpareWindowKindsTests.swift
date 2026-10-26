@@ -281,7 +281,7 @@ import Testing
     private static func spyRuntime() throws -> (CEFRuntime, URL) {
         SpareSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try SpareSpyShim.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }

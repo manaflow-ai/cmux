@@ -408,6 +408,13 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.chromePolicyIDSetting = newValue }
     }
 
+    /// The feature `chromiumSpareAfterFirstTab`: Chromium's spare renderer only for a profile a
+    /// browser tab opened (`CEFSwitches.spareRendererAfterFirstTab`); asked once, when Chromium starts.
+    public var spareAfterFirstTab: @MainActor () -> Bool {
+        get { CEFRuntime.shared.spareAfterFirstTabFeature }
+        set { CEFRuntime.shared.spareAfterFirstTabFeature = newValue }
+    }
+
     /// What modified link clicks do (cmux.json `browser.links.*`;
     /// process-wide, read on each request).
     public var linkClicks: BrowserLinkClickMapping {
@@ -457,7 +464,7 @@ public final class CEFEngine: BrowserEngine {
     private func adoptStores() {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
-                      hostSupervisor: runtimeSource.hostSupervisor)
+                      hostSupervisor: runtimeSource.hostSupervisor, hostWidgets: runtimeSource.showsHostWidgets)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 
