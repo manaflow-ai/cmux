@@ -96,10 +96,13 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
     private static let cache = Mutex<[Int32: Kind]>([:])
 
     private static func childPIDs(of pid: pid_t) -> [Int32] {
-        let count = proc_listchildpids(pid, nil, 0)
+        // SAFETY: a NULL buffer of size 0 only asks for the count.
+        let count = unsafe proc_listchildpids(pid, nil, 0)
         guard count > 0 else { return [] }
         var pids = [pid_t](repeating: 0, count: Int(count) + 16)
-        let filled = proc_listchildpids(pid, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        let room = Int32(pids.count * MemoryLayout<pid_t>.size)
+        // SAFETY: the kernel writes at most `room` bytes, the array's size, into its buffer during the call.
+        let filled = unsafe proc_listchildpids(pid, &pids, room)
         guard filled > 0 else { return [] }
         return Array(pids.prefix(Int(filled)).filter { $0 > 0 })
     }

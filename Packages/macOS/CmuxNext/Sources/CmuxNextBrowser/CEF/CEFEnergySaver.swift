@@ -70,7 +70,7 @@ extension CEFEnergySaver {
         guard runtime.forkFeatures.energySaver else { return nil }
         let saver = CEFEnergySaver { [weak runtime] on in
             guard let runtime, runtime.state == .ready, runtime.shutdownSequence == nil, let shim = runtime.shim else { return false }
-            return CEFEnergySaver.exemptScheme.withCString { shim.setEnergySaver(on ? 1 : 0, $0) } == 1
+            return shim.setEnergySaver(on ? 1 : 0, CEFEnergySaver.exemptScheme) == 1
         }
         saver.follow(runtime.wakeUps.energy, queue: runtime.wakeUps)
         runtime.logger.notice("CEF energy saver: \(saver.isApplied ? "applied" : "refused", privacy: .public) on=\(saver.sent == true, privacy: .public)")

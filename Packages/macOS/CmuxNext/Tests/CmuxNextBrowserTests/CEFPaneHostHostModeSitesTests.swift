@@ -43,7 +43,7 @@ import Testing
         #expect(page.frame == host.hostView.bounds)
 
         // A later window of the same pane names the same page view (one token on the wire).
-        #expect(host.pageParent() == Self.token(page))
+        #expect(host.pageParent() == CEFParentView(token: page.wireToken))
         // Another pane's page view has a token of its own.
         let (other, otherTab) = Self.pane(runtime)
         other.ensureCreated(otherTab)
