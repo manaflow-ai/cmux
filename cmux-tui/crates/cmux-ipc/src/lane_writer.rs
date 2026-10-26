@@ -29,10 +29,16 @@
 //!
 //! Lanes are strict priority with a starvation bound, as Chromium's
 //! base/task/sequence_manager/task_queue_selector.cc keeps low-priority work
-//! moving: after `starvation_bound` frames of higher lanes while bulk waits,
-//! one bulk frame goes; background counts bulk as higher too. A starvation
-//! grant is never followed by another, so a frame of a higher lane waits at
-//! most one lower frame.
+//! moving: control, bulk and background each count the frames written while
+//! they were ready and passed over, and at `starvation_bound` the lane is due
+//! one frame (a starvation grant). Control goes first: a due bulk or
+//! background lane gives its grant to waiting control when control has not
+//! written since that lane's last frame, so during an input flood control
+//! writes at least once per lower grant. A grant is never
+//! followed by another, so a frame of a higher lane waits at most one lower
+//! frame. The price is that bulk waits at most `starvation_bound + 2` higher
+//! frames (a control grant and the frame after it come first), and background
+//! at most `starvation_bound + 4`.
 //!
 //! A payload longer than `chunk_bytes` leaves as several frames; the chunk is
 //! the preemption boundary. Call kinds set `CallFlags::MORE` on every chunk but
@@ -46,14 +52,18 @@
 //! blocking the writer: a push that would pass `max_queued_bytes` ends the
 //! largest bulk or background stream until the push fits (`take_ended` names
 //! each ended stream so the owner can tell the peer and the producer). When no
-//! such stream is left, the push fails with `LaneError::Overflow`, and the
-//! owner closes the connection; input and control frames are never dropped.
+//! other such stream is left, a bulk or background push ends its own stream
+//! (`LaneError::StreamEnded`); an input or control push fails with
+//! `LaneError::Overflow`, and the owner closes the connection. Input and
+//! control frames are never dropped.
 //!
-//! Coalescing (task 141) hooks in through the `*_coalescing` pushes: an unsent
-//! queued frame with the same `CoalesceKey` in the same FIFO is replaced in
-//! place by what the caller's merge returns, as Blink coalesces continuous
-//! input into the queued event
+//! Coalescing (task 141) hooks in through the `*_coalescing` pushes: when the
+//! unsent tail of the FIFO has the same `CoalesceKey`, it is replaced by what
+//! the caller's merge returns, as Blink coalesces continuous input only into
+//! the last queued event
 //! (third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc).
+//! A frame queued in between stops the merge, so coalescing never moves
+//! content past an item pushed before it.
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -160,7 +170,7 @@ pub struct CoalesceKey(pub u64);
 pub enum Pushed {
     /// The frame joined the back of its FIFO.
     Queued,
-    /// The frame was merged into an unsent queued frame with its key.
+    /// The frame was merged into the FIFO's unsent tail, which had its key.
     Coalesced,
 }
 
@@ -200,8 +210,9 @@ pub enum LaneError {
     NotControlSequence { stream: u16 },
     /// A coalescing merge returned a frame of another stream.
     CoalesceChangedStream { stream: u16 },
-    /// The byte bound holds only input and control frames: the peer stopped
-    /// reading, and the owner closes the connection.
+    /// An input or control push does not fit and no bulk or background
+    /// stream is left to end: the peer stopped reading, and the owner closes
+    /// the connection.
     Overflow { queued: usize, need: usize, max: usize },
 }
 
@@ -251,11 +262,15 @@ fn frame_cost(frame: &Frame) -> usize {
 #[derive(Debug, Default)]
 struct Fifo {
     items: VecDeque<Queued>,
-    /// Sequence number of `items[0]`; an item's number never changes.
-    head_seq: u64,
     bytes: usize,
-    /// The newest queued item of each coalesce key.
-    keys: HashMap<CoalesceKey, u64>,
+}
+
+/// Makes a payload that `pop` will chunk shareable now: the first slice of a
+/// Vec-backed payload allocates, and doing it at push keeps it out of `pop`.
+fn prepare_chunks(frame: &Frame, chunk_bytes: usize) {
+    if frame.payload().len() > chunk_bytes && chunk_rule(frame.header().kind()).is_some() {
+        drop(frame.payload().clone());
+    }
 }
 
 impl Fifo {
@@ -264,33 +279,25 @@ impl Fifo {
     }
 
     fn push(&mut self, frame: Frame, key: Option<CoalesceKey>, chunk_bytes: usize) {
-        if frame.payload().len() > chunk_bytes && chunk_rule(frame.header().kind()).is_some() {
-            // The first slice of a Vec-backed payload makes it shareable;
-            // doing it here keeps that one allocation out of `pop`.
-            drop(frame.payload().clone());
-        }
-        if let Some(key) = key {
-            let seq = self.head_seq.saturating_add(self.items.len() as u64);
-            self.keys.insert(key, seq);
-        }
+        prepare_chunks(&frame, chunk_bytes);
         let item = Queued { frame, sent: 0, key };
         self.bytes = self.bytes.saturating_add(item.cost());
         self.items.push_back(item);
     }
 
-    /// The index of the unsent queued item with `key`.
+    /// The index of the tail item when it is unsent and has `key`.
     fn coalesce_index(&self, key: CoalesceKey) -> Option<usize> {
-        let seq = *self.keys.get(&key)?;
-        let index = usize::try_from(seq.checked_sub(self.head_seq)?).ok()?;
+        let index = self.items.len().checked_sub(1)?;
         let item = self.items.get(index)?;
         (item.sent == 0 && item.key == Some(key)).then_some(index)
     }
 
     /// Replaces the unsent item at `index`; returns false if it is gone.
-    fn replace(&mut self, index: usize, frame: Frame) -> bool {
+    fn replace(&mut self, index: usize, frame: Frame, chunk_bytes: usize) -> bool {
         let Some(item) = self.items.get_mut(index) else {
             return false;
         };
+        prepare_chunks(&frame, chunk_bytes);
         let old = item.cost();
         item.frame = frame;
         let new = item.cost();
@@ -320,14 +327,7 @@ impl Fifo {
 
     fn pop_front_item(&mut self) -> Option<Queued> {
         let item = self.items.pop_front()?;
-        let seq = self.head_seq;
-        self.head_seq = self.head_seq.wrapping_add(1);
         self.bytes = self.bytes.saturating_sub(item.cost());
-        if let Some(key) = item.key
-            && self.keys.get(&key) == Some(&seq)
-        {
-            self.keys.remove(&key);
-        }
         if self.items.is_empty() {
             self.release_idle();
         }
@@ -339,15 +339,11 @@ impl Fifo {
         if self.items.capacity() > IDLE_CAPACITY {
             self.items = VecDeque::new();
         }
-        if !self.keys.is_empty() || self.keys.capacity() > IDLE_CAPACITY {
-            self.keys = HashMap::new();
-        }
     }
 
     /// Drops everything; returns the bytes dropped.
     fn clear(&mut self) -> usize {
         let dropped = self.bytes;
-        self.head_seq = self.head_seq.wrapping_add(self.items.len() as u64);
         self.items.clear();
         self.bytes = 0;
         self.release_idle();
@@ -362,7 +358,8 @@ enum ChunkRule {
     Offset,
     /// SNAPSHOT, then SNAPSHOT_MORE with the same offset.
     Snapshot,
-    /// The same call aux, with MORE on every chunk but the last.
+    /// The same call aux, with MORE on every chunk but the last and FDS only
+    /// on the first: the descriptors ride with the first chunk.
     Call,
 }
 
@@ -401,6 +398,9 @@ fn chunk_frame(
         (ChunkRule::Call, Aux::Call(mut call)) => {
             if !last {
                 call.flags = call.flags.with(CallFlags::MORE);
+            }
+            if start > 0 {
+                call.flags = call.flags.without(CallFlags::FDS);
             }
             (header.kind(), Aux::Call(call))
         }
@@ -477,10 +477,16 @@ pub struct LaneWriter {
     streams: HashMap<u16, StreamQueue>,
     rings: Rings,
     queued_bytes: usize,
-    /// Higher-lane frames written since bulk last wrote, while it waited.
+    /// Frames of other lanes written since control last wrote, while it waited.
+    control_waited: u32,
+    /// Frames of other lanes written since bulk last wrote, while it waited.
     bulk_waited: u32,
-    /// Higher-lane frames written since background last wrote, while it waited.
+    /// Frames of other lanes written since background last wrote, while it waited.
     background_waited: u32,
+    /// Control wrote a frame since bulk last wrote.
+    control_since_bulk: bool,
+    /// Control wrote a frame since background last wrote.
+    control_since_background: bool,
     /// The last frame was a starvation grant.
     granted_last: bool,
     ended: VecDeque<EndedStream>,
@@ -500,8 +506,11 @@ impl LaneWriter {
             streams: HashMap::new(),
             rings: Rings::default(),
             queued_bytes: 0,
+            control_waited: 0,
             bulk_waited: 0,
             background_waited: 0,
+            control_since_bulk: false,
+            control_since_background: false,
             granted_last: false,
             ended: VecDeque::new(),
         }
@@ -619,7 +628,7 @@ impl LaneWriter {
         let merged = Self::merged(&self.control, index, frame, merge)?;
         self.make_room(Self::growth(&self.control, index, &merged), None)?;
         let before = self.control.bytes;
-        self.control.replace(index, merged);
+        self.control.replace(index, merged, self.config.chunk_bytes);
         self.account_change(before, self.control.bytes);
         Ok(Pushed::Coalesced)
     }
@@ -651,9 +660,10 @@ impl LaneWriter {
         let merged = Self::merged(&queue.fifo, index, frame, merge)?;
         let growth = Self::growth(&queue.fifo, index, &merged);
         self.make_room(growth, Some(stream))?;
+        let chunk_bytes = self.config.chunk_bytes;
         let queue = Self::live_stream(&mut self.streams, stream)?;
         let before = queue.fifo.bytes;
-        queue.fifo.replace(index, merged);
+        queue.fifo.replace(index, merged, chunk_bytes);
         let after = queue.fifo.bytes;
         self.account_change(before, after);
         Ok(Pushed::Coalesced)
@@ -702,39 +712,69 @@ impl LaneWriter {
         }
     }
 
-    /// The lane of the next frame, and whether it is a starvation grant.
-    fn select(&self) -> Option<(Lane, bool)> {
-        let highest = Lane::ALL.into_iter().find(|&lane| self.lane_ready(lane))?;
-        if !self.granted_last {
-            let bound = self.config.starvation_bound;
-            if self.bulk_waited >= bound && self.lane_ready(Lane::Bulk) && highest < Lane::Bulk {
-                return Some((Lane::Bulk, true));
-            }
-            if self.background_waited >= bound
-                && self.lane_ready(Lane::Background)
-                && highest < Lane::Background
-            {
-                return Some((Lane::Background, true));
-            }
+    /// The frames written while `lane` waited; input never waits.
+    fn waited(&self, lane: Lane) -> u32 {
+        match lane {
+            Lane::Input => 0,
+            Lane::Control => self.control_waited,
+            Lane::Bulk => self.bulk_waited,
+            Lane::Background => self.background_waited,
         }
-        Some((highest, false))
     }
 
+    /// Whether control wrote since `lane` last wrote.
+    fn control_since(&self, lane: Lane) -> bool {
+        match lane {
+            Lane::Input | Lane::Control => true,
+            Lane::Bulk => self.control_since_bulk,
+            Lane::Background => self.control_since_background,
+        }
+    }
+
+    /// The lane of the next frame, and whether it is a starvation grant. A
+    /// due bulk or background lane yields its grant to waiting control when
+    /// control has not written since that lane's last frame.
+    fn select(&self) -> Option<(Lane, bool)> {
+        let highest = Lane::ALL.into_iter().find(|&lane| self.lane_ready(lane))?;
+        if self.granted_last {
+            return Some((highest, false));
+        }
+        let bound = self.config.starvation_bound;
+        let due =
+            |lane: Lane| lane > highest && self.lane_ready(lane) && self.waited(lane) >= bound;
+        let lower = [Lane::Bulk, Lane::Background].into_iter().find(|&lane| due(lane));
+        let control_waits = Lane::Control > highest && self.lane_ready(Lane::Control);
+        let control_first = lower.is_some_and(|lane| control_waits && !self.control_since(lane));
+        if due(Lane::Control) || control_first {
+            return Some((Lane::Control, true));
+        }
+        lower.map(|lane| (lane, true)).or(Some((highest, false)))
+    }
+
+    /// After a frame of `lane`: it stops waiting, and every other ready lane
+    /// waited one more frame.
     fn account_pop(&mut self, lane: Lane, granted: bool) {
         self.granted_last = granted;
-        let bulk_ready = self.lane_ready(Lane::Bulk);
-        let background_ready = self.lane_ready(Lane::Background);
-        let bump = |waited: u32, ready: bool| if ready { waited.saturating_add(1) } else { 0 };
+        let next = |other: Lane| {
+            if other != lane && self.lane_ready(other) {
+                self.waited(other).saturating_add(1)
+            } else {
+                0
+            }
+        };
+        let (control, bulk, background) =
+            (next(Lane::Control), next(Lane::Bulk), next(Lane::Background));
+        self.control_waited = control;
+        self.bulk_waited = bulk;
+        self.background_waited = background;
         match lane {
-            Lane::Input | Lane::Control => {
-                self.bulk_waited = bump(self.bulk_waited, bulk_ready);
-                self.background_waited = bump(self.background_waited, background_ready);
+            Lane::Input => {}
+            Lane::Control => {
+                self.control_since_bulk = true;
+                self.control_since_background = true;
             }
-            Lane::Bulk => {
-                self.bulk_waited = 0;
-                self.background_waited = bump(self.background_waited, background_ready);
-            }
-            Lane::Background => self.background_waited = 0,
+            Lane::Bulk => self.control_since_bulk = false,
+            Lane::Background => self.control_since_background = false,
         }
     }
 
@@ -823,6 +863,9 @@ impl LaneWriter {
     }
 
     fn queue_control(&mut self, frame: Frame, key: Option<CoalesceKey>) {
+        if self.control.is_empty() {
+            self.control_waited = 0;
+        }
         let before = self.control.bytes;
         self.control.push(frame, key, self.config.chunk_bytes);
         self.account_change(before, self.control.bytes);
@@ -882,11 +925,21 @@ impl LaneWriter {
         self.queued_bytes = self.queued_bytes.saturating_sub(before).saturating_add(after);
     }
 
-    /// Ends the largest droppable streams until `need` more bytes fit.
+    /// Ends the largest droppable streams until `need` more bytes fit. When
+    /// none is left, a droppable pushing stream ends itself.
     fn make_room(&mut self, need: usize, pushing: Option<u16>) -> Result<(), LaneError> {
         let max = self.config.max_queued_bytes;
+        let pushing_droppable = pushing.filter(|stream| {
+            self.streams.get(stream).is_some_and(|queue| queue.lane.is_droppable())
+        });
+        if let Some(stream) = pushing_droppable
+            && need > max
+        {
+            self.end_stream(stream, EndReason::Overflow);
+            return Err(LaneError::StreamEnded { stream });
+        }
         while self.queued_bytes.saturating_add(need) > max {
-            let Some(victim) = self.largest_droppable() else {
+            let Some(victim) = self.largest_droppable().or(pushing_droppable) else {
                 return Err(LaneError::Overflow { queued: self.queued_bytes, need, max });
             };
             self.end_stream(victim, EndReason::Overflow);
@@ -905,13 +958,20 @@ impl LaneWriter {
             .map(|(id, _)| *id)
     }
 
+    /// Drops a stream's frames and records it in `ended`. A closing stream
+    /// is removed, since its owner already let go of it; an open one refuses
+    /// pushes until reopened.
     fn end_stream(&mut self, stream: u16, reason: EndReason) {
         let Some(queue) = self.streams.get_mut(&stream) else {
             return;
         };
         let lane = queue.lane;
         let dropped = queue.fifo.clear();
-        queue.state = StreamState::Ended;
+        if queue.state == StreamState::Closing {
+            self.streams.remove(&stream);
+        } else {
+            queue.state = StreamState::Ended;
+        }
         self.rings.get_mut(lane).remove(stream);
         self.queued_bytes = self.queued_bytes.saturating_sub(dropped);
         self.ended.push_back(EndedStream { stream, dropped_bytes: dropped, reason });

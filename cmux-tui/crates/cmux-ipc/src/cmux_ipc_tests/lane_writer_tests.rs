@@ -9,8 +9,8 @@ use bytes::Bytes;
 use crate::frame::HEADER_LEN;
 use crate::lane_writer::BULK_FRAME_MAX;
 use crate::{
-    Aux, CallAux, CallFlags, CoalesceKey, EndReason, Frame, FrameKind, Lane, LaneError, LaneWriter,
-    LaneWriterConfig, PriorityHint, Pushed, StreamLane,
+    Aux, CallAux, CallFlags, CoalesceKey, EndReason, EndedStream, Frame, FrameKind, Lane,
+    LaneError, LaneWriter, LaneWriterConfig, PriorityHint, Pushed, StreamLane,
 };
 
 /// xorshift64*: deterministic, so a failing seed replays.
@@ -218,8 +218,9 @@ fn lane_writer_starvation_bound_and_stream_credit_hold() {
             over_background = 0;
         }
         if bulk_waits && writer.queued_bytes() > 64 * 256 * 3 {
-            assert!(over_bulk <= 8, "bulk waited {over_bulk} higher frames");
-            assert!(over_background <= 10, "background waited {over_background} frames");
+            // A control grant and the input frame after it may go first.
+            assert!(over_bulk <= 8 + 2, "bulk waited {over_bulk} higher frames");
+            assert!(over_background <= 8 + 4, "background waited {over_background} frames");
         }
         if lane == Lane::Bulk {
             let stream = frame.header().stream();
@@ -300,7 +301,10 @@ fn lane_writer_byte_bound_ends_largest_droppable_stream() {
             assert!(writer.queued_bytes() <= max, "seed {seed}: bound broken");
             while let Some(ended) = writer.take_ended() {
                 assert_eq!(ended.reason, EndReason::Overflow);
-                assert!(ended.dropped_bytes > 0 && ended.dropped_bytes <= before);
+                assert!(ended.dropped_bytes <= before);
+                if ended.dropped_bytes == 0 {
+                    assert_eq!(ended.stream, stream, "only the pushing stream ends empty");
+                }
                 assert_ne!(lane_of[&ended.stream], StreamLane::Input, "an input stream was ended");
                 let frame = stream_frame(ended.stream, 0, 1, 0);
                 assert_eq!(
@@ -344,7 +348,12 @@ fn lane_writer_coalesce_hook_replaces_unsent_frame_in_place() {
     let event = |message: u32| control_frame(message, 10, FrameKind::TypedEvent);
     assert_eq!(writer.push_control_coalescing(event(1), key, keep_newer), Ok(Pushed::Queued));
     writer.push_control(event(2)).unwrap();
-    for message in 3..1000 {
+    assert_eq!(
+        writer.push_control_coalescing(event(3), key, keep_newer),
+        Ok(Pushed::Queued),
+        "a frame queued in between stops the merge"
+    );
+    for message in 4..1000 {
         assert_eq!(
             writer.push_control_coalescing(event(message), key, keep_newer),
             Ok(Pushed::Coalesced)
@@ -353,7 +362,7 @@ fn lane_writer_coalesce_hook_replaces_unsent_frame_in_place() {
     let ids: Vec<u32> = std::iter::from_fn(|| writer.pop())
         .map(|frame| frame.header().call().unwrap().request_id)
         .collect();
-    assert_eq!(ids, vec![999, 2], "the coalesced frame keeps its place");
+    assert_eq!(ids, vec![1, 2, 999], "frame 2 stays between the keyed frames");
     assert_eq!(writer.queued_bytes(), 0);
 
     writer.open_stream(7, StreamLane::Bulk).unwrap();
@@ -410,4 +419,227 @@ fn lane_writer_pop_batch_respects_budget() {
     let bytes = writer.pop_batch(&mut batch, 2048);
     assert_eq!(batch.len(), 2);
     assert_eq!(bytes, 2 * (HEADER_LEN + 1024));
+}
+
+#[test]
+fn lane_writer_control_goes_before_lower_grants_under_input_flood() {
+    let bound = 8;
+    for seed in 0..100 {
+        let mut rng = Rng::new(seed);
+        let config =
+            LaneWriterConfig { chunk_bytes: 256, starvation_bound: bound, ..Default::default() };
+        let mut writer = LaneWriter::new(config);
+        writer.open_stream(1, StreamLane::Input).unwrap();
+        writer.open_stream(2, StreamLane::Bulk).unwrap();
+        writer.open_stream(3, StreamLane::Background).unwrap();
+        writer.push_stream(stream_frame(2, 2, 256 * 400, 0)).unwrap();
+        writer.push_stream(stream_frame(3, 3, 256 * 400, 0)).unwrap();
+        let (mut pending, mut gap, mut control_written) = (0_u32, 0_u32, 0_u32);
+        let (mut since_bulk, mut since_background) = (false, false);
+        let (mut bulk_written, mut background_written) = (0_u32, 0_u32);
+        for flow in 0..2000_u64 {
+            let input = Frame::new(FrameKind::Input, 1, Aux::FlowId(flow), Bytes::new()).unwrap();
+            writer.push_stream(input).unwrap();
+            if rng.below(4) == 0 {
+                let message = flow as u32;
+                writer.push_control(control_frame(message, 8, FrameKind::TypedEvent)).unwrap();
+                pending += 1;
+            }
+            let frame = writer.pop().unwrap();
+            match frame.header().stream() {
+                0 => {
+                    pending -= 1;
+                    control_written += 1;
+                    (since_bulk, since_background, gap) = (true, true, 0);
+                    continue;
+                }
+                2 => {
+                    assert!(pending == 0 || since_bulk, "seed {seed}: bulk passed waiting control");
+                    since_bulk = false;
+                    bulk_written += 1;
+                }
+                3 => {
+                    assert!(
+                        pending == 0 || since_background,
+                        "seed {seed}: background passed waiting control"
+                    );
+                    since_background = false;
+                    background_written += 1;
+                }
+                _ => {}
+            }
+            if pending > 0 {
+                gap += 1;
+                assert!(gap <= bound + 1, "seed {seed}: control waited {gap} frames");
+            }
+        }
+        assert!(control_written > 0 && bulk_written > 0 && background_written > 0);
+    }
+}
+
+#[test]
+fn lane_writer_coalescing_keeps_emit_order() {
+    let keys = [CoalesceKey(1), CoalesceKey(2)];
+    for seed in 0..300 {
+        let mut rng = Rng::new(seed);
+        let mut writer = LaneWriter::new(small_chunks());
+        writer.open_stream(4, StreamLane::Bulk).unwrap();
+        // The unsent items the policy must write, per FIFO, in order.
+        let mut model: [std::collections::VecDeque<(u32, Option<CoalesceKey>)>; 2] =
+            Default::default();
+        let (mut written, mut expected) = (Vec::new(), Vec::new());
+        for message in 1..400_u32 {
+            let on_stream = rng.below(2) == 1;
+            let fifo = &mut model[usize::from(on_stream)];
+            let frame = if on_stream {
+                Frame::new(
+                    FrameKind::Event,
+                    4,
+                    Aux::Offset(u64::from(message)),
+                    payload(message, 8),
+                )
+                .unwrap()
+            } else {
+                control_frame(message, 8, FrameKind::TypedEvent)
+            };
+            match rng.below(4) {
+                0 => {
+                    let pushed = if on_stream {
+                        writer.push_stream(frame)
+                    } else {
+                        writer.push_control(frame)
+                    };
+                    assert_eq!(pushed, Ok(Pushed::Queued));
+                    fifo.push_back((message, None));
+                }
+                1 | 2 => {
+                    let key = keys[rng.below(2) as usize];
+                    let keep_newer = |_: &Frame, newer: Frame| newer;
+                    let pushed = if on_stream {
+                        writer.push_stream_coalescing(frame, key, keep_newer)
+                    } else {
+                        writer.push_control_coalescing(frame, key, keep_newer)
+                    };
+                    match fifo.back_mut() {
+                        Some(tail) if tail.1 == Some(key) => {
+                            assert_eq!(pushed, Ok(Pushed::Coalesced), "seed {seed}");
+                            tail.0 = message;
+                        }
+                        _ => {
+                            assert_eq!(pushed, Ok(Pushed::Queued), "seed {seed}");
+                            fifo.push_back((message, Some(key)));
+                        }
+                    }
+                }
+                _ => {
+                    for _ in 0..rng.below(3) {
+                        let Some(frame) = writer.pop() else { break };
+                        let stream = frame.header().stream();
+                        let id = match frame.header().aux() {
+                            Aux::Call(call) => call.request_id,
+                            Aux::Offset(offset) => offset as u32,
+                            other => panic!("unexpected aux {other:?}"),
+                        };
+                        written.push((stream, id));
+                        let next = model[usize::from(stream == 4)].pop_front().unwrap();
+                        expected.push((stream, next.0));
+                    }
+                }
+            }
+        }
+        while let Some(frame) = writer.pop() {
+            let stream = frame.header().stream();
+            let id = match frame.header().aux() {
+                Aux::Call(call) => call.request_id,
+                Aux::Offset(offset) => offset as u32,
+                other => panic!("unexpected aux {other:?}"),
+            };
+            written.push((stream, id));
+            expected.push((stream, model[usize::from(stream == 4)].pop_front().unwrap().0));
+        }
+        assert_eq!(written, expected, "seed {seed}: coalescing reordered a FIFO");
+        assert!(model.iter().all(std::collections::VecDeque::is_empty));
+        assert_eq!(writer.queued_bytes(), 0);
+    }
+}
+
+#[test]
+fn lane_writer_overflow_ends_the_pushing_droppable_stream() {
+    let max = 4 * 1024;
+    let config = LaneWriterConfig { max_queued_bytes: max, ..Default::default() };
+    let mut writer = LaneWriter::new(config);
+    writer.open_stream(1, StreamLane::Input).unwrap();
+    writer.open_stream(2, StreamLane::Bulk).unwrap();
+    writer.open_stream(3, StreamLane::Background).unwrap();
+    writer.push_stream(stream_frame(1, 1, 3000, 0)).unwrap();
+    let queued = writer.queued_bytes();
+
+    // An empty bulk stream whose frame does not fit ends itself.
+    assert_eq!(
+        writer.push_stream(stream_frame(2, 2, 2000, 0)),
+        Err(LaneError::StreamEnded { stream: 2 })
+    );
+    let ended = EndedStream { stream: 2, dropped_bytes: 0, reason: EndReason::Overflow };
+    assert_eq!(writer.take_ended(), Some(ended));
+    assert_eq!(writer.queued_bytes(), queued);
+
+    // A frame bigger than the bound ends its own stream and no other.
+    writer.open_stream(2, StreamLane::Bulk).unwrap();
+    writer.push_stream(stream_frame(3, 3, 100, 0)).unwrap();
+    let queued = writer.queued_bytes();
+    assert_eq!(
+        writer.push_stream(stream_frame(2, 4, 2 * max, 0)),
+        Err(LaneError::StreamEnded { stream: 2 })
+    );
+    assert_eq!(writer.take_ended(), Some(ended));
+    assert_eq!(writer.take_ended(), None, "stream 3 was not ended");
+    assert_eq!(writer.queued_bytes(), queued);
+
+    // Input and control still fail as an overflow once nothing else is left.
+    assert!(matches!(
+        writer.push_control(control_frame(5, 2000, FrameKind::Reply)),
+        Err(LaneError::Overflow { .. })
+    ));
+    let ended_three =
+        EndedStream { stream: 3, dropped_bytes: HEADER_LEN + 100, reason: EndReason::Overflow };
+    assert_eq!(writer.take_ended(), Some(ended_three));
+}
+
+#[test]
+fn lane_writer_ending_a_closing_stream_removes_it() {
+    let config = LaneWriterConfig { max_queued_bytes: 4 * 1024, ..Default::default() };
+    let mut writer = LaneWriter::new(config);
+    writer.open_stream(5, StreamLane::Bulk).unwrap();
+    writer.push_stream(stream_frame(5, 1, 1000, 0)).unwrap();
+    writer.close_stream(5);
+    writer.push_control(control_frame(2, 3500, FrameKind::Reply)).unwrap();
+    let ended =
+        EndedStream { stream: 5, dropped_bytes: HEADER_LEN + 1000, reason: EndReason::Overflow };
+    assert_eq!(writer.take_ended(), Some(ended));
+    assert_eq!(writer.stream_lane(5), None);
+    let on_five = Frame::new(FrameKind::Reply, 5, call(3, CallFlags::empty()), Bytes::new());
+    assert_eq!(writer.push_control(on_five.unwrap()), Ok(Pushed::Queued));
+    writer.open_stream(5, StreamLane::Background).unwrap();
+}
+
+#[test]
+fn lane_writer_fds_ride_only_the_first_chunk() {
+    let mut writer = LaneWriter::new(small_chunks());
+    let fds = CallFlags::FDS.with(CallFlags::BINARY);
+    let frame = Frame::new(FrameKind::Reply, 0, call(1, fds), payload(1, 2500)).unwrap();
+    writer.push_control(frame).unwrap();
+    let whole = Frame::new(FrameKind::Reply, 0, call(2, fds), payload(2, 10)).unwrap();
+    writer.push_control(whole).unwrap();
+    let flags: Vec<CallFlags> = std::iter::from_fn(|| writer.pop())
+        .map(|frame| frame.header().call().unwrap().flags)
+        .collect();
+    assert_eq!(
+        flags,
+        vec![
+            fds.with(CallFlags::MORE),
+            CallFlags::BINARY.with(CallFlags::MORE),
+            CallFlags::BINARY,
+            fds,
+        ]
+    );
 }
