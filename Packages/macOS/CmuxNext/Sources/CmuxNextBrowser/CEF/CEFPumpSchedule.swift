@@ -22,10 +22,25 @@ import Foundation
 /// the delay against a stale `recent_now`: a 7.9 ms task fired at 7 ms, found nothing due, and the
 /// re-ask truncated to 0, "now" (``CEFPumpStats/earlyPasses``). An older fork keeps that path.
 nonisolated struct CEFPumpSchedule: Equatable, Sendable {
-    /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call.
+    /// CEF's `max_time_slice` for one `CefDoMessageLoopWork` call on a fork below
+    /// ``pumpTimeSliceSwitchForkAPI``, which may ignore `--cmux-pump-time-slice-us`.
     static let timeSlice: TimeInterval = 0.010
+    /// The first fork API every build of which honours `--cmux-pump-time-slice-us` (cef-cmux 066b083f,
+    /// which kept API 24): API 26 (layer hosting) is the first API made on top of that commit. API 24 and 25 builds exist with and without it (cmux.28 and the API 25 keychain
+    /// line lack it), so they are judged by CEF's 10 ms. cmux always passes the switch, so the fork's own
+    /// default (2 ms from manaflow-ai/cef cp/p14-energy-037, in the p14-energy-136 bundle) changes nothing
+    /// here. The same number as `CEFLayerHosting.forkAPI`, which is main-actor isolated.
+    static let pumpTimeSliceSwitchForkAPI: Int32 = 26
     /// The first fork API whose `MessagePumpExternal` is demand-driven.
     static let demandDrivenForkAPI: Int32 = 7
+
+    /// The longest one `CefDoMessageLoopWork` call runs ready work on a fork of `forkAPI` between `DoWork`
+    /// batches before it returns and asks for "now": the switch's 2 ms
+    /// (``CEFSwitches/pumpTimeSliceMicroseconds``) from ``pumpTimeSliceSwitchForkAPI``, CEF's 10 ms below
+    /// it. A pass that runs this long may have left work.
+    static func timeSlice(forkAPI: Int32) -> TimeInterval {
+        forkAPI >= pumpTimeSliceSwitchForkAPI ? TimeInterval(CEFSwitches.pumpTimeSliceMicroseconds) / 1_000_000 : timeSlice
+    }
     /// Leeway of a whole-millisecond delayed request: Chromium's own default for delayed tasks
     /// (base's `kDefaultLeeway`, 8 ms), so the system can coalesce the wake with others (an idle
     /// browser asks about 1.7 times a second). Never more than a tenth of the delay; a request for

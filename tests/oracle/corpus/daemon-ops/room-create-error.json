@@ -38,7 +38,7 @@
       "args": {
         "method": "room.create",
         "params": {
-          "name": 7
+          "name": ""
         },
         "idempotencyKey": "room-create-error.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "name breaks its catalog type (value must be a string); the daemon's catalog check refuses it"
+      "note": "the catalog types name as any string; the room store refuses an empty one. The code only: the refusal has no field yet (a prose reason), p15-oracle-241 adds field name"
     }
   ],
   "invariants": [
