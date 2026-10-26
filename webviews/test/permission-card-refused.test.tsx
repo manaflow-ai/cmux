@@ -212,6 +212,7 @@ test("a thenable's refusal and a throw both show, and free the ask", async () =>
   const card = await mount(ask("p1"), {
     reply: () => {
       calls += 1;
+      // oxlint-disable-next-line unicorn/no-thenable -- the card must follow any thenable onAnswer returns.
       if (calls === 1) return { then: (_ok: unknown, fail: (error: Error) => void) => fail(new Error("refused")) };
       throw new Error("no connection");
     },
