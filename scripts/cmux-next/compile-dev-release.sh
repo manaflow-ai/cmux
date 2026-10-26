@@ -96,6 +96,10 @@ else
   derived_data="$("$here/release-derived-data-path.sh" dev-daily-release Release)"
 fi
 echo "compile-dev-release: $mode build root${reason:+ ($reason)}: $build_root, DerivedData $derived_data"
+# The REF capture after the compile reads the build from these paths (host mode only).
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  printf 'build_mode=%s\nbuild_root=%s\nderived_data=%s\n' "$mode" "$build_root" "$derived_data" >> "$GITHUB_OUTPUT" || true
+fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   echo "DEV Release compile: $mode build root${reason:+ ($reason)}" >> "$GITHUB_STEP_SUMMARY" || true
 fi
