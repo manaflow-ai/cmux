@@ -13,6 +13,12 @@ import CmuxNextIcons
 /// its owner once (`get-blob`), decoded off the main actor and kept; a reader observing
 /// ``image(_:owner:)`` redraws when it arrives. An SVG is drawn as an isolated image, never
 /// put into a page. Content addressed, so one decoded image serves every owner that names it.
+///
+/// Registered (``registerMemoryConsumer(with:)``), the decoded images are one lossless memory consumer: a
+/// dropped image is read from its owner again the next time a reader asks for it. At most ``keep`` stay,
+/// the oldest decode dropped first; a release drops down to the limit's share of ``keep``. A read that
+/// lands under a lowered limit is still kept (a reader on screen asked for it now: its working set); the
+/// next release takes it.
 @MainActor @Observable
 final class IconAssetImages {
     static let shared = IconAssetImages()
@@ -20,8 +26,17 @@ final class IconAssetImages {
     /// Point size an asset is drawn for (sidebar and tab icons), rendered at ``scale``.
     nonisolated static let side: CGFloat = 32
     nonisolated static let scale: CGFloat = 2
+    /// The most decoded assets kept: one 64 x 64 RGBA image (16 KiB) each, 16 MiB at most.
+    nonisolated static let keep = 1024
 
     private var images: [String: SidebarFavicon] = [:]
+    /// The keys of ``images``, oldest decode first.
+    @ObservationIgnored private var order: [String] = []
+    /// The pixel bytes of ``images``, kept on every insert and removal (the memory report).
+    @ObservationIgnored private var imageBytes = 0
+    /// How many images a release keeps: ``keep`` scaled by the memory coordinator's limit.
+    @ObservationIgnored private var imageLimit = IconAssetImages.keep
+    @ObservationIgnored private var memoryRegistration: MemoryConsumerRegistration?
     /// Assets being read, or answered but not drawable (a refused read, bytes that do not
     /// decode; never retried). A read whose transport failed (no connection yet, a timeout) is
     /// forgotten, so the next rebuild, such as the one a reconnect causes, reads it again.
@@ -47,9 +62,53 @@ final class IconAssetImages {
                 return
             }
             guard let image = await Self.decoded(blob.data, mediaType: blob.mediaType) else { return }
-            self?.images[icon] = image
+            self?.store(image, for: icon)
         }
         return nil
+    }
+
+    /// Keeps `image` as asset `icon`'s, dropping the oldest decodes past ``keep`` (tests store a decode directly).
+    func store(_ image: SidebarFavicon, for icon: String) {
+        if let old = images.updateValue(image, forKey: icon) {
+            imageBytes -= Self.bytes(of: old)
+        } else {
+            order.append(icon)
+        }
+        imageBytes += Self.bytes(of: image)
+        dropOldest(to: Self.keep, within: nil)
+    }
+
+    /// Drops the oldest decodes until at most `limit` stay or `slice` is spent. A dropped asset is
+    /// forgotten as read, so the next reader reads it again.
+    ///
+    /// - Returns: Whether at most `limit` stay.
+    @discardableResult
+    private func dropOldest(to limit: Int, within slice: MemoryReleaseSlice?) -> Bool {
+        var dropped = 0
+        defer { order.removeFirst(dropped) }
+        while order.count - dropped > max(limit, 0) {
+            if slice?.isExpired == true { return false }
+            let icon = order[dropped]
+            dropped += 1
+            if let image = images.removeValue(forKey: icon) { imageBytes -= Self.bytes(of: image) }
+            tabImages[icon] = nil
+            requested.remove(icon)
+        }
+        return true
+    }
+
+    private nonisolated static func bytes(of image: SidebarFavicon) -> Int {
+        image.image.bytesPerRow * image.image.height
+    }
+
+    /// Registers the decoded images with the app's memory coordinator, one lossless consumer; a later
+    /// call replaces the registration.
+    ///
+    /// - Parameter registry: The memory coordinator (injected).
+    func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration?.cancel()
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
 
     /// ``image(_:owner:)`` of `owner`'s assets as the sidebar mapping draws them.
@@ -116,5 +175,33 @@ final class IconAssetImages {
         body(rect)
         NSGraphicsContext.restoreGraphicsState()
         return context.makeImage()
+    }
+}
+
+/// The decoded asset images as one lossless consumer (Chrome's consumer contract,
+/// base/memory_coordinator/memory_consumer.h): a new limit frees nothing; ``releaseMemory(within:)``
+/// drops the oldest decodes down to it. An image a strip or the sidebar still draws stays alive in
+/// that view; only the cache forgets it.
+extension IconAssetImages: MemoryConsumer {
+    /// Up to ``keep`` small images (1 to 50 MB at most); dropping one touches only memory, and reading it
+    /// again is a daemon round trip (a remote one over the network), so only critical pressure acts.
+    nonisolated static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium, dataAccess: .none, retention: .lossless, recreateCost: .expensive,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    /// The consumer's name in the memory report.
+    nonisolated static let memoryConsumerName = "icon-asset-images"
+
+    func updateMemoryLimit(_ limit: MemoryLimit) {
+        imageLimit = limit.scale(Self.keep)
+    }
+
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        updateMemoryLimit(slice.limit)
+        return dropOldest(to: imageLimit, within: slice) ? .done : .more
+    }
+
+    var memoryUsage: MemoryUsage? {
+        MemoryUsage(footprintBytes: imageBytes, entries: images.count)
     }
 }
