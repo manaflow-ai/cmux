@@ -690,6 +690,14 @@ path = "tests/test_ci_required_checks_have_no_path_filters.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_quota_hold_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_size_advisory.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_permissions_are_job_scoped.py"
 lane = "linux-guard"
 
@@ -1043,10 +1051,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_dev_release_product_reuse.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1505,6 +1509,11 @@ path = "tests/test_defaults_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_settings_stamp_not_committed.py"
+lane = "manual"
+reason = "CLAUDE.md forbids adding a CI test (Lawrence 2026-10-23: \"not to add gates/tests in CI, but you have to run them yourself\"), and #23915 deleted the gate this covers rather than replacing it. Run it with `python3 -m unittest tests.test_settings_stamp_not_committed` when changing scripts/cmux-next/check-settings-exports.sh, settings-exports.txt or any of its readers."
+
+[[test]]
 path = "tests/test_generated_files_guard.py"
 lane = "linux-guard"
 
@@ -1522,6 +1531,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_lane_daemon_tests.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_point_channel.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1605,11 +1618,19 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_unsigned_resume.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_sign_runner.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1827,6 +1848,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_lane_suite_skips.py"
+lane = "manual"
+reason = "A regression test for package-test-lane.sh suite's skip reporting, run by its author (CLAUDE.md: no new CI tests). Stdlib Python with a fake swift and xcrun; runs anywhere: python3 tests/test_ci_package_lane_suite_skips.py."
 
 [[test]]
 path = "tests/test_cmux_bug_triage.py"
