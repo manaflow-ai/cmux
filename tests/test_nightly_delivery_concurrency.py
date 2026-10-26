@@ -24,7 +24,7 @@ NO_CONCURRENCY_GROUP: dict[str, tuple[str, ...]] = {
     # passed (runs 40370485774, 40371402817, 40373347803, 40378401600). The
     # newest write wins instead through an R2 lease plus commit record
     # (publish) and a feed compare-and-swap (tip).
-    "cmux-next-dev-daily.yml": ("publish", "tip"),
+    "cmux-next-dev-daily.yml": ("publish", "tip-dmg", "tip", "tip-deltas"),
 }
 
 
