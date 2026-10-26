@@ -331,17 +331,17 @@ impl Hub {
         let now = now_ms();
         let due = self.lane_links(|links| {
             let l = links.get_mut(lane)?;
-            let report = due_report(l, now)?;
-            Some((l.parent.clone(), report))
+            let (report, key) = due_report(l, now)?;
+            Some((l.parent.clone(), report, key))
         });
-        let Some((parent, report)) = due else { return };
+        let Some((parent, report, key)) = due else { return };
         if let Err(e) = self.lane_deliver(&parent, lane, &report).await {
             tracing::warn!(lane, %parent, "lane report not delivered: {}", e.message);
             return;
         }
         self.lane_links(|links| {
             let Some(l) = links.get_mut(lane).filter(|l| l.parent == parent) else { return };
-            delivered(l, &report, now);
+            delivered(l, &report, key, now);
         });
     }
 
@@ -491,9 +491,10 @@ fn last_turn_records(
     Ok(out)
 }
 
-/// `l`'s queued report to deliver now, without the pull requests reported before: none when it
-/// is the same as the last (dropped) or past the cap (held).
-fn due_report(l: &mut Link, now: u64) -> Option<Report> {
+/// `l`'s queued report to deliver now, without the pull requests reported before, and its key
+/// as queued (what `delivered` records as the last): none when it is the same as the last
+/// (dropped) or past the cap (held).
+fn due_report(l: &mut Link, now: u64) -> Option<(Report, String)> {
     l.sent.retain(|t| now.saturating_sub(*t) < WINDOW_MS);
     let ready = l.ready.as_ref()?;
     if l.last.as_deref() == Some(ready.key().as_str()) {
@@ -506,15 +507,16 @@ fn due_report(l: &mut Link, now: u64) -> Option<Report> {
     }
     let mut report = ready.clone();
     report.prs = new_items(report.prs, &l.prs);
-    Some(report)
+    Some((report, ready.key()))
 }
 
-/// Records on `l` that `report` (from `due_report`) reached the parent at `now`.
-fn delivered(l: &mut Link, report: &Report, now: u64) {
+/// Records on `l` that `report` (from `due_report`, queued with `key`) reached the parent at `now`.
+/// The last is the queued key, so a repeat still naming a reported pull request is dropped.
+fn delivered(l: &mut Link, report: &Report, key: String, now: u64) {
     if l.ready.as_ref().is_some_and(|r| r.prompt_id == report.prompt_id) {
         l.ready = None;
     }
-    l.last = Some(report.key());
+    l.last = Some(key);
     l.prs.extend(report.prs.iter().cloned());
     l.sent.push(now);
 }
@@ -559,7 +561,7 @@ mod tests {
         let mut same = report(4, &[]);
         same.content = report(2, &[]).content;
         l.ready = Some(replace_ready(same, l.ready.take()));
-        let got = due_report(&mut l, later).unwrap();
+        let (got, _) = due_report(&mut l, later).unwrap();
         assert_eq!((got.turn, got.prs), (4, vec![x.to_owned()]));
         // The very same report is dropped.
         let mut l = Link { last: Some(report(2, &[]).key()), ..Link::default() };
@@ -575,8 +577,8 @@ mod tests {
         // Turn 2 names X; turn 3 says something new and still names X: both go.
         for turn in [2, 3] {
             l.ready = Some(report(turn, &[x]));
-            let got = due_report(&mut l, now).unwrap();
-            delivered(&mut l, &got, now);
+            let (got, key) = due_report(&mut l, now).unwrap();
+            delivered(&mut l, &got, key, now);
         }
         // Turn 4 repeats turn 3 word for word: nothing new, so nothing goes.
         let mut same = report(4, &[x]);
