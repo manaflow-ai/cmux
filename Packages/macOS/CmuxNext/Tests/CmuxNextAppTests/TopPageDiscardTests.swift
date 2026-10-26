@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextHibernation
+import CmuxNextPages
 import Testing
 
 /// Hidden top pages are discarded with a view-state record (p07-memory-023): a page hidden past its
@@ -168,7 +169,10 @@ private final class World {
 
     func host(discards: Bool = true, limit: Int = 8) -> TopPageHost {
         let deadline = FakeDeadline()
-        let host = TopPageHost(pages: pages, discards: discards, hiddenLimit: limit, hosts: { [unowned self] in self.hosts }, deadline: deadline)
+        let pages = self.pages
+        let host = TopPageHost(make: { route, _ in pages.makePage(route) }, closed: { _, key in pages.closed.append(key) },
+                               discardable: { route, _ in pages.owners[route] }, title: { $0.rawValue },
+                               discards: discards, hiddenLimit: limit, hosts: { [unowned self] in self.hosts }, deadline: deadline)
         host.now = { [clock] in clock.now }
         hosts.append(host)
         deadlines[ObjectIdentifier(host)] = deadline
@@ -187,7 +191,7 @@ private final class FakeClock {
 }
 
 @MainActor
-private final class FakeDeadline: TopPageDiscardDeadline {
+private final class FakeDeadline: PageDiscardDeadline {
     private(set) var delay: Duration?
     private var action: (@MainActor @Sendable () -> Void)?
     var armed: Bool { action != nil }
@@ -211,33 +215,29 @@ private final class FakeDeadline: TopPageDiscardDeadline {
 }
 
 @MainActor
-private final class FakeTopPages: TopPageMaking {
+private final class FakeTopPages {
     var owners: [TopPageRoute: FakeOwner] = [:]
-    private(set) var closed: [String] = []
+    var closed: [String] = []
     private var made: [TopPageRoute: Int] = [:]
 
-    func makePage(_ route: TopPageRoute, in window: WindowController?) -> (view: NSView, key: String?)? {
+    func makePage(_ route: TopPageRoute) -> (view: NSView, key: String?)? {
         made[route, default: 0] += 1
         let key: String? = route == .home ? nil : "key-\(route.rawValue)-\(made[route, default: 0])"
         return (FakePageView(frame: NSRect(x: 0, y: 0, width: 200, height: 120)), key)
     }
-
-    func pageClosed(_ route: TopPageRoute, key: String) { closed.append(key) }
-    func discardable(_ route: TopPageRoute, view: NSView) -> (any TopPageDiscardable)? { owners[route] }
-    func title(for route: TopPageRoute) -> String { route.rawValue }
 }
 
 @MainActor
-private final class FakeOwner: TopPageDiscardable {
-    var policy = TopPageDiscardPolicy.standard
+private final class FakeOwner: PageDiscardable {
+    var policy = PageDiscardPolicy.standard
     var unsaved = false
     var selection: String?
     private(set) var restored: String?
 
-    var topPageDiscardPolicy: TopPageDiscardPolicy { policy }
+    var pageDiscardPolicy: PageDiscardPolicy { policy }
     func holdsUnsavedInput(_ view: NSView) -> Bool { unsaved }
-    func saveViewState(_ view: NSView, into state: inout TopPageViewState) { state.selection = selection }
-    func restoreViewState(_ state: TopPageViewState, in view: NSView) { restored = state.selection }
+    func saveViewState(_ view: NSView, into state: inout PageViewState) { state.selection = selection }
+    func restoreViewState(_ state: PageViewState, in view: NSView) { restored = state.selection }
 }
 
 /// A page with a long scrolled list and a search field, as Home's list.

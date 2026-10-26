@@ -1,8 +1,9 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
-import CmuxNextHomeEngine
+import CmuxNextPages
 
 /// The one path that opens a top page (TOP-SECTION-ITEMS-ARE-PAGES): the
 /// sidebar's top items, Cmd-1, `home.show` and `appStore.show` all come
@@ -95,53 +96,20 @@ enum TopPages {
     }
 }
 
-/// The app's top pages for each window's ``TopPageHost``: classic Home, and an internal page's
-/// provider view in an ``InternalPageView``. A provider that conforms to ``TopPageDiscardable``
-/// sets its page's discard policy and view state; classic Home's view does, so Home follows the
-/// same policy as every top page.
-@MainActor
-final class AppTopPages: TopPageMaking {
-    private weak var services: AppServices?
-
-    init(services: AppServices) {
-        self.services = services
+/// Classic Home follows the top pages' discard policy: its record names the shown conversation,
+/// whose composer draft the store keeps (`HomeStore.draft(for:)`), and a New Message draft, which
+/// no store keeps, holds the page.
+extension TopHomePageView: PageDiscardable {
+    func holdsUnsavedInput(_ view: NSView) -> Bool {
+        newMessage.map { !$0.isEmpty } ?? false
     }
 
-    func makePage(_ route: TopPageRoute, in window: WindowController?) -> (view: NSView, key: String?)? {
-        guard let services else { return nil }
-        switch route {
-        case .home:
-            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
-            guard HomeDock.classic else { return nil }
-            return (TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" }), nil)
-        case .page(let id):
-            guard let provider = TopPages.provider(id, services: services) else { return nil }
-            let key = LocalPageTab.makeKey(id)
-            let content = provider.makeView(for: key, in: window)
-            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
-            page.navigate = services.pages.navigate
-            return (page, key)
-        }
+    func saveViewState(_ view: NSView, into state: inout PageViewState) {
+        state.selection = shown?.rawValue
     }
 
-    func pageClosed(_ route: TopPageRoute, key: String) {
-        guard case .page(let id) = route else { return }
-        services?.pages.provider(id)?.tabClosed(key)
-    }
-
-    func discardable(_ route: TopPageRoute, view: NSView) -> (any TopPageDiscardable)? {
-        switch route {
-        case .home:
-            return view as? TopHomePageView
-        case .page(let id):
-            return services?.pages.provider(id) as? any TopPageDiscardable
-        }
-    }
-
-    func title(for route: TopPageRoute) -> String {
-        switch route {
-        case .home: HomeStrings.title
-        case .page(let id): services?.pages.provider(id)?.title ?? ""
-        }
+    func restoreViewState(_ state: PageViewState, in view: NSView) {
+        guard let selection = state.selection else { return }
+        show(ConversationID(selection))
     }
 }

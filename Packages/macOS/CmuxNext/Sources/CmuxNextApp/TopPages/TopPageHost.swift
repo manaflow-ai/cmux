@@ -1,28 +1,18 @@
 import AppKit
 import CmuxNextFeatures
 import CmuxNextHibernation
+import CmuxNextHomeEngine
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// What a window's ``TopPageHost`` asks of the app (``AppTopPages``; a fake in tests).
-@MainActor
-protocol TopPageMaking: AnyObject {
-    /// A new view for `route` and its provider key (nil for Home); nil when nothing serves the route.
-    func makePage(_ route: TopPageRoute, in window: WindowController?) -> (view: NSView, key: String?)?
-    /// `route`'s view with provider key `key` is gone.
-    func pageClosed(_ route: TopPageRoute, key: String)
-    /// The page's say in its discard: classic Home's view, an internal page's provider; nil takes the defaults.
-    func discardable(_ route: TopPageRoute, view: NSView) -> (any TopPageDiscardable)?
-    /// The page's title for the titlebar.
-    func title(for route: TopPageRoute) -> String
-}
-
 /// One window's top pages: one view per route, made on first show. A page the window stops showing
-/// stays live, so it keeps its state when the window switches to a workspace and back, until its
-/// discard policy (``TopPageDiscardPolicy``) says it may go. Then its view is released and a
-/// ``TopPageViewState`` stays; the next show builds the page again and restores it. Behind the
-/// `topPageDiscard` feature (default off); off, every view stays for the window's life as before.
+/// stays live, so it keeps its state (scroll, search, the composer draft) when the window switches
+/// to a workspace and back, until its discard policy (`PageDiscardPolicy`) says it may go. Then its
+/// view is released and a `PageViewState` stays; the next show builds the page again and restores
+/// it. Behind the `topPageDiscard` feature (default off); off, every view stays for the window's
+/// life as before. Page models stay shared through their providers.
 ///
 /// Live hidden top pages are also held to the Mac's budget across all windows
 /// (`SubsystemBudget.liveHiddenInternalPages`, ``releaseOverLimit(_:limit:)``). Eligibility is the
@@ -31,7 +21,6 @@ protocol TopPageMaking: AnyObject {
 /// per window for its next page to come due.
 @MainActor
 final class TopPageHost {
-    private let pages: any TopPageMaking
     private(set) var views: [TopPageRoute: NSView] = [:]
     /// The provider key of each internal page view (a `LocalPageTab` key,
     /// so providers that read the key keep working).
@@ -39,16 +28,23 @@ final class TopPageHost {
     /// Since when each live page the window does not show is hidden (made, for one not shown yet).
     private var hiddenSince: [TopPageRoute: ContinuousClock.Instant] = [:]
     /// The records of released pages, until their view is made again.
-    private(set) var released: [TopPageRoute: TopPageViewState] = [:]
+    private(set) var released: [TopPageRoute: PageViewState] = [:]
     /// Records of rebuilt views, applied when the view shows (``didShow(_:)``).
-    private var restoring: [TopPageRoute: TopPageViewState] = [:]
+    private var restoring: [TopPageRoute: PageViewState] = [:]
+    /// A new view for a route and its provider key (nil for Home); nil when nothing serves the route.
+    private let make: (TopPageRoute, WindowController?) -> (view: NSView, key: String?)?
+    /// A route's view with its provider key is gone.
+    private let closed: (TopPageRoute, String) -> Void
+    /// The page's say in its discard: classic Home's view, an internal page's provider; nil takes the defaults.
+    private let discardable: (TopPageRoute, NSView) -> (any PageDiscardable)?
+    private let titles: (TopPageRoute) -> String
     /// The `topPageDiscard` feature.
     private let discards: Bool
     /// How many hidden top pages stay live across all windows.
     private let hiddenLimit: Int
     /// Every window's host, this one too.
     private let hosts: () -> [TopPageHost]
-    private let deadline: any TopPageDiscardDeadline
+    private let deadline: any PageDiscardDeadline
     private let planner = ContentDiscardPlanner()
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
@@ -57,27 +53,64 @@ final class TopPageHost {
     /// How soon a due page still in the window (an outgoing view a paint hold keeps) is looked at again.
     static let onScreenRecheck: Duration = .seconds(1)
 
-    init(pages: any TopPageMaking, discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost],
-         deadline: any TopPageDiscardDeadline) {
-        self.pages = pages
+    init(make: @escaping (TopPageRoute, WindowController?) -> (view: NSView, key: String?)?,
+         closed: @escaping (TopPageRoute, String) -> Void,
+         discardable: @escaping (TopPageRoute, NSView) -> (any PageDiscardable)?, title: @escaping (TopPageRoute) -> String,
+         discards: Bool, hiddenLimit: Int, hosts: @escaping () -> [TopPageHost], deadline: any PageDiscardDeadline) {
+        self.make = make
+        self.closed = closed
+        self.discardable = discardable
+        titles = title
         self.discards = discards
         self.hiddenLimit = hiddenLimit
         self.hosts = hosts
         self.deadline = deadline
     }
 
+    /// The app's top pages: classic Home, and an internal page's provider view in an
+    /// `InternalPageView`. A provider that conforms to `PageDiscardable` sets its page's policy and
+    /// view state; classic Home's view does, so Home follows the same policy as every top page.
     convenience init(services: AppServices) {
-        self.init(pages: AppTopPages(services: services),
+        self.init(make: { [weak services] route, window in services.flatMap { TopPageHost.makePage(route, in: window, services: $0) } },
+                  closed: { [weak services] route, key in
+                      if case .page(let id) = route { services?.pages.provider(id)?.tabClosed(key) }
+                  },
+                  discardable: { [weak services] route, view in
+                      guard case .page(let id) = route else { return view as? TopHomePageView }
+                      return services?.pages.provider(id) as? any PageDiscardable
+                  },
+                  title: { [weak services] route in
+                      switch route {
+                      case .home: HomeStrings.title
+                      case .page(let id): services?.pages.provider(id)?.title ?? ""
+                      }
+                  },
                   discards: services.features.isEnabled(.topPageDiscard),
                   hiddenLimit: SubsystemBudget.forThisMac(gpuResidentAvailable: false).liveHiddenInternalPages,
                   hosts: { [weak services] in services?.windows.controllers.map { $0.topPages } ?? [] },
                   deadline: DemandTimer(owner: "TopPageHost.discard"))
     }
 
+    private static func makePage(_ route: TopPageRoute, in window: WindowController?, services: AppServices) -> (view: NSView, key: String?)? {
+        switch route {
+        case .home:
+            // The docked Home (cx-ebm.59.5) is the home workspace itself; only classic Home is a top page.
+            guard HomeDock.classic else { return nil }
+            return (TopHomePageView(services: services, windowKey: { [weak window] in window?.state.id ?? "" }), nil)
+        case .page(let id):
+            guard let provider = TopPages.provider(id, services: services) else { return nil }
+            let key = LocalPageTab.makeKey(id)
+            let content = provider.makeView(for: key, in: window)
+            let page = InternalPageView(key: key, page: id, content: content, topBar: provider.makeTopBar(for: key))
+            page.navigate = services.pages.navigate
+            return (page, key)
+        }
+    }
+
     /// The page's view, made on first show and after a release; nil when no provider serves the route.
     func view(for route: TopPageRoute, in window: WindowController?) -> NSView? {
         if let view = views[route] { return view }
-        guard let made = pages.makePage(route, in: window) else { return nil }
+        guard let made = make(route, window) else { return nil }
         views[route] = made.view
         keys[route] = made.key
         hiddenSince[route] = now()
@@ -89,7 +122,7 @@ final class TopPageHost {
     func key(for route: TopPageRoute) -> String? { keys[route] }
 
     /// The page's title for the titlebar.
-    func title(for route: TopPageRoute) -> String { pages.title(for: route) }
+    func title(for route: TopPageRoute) -> String { titles(route) }
 
     /// Gives the page's primary input the keyboard (Home: the message box;
     /// a React page: its web content).
@@ -105,7 +138,7 @@ final class TopPageHost {
     /// part first (Home shows its conversation), then the scroll offsets on the laid out view.
     func didShow(_ route: TopPageRoute) {
         guard let view = views[route], let state = restoring.removeValue(forKey: route) else { return }
-        pages.discardable(route, view: view)?.restoreViewState(state, in: view)
+        discardable(route, view)?.restoreViewState(state, in: view)
         view.layoutSubtreeIfNeeded()
         state.restoreScroll(in: view)
     }
@@ -168,12 +201,12 @@ final class TopPageHost {
     @discardableResult
     func release(_ route: TopPageRoute, for reason: DiscardReason) -> Bool {
         guard discards, let view = views[route], let since = hiddenSince[route], view.window == nil else { return false }
-        let owner = pages.discardable(route, view: view)
+        let owner = discardable(route, view)
         var candidate = ContentDiscardPlanner.Candidate(key: route.rawValue, kind: .topPage, hiddenFor: (now() - since).seconds,
-                                                        canRestore: (owner?.topPageDiscardPolicy ?? .standard) != .never)
-        candidate.hasFormInput = TopPageViewState.holdsTypedText(view) || owner?.holdsUnsavedInput(view) == true
+                                                        canRestore: (owner?.pageDiscardPolicy ?? .standard) != .never)
+        candidate.hasFormInput = PageViewState.holdsTypedText(view) || owner?.holdsUnsavedInput(view) == true
         guard planner.eligibility(of: candidate, setting: .fallback, for: reason).result == .eligible else { return false }
-        var state = TopPageViewState(of: view)
+        var state = PageViewState(of: view)
         owner?.saveViewState(view, into: &state)
         released[route] = state
         restoring[route] = nil
@@ -206,8 +239,8 @@ final class TopPageHost {
         restoring.removeAll()
     }
 
-    private func policy(_ route: TopPageRoute, _ view: NSView) -> TopPageDiscardPolicy {
-        pages.discardable(route, view: view)?.topPageDiscardPolicy ?? .standard
+    private func policy(_ route: TopPageRoute, _ view: NSView) -> PageDiscardPolicy {
+        discardable(route, view)?.pageDiscardPolicy ?? .standard
     }
 
     private func close(_ route: TopPageRoute, _ view: NSView) {
@@ -215,7 +248,7 @@ final class TopPageHost {
         views[route] = nil
         hiddenSince[route] = nil
         // The key goes first, so the provider no longer counts this page as open (`pageIsOpen`).
-        if let key = keys.removeValue(forKey: route) { pages.pageClosed(route, key: key) }
+        if let key = keys.removeValue(forKey: route) { closed(route, key) }
     }
 }
 
