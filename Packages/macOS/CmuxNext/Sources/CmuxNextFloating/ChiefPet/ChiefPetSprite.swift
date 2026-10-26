@@ -1,4 +1,5 @@
 public import AppKit
+import ImageIO
 import QuartzCore
 
 /// What the Chief is doing, as the pet draws it: one row of an animated character's sheet each.
@@ -125,9 +126,9 @@ final class ChiefPetSpriteLayer {
         layer.removeAnimation(forKey: Self.animationKey)
         layer.isHidden = false
         layer.setAffineTransform(track.mirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity)
-        // A once-only row (done, error) stands on its last frame when still, as its animation ends there.
-        let rest = animate || track.loop ? 0 : track.frames - 1
-        layer.contents = sprite.frame(row: track.row, rest)
+        // Still, every row stands on its frame 0 (`cmux-avatar/1`); only a once-only row that played
+        // to its end holds its last frame (below).
+        layer.contents = sprite.frame(row: track.row, 0)
         CATransaction.commit()
         shown = (state, right, animate)
         guard animate else { return }
@@ -136,7 +137,8 @@ final class ChiefPetSpriteLayer {
         steps.values = frames
         steps.calculationMode = .discrete
         steps.duration = track.duration
-        steps.repeatCount = track.loop ? .infinity : 1
+        // 0 is one pass (CAMediaTiming); a looping row repeats until removed.
+        steps.repeatCount = track.loop ? .infinity : 0
         // A once-only row holds its last frame after it ends.
         steps.fillMode = .forwards
         steps.isRemovedOnCompletion = track.loop
