@@ -151,7 +151,11 @@ struct PaneArrival: Equatable {
     /// The range strip panes show in beside docked columns (nil without
     /// any), moved with docks still growing in from their edge (`docks`, the
     /// arriving frames), so the strip is never cut short of a dock that has
-    /// not reached its place.
+    /// not reached its place. With `motion.renderServer` on it runs at plan
+    /// apply only: once where the docks show and once at rest, and the strip
+    /// container's bounds spring between the two on the render server
+    /// (`ScreenContentView.springStripContainer`). Only the CPU step calls it
+    /// per frame.
     static func stripClip(_ geometry: ScreenGeometry, docks: [AnimatedFrame]) -> CGRect? {
         guard !geometry.dock.isEmpty else { return nil }
         var minX = geometry.clipMinX, maxX = geometry.clipMaxX, minY = geometry.clipMinY, maxY = geometry.clipMaxY
