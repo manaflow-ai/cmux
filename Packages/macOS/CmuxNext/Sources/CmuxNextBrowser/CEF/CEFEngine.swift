@@ -81,16 +81,13 @@ public final class CEFEngine: BrowserEngine {
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
     ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
-    ///   - layerHostingByDefault: Feature `cefLayerHosting`: a pane's page hosts in the window's layers where the
-    ///     app makes every Track A call (`CEFLayerHosting.TrackA`). Read when a page window is made.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
                 launchMarks: CEFLaunchMarkHooks? = nil,
-                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = [],
-                layerHostingByDefault: Bool = false) {
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = []) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -103,7 +100,6 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
         CEFRuntime.shared.chromiumFeatures = chromiumFeatures
-        CEFRuntime.shared.layerHostingTrackA = layerHostingByDefault ? [] : nil
     }
 
     public var availability: BrowserEngineAvailability {

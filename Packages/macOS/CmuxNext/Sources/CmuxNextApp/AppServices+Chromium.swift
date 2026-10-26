@@ -61,17 +61,16 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
-        let layerHosting = features.isEnabled(.cefLayerHosting)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures] stores, deadlines, source in
+                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures, layerHostingByDefault: layerHosting)
+                                                       chromiumFeatures: chromiumFeatures).usingLayerHostingByDefault(layerHosting)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
