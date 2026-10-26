@@ -28,6 +28,7 @@ struct SignpostTraceCatalogTests {
             (.crashWebContentEnd, 62), (.crashRendererUnresponsive, 63), (.crashChildExit, 64),
             (.crashDumpWithoutCrashing, 65), (.controlRequest, 66), (.ghosttyRender, 67), (.resizeFrame, 68),
             (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72),
+            (.motionLateCommits, 73), (.actionPresentedEstimate, 74), (.actionPresented, 75),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)
@@ -61,7 +62,8 @@ struct SignpostTraceCatalogTests {
                          "stall.icon_picker_open", "cef.geometry", "cef.host_input", "motion.drag_frame",
                          "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame",
                          "resize.frame", "remote.input", "remote.frame_decoded", "remote.present", "webview.inp",
-                         "webview.loaf", "webui.lifecycle", "webui.open", "webui.preload", "webui.scheme"] {
+                         "webview.loaf", "webui.lifecycle", "webui.open", "webui.preload", "webui.scheme",
+                         "motion.late_commits", "action.presented_estimate", "action.presented"] {
             #expect(names.contains(required), "\(required)")
         }
         #expect(names.filter { $0.hasPrefix("key.echo.") }.count == 12)

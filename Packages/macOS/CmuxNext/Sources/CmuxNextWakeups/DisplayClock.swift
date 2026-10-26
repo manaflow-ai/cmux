@@ -110,6 +110,19 @@ public final class DisplayClock {
     /// The last frame stall `display` saw.
     public func lastStall(on display: CGDirectDisplayID) -> FrameStall? { displays[display]?.lastStall }
 
+    /// The newest link frame of any display, with whether that display's link runs now: the vsync grid that late
+    /// commits and estimated presents are placed on (``DisplayFrameSample``). Reads only: no link is made or
+    /// resumed, and a display keeps its last frame when its link stops. Nil before the first link frame.
+    public func newestFrame() -> DisplayFrameSample? {
+        var newest: DisplayFrameSample?
+        for display in displays.values {
+            guard let vsync = display.lastVsync, newest.map({ vsync.timestamp > $0.timestamp }) ?? true else { continue }
+            newest = DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
+                                        linkRunning: display.link.map { !$0.isPaused } ?? false) ?? newest
+        }
+        return newest
+    }
+
     // MARK: Subscribers
 
     /// Subscribes `scheduler` to the display of its window (the main display for a screen host;
@@ -184,6 +197,7 @@ public final class DisplayClock {
         let now = timestamp ?? mediaTime()
         display.lastFrame = now
         display.stalls = 0
+        if let timestamp, let refreshInterval { display.lastVsync = (timestamp, refreshInterval) }
         deliver(display, timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
                 hiddenUntil: now - Self.stallSeconds)
         guard !display.subscribers.isEmpty else { return idle(display) }
@@ -352,6 +366,8 @@ public final class DisplayClock {
         var lastFrame: CFTimeInterval = 0
         var stallTimerArms = 0
         var lastStall: FrameStall?
+        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame()``), kept when the link stops.
+        var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false
 

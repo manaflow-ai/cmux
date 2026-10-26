@@ -4,7 +4,9 @@ import CmuxNextSignposts
 /// from its start to the next Core Animation commit (``CommitBoundary``), plus `action.gate`
 /// around a confirmation or argument gate, in Debug and Release. The message fields go to the log
 /// system unformatted (``ActionSignpostMessage``). With a ``ActionBudgetMonitor``, each run's
-/// perform-to-commit time also goes into the monitor's ring, read at the same commit boundary.
+/// perform-to-commit time also goes into the monitor's ring, read at the same commit boundary, and a
+/// committed run's estimated present goes to `action.presented_estimate`
+/// (``ActionBudgetMonitor/recordPresentEstimate(_:start:commitEnd:inputAgeMilliseconds:)``).
 ///
 /// Built once at the composition root (`AppServices`) and passed to
 /// ``ActionRegistry/standard(runTiming:)``; tests use ``NoActionRunTiming`` or a recorder.
@@ -62,6 +64,10 @@ public struct SignpostActionRunTiming: ActionRunTiming {
             if let commit { signposter.end(.actionCommit, commit, outcome) }
             monitor?.record(index, read.entrypoint, start: start, end: end, inputAgeMilliseconds: read.ageMilliseconds,
                             outcome: outcome == .committed ? .committed : .missed, span: span)
+            // A missed commit's end is idle time, not the commit: it gets no estimated present.
+            if signposts, outcome == .committed {
+                monitor?.recordPresentEstimate(index, start: start, commitEnd: end, inputAgeMilliseconds: read.ageMilliseconds)
+            }
         }
         return result
     }

@@ -13,7 +13,8 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget``, ``webuiOpen``, ``webuiScheme``, ``motionLateCommits`` and
+/// ``actionPresentedEstimate`` have an emitter today. The other cases are
 /// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -301,6 +302,26 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// ``webuiOpen`` are that open's requests, and all its slices sum the handler's main-thread time for it.
     case webuiScheme = 72
 
+    // MARK: presentation (p03-rendering 004: what a Release build can say about frames it does not watch)
+    /// A main-thread Core Animation commit, made while a Motion animation runs (`MotionInFlight`), that ended after
+    /// the vsync of the frame its run-loop turn began in (`MotionLateCommits`): the change it holds missed that
+    /// frame. The vsync comes from the newest display-link tick a frame scheduler delivered; the counter starts no
+    /// link and asks for no frame, so a commit with no recent tick is not judged. Message: `late_ms=<past the vsync>
+    /// turn_ms=<turn start to commit end>`. Ring: instant; arg0 the lateness in us, arg1 the turn in us.
+    case motionLateCommits = 73
+    /// The estimated time an action's committed change is shown, recorded at its commit (`ActionBudgetMonitor`):
+    /// the target timestamp of the first display-link tick after the commit, placed on the vsync grid of the
+    /// newest tick a frame scheduler delivered (no link is started for it). Message: `id=<action id>
+    /// present_ms=<run start to the estimate> commit_ms=<run start to the commit> input_age_ms=<age> phase=<running|
+    /// recent|unknown>`, where `phase` says where the grid came from (a running link, a tick under a second old,
+    /// none: then the estimate is the commit plus 1.5 refresh periods). Ring: instant with the "estimated" flag;
+    /// arg0 the action's interned index in bits 0-31 and the phase code in bits 32-39, arg1 the estimate (uptime ns).
+    case actionPresentedEstimate = 74
+    /// Reserved (task 080, PL-ghostty). The measured time an action's change was shown (Ghostty's presentedTime),
+    /// recorded next to ``actionPresentedEstimate`` where it exists. Ring: instant; arg0 the action's interned index,
+    /// arg1 the presented time (uptime ns).
+    case actionPresented = 75
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -376,6 +397,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .webuiOpen: "webui.open"
         case .webuiPreload: "webui.preload"
         case .webuiScheme: "webui.scheme"
+        case .motionLateCommits: "motion.late_commits"
+        case .actionPresentedEstimate: "action.presented_estimate"
+        case .actionPresented: "action.presented"
         }
     }
 
@@ -384,8 +408,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// so a disabled trace point folds it to a constant and reads no `String`.
     @inlinable public var traceCategory: SignpostCategory {
         switch self {
-        case .actionPerform, .actionCommit, .actionGate: .action
-        case .motionFrame, .motionRun, .motionDragFrame: .motion
+        case .actionPerform, .actionCommit, .actionGate, .actionPresentedEstimate, .actionPresented: .action
+        case .motionFrame, .motionRun, .motionDragFrame, .motionLateCommits: .motion
         case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
              .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
              .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,

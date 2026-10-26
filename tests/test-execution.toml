@@ -1908,3 +1908,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. bench-webui.py is the p13-webui 
 path = "tests/test_bench_daemon_latency.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench or its runtime.Q16 record (about 1 s, no daemon, no build)."
+
+[[test]]
+path = "tests/test_perf_signposts_presented.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. perf-signposts.py is a fleet and local report; run python3 -I tests/test_perf_signposts_presented.py yourself after changing it (under 1 s, no app, no build)."

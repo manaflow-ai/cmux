@@ -21,12 +21,16 @@ enum MotionInFlight {
         let settle: @MainActor () -> Void
         let completion: (@MainActor @Sendable () -> Void)?
         let deadline: TimeInterval
+        /// It runs for a time (a zero-length change, with motion off, does not).
+        let animates: Bool
         var done = false
 
-        init(settle: @escaping @MainActor () -> Void, completion: (@MainActor @Sendable () -> Void)?, deadline: TimeInterval) {
+        init(settle: @escaping @MainActor () -> Void, completion: (@MainActor @Sendable () -> Void)?, deadline: TimeInterval,
+             animates: Bool) {
             self.settle = settle
             self.completion = completion
             self.deadline = deadline
+            self.animates = animates
         }
 
         func complete() {
@@ -42,6 +46,14 @@ enum MotionInFlight {
     /// Tests shorten it to expire entries at once.
     static var expirySlack: TimeInterval = 2
 
+    /// Whether an entry that animates (one with a duration) is running: not completed, not past its expiry.
+    /// ``MotionLateCommits`` reads it on every main run-loop turn, so no entry costs no clock read.
+    static var isAnimating: Bool {
+        guard !entries.isEmpty else { return false }
+        let now = ProcessInfo.processInfo.systemUptime
+        return entries.contains { $0.animates && !$0.done && $0.deadline >= now }
+    }
+
     /// Records a change about to animate for `seconds`, and returns the
     /// completion to hand AppKit in place of `completion`.
     static func track(settle: @escaping @MainActor () -> Void, seconds: TimeInterval,
@@ -50,7 +62,7 @@ enum MotionInFlight {
         _ = DisplaySleep.shared
         let now = ProcessInfo.processInfo.systemUptime
         entries.removeAll { $0.done || $0.deadline < now }
-        let entry = Entry(settle: settle, completion: completion, deadline: now + seconds + expirySlack)
+        let entry = Entry(settle: settle, completion: completion, deadline: now + seconds + expirySlack, animates: seconds > 0)
         entries.append(entry)
         return {
             entries.removeAll { $0 === entry }
