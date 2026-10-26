@@ -1,6 +1,7 @@
 public import Darwin
 import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// One Chromium helper process of this app and what it does, read from its
 /// argv (`--type`, `--utility-sub-type`, `--extension-process`,
@@ -69,6 +70,15 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         }
         if !learned.isEmpty { cache.withLock { $0.merge(learned) { $1 } } }
         return out
+    }
+
+    /// Each live tab renderer with its counters now (the Energy Saver's busy hidden pages, p14-energy-039). Blocking
+    /// syscalls (``ProcessUsage/sample(_:)`` per renderer): call it off the main actor.
+    public static func tabRendererUsage(parent: pid_t = getpid()) -> [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] {
+        list(parent: parent).compactMap { helper -> (renderer: ProcessUsage.Renderer, usage: ProcessUsage)? in
+            guard case .renderer(let client) = helper.kind, let usage = ProcessUsage.sample(helper.pid) else { return nil }
+            return (renderer: ProcessUsage.Renderer(pid: helper.pid, clientID: client), usage: usage)
+        }
     }
 
     /// The kind of a helper from its argv; nil for a process that is not a
