@@ -237,12 +237,12 @@ public final class SidebarModel {
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
-    public var showsColors = true, colorIndicator: WorkspaceColorIndicatorStyle = .dot
+    public var showsColors = true
+    public var colorIndicator: WorkspaceColorIndicatorStyle = .dot
     /// This Mac's rows carry its machine mark too (`sidebar.showLocalMachine`, off by default).
     public var showsLocalMachine = false
-    /// What a collapsed group header shows beside its loading spinner
-    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
-    /// adds its members' other states).
+    /// What a collapsed group header shows beside its loading spinner (`sidebar.groupHeader.*`,
+    /// all off by default; `sidebar.detailedStatusIcons` adds its members' other states).
     public var groupHeaderDetails = GroupHeaderDetails()
     /// `sidebar.groupBy` and Group by Status's folds and held row (`SidebarModel+Grouping`).
     public var grouping = SidebarGrouping()
