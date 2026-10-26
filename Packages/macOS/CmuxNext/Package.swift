@@ -33,10 +33,12 @@ import Foundation
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
-//     startup trace, temperature and saved window picture to come; the App only wires them;
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore, ProfileRuntimeC (launch-only types: the launch
+//     image hold, and the startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
 //     trace clock through the launch's one LaunchClock pairing)
+//   CmuxNextProfileRuntimeC -> nothing (C header: the compiler-rt profile runtime's write, reset and file name,
+//     which only the profile build calls; p08-startup task 103)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
@@ -1380,10 +1382,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextLaunch",
             // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
-                           "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
+                           "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The compiler-rt profile runtime's C entry points for ProfileFlush (p08-startup task 103); only the
+        // profile build (CMUX_PGO_PROFILE) imports it, so no other build references the symbols.
+        // settings-allow: C header only, no Swift sources
+        .target(name: "CmuxNextProfileRuntimeC"),
         .testTarget(
             name: "CmuxNextLaunchTests",
             // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
@@ -1838,7 +1844,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups"],
+            // CmuxNextInput: the results' and the Actions menu's frame-aligned hover (PointerFrameHover, p04-input-037).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextInput"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),
@@ -1848,9 +1855,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextPaletteTests",
             // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens. Compat, Signposts and Trace:
-            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime.
+            // PaletteOpenSignpostTests reads the `stall.palette_open` records of a test trace runtime. Wakeups and its
+            // test support: the per-frame hover tests' FrameInputTestRig.
             dependencies: ["CmuxNextPalette", "CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace",
-                           .product(name: "CmuxTheme", package: "CmuxTheme")],
+                           .product(name: "CmuxTheme", package: "CmuxTheme"), "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
