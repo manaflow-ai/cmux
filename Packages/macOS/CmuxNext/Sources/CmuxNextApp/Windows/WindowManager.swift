@@ -502,6 +502,7 @@ extension WindowController: LaunchBuiltWindow {
     func mountLaunchStrips() -> [any LaunchWindowPane] {
         showWorkspace(requested: state.workspaceID)
         guard let content else { return [] }
+        // sync-layout: the next lines need the panes the viewport shows (their presence) and their areas for the picture's parts; this slice's own pass
         root.layoutSubtreeIfNeeded()
         let focused = content.focusedPane
         let others = content.layoutModel.screens.flatMap(\.layout.panes).compactMap { content.panes[$0] }.filter { $0.isVisible && $0 !== focused }
