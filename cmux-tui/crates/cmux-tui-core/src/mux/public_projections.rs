@@ -93,6 +93,9 @@ pub(super) fn restore_public_projections(
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
                 ended_at_ms: hook_state.ended_at_ms,
+                waiting_agent: None,
+                waiting_since_ms: None,
+                waiting_tool: None,
             },
         );
     }
@@ -114,6 +117,9 @@ pub(super) fn restore_public_projections(
                     sequence: value,
                     ended: ended.is_some(),
                     ended_at_ms: None,
+                    waiting_agent: None,
+                    waiting_since_ms: None,
+                    waiting_tool: None,
                 });
             }
         }
@@ -128,6 +134,9 @@ pub(super) fn restore_public_projections(
                 sequence: 0,
                 ended: true,
                 ended_at_ms: None,
+                waiting_agent: None,
+                waiting_since_ms: None,
+                waiting_tool: None,
             });
             continue;
         }

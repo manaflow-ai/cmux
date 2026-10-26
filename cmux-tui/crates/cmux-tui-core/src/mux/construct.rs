@@ -168,6 +168,16 @@ impl Mux {
             host: agent_roster,
             diagnostic: agent_roster_diagnostic,
         } = agent_roster_restore::restore_agent_roster(&registry)?;
+        let mut agent_hook_fences = agent_hook_fences;
+        for (terminal_id, fence) in &mut agent_hook_fences {
+            if let Some(waiting) =
+                agent_roster.roster.waiting_fence(terminal_id.as_str(), &fence.session_id)
+            {
+                fence.waiting_agent = Some(waiting.0.to_owned());
+                fence.waiting_since_ms = waiting.1;
+                fence.waiting_tool = waiting.2.map(str::to_owned);
+            }
+        }
         let feed_local = Mutex::new(registry.open_feed_local()?);
         let presentation = registry.presentation_snapshot()?;
         let journal_producers = registry.journal_producer_manifests()?;

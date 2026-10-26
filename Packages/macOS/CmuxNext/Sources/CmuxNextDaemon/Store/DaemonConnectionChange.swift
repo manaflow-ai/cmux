@@ -17,6 +17,7 @@ enum DaemonConnectionChange {
         case .disconnected(let reason):
             store.sideEvents.noteControl(nil)
             store.clearPresence()
+            store.clearLiveAgentStates()
             store.connectionState = .disconnected(reason)
             store.onDisconnected?()
             // Nothing newer will arrive for commands sent on this transport.
@@ -26,6 +27,7 @@ enum DaemonConnectionChange {
         case .shutdown:
             store.sideEvents.noteControl(nil)
             store.clearPresence()
+            store.clearLiveAgentStates()
             store.connectionState = .disconnected("daemon shut down")
             store.onDisconnected?()
             return .none

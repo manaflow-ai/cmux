@@ -337,4 +337,17 @@ extension DaemonStore {
             tab.setPresence(nil)
         }
     }
+
+    /// A closed connection hears no agent end its turn (a crash, a daemon restart mid-turn,
+    /// another computer gone offline), so no tab keeps a working or waiting agent from it
+    /// (#22995). The agent stays named, in the neutral state every view hides; the reconnect's
+    /// `list-agents` seed (`apply(agents:)`) brings back each live state. The roster keeps its
+    /// last statuses, so that seed notes no new prompted turn.
+    func clearLiveAgentStates() {
+        for tab in tabsBySurface.values {
+            guard var agent = tab.agent, agent.state == .working || agent.state == .blocked else { continue }
+            agent.state = .unknown
+            tab.setAgent(agent)
+        }
+    }
 }

@@ -335,6 +335,52 @@ pub(crate) struct HookFence {
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
+    /// Whose approval, question or plan review the terminal waits on: the hook's
+    /// `native_agent_id` (a subagent of the session), `""` for the session's own agent.
+    /// Only a tool hook of that agent ends the wait (#22995); a parallel subagent's
+    /// tools do not. One wait at a time: a second agent's wait replaces the first. `None` while nothing waits, and in a fence written before it,
+    /// whose wait any tool hook of the session ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_agent: Option<String>,
+    /// When the hook that started the wait was observed (`observed_at_ms`). Claude's hooks
+    /// run `async`, so the journal can take them out of order: only a tool hook observed
+    /// after the wait ends it, never a late pre-tool hook of the call that asked (#22995).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_since_ms: Option<u64>,
+    /// The tool the wait is for (`normalized.tool_name`, as a semantic key). A post-tool hook
+    /// ends the wait only for that tool: a parallel call of another tool finishing during
+    /// an approval does not. A pre-tool hook of any tool does (the agent went on, for
+    /// example after a denied approval).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_tool: Option<String>,
+}
+
+/// The tool hook that may answer a fence's wait ([`HookFence::wait_answered_by`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct HookWaitProbe<'a> {
+    /// `normalized.native_agent_id`.
+    pub(crate) agent: Option<&'a str>,
+    /// [`hook_observed_at_ms`].
+    pub(crate) observed_at_ms: Option<u64>,
+    /// The hook's `native_event`.
+    pub(crate) native_event: Option<&'a str>,
+    /// `normalized.tool_name`.
+    pub(crate) tool: Option<&'a str>,
+}
+
+impl<'a> HookWaitProbe<'a> {
+    /// The probe of a journal payload's hook fields.
+    pub(crate) fn of_payload(payload: &'a Value) -> Self {
+        let normalized = payload.get("normalized");
+        let field =
+            |name: &str| normalized.and_then(|value| value.get(name)).and_then(Value::as_str);
+        Self {
+            agent: field("native_agent_id"),
+            observed_at_ms: hook_observed_at_ms(payload),
+            native_event: payload.get("native_event").and_then(Value::as_str),
+            tool: field("tool_name"),
+        }
+    }
 }
 
 pub(crate) enum JournalHookTransition {
@@ -445,7 +491,52 @@ impl HookFence {
             .filter(|fence| fence.session_id == session_id)
             .and_then(|fence| fence.ended_at_ms);
         let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        Self { session_id, sequence, ended, ended_at_ms }
+        Self {
+            session_id,
+            sequence,
+            ended,
+            ended_at_ms,
+            waiting_agent: None,
+            waiting_since_ms: None,
+            waiting_tool: None,
+        }
+    }
+
+    /// This fence after a hook event that set `state`, described by `hook`: a `blocked`
+    /// state waits on that hook's agent, from its observed time, for its tool.
+    pub(crate) fn noting_wait(mut self, state: AgentState, hook: HookWaitProbe<'_>) -> Self {
+        let blocked = state == AgentState::Blocked;
+        self.waiting_agent = blocked.then(|| hook.agent.unwrap_or("").to_owned());
+        self.waiting_since_ms = hook.observed_at_ms.filter(|_| blocked);
+        self.waiting_tool = hook
+            .tool
+            .filter(|tool| blocked && !tool.is_empty())
+            .map(crate::agent_hooks::semantic_key);
+        self
+    }
+
+    /// Whether the tool hook `hook` ends the wait this fence holds: a hook of the agent that
+    /// waits, observed after the wait began, and, for a post-tool hook, of the tool waited
+    /// on. A side the fence or the hook does not know proves nothing and does not hold the
+    /// wait (a fence written before these fields, a hook helper that stamps no time).
+    pub(crate) fn wait_answered_by(&self, hook: HookWaitProbe<'_>) -> bool {
+        let same_agent =
+            self.waiting_agent.as_deref().is_none_or(|waiting| waiting == hook.agent.unwrap_or(""));
+        let observed_after = self
+            .waiting_since_ms
+            .zip(hook.observed_at_ms)
+            .is_none_or(|(since, observed)| observed > since);
+        let post_tool = hook
+            .native_event
+            .map(crate::agent_hooks::semantic_key)
+            .is_some_and(|event| crate::agent_hooks::is_post_tool_event(&event));
+        let same_tool = !post_tool
+            || self
+                .waiting_tool
+                .as_deref()
+                .zip(hook.tool.filter(|tool| !tool.is_empty()))
+                .is_none_or(|(waiting, tool)| waiting == crate::agent_hooks::semantic_key(tool));
+        same_agent && observed_after && same_tool
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -555,6 +646,35 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
+    /// Whose wait the roster's fence of `terminal_id` holds for `session_id`
+    /// (`HookFence::waiting_agent`). The hook projector restores its fences from the durable
+    /// projection, which keeps no wait; it takes the wait from here at startup, so both
+    /// views end a wait on the same tool hook after a restart.
+    /// Also when it began and for which tool (`waiting_since_ms`, `waiting_tool`).
+    pub(crate) fn waiting_fence(
+        &self,
+        terminal_id: &str,
+        session_id: &str,
+    ) -> Option<(&str, Option<u64>, Option<&str>)> {
+        self.hook_fences.get(terminal_id).filter(|fence| fence.session_id == session_id).and_then(
+            |fence| {
+                Some((
+                    fence.waiting_agent.as_deref()?,
+                    fence.waiting_since_ms,
+                    fence.waiting_tool.as_deref(),
+                ))
+            },
+        )
+    }
+
+    /// The hook session that owns `terminal_id` and has not ended.
+    pub(crate) fn live_hook_session(&self, terminal_id: &str) -> Option<&str> {
+        self.hook_fences
+            .get(terminal_id)
+            .filter(|fence| !fence.ended)
+            .map(|fence| fence.session_id.as_str())
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.
@@ -690,7 +810,24 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            // A tool hook of a waiting hook agent: the wait was answered.
+            let waiting = || {
+                self.entries.get(terminal_id).is_some_and(|entry| {
+                    entry.agent_source() == AgentSource::Hook && entry.state == "blocked"
+                })
+            };
+            let hook = HookWaitProbe::of_payload(event.payload);
+            let resumes =
+                crate::agent_hooks::resumes_blocked_turn(event.kind, event.native_event())
+                    && self
+                        .hook_fences
+                        .get(terminal_id)
+                        .is_none_or(|fence| fence.wait_answered_by(hook));
+            let state = match state_for_hook_kind(event.kind) {
+                Some(state) => state,
+                None if resumes && waiting() => AgentState::Working,
+                None => return Vec::new(),
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
@@ -715,7 +852,8 @@ impl AgentRoster {
                 event.sequence,
                 state == AgentState::Done,
                 observed_at_ms,
-            );
+            )
+            .noting_wait(state, hook);
             self.hook_fences.insert(terminal_id.to_string(), next);
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
@@ -1059,7 +1197,15 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 2,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None,
+                waiting_since_ms: None,
+                waiting_tool: None
+            }
         );
 
         roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
@@ -1092,7 +1238,15 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 1,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None,
+                waiting_since_ms: None,
+                waiting_tool: None
+            }
         );
         let completed = session_payload("old");
         assert!(
@@ -1118,7 +1272,15 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "a".into(),
+                sequence: 4,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None,
+                waiting_since_ms: None,
+                waiting_tool: None
+            }
         );
     }
 
