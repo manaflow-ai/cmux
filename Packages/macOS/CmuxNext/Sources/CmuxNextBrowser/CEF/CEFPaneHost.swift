@@ -108,13 +108,13 @@ final class CEFPaneHost {
     private(set) var deferredCreations: [WeakCEFTab] = []
     /// Host mode: tabs whose window waits for the host's verdict on their profile's proxy (`createAfterProfileProxy`).
     private var profileProxyWaits: Set<ObjectIdentifier> = []
-    /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
-    /// (`createAfterMachineProxy`).
-    var machineProxyWaits: Set<ObjectIdentifier> = []
     /// Host mode: the view this pane's page shows in, made by the first window the pane asks for
     /// (`pageParent`). It names the page's parent view on the wire and shows the Core Animation
     /// context id the host gives for it (``ChromiumHostPageView/show(contextID:)``).
     var hostedPageView: ChromiumHostPageView?
+    /// Host mode: tabs whose window waits for the host's answer on their machine store's proxy
+    /// (`createAfterMachineProxy`).
+    var machineProxyWaits: Set<ObjectIdentifier> = []
 
     /// The host view's visibility is derived: hidden unless the shown tab is
     /// not concealed. A conceal queues one pass for the end of this run-loop
