@@ -812,7 +812,7 @@ mod tests {
             "git remote -v",
             "git tag -l 'v1*'",
             "git status # ; rm -rf x",
-            "sort -u x | uniq -c",
+            "git log --oneline | uniq -c",
             "echo \"a b\" 'c'",
             "date +%s",
             "date -u",
@@ -911,6 +911,12 @@ mod tests {
             "sort -T /tmp x",
             "sort --temporary-directory=/tmp x",
             "sort --temp=/tmp x",
+            // Codex review at 01e0b5a9.
+            "git for-each-ref --sort=signature:grade refs/heads",
+            "git for-each-ref --format='%(*signature:grade)' refs/tags",
+            "git branch --sort=signature:grade --list",
+            "sort -S 1K x",
+            "sort -u x | uniq -c",
             // Codex review at a29dca90.
             "git -C repo[1] status",
             "git -C 'repo[1]' status",
