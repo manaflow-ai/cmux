@@ -147,7 +147,7 @@ fn is_writable_by_uid(path: &Path) -> Result<bool, String> {
     }
     let error = io::Error::last_os_error();
     match error.raw_os_error() {
-        Some(code) if matches!(code, libc::EACCES | libc::ENOENT | libc::EROFS) => Ok(false),
+        Some(libc::EACCES | libc::ENOENT | libc::EROFS) => Ok(false),
         _ => Err(format!("cannot inspect write access to {text}: {error}")),
     }
 }
