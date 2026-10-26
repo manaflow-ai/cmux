@@ -294,8 +294,15 @@ class Invalidate(FixtureTree):
         self.assertIn(f"{SOURCES}/CmuxNextSidebar/Row.swift:1:", out)
 
 
+def kit_manifest(sha):
+    return (".binaryTarget(\n    name: \"GhosttyNextKit\",\n    url: \"https://github.com/manaflow-ai/ghostty-next/releases/"
+            f"download/xcframework-{sha}-apple-v6/GhosttyNextKit.xcframework.zip\",\n    checksum: \"00\"\n)\n")
+
+
 class GhosttyPin(FixtureTree):
-    def gitlink(self):
+    def gitlink(self, kit=None):
+        """A root repo whose ghostty-next gitlink is the submodule's HEAD and whose GhosttyNextKit url names KIT
+        (default: that same commit)."""
         module = self.root / "ghostty-next"
         module.mkdir()
         git(self.root, "init", "-q")
@@ -306,6 +313,8 @@ class GhosttyPin(FixtureTree):
         git(module, "add", ".")
         git(module, "commit", "-q", "-m", "pin")
         pin = git(module, "rev-parse", "HEAD")
+        self.write(RDC.GHOSTTY_KIT, kit_manifest(kit or pin))
+        git(self.root, "add", RDC.GHOSTTY_KIT)
         git(self.root, "update-index", "--add", "--cacheinfo", f"160000,{pin},ghostty-next")
         git(self.root, "commit", "-q", "-m", "gitlink")
         return module, pin
@@ -342,6 +351,137 @@ class GhosttyPin(FixtureTree):
         state = RDC.ghostty_state(self.root)
         self.assertFalse(state.ok)
         self.assertIn(f"pins {pin[:12]}", state.describe())
+
+    def test_a_gitlink_off_the_ghosttynextkit_source_fails_and_skips_ghostty_rows(self):
+        other = "a" * 40
+        module, pin = self.gitlink(kit=other)
+        state = RDC.ghostty_state(self.root)
+        self.assertEqual((state.pin, state.head, state.kit), (pin, pin, other))
+        self.assertTrue(state.initialized)
+        self.assertFalse(state.ok)
+        rows = {r.id: r for r in RDC.evaluate(self.tree, state)}
+        self.assertEqual(rows["GHOSTTY"].status, "PASS")
+        self.assertEqual(rows["GHOSTTY-kit"].status, "FAIL")
+        self.assertIn(f"built from {other[:12]}", rows["GHOSTTY-kit"].note)
+        self.assertEqual(rows["DC6-ghostty"].status, "SKIP")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("move both in one pin commit", out)
+
+    def test_no_ghosttynextkit_url_fails(self):
+        module, pin = self.gitlink()
+        self.write(RDC.GHOSTTY_KIT, "// no binary target\n")
+        git(self.root, "commit", "-q", "-am", "drop the kit")
+        state = RDC.ghostty_state(self.root)
+        self.assertIsNone(state.kit)
+        self.assertIn("no GhosttyNextKit release url", state.describe_kit())
+
+
+class GhosttyPinLane(unittest.TestCase):
+    """LANE-ghostty-pins: the gitlink moves in the window before HEAD, each naming its ghostty-next PRs."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        git(self.root, "init", "-q", "-b", "main")
+        self.clock = 1_800_000_000
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def timed_git(self, hours_later, *args):
+        self.clock += hours_later * 3600
+        stamp = f"@{self.clock} +0000"
+        subprocess.run(["git", "-C", str(self.root), *args], check=True, capture_output=True,
+                       env={**GIT_ENV, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp})
+
+    def commit(self, message, hours_later, sha=None):
+        if sha:
+            git(self.root, "update-index", "--add", "--cacheinfo", f"160000,{sha},ghostty-next")
+        else:
+            (self.root / "other.txt").write_text(f"{self.clock} {message}")
+            git(self.root, "add", "other.txt")
+        self.timed_git(hours_later, "commit", "-q", "-m", message)
+
+    def pin(self, n, message, hours_later=1):
+        self.commit(message, hours_later, sha=f"{n:x}".rjust(40, "0"))
+
+    def merge(self, branch, message, hours_later=1):
+        """Land BRANCH on the checked-out branch the way perf/chrome-parity lands task branches."""
+        self.timed_git(hours_later, "merge", "-q", "--no-ff", "-m", message, branch)
+
+    def branch(self, name, start="main"):
+        git(self.root, "checkout", "-q", "-B", name, start)
+
+    def test_a_named_pin_landed_by_a_merge_commit_is_done(self):
+        self.commit("base", 0)
+        self.branch("cp/x")
+        self.pin(1, "ghostty-next: bump (manaflow-ai/ghostty-next#88)")
+        self.branch("main", "main")
+        self.commit("unrelated on main", 1)
+        self.merge("cp/x", "Merge cp/x: x")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (1, "DONE"), row.items)
+        self.assertIn("ghostty-next#88: Merge cp/x: x", row.items[0])
+
+    def test_a_merge_bringing_named_upstream_pins_counts_one_named_pin(self):
+        self.commit("base", 0)
+        self.branch("feat-cmux-next")
+        self.pin(1, "ghostty-next: bump (ghostty-next#40)")
+        self.pin(2, "ghostty-next: bump again (ghostty-next#41)")
+        self.branch("main", "main")
+        self.merge("feat-cmux-next", "Merge origin/feat-cmux-next into perf/chrome-parity")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (1, "DONE"), row.items)  # one new gitlink value, one pin
+        self.assertIn("ghostty-next#41, ghostty-next#40", row.items[0])
+
+    def test_a_merge_bringing_an_unnamed_pin_is_open(self):
+        self.commit("base", 0)
+        self.pin(1, "ghostty-next: bump (ghostty-next#10)")  # on main: not brought by the later merge
+        self.branch("cp/y")
+        self.pin(2, "ghostty-next: bump to 723c4ab93e7")
+        self.branch("main", "main")
+        self.commit("unrelated on main", 1)
+        self.merge("cp/y", "Merge cp/y: y")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (2, "OPEN"), row.items)
+        self.assertIn("names no ghostty-next PR: Merge cp/y: y", row.items[0])
+        self.assertIn("1 naming no ghostty-next PR", row.note)
+
+    def test_the_same_gitlink_value_again_is_one_pin(self):
+        self.pin(1, "ghostty-next: bump (ghostty-next#1)", 0)
+        self.pin(2, "ghostty-next: bump (ghostty-next#2)")
+        self.pin(1, "ghostty-next: back to #1's pin (ghostty-next#3)")
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (2, "DONE"), row.items)
+        self.assertIn("ghostty-next#3, ghostty-next#1", row.items[0])
+
+    def test_three_named_pins_in_the_window_are_done(self):
+        self.pin(1, "ghostty-next: bump (ghostty-next#40)", 0)
+        self.pin(2, "ghostty-next: bump to 1111 (manaflow-ai/ghostty-next#88, ghostty-next#89)", 100)  # window starts
+        self.pin(3, "ghostty-next: bump (ghostty-next#82)", 10)
+        self.commit("unrelated", 5)
+        self.pin(4, "ghostty-next: bump\n\nLands ghostty-next#80 and ghostty-next#84.", 20)
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (3, "DONE"))
+        self.assertTrue(row.items[0].endswith("ghostty-next#80, ghostty-next#84: ghostty-next: bump"), row.items)
+        self.assertIn("ghostty-next#88, ghostty-next#89", row.items[2])
+
+    def test_a_fourth_pin_or_an_unnamed_pin_is_open(self):
+        for n in range(1, 5):
+            self.pin(n, f"bump (ghostty-next#{n})")
+        self.assertEqual((RDC.pin_lane_row(self.root, 72).count, RDC.pin_lane_row(self.root, 72).status),
+                         (4, "OPEN"))
+        self.assertEqual(RDC.pin_lane_row(self.root, 2).status, "DONE")  # the window is HEAD's time, not the clock
+        self.pin(9, "ghostty-next: bump to 723c4ab93e7", 100)
+        row = RDC.pin_lane_row(self.root, 72)
+        self.assertEqual((row.count, row.status), (1, "OPEN"))
+        self.assertIn("1 naming no ghostty-next PR", row.note)
+        self.assertIn("names no ghostty-next PR", row.items[0])
+
+    def test_not_a_repo_counts_nothing(self):
+        with tempfile.TemporaryDirectory() as empty:
+            self.assertEqual(RDC.pin_lane_row(Path(empty), 72).count, 0)
 
 
 MOTION_MAIN_WORK = ROOT / "scripts/cmux-next/motion-main-work.py"
@@ -546,7 +686,8 @@ class Output(FixtureTree):
         self.assertRegex(out, r"DC11-sync-layout\s+FAIL\s+count 1\s+threshold 0")
         self.assertIn("query: rg -n 'layoutSubtreeIfNeeded|displayIfNeeded", out)
         rows = json.loads(out_json.read_text())["rows"]
-        self.assertEqual({r["id"] for r in rows} - {"GHOSTTY"}, {c.id for c in RDC.CHECKS})
+        self.assertEqual({r["id"] for r in rows} - {"GHOSTTY", "GHOSTTY-kit", "LANE-ghostty-pins"},
+                         {c.id for c in RDC.CHECKS})
         for r in rows:
             self.assertTrue(r["query"] and r["threshold"], r)
 

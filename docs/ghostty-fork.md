@@ -10,6 +10,25 @@ When we change the fork, update this document and the parent submodule SHA.
 3) Update this file with the new change summary + conflict notes.
 4) In the parent repo: `git add ghostty` and commit the submodule SHA.
 
+## ghostty-next pins (cmux-next)
+
+cmux-next links GhosttyNextKit from
+[manaflow-ai/ghostty-next](https://github.com/manaflow-ai/ghostty-next), not this fork. A pin is one commit
+that:
+
+1) moves the `ghostty-next` gitlink and the GhosttyNextKit `url` and `checksum` in
+   `Packages/Shared/CmuxGhosttyKit/Package.swift` to the same ghostty-next commit (release
+   `xcframework-<sha>-apple-vN`, published by a push to ghostty-next `main`). The pre-push guardrail
+   `ghostty-pin` refuses a push that moves one without the other;
+2) names each PR it brings as `manaflow-ai/ghostty-next#N`;
+3) regenerates the notice files with `scripts/cmux-next/notices/ghosttykit_repin.py`.
+
+During the Chrome-parity push, PL-ghostty is the integrator: ghostty-next PRs merge in the order of
+[rendering-DESIGN.md](../plans/cmux-next/rendering-DESIGN.md#ghostty-integrator-lane-task-079), and cmux takes at
+most 3 pins in the 72 h. `python3 scripts/cmux-next/render-done-checks.py` checks the pin: `GHOSTTY` (the
+submodule is initialized at the gitlink), `GHOSTTY-kit` (the gitlink is the GhosttyNextKit source sha) and
+`LANE-ghostty-pins` (the pins in the 72 h before HEAD, and the PRs each names).
+
 ## Current fork changes
 
 ### Offscreen embedded platform behind `-Dembedded-offscreen`
