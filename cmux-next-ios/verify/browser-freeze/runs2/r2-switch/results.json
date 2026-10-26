@@ -1,0 +1,784 @@
+{
+  "args": {
+    "app": "/Users/cmux/brfreeze/app-0000223ca7fb/CmuxMobileApp.app",
+    "sim": "cmux-brfz",
+    "runtime": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+    "rig": "mini-cmux11s-mac-mini:~/brfreeze-rig:brfz-term",
+    "prepare_phone": false,
+    "out": "/Users/cmux/brfreeze/runs/r2-switch",
+    "bundle": "dev.cmux.app.internal",
+    "reuse": true,
+    "install": true,
+    "config": "default",
+    "drop_permille": 0,
+    "bg": 0,
+    "url": [
+      "https://en.wikipedia.org/wiki/Cat",
+      "https://news.ycombinator.com",
+      "https://duckduckgo.com"
+    ],
+    "env": [
+      "CMUX_MOBILE_DEV_KILL_MEDIA_EVERY_S=40"
+    ],
+    "minutes": 11.0,
+    "phone_log": "info,cmux_mobile_link=debug,cmux_mobile_link_ffi=debug",
+    "page_y0": 130,
+    "page_y1": 740,
+    "change_threshold": 1.5
+  },
+  "t0": "05:00:51",
+  "minutes": 11.4,
+  "tabs": {},
+  "freezes": [
+    {
+      "t": 1792818103.743558,
+      "utc": "05:01:43",
+      "kind": "keyframe-storm",
+      "detail": "keyframe_requests 6->24 in 5.0s (3.6/s) since 05:01:36",
+      "tab": "A",
+      "since_start_s": 51.9
+    },
+    {
+      "t": 1792818110.298208,
+      "utc": "05:01:50",
+      "kind": "keyframe-storm",
+      "detail": "keyframe_requests 24->43 in 5.0s (3.8/s) since 05:01:36",
+      "tab": "A",
+      "since_start_s": 58.4
+    },
+    {
+      "t": 1792818136.085105,
+      "utc": "05:02:16",
+      "kind": "keyframe-storm",
+      "detail": "keyframe_requests 59->291 in 5.0s (46.3/s) since 05:02:10",
+      "tab": "A",
+      "since_start_s": 84.2
+    },
+    {
+      "t": 1792818176.818153,
+      "utc": "05:02:56",
+      "kind": "phone-unresponsive",
+      "detail": "2 inputs in a row with no screen change in 8 s (last: back on A)",
+      "tab": "A",
+      "since_start_s": 125.0
+    },
+    {
+      "t": 1792818215.3424268,
+      "utc": "05:03:35",
+      "kind": "phone-unresponsive",
+      "detail": "3 inputs in a row with no screen change in 8 s (last: long-scroll on A)",
+      "tab": "A",
+      "since_start_s": 163.5
+    },
+    {
+      "t": 1792818225.819426,
+      "utc": "05:03:45",
+      "kind": "phone-unresponsive",
+      "detail": "4 inputs in a row with no screen change in 8 s (last: tap on A)",
+      "tab": "A",
+      "since_start_s": 174.0
+    },
+    {
+      "t": 1792818236.077337,
+      "utc": "05:03:56",
+      "kind": "phone-unresponsive",
+      "detail": "5 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 184.2
+    },
+    {
+      "t": 1792818248.402045,
+      "utc": "05:04:08",
+      "kind": "phone-unresponsive",
+      "detail": "6 inputs in a row with no screen change in 8 s (last: back on A)",
+      "tab": "A",
+      "since_start_s": 196.5
+    },
+    {
+      "t": 1792818261.57024,
+      "utc": "05:04:21",
+      "kind": "phone-unresponsive",
+      "detail": "7 inputs in a row with no screen change in 8 s (last: back on A)",
+      "tab": "A",
+      "since_start_s": 209.7
+    },
+    {
+      "t": 1792818273.250438,
+      "utc": "05:04:33",
+      "kind": "phone-unresponsive",
+      "detail": "8 inputs in a row with no screen change in 8 s (last: tap on A)",
+      "tab": "A",
+      "since_start_s": 221.4
+    },
+    {
+      "t": 1792818282.9393961,
+      "utc": "05:04:42",
+      "kind": "phone-unresponsive",
+      "detail": "9 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 231.1
+    },
+    {
+      "t": 1792818367.861417,
+      "utc": "05:06:07",
+      "kind": "phone-unresponsive",
+      "detail": "10 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 316.0
+    },
+    {
+      "t": 1792818380.8805382,
+      "utc": "05:06:20",
+      "kind": "phone-unresponsive",
+      "detail": "11 inputs in a row with no screen change in 8 s (last: back on A)",
+      "tab": "A",
+      "since_start_s": 329.0
+    },
+    {
+      "t": 1792818390.34566,
+      "utc": "05:06:30",
+      "kind": "phone-unresponsive",
+      "detail": "12 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 338.5
+    },
+    {
+      "t": 1792818405.553477,
+      "utc": "05:06:45",
+      "kind": "phone-unresponsive",
+      "detail": "13 inputs in a row with no screen change in 8 s (last: back on A)",
+      "tab": "A",
+      "since_start_s": 353.7
+    },
+    {
+      "t": 1792818414.892139,
+      "utc": "05:06:54",
+      "kind": "phone-unresponsive",
+      "detail": "14 inputs in a row with no screen change in 8 s (last: scroll-up on A)",
+      "tab": "A",
+      "since_start_s": 363.0
+    },
+    {
+      "t": 1792818424.378719,
+      "utc": "05:07:04",
+      "kind": "phone-unresponsive",
+      "detail": "15 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 372.5
+    },
+    {
+      "t": 1792818583.752139,
+      "utc": "05:09:43",
+      "kind": "phone-unresponsive",
+      "detail": "16 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 531.9
+    },
+    {
+      "t": 1792818598.9105449,
+      "utc": "05:09:58",
+      "kind": "phone-unresponsive",
+      "detail": "17 inputs in a row with no screen change in 8 s (last: scroll-up on A)",
+      "tab": "A",
+      "since_start_s": 547.0
+    },
+    {
+      "t": 1792818611.174033,
+      "utc": "05:10:11",
+      "kind": "phone-unresponsive",
+      "detail": "18 inputs in a row with no screen change in 8 s (last: tap on A)",
+      "tab": "A",
+      "since_start_s": 559.3
+    },
+    {
+      "t": 1792818622.8663528,
+      "utc": "05:10:22",
+      "kind": "phone-unresponsive",
+      "detail": "19 inputs in a row with no screen change in 8 s (last: tap on A)",
+      "tab": "A",
+      "since_start_s": 571.0
+    },
+    {
+      "t": 1792818632.491085,
+      "utc": "05:10:32",
+      "kind": "phone-unresponsive",
+      "detail": "20 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 580.6
+    },
+    {
+      "t": 1792818641.997649,
+      "utc": "05:10:41",
+      "kind": "phone-unresponsive",
+      "detail": "21 inputs in a row with no screen change in 8 s (last: scroll-up on A)",
+      "tab": "A",
+      "since_start_s": 590.1
+    },
+    {
+      "t": 1792818652.2570932,
+      "utc": "05:10:52",
+      "kind": "phone-unresponsive",
+      "detail": "22 inputs in a row with no screen change in 8 s (last: scroll-down on A)",
+      "tab": "A",
+      "since_start_s": 600.4
+    }
+  ],
+  "per_minute": [
+    {
+      "minute": 0,
+      "decoded_frames": 120,
+      "fps_max": 4,
+      "carriers": [
+        "track",
+        "wg-rtp"
+      ],
+      "kf_requests": 49,
+      "inputs": 0,
+      "no_response": 0,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 1,
+      "decoded_frames": 360,
+      "fps_max": 52,
+      "carriers": [
+        "track",
+        "wg-rtp"
+      ],
+      "kf_requests": 256,
+      "inputs": 8,
+      "no_response": 3,
+      "rtt_median_s": 3.94
+    },
+    {
+      "minute": 2,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 4,
+      "no_response": 4,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 3,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 5,
+      "no_response": 5,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 5,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 5,
+      "no_response": 5,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 6,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 2,
+      "no_response": 2,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 8,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 2,
+      "no_response": 2,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 9,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 5,
+      "no_response": 5,
+      "rtt_median_s": null
+    },
+    {
+      "minute": 10,
+      "decoded_frames": 0,
+      "fps_max": 0,
+      "carriers": [],
+      "kf_requests": 0,
+      "inputs": 2,
+      "no_response": 2,
+      "rtt_median_s": null
+    }
+  ],
+  "host_events": [
+    {
+      "t": 1792818053.293493,
+      "utc": "05:00:53",
+      "line": "link up session_id=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" kind=WireGuard path=Turn phone=\"07d3d268-ebfe-4601-af11-a32bd5d268cd\" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_lane=120.3ms link_ready=120.3ms"
+    },
+    {
+      "t": 1792818053.29357,
+      "utc": "05:00:53",
+      "line": "link path changed session_id=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Turn"
+    },
+    {
+      "t": 1792818053.577601,
+      "utc": "05:00:53",
+      "line": "media session up session_id=\"542be0df-a4b8-49a0-8b99-e3515dbf685c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.2ms media_answer_sent=0.5ms remote_host=0.5ms ice_checking=0."
+    },
+    {
+      "t": 1792818053.838272,
+      "utc": "05:00:53",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    },
+    {
+      "t": 1792818054.17682,
+      "utc": "05:00:54",
+      "line": "media lane switched route at a keyframe from=\"webrtc-track\" to=\"wireguard-udp\""
+    },
+    {
+      "t": 1792818062.027531,
+      "utc": "05:01:02",
+      "line": "media session down session_id=\"1d97c14e-cccc-4804-8274-86e9f2f246c0\" link_session=\"980ba915-3084-44c8-964e-e4d7c282f2f8\" reason=\"failed\""
+    },
+    {
+      "t": 1792818072.640675,
+      "utc": "05:01:12",
+      "line": "link down session_id=\"980ba915-3084-44c8-964e-e4d7c282f2f8\" reason=\"keepalive timed out\""
+    },
+    {
+      "t": 1792818076.157477,
+      "utc": "05:01:16",
+      "line": "browser: another tab took the media lane; video returns to the channel"
+    },
+    {
+      "t": 1792818093.642796,
+      "utc": "05:01:33",
+      "line": "media session down session_id=\"542be0df-a4b8-49a0-8b99-e3515dbf685c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818094.753574,
+      "utc": "05:01:34",
+      "line": "media session up session_id=\"39e88a46-8279-46f8-bdc6-b19374ce681e\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.9ms remote_host=0.9ms ice_checking=0."
+    },
+    {
+      "t": 1792818095.015491,
+      "utc": "05:01:35",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    },
+    {
+      "t": 1792818114.975917,
+      "utc": "05:01:54",
+      "line": "[driver] keyframe storm ended, began 05:01:36"
+    },
+    {
+      "t": 1792818134.824505,
+      "utc": "05:02:14",
+      "line": "media session down session_id=\"39e88a46-8279-46f8-bdc6-b19374ce681e\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818140.051272,
+      "utc": "05:02:20",
+      "line": "[driver] keyframe storm ended, began 05:02:10"
+    },
+    {
+      "t": 1792818146.980583,
+      "utc": "05:02:26",
+      "line": "media session failed session_id=\"6307aaf0-e8c8-4616-8d60-125b1edf7a34\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.9ms media"
+    },
+    {
+      "t": 1792818149.207586,
+      "utc": "05:02:29",
+      "line": "media session up session_id=\"74aeb45a-ffce-42f2-80db-9f602f5a34f9\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.9ms remote_host=1.0ms ice_checking=1."
+    },
+    {
+      "t": 1792818149.215688,
+      "utc": "05:02:29",
+      "line": "media lane switched route at a keyframe from=\"wireguard-udp\" to=\"webrtc-track\""
+    },
+    {
+      "t": 1792818189.899277,
+      "utc": "05:03:09",
+      "line": "media session down session_id=\"74aeb45a-ffce-42f2-80db-9f602f5a34f9\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818190.386854,
+      "utc": "05:03:10",
+      "line": "media session up session_id=\"ce84eb36-8fa1-4989-a3be-3460a25fd3c4\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=1.0ms media_answer_sent=2.3ms remote_host=2.3ms local_host=3.9m"
+    },
+    {
+      "t": 1792818230.452628,
+      "utc": "05:03:50",
+      "line": "media session down session_id=\"ce84eb36-8fa1-4989-a3be-3460a25fd3c4\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818231.555477,
+      "utc": "05:03:51",
+      "line": "media session up session_id=\"72c062ae-3e11-4840-9e48-363ce2a006c2\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent=1.9ms remote_host=1.9ms ice_checking=1."
+    },
+    {
+      "t": 1792818271.614502,
+      "utc": "05:04:31",
+      "line": "media session down session_id=\"72c062ae-3e11-4840-9e48-363ce2a006c2\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818272.726087,
+      "utc": "05:04:32",
+      "line": "media session up session_id=\"ece45c83-5cb9-43c1-a272-101e5fb605b7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.9ms media_answer_sent=2.0ms remote_host=2.0ms ice_checking=2."
+    },
+    {
+      "t": 1792818313.032735,
+      "utc": "05:05:13",
+      "line": "media session down session_id=\"ece45c83-5cb9-43c1-a272-101e5fb605b7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818313.905162,
+      "utc": "05:05:13",
+      "line": "media session up session_id=\"ea0f1039-ff7d-49fe-b7b7-e7b2a935011e\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent=1.8ms ice_checking=1.8ms remote_host=1."
+    },
+    {
+      "t": 1792818353.968676,
+      "utc": "05:05:53",
+      "line": "media session down session_id=\"ea0f1039-ff7d-49fe-b7b7-e7b2a935011e\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818355.07638,
+      "utc": "05:05:55",
+      "line": "media session up session_id=\"0879f3c6-a1d0-49c1-ac68-54dbad842842\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent=1.8ms remote_host=1.8ms ice_checking=1."
+    },
+    {
+      "t": 1792818395.138448,
+      "utc": "05:06:35",
+      "line": "media session down session_id=\"0879f3c6-a1d0-49c1-ac68-54dbad842842\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818396.276078,
+      "utc": "05:06:36",
+      "line": "media session up session_id=\"756ccb9a-a24b-4ac5-bfd2-580616a0853f\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.7ms media_answer_sent=1.7ms remote_host=1.7ms ice_checking=1."
+    },
+    {
+      "t": 1792818436.340119,
+      "utc": "05:07:16",
+      "line": "media session down session_id=\"756ccb9a-a24b-4ac5-bfd2-580616a0853f\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818448.385633,
+      "utc": "05:07:28",
+      "line": "media session failed session_id=\"a953c5ef-e555-4fa0-b867-3ec436db6d13\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.8ms media"
+    },
+    {
+      "t": 1792818450.626204,
+      "utc": "05:07:30",
+      "line": "media session up session_id=\"499589b8-1b7f-415d-ba2b-a0d12fcc17d7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent=2.1ms remote_host=2.2ms ice_checking=2."
+    },
+    {
+      "t": 1792818490.686475,
+      "utc": "05:08:10",
+      "line": "media session down session_id=\"499589b8-1b7f-415d-ba2b-a0d12fcc17d7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818502.736024,
+      "utc": "05:08:22",
+      "line": "media session failed session_id=\"ecece126-e466-46a5-8399-75404be944e1\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.8ms media"
+    },
+    {
+      "t": 1792818504.954499,
+      "utc": "05:08:24",
+      "line": "media session up session_id=\"bf6cfee2-b3bb-4b99-92e4-0148596b233c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.8ms media_answer_sent=1.9ms remote_host=1.9ms ice_checking=1."
+    },
+    {
+      "t": 1792818545.014107,
+      "utc": "05:09:05",
+      "line": "media session down session_id=\"bf6cfee2-b3bb-4b99-92e4-0148596b233c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818546.131445,
+      "utc": "05:09:06",
+      "line": "media session up session_id=\"013093de-0c66-47b5-b0b3-1693e9d11e22\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.3ms media_answer_sent=0.8ms remote_host=0.8ms ice_checking=0."
+    },
+    {
+      "t": 1792818586.19143,
+      "utc": "05:09:46",
+      "line": "media session down session_id=\"013093de-0c66-47b5-b0b3-1693e9d11e22\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818598.304608,
+      "utc": "05:09:58",
+      "line": "media session failed session_id=\"1a8afae1-68f2-4c44-babd-2097561d8dcd\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.3ms media"
+    },
+    {
+      "t": 1792818611.618792,
+      "utc": "05:10:11",
+      "line": "media session failed session_id=\"728a94df-3456-4a1f-ab14-510448c7367f\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" error=transport: the media session's peer connection failed timings=media_offer_received=0.0ms pc_created=0.8ms media"
+    },
+    {
+      "t": 1792818615.843433,
+      "utc": "05:10:15",
+      "line": "media session up session_id=\"4dfb8566-30fc-407e-acfb-f4a737f50a26\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent=1.0ms remote_host=1.0ms ice_checking=1."
+    },
+    {
+      "t": 1792818655.902004,
+      "utc": "05:10:55",
+      "line": "media session down session_id=\"4dfb8566-30fc-407e-acfb-f4a737f50a26\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818657.01182,
+      "utc": "05:10:57",
+      "line": "media session up session_id=\"f316900d-0967-4ea9-a9cf-bf278165b0f7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.4ms media_answer_sent=0.8ms ice_checking=0.8ms remote_host=0."
+    },
+    {
+      "t": 1792818697.070333,
+      "utc": "05:11:37",
+      "line": "media session down session_id=\"f316900d-0967-4ea9-a9cf-bf278165b0f7\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    },
+    {
+      "t": 1792818698.193549,
+      "utc": "05:11:38",
+      "line": "media session up session_id=\"612abfe8-dbd4-4591-bb98-78771eb04f7c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" path=Direct timings=media_offer_received=0.0ms pc_created=0.6ms media_answer_sent=1.4ms remote_host=1.4ms ice_checking=1."
+    },
+    {
+      "t": 1792818738.325753,
+      "utc": "05:12:18",
+      "line": "media session down session_id=\"612abfe8-dbd4-4591-bb98-78771eb04f7c\" link_session=\"5b52b628-3297-4bfb-ae8e-29ff461f175a\" reason=\"bye: closed\""
+    }
+  ],
+  "decode_failed": [],
+  "phone_media_lines": [
+    "2026-10-24T05:00:53.305903Z DEBUG cmux_mobile_link::link: input lane attached role=Phone",
+    "objc[28972]: Class UIAccessibilityLoaderWebShared is implemented in both /Library/Developer/CoreSimulator/Volumes/iOS_23F77/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot/System/Library/AccessibilityBundles/WebKit.axbundle/WebKit (0x11860c398) an",
+    "2026-10-24T05:00:53.360417Z DEBUG cmux_mobile_link::dial::wireguard: peer confirmed our datagrams reach it direct=Some(Route { carrier: Turn, addr: 104.184.154.177:49979 })",
+    "2026-10-24T05:00:53.582830Z  INFO cmux_mobile_link::hybrid: media session up session=\"542be0df-a4b8-49a0-8b99-e3515dbf685c\"",
+    "2026-10-24T05:00:53.844773Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:54.113566Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:54.380928Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:54.646276Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:54.914465Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:55.182513Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:55.454347Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:55.723798Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:55.990834Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:56.257804Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:56.525644Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:56.791126Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:57.058571Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:57.323780Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:57.591473Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:57.859245Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:58.124142Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:58.391611Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:58.655050Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:58.923942Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:59.192290Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:59.459326Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:59.729930Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:00:59.997891Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:00.271588Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:00.539293Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:00.804063Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:01.071154Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:01.334841Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:01.602578Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:01.867330Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:02.135529Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:02.404524Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:02.671323Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:02.941162Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:03.207748Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:03.475370Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:03.742756Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:04.012621Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:04.277893Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:04.546084Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:04.816902Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:05.082966Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:05.353226Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:05.618752Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:05.886337Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:06.155431Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:06.425460Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:06.691626Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:06.961635Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:07.230813Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:07.498366Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:07.762858Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:08.030004Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:08.298490Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:08.566321Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:08.834779Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:09.101740Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:09.369810Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:09.637809Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:09.906087Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:10.173982Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:10.439401Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:10.707827Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:10.977233Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:11.245008Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:11.511434Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:11.777058Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:12.044143Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:12.311713Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:12.580274Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:12.844489Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:13.111218Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:13.378544Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:13.646579Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:13.917987Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:14.183582Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:14.452470Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:14.721025Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:14.988993Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:15.253850Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:15.522165Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:15.790656Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:16.054553Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=2 current=Some(1) keyframe=true tag=Some(\"7a3d70b3\") ts=58241389 newest=Some(58241389) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:16.493700Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=1 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:16.924895Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=2 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:17.529473Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=4 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:18.733891Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=8 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:21.144251Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=16 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:25.677129Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=32 ours=\"7a3d70b3\" got=Some(\"4efb8a9f\") keyframe=true",
+    "2026-10-24T05:01:33.584753Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:01:33.584811Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:01:33.590420Z  INFO cmux_mobile_link::hybrid: media session ended session=\"542be0df-a4b8-49a0-8b99-e3515dbf685c\" reason=\"killed (test)\"",
+    "2026-10-24T05:01:33.899151Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:01:34.231753Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:01:34.564970Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:01:34.758970Z  INFO cmux_mobile_link::hybrid: media session up session=\"39e88a46-8279-46f8-bdc6-b19374ce681e\"",
+    "2026-10-24T05:01:35.028222Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:35.303413Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:35.574157Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:35.847869Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:36.119044Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:36.390380Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:36.662760Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:36.930451Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:37.202792Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:37.473655Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:37.747911Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:38.014561Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:38.285745Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:38.556676Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:38.830199Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:39.103177Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:39.373208Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:39.648509Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:39.923906Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:40.199112Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:40.469761Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:40.733021Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:41.005868Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:41.276949Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:41.548873Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:41.821055Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:42.092607Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:42.371510Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:42.647034Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:42.916581Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:43.189455Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:43.482429Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:43.757235Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:44.028380Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:44.313526Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:44.591539Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:44.862456Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:45.132512Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:45.406852Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:45.680074Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:45.960229Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:46.231820Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:46.502372Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:46.774876Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:47.043935Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:47.313875Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:47.586175Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:47.857697Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:48.130563Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:48.399031Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:48.671109Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:48.946274Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:49.223897Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:49.493131Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:49.767593Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=3 current=Some(2) keyframe=true tag=Some(\"4efb8a9f\") ts=887472 newest=Some(887472) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:01:50.282291Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=64 ours=\"7a3d70b3\" got=Some(\"a13a255d\") keyframe=true",
+    "2026-10-24T05:02:00.037580Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=128 ours=\"7a3d70b3\" got=Some(\"a13a255d\") keyframe=false",
+    "2026-10-24T05:02:06.894583Z  INFO cmux_mobile_link_ffi::browser: browser: lane frames for another tab count=256 ours=\"7a3d70b3\" got=Some(\"a13a255d\") keyframe=true",
+    "2026-10-24T05:02:14.761422Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:02:14.761788Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:02:14.762116Z  INFO cmux_mobile_link::hybrid: media session ended session=\"39e88a46-8279-46f8-bdc6-b19374ce681e\" reason=\"killed (test)\"",
+    "2026-10-24T05:02:15.047030Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(3) keyframe=true tag=Some(\"a13a255d\") ts=4997945 newest=Some(4997945) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:02:15.373008Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(3) keyframe=true tag=Some(\"a13a255d\") ts=4997945 newest=Some(4997945) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:02:15.705482Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=1 current=Some(3) keyframe=true tag=Some(\"a13a255d\") ts=4997945 newest=Some(4997945) carrier=Some(\"wireguard-udp\")",
+    "2026-10-24T05:02:27.043651Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed",
+    "2026-10-24T05:02:29.213177Z  INFO cmux_mobile_link::hybrid: media session up session=\"74aeb45a-ffce-42f2-80db-9f602f5a34f9\"",
+    "2026-10-24T05:02:29.224212Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=4 current=Some(1) keyframe=true tag=Some(\"a13a255d\") ts=6495186 newest=Some(6495186) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:02:29.488496Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=4 current=Some(1) keyframe=true tag=Some(\"a13a255d\") ts=6495186 newest=Some(6495186) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:02:30.666104Z  INFO cmux_mobile_link::media: media gate: nothing passed for 250 ms; asking for a keyframe source=4 current=Some(1) keyframe=true tag=Some(\"a13a255d\") ts=6495186 newest=Some(6495186) carrier=Some(\"webrtc-track\")",
+    "2026-10-24T05:03:09.214817Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:03:09.214907Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:03:09.215558Z  INFO cmux_mobile_link::hybrid: media session ended session=\"74aeb45a-ffce-42f2-80db-9f602f5a34f9\" reason=\"killed (test)\"",
+    "2026-10-24T05:03:10.392945Z  INFO cmux_mobile_link::hybrid: media session up session=\"ce84eb36-8fa1-4989-a3be-3460a25fd3c4\"",
+    "2026-10-24T05:03:50.394170Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:03:50.394487Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:03:50.395156Z  INFO cmux_mobile_link::hybrid: media session ended session=\"ce84eb36-8fa1-4989-a3be-3460a25fd3c4\" reason=\"killed (test)\"",
+    "2026-10-24T05:03:51.562215Z  INFO cmux_mobile_link::hybrid: media session up session=\"72c062ae-3e11-4840-9e48-363ce2a006c2\"",
+    "2026-10-24T05:04:31.564087Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:04:31.564341Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:04:31.564647Z  INFO cmux_mobile_link::hybrid: media session ended session=\"72c062ae-3e11-4840-9e48-363ce2a006c2\" reason=\"killed (test)\"",
+    "2026-10-24T05:04:32.732530Z  INFO cmux_mobile_link::hybrid: media session up session=\"ece45c83-5cb9-43c1-a272-101e5fb605b7\"",
+    "2026-10-24T05:05:12.739793Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:05:12.739842Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:05:12.742331Z  INFO cmux_mobile_link::hybrid: media session ended session=\"ece45c83-5cb9-43c1-a272-101e5fb605b7\" reason=\"killed (test)\"",
+    "2026-10-24T05:05:13.911116Z  INFO cmux_mobile_link::hybrid: media session up session=\"ea0f1039-ff7d-49fe-b7b7-e7b2a935011e\"",
+    "2026-10-24T05:05:53.912909Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:05:53.913246Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:05:53.915685Z  INFO cmux_mobile_link::hybrid: media session ended session=\"ea0f1039-ff7d-49fe-b7b7-e7b2a935011e\" reason=\"killed (test)\"",
+    "2026-10-24T05:05:55.082893Z  INFO cmux_mobile_link::hybrid: media session up session=\"0879f3c6-a1d0-49c1-ac68-54dbad842842\"",
+    "2026-10-24T05:06:35.083714Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:06:35.083874Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:06:35.084052Z  INFO cmux_mobile_link::hybrid: media session ended session=\"0879f3c6-a1d0-49c1-ac68-54dbad842842\" reason=\"killed (test)\"",
+    "2026-10-24T05:06:36.278350Z  INFO cmux_mobile_link::hybrid: media session up session=\"756ccb9a-a24b-4ac5-bfd2-580616a0853f\"",
+    "2026-10-24T05:07:16.279216Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:07:16.279461Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:07:16.279686Z  INFO cmux_mobile_link::hybrid: media session ended session=\"756ccb9a-a24b-4ac5-bfd2-580616a0853f\" reason=\"killed (test)\"",
+    "2026-10-24T05:07:28.442110Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed",
+    "2026-10-24T05:07:30.624492Z  INFO cmux_mobile_link::hybrid: media session up session=\"499589b8-1b7f-415d-ba2b-a0d12fcc17d7\"",
+    "2026-10-24T05:08:10.626225Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:08:10.626484Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:08:10.627046Z  INFO cmux_mobile_link::hybrid: media session ended session=\"499589b8-1b7f-415d-ba2b-a0d12fcc17d7\" reason=\"killed (test)\"",
+    "2026-10-24T05:08:22.783432Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=transport: the media session's peer connection failed",
+    "2026-10-24T05:08:24.952983Z  INFO cmux_mobile_link::hybrid: media session up session=\"bf6cfee2-b3bb-4b99-92e4-0148596b233c\"",
+    "2026-10-24T05:09:04.954647Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:09:04.954772Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:09:04.955308Z  INFO cmux_mobile_link::hybrid: media session ended session=\"bf6cfee2-b3bb-4b99-92e4-0148596b233c\" reason=\"killed (test)\"",
+    "2026-10-24T05:09:06.130220Z  INFO cmux_mobile_link::hybrid: media session up session=\"013093de-0c66-47b5-b0b3-1693e9d11e22\"",
+    "2026-10-24T05:09:46.131275Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:09:46.131344Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:09:46.131888Z  INFO cmux_mobile_link::hybrid: media session ended session=\"013093de-0c66-47b5-b0b3-1693e9d11e22\" reason=\"killed (test)\"",
+    "2026-10-24T05:09:58.361047Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed",
+    "2026-10-24T05:10:11.678920Z  INFO cmux_mobile_link::hybrid: media session did not open; video stays in the tunnel error=the peer ended the session: transport: the media session's peer connection failed",
+    "2026-10-24T05:10:15.842270Z  INFO cmux_mobile_link::hybrid: media session up session=\"4dfb8566-30fc-407e-acfb-f4a737f50a26\"",
+    "2026-10-24T05:10:55.843359Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:10:55.843612Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:10:55.843838Z  INFO cmux_mobile_link::hybrid: media session ended session=\"4dfb8566-30fc-407e-acfb-f4a737f50a26\" reason=\"killed (test)\"",
+    "2026-10-24T05:10:57.010505Z  INFO cmux_mobile_link::hybrid: media session up session=\"f316900d-0967-4ea9-a9cf-bf278165b0f7\"",
+    "2026-10-24T05:11:37.011192Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:11:37.011515Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:11:37.012145Z  INFO cmux_mobile_link::hybrid: media session ended session=\"f316900d-0967-4ea9-a9cf-bf278165b0f7\" reason=\"killed (test)\"",
+    "2026-10-24T05:11:38.192217Z  INFO cmux_mobile_link::hybrid: media session up session=\"612abfe8-dbd4-4591-bb98-78771eb04f7c\"",
+    "2026-10-24T05:12:18.194115Z  INFO cmux_mobile_link::hybrid: dev: killing the media session every_s=40",
+    "2026-10-24T05:12:18.194459Z  INFO cmux_mobile_link::hybrid: media session killed (test)",
+    "2026-10-24T05:12:18.194984Z  INFO cmux_mobile_link::hybrid: media session ended session=\"612abfe8-dbd4-4591-bb98-78771eb04f7c\" reason=\"killed (test)\""
+  ]
+}

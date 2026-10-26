@@ -2360,132 +2360,133 @@
       }
     },
     "handlers.misc.unavailable.cloud": {
+      "comment": "A Cloud action this build has no handler for.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud actions arrive with the Cloud wave; cmux-next has no Cloud client yet."
+            "value": "This version of cmux can't run this Cloud action. Update cmux, then try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド操作はクラウド対応のフェーズで追加されます。cmux-next にはまだクラウドクライアントがありません。"
+            "value": "このバージョンの cmux ではこの Cloud 操作を実行できません。cmux をアップデートしてから、もう一度お試しください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تصل إجراءات Cloud مع موجة Cloud؛ لا يحتوي cmux-next على عميل Cloud بعد."
+            "value": "لا يمكن لهذا الإصدار من cmux تشغيل إجراء Cloud هذا. حدّث cmux، ثم حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud radnje stižu s Cloud talasom; cmux-next još nema Cloud klijent."
+            "value": "Ova verzija cmuxa ne može pokrenuti ovu Cloud radnju. Ažurirajte cmux, pa pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-handlinger kommer med Cloud-bølgen. cmux-next har endnu ingen Cloud-klient."
+            "value": "Denne version af cmux kan ikke køre denne Cloud-handling. Opdater cmux, og prøv så igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-Aktionen kommen mit der Cloud-Welle; cmux-next hat noch keinen Cloud-Client."
+            "value": "Diese Version von cmux kann diese Cloud-Aktion nicht ausführen. Aktualisiere cmux und versuche es dann erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las acciones de Cloud llegarán con la fase de Cloud; cmux-next aún no tiene cliente de Cloud."
+            "value": "Esta versión de cmux no puede ejecutar esta acción de Cloud. Actualiza cmux y vuelve a intentarlo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les actions Cloud arriveront avec la vague Cloud ; cmux-next n’a pas encore de client Cloud."
+            "value": "Cette version de cmux ne peut pas exécuter cette action Cloud. Mettez à jour cmux, puis réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le azioni Cloud arriveranno con la fase Cloud; cmux-next non ha ancora un client Cloud."
+            "value": "Questa versione di cmux non può eseguire questa azione Cloud. Aggiorna cmux, poi riprova."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សកម្មភាព Cloud នឹងមកដល់ជាមួយរលក Cloud។ cmux-next មិនទាន់មានកម្មវិធីភ្ញៀវ Cloud នៅឡើយទេ។"
+            "value": "កំណែ cmux នេះមិនអាចដំណើរការសកម្មភាព Cloud នេះបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux រួចព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 작업은 Cloud 단계에서 제공됩니다. cmux-next에는 아직 Cloud 클라이언트가 없습니다."
+            "value": "이 버전의 cmux에서는 이 Cloud 작업을 실행할 수 없습니다. cmux를 업데이트한 다음 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-handlinger kommer med Cloud-bølgen. cmux-next har ingen Cloud-klient ennå."
+            "value": "Denne versjonen av cmux kan ikke kjøre denne Cloud-handlingen. Oppdater cmux, og prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Akcje Cloud pojawią się w etapie Cloud; cmux-next nie ma jeszcze klienta Cloud."
+            "value": "Ta wersja cmux nie może wykonać tej akcji Cloud. Zaktualizuj cmux, a potem spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As ações do Cloud chegam com a etapa do Cloud; o cmux-next ainda não tem cliente Cloud."
+            "value": "Esta versão do cmux não consegue executar esta ação do Cloud. Atualize o cmux e tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Действия Cloud появятся вместе с волной Cloud; в cmux-next пока нет клиента Cloud."
+            "value": "Эта версия cmux не может выполнить это действие Cloud. Обновите cmux, затем повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การกระทำ Cloud จะมาพร้อมระลอก Cloud ขณะนี้ cmux-next ยังไม่มีไคลเอนต์ Cloud"
+            "value": "cmux เวอร์ชันนี้เรียกใช้การทำงาน Cloud นี้ไม่ได้ อัปเดต cmux แล้วลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud eylemleri Cloud aşamasıyla gelecek; cmux-next’te henüz Cloud istemcisi yok."
+            "value": "cmux'un bu sürümü bu Cloud işlemini çalıştıramaz. cmux'u güncelleyin, ardından tekrar deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дії Cloud з’являться разом з етапом Cloud; cmux-next ще не має клієнта Cloud."
+            "value": "Ця версія cmux не може виконати цю дію Cloud. Оновіть cmux, а потім спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các thao tác Cloud sẽ có cùng đợt Cloud; cmux-next chưa có ứng dụng khách Cloud."
+            "value": "Phiên bản cmux này không thể chạy thao tác Cloud này. Cập nhật cmux, rồi thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 操作将随 Cloud 阶段推出；cmux-next 尚无 Cloud 客户端。"
+            "value": "此版本的 cmux 无法运行这个 Cloud 操作。请更新 cmux，然后重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 動作將隨 Cloud 階段推出；cmux-next 尚無 Cloud 用戶端。"
+            "value": "此版本的 cmux 無法執行這個 Cloud 動作。請更新 cmux，然後再試一次。"
           }
         }
       }
@@ -10549,129 +10550,471 @@
       "extractionState": "manual",
       "localizations": {
         "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld غير مقروءة"
+          "variations": {
+            "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              },
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "علامة تبويب واحدة غير مقروءة (%lld)"
+                }
+              },
+              "two": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "علامتا تبويب غير مقروءتين (%lld)"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامات تبويب غير مقروءة"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld علامة تبويب غير مقروءة"
+                }
+              }
+            }
           }
         },
         "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld nepročitano"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitan"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitana"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld nepročitanih"
+                }
+              }
+            }
           }
         },
         "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ulæste"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulæst"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulæste"
+                }
+              }
+            }
           }
         },
         "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld ungelesen"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ungelesen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld ungelesen"
+                }
+              }
+            }
           }
         },
         "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld unread"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld unread"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld unread"
+                }
+              }
+            }
           }
         },
         "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld sin leer"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld sin leer"
+                }
+              }
+            }
           }
         },
         "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld non lus"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lu"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lus"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld non lus"
+                }
+              }
+            }
           }
         },
         "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld non letti"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non letta"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non lette"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld non lette"
+                }
+              }
+            }
           }
         },
         "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "未読 %lld 件"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "未読 %lld 件"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "未読 %lld 件"
+                }
+              }
+            }
           }
         },
         "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនទាន់អាន %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "មិនទាន់អាន %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "មិនទាន់អាន %lld"
+                }
+              }
+            }
           }
         },
         "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽지 않음 %lld개"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "읽지 않음 %lld개"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "읽지 않음 %lld개"
+                }
+              }
+            }
           }
         },
         "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld uleste"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld ulest"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld uleste"
+                }
+              }
+            }
           }
         },
         "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld nieprzeczytane"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Nieprzeczytane: %lld"
+                }
+              }
+            }
           }
         },
         "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld não lidas"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lida"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lidas"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld não lidas"
+                }
+              }
+            }
           }
         },
         "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Непрочитанных: %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитанных: %lld"
+                }
+              }
+            }
           }
         },
         "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังไม่ได้อ่าน %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ยังไม่ได้อ่าน %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "ยังไม่ได้อ่าน %lld"
+                }
+              }
+            }
           }
         },
         "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld okunmamış"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld okunmamış"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld okunmamış"
+                }
+              }
+            }
           }
         },
         "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Непрочитаних: %lld"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "few": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "many": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "Непрочитаних: %lld"
+                }
+              }
+            }
           }
         },
         "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld chưa đọc"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chưa đọc"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "needs_review",
+                  "value": "%lld chưa đọc"
+                }
+              }
+            }
           }
         },
         "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 条未读"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 条未读"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 条未读"
+                }
+              }
+            }
           }
         },
         "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%lld 則未讀"
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 則未讀"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld 則未讀"
+                }
+              }
+            }
           }
         }
       }
@@ -18148,6 +18491,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有聚焦的手機分頁。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noPeerSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has no running chat named %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد على %1$@ محادثة قيد التشغيل باسم %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nema pokrenut chat pod imenom %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har ingen kørende chat med navnet %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat keinen laufenden Chat namens %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ no tiene ningún chat en curso llamado %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ n’a aucune discussion en cours nommée %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ non ha una chat in esecuzione chiamata %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ に実行中のチャット %2$@ はありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មិនមានការជជែកកំពុងដំណើរការដែលមានឈ្មោះ %2$@ ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 실행 중인 %2$@ 채팅이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har ingen kjørende chat med navnet %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ nie ma uruchomionego czatu o nazwie %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ não tem nenhum chat em execução chamado %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ нет запущенного чата с именем %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ไม่มีแชตที่กำลังทำงานชื่อ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde %2$@ adlı çalışan sohbet yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ немає запущеного чату з назвою %2$@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ không có cuộc trò chuyện đang chạy nào tên %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 没有名为 %2$@ 的运行中聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 沒有名為 %2$@ 的執行中聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.ambiguousPeerSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has more than one chat named %2$@. Name it by its session id."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد على %1$@ أكثر من محادثة باسم %2$@. حدّدها بمعرّف جلستها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ima više od jednog chata pod imenom %2$@. Navedite ga po ID-u sesije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har mere end én chat med navnet %2$@. Angiv den med dens sessions-id."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat mehr als einen Chat namens %2$@. Gib seine Sitzungs-ID an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tiene más de un chat llamado %2$@. Indícalo por su ID de sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a plusieurs discussions nommées %2$@. Indiquez son identifiant de session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ha più di una chat chiamata %2$@. Indicala con il suo ID di sessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には %2$@ という名前のチャットが複数あります。セッション ID で指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ មានការជជែកច្រើនជាងមួយដែលមានឈ្មោះ %2$@។ សូមបញ្ជាក់ដោយលេខសម្គាល់សម័យ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 %2$@ 이름의 채팅이 여러 개 있습니다. 세션 ID로 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har mer enn én chat med navnet %2$@. Oppgi den med økt-ID-en."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ma więcej niż jeden czat o nazwie %2$@. Wskaż go identyfikatorem sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ tem mais de um chat chamado %2$@. Indique-o pelo ID da sessão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ несколько чатов с именем %2$@. Укажите его по идентификатору сеанса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ มีแชตชื่อ %2$@ มากกว่าหนึ่งรายการ ระบุด้วยรหัสเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde %2$@ adlı birden fazla sohbet var. Oturum kimliğiyle belirtin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %1$@ кілька чатів з назвою %2$@. Укажіть його за ідентифікатором сеансу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ có nhiều cuộc trò chuyện tên %2$@. Hãy chỉ định bằng ID phiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 有多个名为 %2$@ 的聊天。请用会话 ID 指定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 有多個名為 %2$@ 的聊天。請用工作階段 ID 指定。"
           }
         }
       }

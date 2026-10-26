@@ -60,6 +60,35 @@ import PackageDescription
 // (redraw=1), so daemon terminals (libghostty-vt, redraw off by default)
 // clear the prompt on resize too; the app already did. 493a8871b adds the
 // unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
+// Since 72578da21 the bash integration forks nothing per command on bash 5.3
+// and nothing at start when .bashrc sets PROMPT_COMMAND (PR 47).
+// Since 7d5fa1573 a mirror's pixel-only resize leaves its terminal alone
+// (mode 2026 survives a drag) and never waits for the terminal lock; a
+// local-history restore holds frames only when it must; a hidden surface's
+// output and a hidden or steady cursor's blink wake nothing (PR 46). Its
+// display-pass present of a resize frame never ran in cmux (the layer gets
+// no display pass for a size change).
+// Since 1f98b11be..b42d1690e (PRs 48-50): ghostty_surface_present_host_frame
+// lets the embedder present a new host size's frame before the commit (cmux
+// does not call it yet: in a light drag it cost main 4-9 ms p95 per frame and
+// more dropped frames, ghostty-integration-DESIGN.md G1); a scroll during a
+// restore holds frames; a hidden surface reads as hidden at once; an early
+// draw happens only after a quiet refresh interval (busy terminals no longer
+// draw twice per interval); a fresh frame publishes only while a present is
+// armed and in its own size generation; a reveal arms it.
+// Since f3de4f4..723c4ab (PRs 52, 53 and the kitty ports): a wheel scroll
+// never waits on the main thread for the terminal lock held by output
+// parsing (it goes to the termio thread, applied in the mode the terminal
+// has then); ghostty_surface_fit_grid gives the grid a size will fit without
+// resizing; the grid metrics say whether the alternate screen is active;
+// kitty graphics follow upstream #14811 and #14812.
+// Since 0cb7e1e04..9ce9b7d08: ghostty_surface_present_host_frame_ready
+// presents a drawn host-size frame without waiting, a content-only frame of a
+// host-sized surface reaches the screen without the main thread, the bash
+// 4.4-5.2 integration reads the history entry without a second fork, and an
+// iOS renderer has vsync: a CADisplayLink (80-120 Hz, 120 preferred) paces
+// draws to at most one per display refresh (it drew one per output batch,
+// 190-270 frames a second on a 120 Hz iPhone).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -84,8 +113,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5555f4220a862b9e2897cf54a5c85d2b273c8475-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "f0958acf6eb826f419d2ab8e16505f796dc2e30975b82ff92cbaf79c9f654289"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c"
         ),
     ]
 )

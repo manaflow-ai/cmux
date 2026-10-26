@@ -4,15 +4,14 @@ name: fleet test-compile
 # fleet Mac, and fail this check when one does not compile.
 #
 # fleet/compile-check (fleet-compile-check.yml) compiles only the app
-# executable, which links no test target, and merge_compile_guard.py accepts
-# it in place of a queued Release compile. #23360 (a throwing call inside
+# executable, which links no test target. #23360 (a throwing call inside
 # #expect without try) and #23163 (a fake that missed a protocol requirement)
 # passed it and broke feat-cmux-next's test build. This check covers that gap
 # until the Linux pool compiles test targets (its SDK gains Xcode's Testing
 # search paths with the next pool image, cmuxterm-hq #2750).
 #
-# It gates nothing: fleet/compile-check, merge_compile_guard.py and the
-# Release compile neither wait for it nor read it. A red here is a test
+# It gates nothing: fleet/compile-check, the landing gate and the Release
+# compile neither wait for it nor read it. A red here is a test
 # target that does not compile at the PR's merge commit.
 #
 # It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the

@@ -223,8 +223,10 @@ test("every clickable thing in the Inspector does something, and nothing else lo
   const sections = [...container.querySelectorAll("section[data-section]")].map((section) =>
     section.getAttribute("data-section"),
   );
-  for (const id of ["environment", "context", "connectors", "changes", "servers", "subagents", "tasks", "outputs"])
+  for (const id of ["environment", "context", "connectors", "changes", "subagents", "tasks", "outputs"])
     expect(sections).toContain(id);
+  // The dev servers head Background tasks (ChatInspector.tsx RAIL_LAYOUT).
+  expect(container.querySelector('section[data-section="tasks"] .acpmux-chat-inspector-server')).not.toBeNull();
   expect(container.querySelector(".acpmux-chat-inspector-subagents__more")).not.toBeNull();
   expect(container.querySelector(".acpmux-chat-inspector-subagents__ended")).not.toBeNull();
   expect(container.querySelector(".cv-subagent-avatar")).toBeNull();

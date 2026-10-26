@@ -47,6 +47,13 @@ public final class SettingsController {
     /// opacity write with Material unset names the material it gives, and an opacity reset drops
     /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.
     @ObservationIgnored public var ghosttyBackgroundBlur: (@MainActor () -> Int)?
+    /// Called just before `setSetting` makes a write by the person (`SettingWriter/user`: the
+    /// Settings window, a user-origin action, the app's own asks, a call a native confirmation
+    /// approved), with the descriptor and the value (nil: removed). It may return an undo, which
+    /// runs when the file write then fails, so state recorded for the write never outlives it.
+    /// A file edit, a synced cmux-next.json or a caller other than the person never calls it, so
+    /// the hang reports controller records this Mac's consent from it alone.
+    @ObservationIgnored public var userWillWrite: (@MainActor (SettingDescriptor, JSONValue?) -> (@MainActor () -> Void)?)?
     /// Font families written lately to a font family setting (`setSetting`), newest first.
     @ObservationIgnored public var recentFonts = RecentFonts()
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
@@ -60,6 +67,8 @@ public final class SettingsController {
     @ObservationIgnored private var lastSource: LoadInputs?
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
+    /// Fill keys no layer sets (``SettingsBuildDefaults``); the launch read's unless given.
+    @ObservationIgnored let buildDefaults: SettingsBuildDefaults
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
@@ -89,10 +98,12 @@ public final class SettingsController {
         fileURL: URL = CmuxConfigFile.defaultURL(),
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
-        launch: LaunchRead? = nil
+        launch: LaunchRead? = nil,
+        buildDefaults: SettingsBuildDefaults? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL)
         self.launchRead = launch
+        self.buildDefaults = buildDefaults ?? launch?.buildDefaults ?? .none
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
@@ -258,14 +269,14 @@ public final class SettingsController {
     }
 
     private func loadOnce() async {
-        let (file, reader, team, lastGood) = (file, managedReader, teamPolicy, fileRoot)
+        let (file, reader, team, lastGood, builds) = (file, managedReader, teamPolicy, fileRoot, buildDefaults)
         let valid = Self.validValues
         adopt(await Task.detached {
             let managed = reader.read()
             let source: Result<String, any Error>
             do { source = .success(try await file.source()) } catch { source = .failure(error) }
             return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent())
+                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds)
         }.value)
     }
 
@@ -278,7 +289,7 @@ public final class SettingsController {
         }
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
-                          configDirectory: file.url.deletingLastPathComponent()))
+                          configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults))
     }
 
     /// The launch's first load, read before the controller exists so the
@@ -287,15 +298,18 @@ public final class SettingsController {
     public nonisolated struct LaunchRead: Sendable {
         fileprivate let loaded: Loaded
         public let fileURL: URL
+        let buildDefaults: SettingsBuildDefaults
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
     public static func readAtLaunch(
-        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
+        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
+        buildDefaults: SettingsBuildDefaults = .none
     ) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
         return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
+                                         configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults),
+                          fileURL: fileURL, buildDefaults: buildDefaults)
     }
 
     fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
@@ -306,7 +320,7 @@ public final class SettingsController {
     /// Parses the file's text and merges the managed layers.
     private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
                                            lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                           configDirectory: URL) -> Loaded {
+                                           configDirectory: URL, buildDefaults: SettingsBuildDefaults) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -320,7 +334,8 @@ public final class SettingsController {
         // Managed layers always merge, over the last good file when this one
         // is unreadable, so MDM forced values apply even while the user's
         // file is broken (spec/enterprise.md 5.2).
-        let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        var effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+        effective.root = buildDefaults.filling(effective.root)
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )

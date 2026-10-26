@@ -26,9 +26,7 @@ use super::control_responses::{ControlResponseWaiter, ControlResponses};
 use super::host_state::{
     HOST_HANDSHAKE_TRANSIENT_RETRIES, HOST_LAUNCH_ROLLBACK_WAIT, MAX_PENDING_INPUT_ACK_BYTES,
 };
-use super::records::{
-    acknowledge_terminal_host_exit_record, terminal_host_exit_record, write_record,
-};
+use super::records::{acknowledge_terminal_host_exit_record, terminal_host_exit_record};
 use super::renderer_grant::ControlRequestUnanswered;
 
 mod connect;
@@ -691,13 +689,16 @@ impl HostAttachment {
             .wait(disconnect_on_timeout)
     }
 
+    /// Name `workspace_key` in the host's record (its recovery mirror; the
+    /// registry is the placement authority). The write is queued off the
+    /// caller's path (`record_mirror`), so a move does not wait for it.
     pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
         if self.record.workspace_key == workspace_key {
             return Ok(());
         }
         let mut updated = self.record.clone();
         updated.workspace_key = workspace_key.to_string();
-        write_record(&self.record_path, &updated)?;
+        super::record_mirror::queue(&self.record_path, updated.clone());
         self.record = updated;
         Ok(())
     }

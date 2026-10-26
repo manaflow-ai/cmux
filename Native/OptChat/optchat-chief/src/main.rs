@@ -36,6 +36,10 @@ optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-soc
 optchat-chief peer-chiefs list | tell chief:NAME TEXT [--key K] | read [--after N] [--wait S] [--config FILE]
                                                            Chief-to-Chief messages through the agent hub ($MUX_HOME/optchat/peer-chiefs.json)
 optchat-chief cloud pair|enroll|register|chief|status --install FILE   the brain host's cloud identity (see `cloud help`)
+optchat-chief pack list | status|login|wait|paste|share|logout|token|check|install NAME [--json] [--mux-home DIR]
+                                                           the Chief's tool packs: CLIs, skills and sign-ins (plans/cmux-next/chief-toolpacks-DESIGN.md)
+optchat-chief github status | login | wait [SECONDS] | pat FILE|- | mac | logout [--json] [--mux-home DIR]
+                                                           this Chief's GitHub login (default: the Mac's gh): `pack ... github`
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-cr when acpmux has a configured CodeRouter route, else claude), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -67,6 +71,60 @@ fn main() -> std::process::ExitCode {
         let code = optchat_chief::migrate::cli(&args[1..]);
         return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
+    // `pack mcp|mcp-headers PACK SERVER`: a pack's MCP server (stdout is the
+    // protocol) and Claude Code's headers helper.
+    if args.first().is_some_and(|a| a == "pack")
+        && args
+            .get(1)
+            .is_some_and(|a| a == "mcp" || a == "mcp-headers")
+    {
+        let flags = Flags::parse(&args);
+        let (pack, server) = (
+            flags.words.get(2).cloned().unwrap_or_default(),
+            flags.words.get(3).cloned().unwrap_or_default(),
+        );
+        let home = home(&flags);
+        let out = if args[1] == "mcp" {
+            optchat_chief::toolpacks::serve_mcp(&home, &pack, &server)
+        } else {
+            optchat_chief::toolpacks::mcp_headers(&home, &pack, &server).map(|h| {
+                println!("{h}");
+                0
+            })
+        };
+        return match out {
+            Ok(code) => std::process::ExitCode::from(u8::try_from(code).unwrap_or(1)),
+            Err(e) => {
+                eprintln!("optchat-chief pack: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
+    // `pack` and its `github` alias read their own `--json`.
+    if let Some(verb) = args
+        .first()
+        .filter(|a| *a == "github" || *a == "pack")
+        .cloned()
+    {
+        let as_json = args.iter().any(|a| a == "--json");
+        args.retain(|a| a != "--json");
+        let flags = Flags::parse(&args);
+        let out = if verb == "github" {
+            optchat_chief::github::run(&flags, &home(&flags), as_json)
+        } else {
+            optchat_chief::toolpacks::run(&flags, &home(&flags), as_json)
+        };
+        return match out {
+            Ok(out) => {
+                println!("{out}");
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("optchat-chief {verb}: {e}");
+                std::process::ExitCode::from(1)
+            }
+        };
+    }
     // `peer-chiefs` parses its own switches (`--config`, `--key`, ...).
     if args.first().is_some_and(|a| a == "peer-chiefs") {
         return match optchat_chief::peer_chiefs::cli(&args[1..]) {
@@ -84,6 +142,12 @@ fn main() -> std::process::ExitCode {
     // argument as its value.
     let append_after_live = args.iter().any(|a| a == "--append-after-live");
     args.retain(|a| a != "--append-after-live");
+    // `memory import-from ... --stop-host`: also a boolean (a bare flag would take the next word).
+    for a in args.iter_mut() {
+        if a == "--stop-host" {
+            *a = "--stop-host=1".to_owned();
+        }
+    }
     let mut flags = Flags::parse(&args);
     // `memory search --json` (and only there: `trace` and `stats` read their
     // own `--json` from the raw arguments). The verb may follow options.
@@ -114,8 +178,8 @@ fn main() -> std::process::ExitCode {
         }
         Some(
             tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
-            | "stop" | "sleep" | "transcript" | "control" | "profile" | "chiefs"
-            | "escalate-auth" | "escalate_auth"),
+            | "stop" | "sleep" | "remember" | "transcript" | "control" | "profile"
+            | "chiefs" | "escalate-auth" | "escalate_auth"),
         ) => {
             let socket = flags
                 .value("socket")
