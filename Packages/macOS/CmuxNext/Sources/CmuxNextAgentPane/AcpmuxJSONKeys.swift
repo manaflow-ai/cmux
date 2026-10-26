@@ -38,8 +38,9 @@ nonisolated enum AcpmuxJSONKeys {
     private nonisolated enum Expect { case value, valueOrEnd, key, keyOrEnd, commaOrEnd }
 
     /// Memory safety, as Chromium's base::span (base/containers/span.h), which checks every index: each byte is
-    /// read through ``load(_:)`` or ``special(_:)``, which check their index against `count` (a trap, never a read
-    /// past the frame), and the Reader lives only inside the ``verdict(_:)`` call that lends it the buffer.
+    /// read through ``load(_:)`` or ``special(_:)``, which check their index against `count` (a byte past the
+    /// frame reads 0, a control byte the grammar refuses; never a read past it), and the Reader lives only inside
+    /// the ``verdict(_:)`` call that lends it the buffer.
     @safe
     private nonisolated struct Reader {
         /// The frame's bytes, `count` of them (read only while the caller holds the buffer).
@@ -56,9 +57,9 @@ nonisolated enum AcpmuxJSONKeys {
             count = unsafe bytes.count
         }
 
-        /// The byte at `k`; traps when `k` is outside the frame.
+        /// The byte at `k`; 0 (a control byte, which no JSON token accepts) when `k` is outside the frame.
         @inline(__always) func load(_ k: Int) -> UInt8 {
-            precondition(k >= 0 && k < count, "JSON key check read outside the frame")
+            guard k >= 0, k < count else { return 0 }
             // SAFETY: 0 <= k < count (checked above), the lent buffer's length.
             return unsafe bytes[k]
         }
@@ -66,7 +67,8 @@ nonisolated enum AcpmuxJSONKeys {
         /// Whether the 8 bytes at `at` may hold a quote, a backslash, a control byte or a byte of
         /// a multi-byte sequence. A false alarm only sends the word to the byte path.
         @inline(__always) func special(_ at: Int) -> Bool {
-            precondition(at >= 0 && at + 8 <= count, "JSON key check read outside the frame")
+            // A word that does not fit the frame goes to the byte path.
+            guard at >= 0, at + 8 <= count else { return true }
             // SAFETY: at..<at + 8 is inside the lent buffer (checked above); loadUnaligned needs no alignment.
             let w = unsafe UnsafeRawBufferPointer(bytes).loadUnaligned(fromByteOffset: at, as: UInt64.self)
             let high: UInt64 = 0x8080_8080_8080_8080

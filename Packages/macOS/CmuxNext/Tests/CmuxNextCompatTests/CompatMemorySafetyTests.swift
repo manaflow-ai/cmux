@@ -75,6 +75,8 @@ import Testing
         counters.add(site: 0, nanos: 1)
         #expect(counters.read(site: 2) == (count: 3, totalNanos: 14, maxNanos: 9))
         #expect(counters.read(site: 1) == (count: 0, totalNanos: 0, maxNanos: 0))
+        counters.add(site: 3, nanos: 7)
+        #expect(counters.read(site: 3) == (count: 0, totalNanos: 0, maxNanos: 0), "a site past the table is ignored")
         counters.reset()
         #expect(counters.read(site: 2) == (count: 0, totalNanos: 0, maxNanos: 0))
     }

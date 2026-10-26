@@ -36,10 +36,10 @@ public func blockingWindowListCreateImage(_ screenBounds: CGRect, _ listOption: 
                                           fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
     return blockingCall(.systemCall, fileID: fileID, line: line) { () -> CGImage? in
-        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
         // SAFETY: dlsym with RTLD_DEFAULT (-2) looks the name up in the loaded images and returns the function's
         // address or NULL; CreateImage is CGWindowListCreateImage's C signature (CGWindowListOption, CGWindowID and
         // CGWindowImageOption are UInt32), and the image it returns is +1 (a Create call), taken retained once.
+        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
         guard let symbol = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil }
         let create = unsafe unsafeBitCast(symbol, to: CreateImage.self)
         return unsafe create(screenBounds, listOption.rawValue, windowID, imageOption.rawValue)?.takeRetainedValue()
@@ -61,10 +61,10 @@ public func blockingWindowListCreateImageFromArray(_ screenBounds: CGRect, _ win
                                                    fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
     typealias CreateImage = @convention(c) (CGRect, CFArray, UInt32) -> Unmanaged<CGImage>?
     return blockingCall(.systemCall, fileID: fileID, line: line) { () -> CGImage? in
-        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
         // SAFETY: dlsym with RTLD_DEFAULT (-2) looks the name up in the loaded images and returns the function's
         // address or NULL; CreateImage is CGWindowListCreateImageFromArray's C signature, and the image it returns
         // is +1 (a Create call), taken retained once.
+        // perf-gate-ok: the capture helpers' seam, for the files check-perf-source-guard.py lists only
         guard let symbol = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImageFromArray") else { return nil }
         let create = unsafe unsafeBitCast(symbol, to: CreateImage.self)
         // The array holds CGWindowID values, not CFNumbers.

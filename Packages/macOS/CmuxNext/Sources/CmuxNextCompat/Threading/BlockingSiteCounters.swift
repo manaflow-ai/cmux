@@ -6,7 +6,8 @@ internal import Atomics
 /// thread never allocates; any thread adds, any thread reads.
 ///
 /// Memory safety: `words` is the one allocation of `capacity * 3` initialized words that init made; deinit
-/// deinitializes and frees it once. Every word is reached through ``word(_:)``, which checks its index.
+/// deinitializes and frees it once. Every word is reached through ``word(_:)``; the methods take only a site id
+/// under `capacity` (another is ignored or reads as zero), so its index is inside the table.
 @safe
 final class BlockingSiteCounters: Sendable {
     private let capacity: Int
@@ -28,13 +29,15 @@ final class BlockingSiteCounters: Sendable {
         unsafe words.deallocate()
     }
 
-    /// Word `index` of the table; traps outside it (a site id at or past `capacity`).
+    /// Word `index` of the table. Every caller passes an index under capacity * 3.
     private func word(_ index: Int) -> UnsafeAtomic<UInt64> {
-        precondition(index >= 0 && index < capacity * 3, "blocking site id outside the table")
-        // SAFETY: 0 <= index < capacity * 3 (checked above), so the word is inside the allocation, which lives as
-        // long as `self`.
+        assert(index >= 0 && index < capacity * 3)
+        // SAFETY: 0 <= index < capacity * 3 (every caller's bound), so the word is inside the allocation, which
+        // lives as long as `self`.
         return unsafe UnsafeAtomic<UInt64>(at: words + index)
     }
+
+    private func holds(_ site: Int) -> Bool { site >= 0 && site < capacity }
 
     private func word(_ site: Int, _ field: Int) -> UnsafeAtomic<UInt64> {
         word(site * 3 + field)
@@ -42,6 +45,7 @@ final class BlockingSiteCounters: Sendable {
 
     /// Counts one ended call at `site` and adds its `nanos` (nil: not timed) to the site's total and maximum.
     func add(site: Int, nanos: UInt64?) {
+        guard holds(site) else { return }
         if let nanos {
             word(site, 1).wrappingIncrement(by: nanos, ordering: .relaxed)
             let maximum = word(site, 2)
@@ -57,9 +61,10 @@ final class BlockingSiteCounters: Sendable {
 
     /// The site's count and wall times now.
     func read(site: Int) -> (count: Int, totalNanos: UInt64, maxNanos: UInt64) {
-        (Int(truncatingIfNeeded: word(site, 0).load(ordering: .relaxed)),
-         word(site, 1).load(ordering: .relaxed),
-         word(site, 2).load(ordering: .relaxed))
+        guard holds(site) else { return (0, 0, 0) }
+        return (Int(truncatingIfNeeded: word(site, 0).load(ordering: .relaxed)),
+                word(site, 1).load(ordering: .relaxed),
+                word(site, 2).load(ordering: .relaxed))
     }
 
     /// Zeroes every site.
