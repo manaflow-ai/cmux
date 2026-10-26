@@ -220,7 +220,11 @@ fn folder_profile(folder: &Path, family: &str) {
 }
 
 /// Trusts `folder` and enables its folder profile `fp` as its bytes are now.
-fn trust_and_enable(hub: &Arc<Hub>, gate: &acpmux::config::folder_profiles::FolderGate, folder: &Path) {
+fn trust_and_enable(
+    hub: &Arc<Hub>,
+    gate: &acpmux::config::folder_profiles::FolderGate,
+    folder: &Path,
+) {
     use acpmux::config::folder_profiles as fp;
     acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
     let cfg = hub.config.try_read().unwrap().clone();
