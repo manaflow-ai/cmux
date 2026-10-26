@@ -23,12 +23,12 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod ipc;
+pub(crate) use ipc::note_json_parse;
 pub use ipc::{
     CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
     IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
     WRITE_STALL_THRESHOLD,
 };
-pub(crate) use ipc::note_json_parse;
 mod owner_panic_log;
 #[cfg(debug_assertions)]
 pub use owner_panic_log::spawn_owner_hang_test;
@@ -48,6 +48,8 @@ pub use daemon_locks::{
 pub(crate) use daemon_locks::{LockSlot, lock_clock, timed_acquire};
 #[cfg(test)]
 pub(crate) use daemon_locks::{lock_clock_reads, on_contended_lock};
+#[cfg(test)]
+mod bucket_golden_tests;
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
