@@ -576,7 +576,7 @@ final class AppServices {
     /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
     private var idleWakeupEvents: [EventSubscription] = []
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
-    var updateFeedObservation: Task<Void, Never>?
+    var updateFeedObservation: ServiceObservation<UpdateHighlights?>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment), each in its own Chrome-style popup window.
@@ -719,7 +719,7 @@ final class AppServices {
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
         crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
@@ -749,7 +749,7 @@ final class AppServices {
             self?.cache.pageRequests.closedHistories.save(self?.cache.existingBrowser(key)?.tab)
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
-        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
+        cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages; crashRecovery.armSurvivalWindow(on: mainDeadlines)
         cache.useLaunchPictures(environment.browserLaunchPictures, enabled: features.isEnabled(.browserLaunchPictures), deadlines: mainDeadlines)
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
