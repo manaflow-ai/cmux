@@ -21,8 +21,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 SWIFT = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextOracle/OracleFacet.swift"
 SCHEMA = ROOT / "schemas/oracle/snapshot-v1.schema.json"
-# Facets the runner reads from another method, never from the app's oracle list (cli: the step's cmux receipt).
-RUNNER_ONLY = {"daemon", "cli"}
+# Facets the runner reads from another method, never from the app's oracle list (cli and mcp: the step's receipt).
+RUNNER_ONLY = {"daemon", "cli", "mcp"}
 
 
 def swift_catalog(text: str) -> tuple[list[str], dict[str, str]]:
