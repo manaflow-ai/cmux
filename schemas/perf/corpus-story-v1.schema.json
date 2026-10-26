@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.com/schemas/perf/corpus-story-v1",
   "title": "cmux-perf-corpus-story/v1",
-  "description": "One recorded-session corpus story of the perf lab (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.8): a layout snapshot, an input track replayed with recorded timing, PTY tracks, a Web Page Replay archive, agent transcript tracks, checkpoints and the metrics it writes. Manifests live in perf-corpus/<id>.json; large data lives in content-addressed blobs (sha256) in R2 with a local cache, as Chromium keeps a .wprgo.sha1 in git and the archive in cloud storage (tools/perf/page_sets/data/*.json, third_party/catapult/common/py_utils/py_utils/cloud_storage.py). scripts/perf-lab/corpus/manifest.py validates manifests; beyond this schema it rejects text payloads (text keys, text-bearing CLI words and flags, a key code on a typing key), requires every source of a recorded story, checks repository sources against their digest and refuses any perf-corpus file or repository source over 256 KB.",
+  "description": "One recorded-session corpus story of the perf lab (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.8): a layout snapshot, an input track replayed with recorded timing, PTY tracks, a Web Page Replay archive, agent transcript tracks, checkpoints and the metrics it writes. Manifests live in perf-corpus/<id>.json; large data lives in content-addressed blobs (sha256) in R2 with a local cache, as Chromium keeps a .wprgo.sha1 in git and the archive in cloud storage (tools/perf/page_sets/data/*.json, third_party/catapult/common/py_utils/py_utils/cloud_storage.py). scripts/perf-lab/corpus/manifest.py validates manifests; beyond this schema it rejects text payloads (fail closed: an action or CLI event must be declared in schemas/perf/corpus-input-vocabulary-v1.json, where a string is only a layout reference or a declared word; a typing key has no key code) and an input blob with text before any upload, requires every source of a recorded story, checks repository sources against their digest and refuses any perf-corpus file or repository source over 256 KB.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -292,7 +292,7 @@
               "type": "object",
               "additionalProperties": false,
               "required": ["id"],
-              "description": "An action.run call: the action id and scalar arguments.",
+              "description": "An action.run call: the action id and scalar arguments, each declared with its shape in schemas/perf/corpus-input-vocabulary-v1.json.",
               "properties": {
                 "id": {"$ref": "#/$defs/token"},
                 "args": {
@@ -318,7 +318,7 @@
               "type": "object",
               "additionalProperties": false,
               "required": ["argv"],
-              "description": "A call of the bundled cmux CLI, argv without the program.",
+              "description": "A call of the bundled cmux CLI, argv without the program; it must match a command of schemas/perf/corpus-input-vocabulary-v1.json.",
               "properties": {
                 "argv": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/token"}}
               }

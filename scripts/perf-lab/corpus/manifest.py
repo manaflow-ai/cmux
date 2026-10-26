@@ -13,8 +13,9 @@ GetIfHashChanged downloads only when the local copy's hash differs (third_party/
 
 The validator checks the schema with a small evaluator of the schema file itself (so the two never drift),
 then what the schema cannot say:
-  - no text payloads: an input event never carries a text key, a CLI text word or flag, or the key code of a
-    typing key (the input journal's rule, InputJournalEntry.Key); every string is a token (no spaces)
+  - no text payloads, fail closed: an action or CLI event must match schemas/perf/corpus-input-vocabulary-v1.json,
+    where a string is only a layout ref or a declared word, and a typing key has no key code (the input
+    journal's rule, InputJournalEntry.Key); every string is a token (no spaces)
   - a recorded story has every source and checkpoint digest; a planned one says why it is not recorded
   - event and checkpoint times are ordered and within duration_ms; checkpoint names are unique
   - repository sources exist, match their digest and size, and no perf-corpus file is over 256 KB
@@ -45,20 +46,22 @@ HERE = Path(__file__).resolve().parent
 LAB = HERE.parent
 REPO_ROOT = LAB.parents[1]
 SCHEMA_PATH = "schemas/perf/corpus-story-v1.schema.json"
+VOCABULARY_PATH = "schemas/perf/corpus-input-vocabulary-v1.json"
+VOCABULARY_ID = "cmux-perf-corpus-vocabulary/v1"
 CORPUS_DIR = "perf-corpus"
 SCHEMA_ID = "cmux-perf-corpus-story/v1"
 MAX_GIT_BYTES = 256 * 1024
 R2_PREFIX = "perf-lab/corpus/sha256/"
 
-# Keys that carry text wherever they appear in an event payload.
-TEXT_KEYS = frozenset({"text", "characters", "chars", "string", "input", "content", "body", "message", "title",
-                       "name", "label", "query", "prompt", "command", "url", "path", "cwd", "paste"})
-# CLI words and flags whose argument is text (the recorder synthesizes text from a fixed corpus instead).
-TEXT_CLI_WORDS = frozenset({"send", "send-text", "send-key", "paste", "type", "notify", "rename", "set-title",
-                            "prompt", "message"})
-TEXT_CLI_FLAGS = frozenset(f"--{key}" for key in TEXT_KEYS)
 TYPING_CLASSES = frozenset({"letter", "digit", "punctuation", "space", "other"})
 SHORTCUT_MODIFIERS = frozenset({"cmd", "ctrl"})
+# Value shapes of the vocabulary. None takes free text: a string is a layout ref or a declared word.
+SHAPES = ({"type": "ref"}, {"type": "integer"}, {"type": "number"}, {"type": "boolean"}, {"type": "switch"})
+REF = re.compile(r"@[a-z]+[0-9]+(?:\.[a-z]+[0-9]+)*")
+WORD = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
+FLAG = re.compile(r"--?[A-Za-z]")
+CLI_VALUES = {"integer": re.compile(r"-?[0-9]+"), "number": re.compile(r"-?[0-9]+(?:\.[0-9]+)?"),
+              "boolean": re.compile(r"true|false")}
 
 
 class CorpusError(RuntimeError):
@@ -151,35 +154,93 @@ def load_schema(root: Path = REPO_ROOT) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- the rules the schema cannot say
 
-def text_errors(where: str, event: Mapping[str, Any]) -> list[str]:
-    """Why EVENT carries text, if it does. Runs on schema-valid events and on events read back from a blob."""
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
-        return []
-    errors = [f"{where}.payload: text key {key!r}" for key in _keys(payload) if key.lower() in TEXT_KEYS]
-    kind = event.get("kind")
-    if kind == "key" and payload.get("class") in TYPING_CLASSES and "key_code" in payload \
-            and not SHORTCUT_MODIFIERS & set(payload.get("modifiers") or ()):
-        errors.append(f"{where}.payload: key_code on a {payload['class']} key without cmd or ctrl is typed text")
-    if kind == "cli":
-        for token in payload.get("argv") or ():
-            word = str(token).split("=", 1)[0]
-            if word in TEXT_CLI_WORDS or word in TEXT_CLI_FLAGS:
-                errors.append(f"{where}.payload.argv: {word!r} carries text")
-    return errors
+def load_vocabulary(root: Path = REPO_ROOT) -> dict[str, Any]:
+    """The declared actions and CLI commands (VOCABULARY_PATH). A literal or shape outside the closed set raises,
+    so the vocabulary cannot declare a free-text argument."""
+    vocabulary = json.loads((root / VOCABULARY_PATH).read_text(encoding="utf-8"))
+    if vocabulary.get("schema") != VOCABULARY_ID:
+        raise CorpusError(f"{VOCABULARY_PATH}: schema is not {VOCABULARY_ID}")
+    values, flag_values = [], []  # a switch (a flag with no value) is only a flag's shape
+    for action, args in vocabulary["actions"].items():
+        if any(re.fullmatch(r"[a-z][a-z0-9_]*", name) is None for name in args):
+            raise CorpusError(f"{VOCABULARY_PATH}: {action} has an argument name that is not snake_case")
+        values += args.values()
+    for command in vocabulary["cli"]:
+        if any(isinstance(part, str) and WORD.fullmatch(part) is None for part in command["argv"]) \
+                or any(re.fullmatch(r"--?[A-Za-z][A-Za-z0-9-]*", flag) is None for flag in command["flags"]):
+            raise CorpusError(f"{VOCABULARY_PATH}: {command['argv']} has a literal that is not a word or flag")
+        values += [part for part in command["argv"] if not isinstance(part, str)]
+        flag_values += command["flags"].values()
+    for shape, allowed in [(shape, SHAPES[:-1]) for shape in values] + [(shape, SHAPES) for shape in flag_values]:
+        is_enum = isinstance(shape, dict) and set(shape) == {"enum"} and bool(shape["enum"]) \
+            and all(isinstance(value, str) and WORD.fullmatch(value) for value in shape["enum"])
+        if shape not in allowed and not is_enum:
+            raise CorpusError(f"{VOCABULARY_PATH}: {shape!r} is not a value shape")
+    return vocabulary
 
 
-def _keys(value: Any) -> Iterable[str]:
-    if isinstance(value, dict):
-        for key, child in value.items():
-            yield str(key)
-            yield from _keys(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _keys(child)
+def _value_ok(value: Any, shape: Mapping[str, Any], *, cli: bool) -> bool:
+    """Whether VALUE fits SHAPE. A CLI value is always a string; an action argument has its JSON type."""
+    if "enum" in shape:
+        return isinstance(value, str) and value in shape["enum"]
+    kind = shape["type"]
+    if kind == "ref":
+        return isinstance(value, str) and REF.fullmatch(value) is not None
+    if cli:
+        return isinstance(value, str) and kind in CLI_VALUES and CLI_VALUES[kind].fullmatch(value) is not None
+    return kind in ("integer", "number", "boolean") and _is_type(value, kind)
 
 
-def event_errors(events: list[Any], duration_ms: Any, schema: Mapping[str, Any], where: str = "$.input.events") -> list[str]:
+def _argv_matches(argv: list[str], command: Mapping[str, Any]) -> bool:
+    """Whether ARGV is COMMAND: its positionals in order, and only its flags (`--flag value`, `--flag=value`)."""
+    pattern, flags, position, index = command["argv"], command["flags"], 0, 0
+    while index < len(argv):
+        token, index = argv[index], index + 1
+        if FLAG.match(token):
+            name, _, inline = token.partition("=")
+            shape = flags.get(name)
+            if shape is None:
+                return False
+            if shape == {"type": "switch"}:
+                if "=" in token:
+                    return False
+                continue
+            if "=" not in token:
+                if index == len(argv):
+                    return False
+                inline, index = argv[index], index + 1
+            if not _value_ok(inline, shape, cli=True):
+                return False
+        else:
+            if position == len(pattern):
+                return False
+            part, position = pattern[position], position + 1
+            if token != part if isinstance(part, str) else not _value_ok(token, part, cli=True):
+                return False
+    return position == len(pattern)
+
+
+def text_errors(where: str, event: Mapping[str, Any], vocabulary: Mapping[str, Any]) -> list[str]:
+    """Why schema-valid EVENT may carry text, if it may. Fails closed: an action or CLI event is valid only as
+    the vocabulary declares it, and a string there is only a layout ref or a declared word."""
+    payload, kind = event["payload"], event["kind"]
+    if kind == "key" and payload["class"] in TYPING_CLASSES and "key_code" in payload \
+            and not SHORTCUT_MODIFIERS & set(payload["modifiers"]):
+        return [f"{where}.payload: key_code on a {payload['class']} key without cmd or ctrl is typed text"]
+    if kind == "action":
+        declared = vocabulary["actions"].get(payload["id"])
+        if declared is None:
+            return [f"{where}.payload.id: {payload['id']!r} is not an action of {VOCABULARY_PATH}"]
+        return [f"{where}.payload.args.{key}: not an argument of {payload['id']} in {VOCABULARY_PATH}, or not its shape"
+                for key, value in payload.get("args", {}).items()
+                if key not in declared or not _value_ok(value, declared[key], cli=False)]
+    if kind == "cli" and not any(_argv_matches(payload["argv"], command) for command in vocabulary["cli"]):
+        return [f"{where}.payload.argv: matches no command of {VOCABULARY_PATH}"]
+    return []
+
+
+def event_errors(events: list[Any], duration_ms: Any, schema: Mapping[str, Any], vocabulary: Mapping[str, Any],
+                 where: str = "$.input.events") -> list[str]:
     errors, previous = [], 0.0
     for index, event in enumerate(events):
         here = f"{where}[{index}]"
@@ -187,7 +248,7 @@ def event_errors(events: list[Any], duration_ms: Any, schema: Mapping[str, Any],
         if found:
             errors += found
             continue
-        errors += text_errors(here, event)
+        errors += text_errors(here, event, vocabulary)
         if event["t_ms"] < previous:
             errors.append(f"{here}.t_ms: before the previous event")
         if _is_type(duration_ms, "integer") and event["t_ms"] > duration_ms:
@@ -210,10 +271,12 @@ def _sources(manifest: Mapping[str, Any]) -> Iterable[tuple[str, Any]]:
 
 
 def validation_errors(manifest: Any, *, root: Path = REPO_ROOT, schema: Mapping[str, Any] | None = None,
-                      owners: frozenset[str] | None = None, stories: frozenset[str] | None = None) -> list[str]:
+                      vocabulary: Mapping[str, Any] | None = None, owners: frozenset[str] | None = None,
+                      stories: frozenset[str] | None = None) -> list[str]:
     """One "where: reason" line per problem of MANIFEST (empty if valid). `owners` and `stories` are optional
     allowlists for the owner and for compose; repository sources are checked under `root`."""
     schema = schema if schema is not None else load_schema(root)
+    vocabulary = vocabulary if vocabulary is not None else load_vocabulary(root)
     events: list[Any] = []
     if isinstance(manifest, dict) and isinstance(manifest.get("input"), dict) \
             and isinstance(manifest["input"].get("events"), list):
@@ -223,7 +286,7 @@ def validation_errors(manifest: Any, *, root: Path = REPO_ROOT, schema: Mapping[
     errors = schema_errors(manifest, schema, schema)
     if errors:
         return errors
-    errors = event_errors(events, manifest["duration_ms"], schema)
+    errors = event_errors(events, manifest["duration_ms"], schema, vocabulary)
     recorded = manifest["status"] == "recorded"
     if recorded and "planned" in manifest:
         errors.append("$.planned: only a planned story says why it is not recorded")
@@ -348,7 +411,8 @@ class BlobCache:
             raise
 
 
-def blob_input_errors(manifest: Mapping[str, Any], cache: BlobCache, schema: Mapping[str, Any]) -> list[str]:
+def blob_input_errors(manifest: Mapping[str, Any], cache: BlobCache, schema: Mapping[str, Any],
+                      vocabulary: Mapping[str, Any]) -> list[str]:
     """The text and order checks for an input track kept in a blob (NDJSON, one event per line)."""
     ref = manifest["input"].get("blob")
     if ref is None:
@@ -357,11 +421,17 @@ def blob_input_errors(manifest: Mapping[str, Any], cache: BlobCache, schema: Map
         events = [json.loads(line) for line in cache.get(ref).decode("utf-8").splitlines() if line.strip()]
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         return [f"$.input.blob: not NDJSON events: {error}"]
-    return event_errors(events, manifest["duration_ms"], schema, "$.input.blob")
+    return event_errors(events, manifest["duration_ms"], schema, vocabulary, "$.input.blob")
 
 
-def upload(manifests: Iterable[Mapping[str, Any]], cache: BlobCache, store: Any) -> list[str]:
-    """Puts every cached blob of MANIFESTS into R2 once (write-once: an existing key is left alone)."""
+def upload(manifests: list[Mapping[str, Any]], cache: BlobCache, store: Any, schema: Mapping[str, Any],
+           vocabulary: Mapping[str, Any]) -> list[str]:
+    """Puts every cached blob of MANIFESTS into R2 once (write-once: an existing key is left alone). The prefix
+    is public and write-once, so it puts nothing unless every input blob passes the text check."""
+    problems = [f"{manifest['id']}: {error}" for manifest in manifests
+                for error in blob_input_errors(manifest, cache, schema, vocabulary)]
+    if problems:
+        raise CorpusError("nothing uploaded: " + "; ".join(problems))
     done = []
     for manifest in manifests:
         for where, ref in _sources(manifest):
@@ -384,7 +454,7 @@ def _read_manifest(path: Path) -> Any:
 
 
 def validate_paths(paths: list[Path], root: Path, cache: BlobCache | None = None) -> list[str]:
-    schema = load_schema(root)
+    schema, vocabulary = load_schema(root), load_vocabulary(root)
     catalog = _load_sibling("catalog")
     owners_md = root / catalog.OWNERS_PATH
     owners = catalog.owner_lanes(owners_md.read_text(encoding="utf-8")) if owners_md.is_file() else None
@@ -396,11 +466,12 @@ def validate_paths(paths: list[Path], root: Path, cache: BlobCache | None = None
             problems.append(f"{path}: over {MAX_GIT_BYTES} bytes; move its events into an input blob")
             continue
         manifest = _read_manifest(path)
-        errors = validation_errors(manifest, root=root, schema=schema, owners=owners, stories=known)
+        errors = validation_errors(manifest, root=root, schema=schema, vocabulary=vocabulary, owners=owners,
+                                   stories=known)
         if not errors and manifest["id"] != path.stem:
             errors.append(f"$.id: {manifest['id']!r} is not the file name {path.stem!r}")
         if not errors and cache is not None:
-            errors += blob_input_errors(manifest, cache, schema)
+            errors += blob_input_errors(manifest, cache, schema, vocabulary)
         problems += [f"{path}: {error}" for error in errors]
     return problems
 
@@ -421,12 +492,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(cache.add(args.add_blob.read_bytes())))
             return 0
         if args.upload:
-            problems = validate_paths(args.upload, args.root)
+            problems = validate_paths(args.upload, args.root, cache)  # with the cache, so input blobs are checked
             if not problems:
                 trace_quest = _load_sibling("trace_quest")
                 try:
                     store = trace_quest.R2BlobStore.from_env()
-                    done = upload([_read_manifest(path) for path in args.upload], cache, store)
+                    done = upload([_read_manifest(path) for path in args.upload], cache, store,
+                                  load_schema(args.root), load_vocabulary(args.root))
                 except trace_quest.TraceQuestError as error:
                     raise CorpusError(str(error)) from error
                 print("\n".join(done) or "nothing to upload")

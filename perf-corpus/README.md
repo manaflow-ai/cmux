@@ -49,15 +49,22 @@ because object ids are different in each replay.
 
 ## No text, no user data
 
-The corpus holds no user data (rule R10). The validator refuses an input event that carries text:
+The corpus holds no user data (rule R10). The validator fails closed: it accepts only the
+events that it can prove carry no text.
 
 - A key event is the input journal's key record without `characters`. A typing key (letter,
   digit, punctuation, space or other, without Cmd or Ctrl) has no `key_code`: the player
   types the next character of its fixed synthetic text.
-- No payload key named `text`, `characters`, `title`, `name`, `query`, `prompt`, `command`,
-  `url`, `path`, `cwd` or a similar text key.
+- A mouse event has only coordinates, buttons and modifiers.
+- An action or CLI event must be declared in
+  [`schemas/perf/corpus-input-vocabulary-v1.json`](../schemas/perf/corpus-input-vocabulary-v1.json):
+  the action id and each of its arguments, or the CLI command with its positionals and flags.
+  A value there is a layout reference, a number, a boolean or a declared word. No shape takes free
+  text, so `rename-workspace NAME`, `-n NAME`, a host name or `{"new_name": ...}` is refused.
+  To record a new action or command, add it to the vocabulary with non-text shapes in a reviewed change.
 - Every string is a token: no spaces, no slashes, at most 64 characters.
-- No CLI word or flag that carries text (`send`, `paste`, `rename`, `--title`, `--cwd` and others).
+- An input blob gets the same checks with `--validate --fetch`, and `--upload` puts nothing when
+  any input blob fails them: the R2 prefix is public and write-once.
 
 Agent transcripts and PTY output are synthetic. The recorder refuses a non-bench bundle id and
 refuses to run when `CMUX_NEXT_INPUT_JOURNAL_CHARACTERS` is set.

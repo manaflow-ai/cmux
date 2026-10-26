@@ -20,6 +20,7 @@ spec = importlib.util.spec_from_file_location("corpus_manifest_under_test", HERE
 cm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cm)
 SCHEMA = cm.load_schema()
+VOCABULARY = cm.load_vocabulary()
 PLANNED = {"agent-swarm", "dev-loop", "browse-heavy", "stress-recorded", "launch-restore", "long-day-soak"}
 HEX = "ab" * 32
 
@@ -44,7 +45,7 @@ def recorded_story():
                                                      "modifiers": []}},
             {"t_ms": 30, "kind": "mouse", "payload": {"phase": "down", "button": 0, "x": 10.5, "y": 4,
                                                        "click_count": 1, "window": "@w0"}},
-            {"t_ms": 40, "kind": "action", "payload": {"id": "workspace.select", "args": {"index": 1, "ref": "@w1"}}},
+            {"t_ms": 40, "kind": "action", "payload": {"id": "selectWorkspaceByNumber", "args": {"index": 1, "target": "@w1"}}},
             {"t_ms": 50, "kind": "cli", "payload": {"argv": ["workspace", "@w1", "move", "--index", "0"]}},
         ]},
         "pty": [{"surface": "@w0.p0.t0", "speed": 1, "loop": False,
@@ -59,7 +60,20 @@ def recorded_story():
 
 
 def errors_of(story, **kwargs):
-    return cm.validation_errors(story, schema=SCHEMA, **kwargs)
+    return cm.validation_errors(story, schema=SCHEMA, vocabulary=VOCABULARY, **kwargs)
+
+
+class Store:
+    """An in-memory R2BlobStore: size and put."""
+
+    def __init__(self):
+        self.objects = {}
+
+    def size(self, key):
+        return len(self.objects[key]) if key in self.objects else None
+
+    def put(self, key, data, content_type):
+        self.objects[key] = data
 
 
 def with_event(payload, kind="key"):
@@ -99,22 +113,59 @@ class TextPayloadTest(unittest.TestCase):
         errors = errors_of(with_event({"phase": "down", "class": "letter", "modifiers": [], "characters": "a"}))
         self.assertTrue(any("characters" in error for error in errors), errors)
 
-    def test_a_text_argument_of_an_action_is_rejected(self):
-        for args in ({"text": "ls"}, {"title": "abc"}, {"query": 1}):
-            errors = errors_of(with_event({"id": "workspace.rename", "args": args}, kind="action"))
-            self.assertTrue(any("text key" in error for error in errors), (args, errors))
+    def test_an_undeclared_action_or_argument_is_rejected(self):
+        # Fail closed: a word of text in any argument the vocabulary does not declare is refused.
+        for payload, where in (({"id": "workspace.rename", "args": {"new_name": "hunter2"}}, "payload.id"),
+                               ({"id": "renameWorkspace", "args": {"name": "SecretProject"}}, "payload.id"),
+                               ({"id": "closeTab", "args": {"data": "hunter2"}}, "payload.args.data"),
+                               ({"id": "closeTab", "args": {"text": "ls"}}, "payload.args.text"),
+                               ({"id": "closeTab", "args": {"target": "hunter2"}}, "payload.args.target"),
+                               ({"id": "selectWorkspaceByNumber", "args": {"index": "hunter2"}}, "payload.args.index"),
+                               ({"id": "selectWorkspaceByNumber", "args": {"index": True}}, "payload.args.index")):
+            errors = errors_of(with_event(payload, kind="action"))
+            self.assertTrue(any(where in error for error in errors), (payload, errors))
+
+    def test_declared_actions_with_their_shapes_are_valid(self):
+        for payload in ({"id": "newWindow"}, {"id": "closeTab", "args": {"target": "@w3.p0.t1"}},
+                        {"id": "selectWorkspaceByNumber", "args": {"target": "@w2", "index": 3}}):
+            self.assertEqual(errors_of(with_event(payload, kind="action")), [], payload)
 
     def test_a_string_with_spaces_is_rejected(self):
-        errors = errors_of(with_event({"id": "workspace.status", "args": {"status": "step 3"}}, kind="action"))
+        errors = errors_of(with_event({"id": "closeTab", "args": {"target": "step 3"}}, kind="action"))
         self.assertTrue(any("does not match" in error for error in errors), errors)
         errors = errors_of(with_event({"argv": ["workspace", "@w1", "status", "set", "trace", "step 3"]}, kind="cli"))
         self.assertTrue(errors, errors)
 
-    def test_text_bearing_cli_words_and_flags_are_rejected(self):
-        for argv in (["send", "ls"], ["workspace", "@w1", "rename", "x"], ["new-workspace", "--title=foo"],
-                     ["new-workspace", "--cwd", "home"]):
+    def test_an_undeclared_cli_command_flag_or_value_is_rejected(self):
+        for argv in (["send", "ls"], ["workspace", "@w1", "rename", "x"], ["rename-workspace", "SecretProject"],
+                     ["rename-tab", "hunter2"], ["new-workspace", "-n", "SecretProject"],
+                     ["new-workspace", "--title=foo"], ["new-workspace", "--cwd", "home"],
+                     ["browser", "open", "bank.example.com"], ["workspace", "@w1", "move", "--index", "hunter2"],
+                     ["workspace", "@w1", "move", "-n", "hunter2"], ["workspace", "@w1", "move", "hunter2"],
+                     ["workspace", "@w1", "move", "--index"], ["workspace", "hunter2", "move"],
+                     ["workspace", "@w1", "update", "--task-status", "hunter2"],
+                     ["workspace", "@w1", "status", "set", "trace", "hunter2"],
+                     ["workspace", "@w1", "status", "set", "secret", "3"]):
             errors = errors_of(with_event({"argv": argv}, kind="cli"))
-            self.assertTrue(any("carries text" in error for error in errors), (argv, errors))
+            self.assertTrue(any("matches no command" in error for error in errors), (argv, errors))
+
+    def test_declared_cli_commands_are_valid(self):
+        for argv in (["workspace", "@w1", "move", "--index=0"], ["workspace", "@w1", "update", "--task-status", "review"],
+                     ["workspace", "group", "@g2", "add", "--index", "0", "--workspace", "@w5"],
+                     ["workspace", "@w1", "status", "set", "trace", "3"]):
+            self.assertEqual(errors_of(with_event({"argv": argv}, kind="cli")), [], argv)
+
+    def test_the_vocabulary_has_no_free_text_shape(self):
+        for shape in ({"type": "string"}, {"type": "token"}, {"enum": ["two words"]}, {"enum": []}, {"pattern": ".*"}):
+            for vocabulary in ({"actions": {"closeTab": {"note": shape}}, "cli": []},
+                               {"actions": {}, "cli": [{"argv": ["workspace", shape], "flags": {}}]},
+                               {"actions": {}, "cli": [{"argv": ["workspace"], "flags": {"--note": shape}}]}):
+                with tempfile.TemporaryDirectory() as directory:
+                    path = Path(directory) / cm.VOCABULARY_PATH
+                    path.parent.mkdir(parents=True)
+                    path.write_text(json.dumps({"schema": cm.VOCABULARY_ID, **vocabulary}))
+                    with self.assertRaises(cm.CorpusError, msg=(shape, vocabulary)):
+                        cm.load_vocabulary(Path(directory))
 
     def test_a_text_event_in_an_input_blob_is_rejected(self):
         events = [{"t_ms": 0, "kind": "cli", "payload": {"argv": ["send", "secret"]}}]
@@ -124,8 +175,8 @@ class TextPayloadTest(unittest.TestCase):
             story = recorded_story()
             story["input"] = {"blob": cm.blob_ref(data)}
             self.assertEqual(errors_of(story), [])
-            errors = cm.blob_input_errors(story, cache, SCHEMA)
-        self.assertTrue(any("carries text" in error for error in errors), errors)
+            errors = cm.blob_input_errors(story, cache, SCHEMA, VOCABULARY)
+        self.assertTrue(any("matches no command" in error for error in errors), errors)
 
 
 class StoryRulesTest(unittest.TestCase):
@@ -187,6 +238,7 @@ class TreeTest(unittest.TestCase):
         root = Path(directory.name)
         (root / "schemas/perf").mkdir(parents=True)
         shutil.copy(REPO_ROOT / cm.SCHEMA_PATH, root / cm.SCHEMA_PATH)
+        shutil.copy(REPO_ROOT / cm.VOCABULARY_PATH, root / cm.VOCABULARY_PATH)
         (root / "perf-corpus").mkdir()
         return root
 
@@ -214,6 +266,44 @@ class TreeTest(unittest.TestCase):
             self.assertEqual(cm.main(["--root", str(root), "--validate", str(root / "perf-corpus/other.json")]), 1)
         self.assertIn("is not the file name", err.getvalue())
 
+    def test_upload_of_a_text_bearing_input_blob_puts_nothing(self):
+        root = self.tree()
+        blob = json.dumps({"t_ms": 0, "kind": "cli", "payload": {"argv": ["rename-workspace", "SecretProject"]}}).encode()
+        cache_dir = root / "cache"
+        cache = cm.BlobCache(cache_dir, fetch=lambda digest: self.fail("not cached"))
+        story = recorded_story()
+        story["id"], story["pty"] = "leak", []
+        story["input"] = {"blob": cache.add(blob)}
+        story["layout"]["snapshot"] = cache.add(b"layout")
+        story["web_archive"]["wprgo"] = cache.add(b"wprgo")
+        story["agents"][0]["transcript"] = cache.add(b"transcript")
+        (root / "perf-corpus/leak.json").write_text(json.dumps(story))
+        store = Store()
+        real_load = cm._load_sibling
+
+        class FakeTraceQuest:
+            TraceQuestError = RuntimeError
+
+            class R2BlobStore:
+                @staticmethod
+                def from_env():
+                    return store
+
+        def load(name):
+            return FakeTraceQuest if name == "trace_quest" else real_load(name)
+
+        cm._load_sibling = load
+        self.addCleanup(setattr, cm, "_load_sibling", real_load)
+        err = io.StringIO()
+        with redirect_stderr(err), redirect_stdout(io.StringIO()):
+            code = cm.main(["--root", str(root), "--cache", str(cache_dir), "--upload", str(root / "perf-corpus/leak.json")])
+        self.assertEqual(code, 1)
+        self.assertEqual(store.objects, {})
+        self.assertIn("$.input.blob", err.getvalue())
+        with self.assertRaises(cm.CorpusError):
+            cm.upload([story], cache, store, SCHEMA, VOCABULARY)
+        self.assertEqual(store.objects, {})
+
 
 class BlobCacheTest(unittest.TestCase):
     def test_a_fetched_blob_is_verified_and_cached(self):
@@ -236,16 +326,6 @@ class BlobCacheTest(unittest.TestCase):
             self.assertFalse(any(Path(directory).iterdir()))
 
     def test_upload_is_write_once(self):
-        class Store:
-            def __init__(self):
-                self.objects = {}
-
-            def size(self, key):
-                return len(self.objects[key]) if key in self.objects else None
-
-            def put(self, key, data, content_type):
-                self.objects[key] = data
-
         with tempfile.TemporaryDirectory() as directory:
             cache = cm.BlobCache(Path(directory), fetch=lambda digest: self.fail("not cached"))
             story = recorded_story()
@@ -253,9 +333,9 @@ class BlobCacheTest(unittest.TestCase):
             story["web_archive"] = None
             story["agents"] = []
             store = Store()
-            self.assertEqual(len(cm.upload([story], cache, store)), 1)
+            self.assertEqual(len(cm.upload([story], cache, store, SCHEMA, VOCABULARY)), 1)
             self.assertEqual(store.objects, {cm.R2_PREFIX + story["layout"]["snapshot"]["sha256"]: b"layout"})
-            self.assertEqual(cm.upload([story], cache, store), [])
+            self.assertEqual(cm.upload([story], cache, store, SCHEMA, VOCABULARY), [])
 
 
 class SchemaTest(unittest.TestCase):
