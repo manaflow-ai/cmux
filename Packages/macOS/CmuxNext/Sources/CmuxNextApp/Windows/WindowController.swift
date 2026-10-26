@@ -39,6 +39,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// What each workspace this window unmounted showed (`releaseParked`), until it mounts again.
     var unmountedViews: [String: WorkspaceViewRecord] = [:]
+    /// Times this window's workspace switches (`switch.workspace`): ``DebugWorkspaceSwitch/timer`` unless a test passes its own.
+    var workspaceSwitchTimer = DebugWorkspaceSwitch.timer
     /// This window in the visibility tree, under the app's node: occlusion, miniaturize, a hidden
     /// app and sleeping displays feed it (`WindowVisibilitySource`, p06-scheduler-022). The parent
     /// of every mounted workspace's node.

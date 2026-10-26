@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextFocusUI
 import Testing
 
@@ -50,5 +51,25 @@ struct InputDispatchContextTests {
             context.dispatching(moved) { #expect(context.inputTimestamp == nil) }
         }
         #expect(context.inputTimestamp == nil, "after the dispatch ends, a later switch has no input")
+    }
+
+    /// Outside a dispatch a switch answers the input a page's request carried (`answering`), else the press of the
+    /// person's action run in progress (a gated run, a run's task after a daemon reply): the input its `action.*` row
+    /// reads. The event being dispatched still wins, and a run no person started answers nothing.
+    @Test func outsideADispatchTheSwitchAnswersTheCarriedInput() throws {
+        let context = InputDispatchContext()
+        let key = try Self.event(.keyDown, at: 8)
+        let press = ActionRunScope(origin: .user, allowsViewChange: true, inputTimestamp: 5)
+        ActionRunScope.$current.withValue(press) {
+            #expect(context.inputTimestamp == 5, "a person's run answers its press")
+            context.answering(input: 6) { #expect(context.inputTimestamp == 6, "the page's carried click is innermost") }
+            context.dispatching(key) { #expect(context.inputTimestamp == 8, "the event being dispatched wins") }
+        }
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: true, inputTimestamp: 5)) {
+            #expect(context.inputTimestamp == nil, "a CLI run answers no press")
+        }
+        context.answering(input: nil) { #expect(context.inputTimestamp == nil) }
+        #expect(context.answering(input: 6) { context.inputTimestamp } == 6)
+        #expect(context.inputTimestamp == nil, "the carried input ends with its work")
     }
 }

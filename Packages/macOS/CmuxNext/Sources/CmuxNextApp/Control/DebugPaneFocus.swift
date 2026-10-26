@@ -63,7 +63,7 @@ enum DebugPaneFocus {
     static func began(_ coordinator: FocusCoordinator) {
         let key = ObjectIdentifier(coordinator), timer = coordinator.paneFocusTimer
         guard !timer.awaitsShow(key) else { return }
-        // The key whose binding runs now (KeyRouter), else the key or click being dispatched: its age is the input stage.
+        // The key whose binding runs now (KeyRouter), else the input the move answers (InputDispatchContext.inputTimestamp).
         timer.began(key, inputTimestamp: coordinator.keyInput?.timestamp ?? coordinator.inputDispatch?.inputTimestamp)
     }
 
