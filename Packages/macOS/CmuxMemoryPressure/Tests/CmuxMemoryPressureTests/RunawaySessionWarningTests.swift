@@ -120,4 +120,16 @@ struct RunawaySessionWarningTests {
     func commandLabelsHideArguments(arguments: [String], name: String, expected: String) {
         #expect(RunawaySessionCommandLabeler().label(arguments: arguments, processName: name) == expected)
     }
+
+    @Test("notification labels never expose arbitrary arguments", arguments: [
+        (["curl", "--header", "Authorization: Bearer secret", "https://private.example"], "curl", "curl"),
+        (["node", "/app/node_modules/.bin/next", "dev", "--token=secret"], "node", "next dev"),
+        (["python3.12", "-c", "print('secret')"], "python3.12", "python3.12"),
+        (["node", "--require", "/private/secret.js"], "node", "node"),
+        (["node", "/private/secret-project/server.js", "password"], "node", "node"),
+        (["tool", "--password=secret"], "tool", "tool"),
+    ])
+    func commandLabelsHideArguments(arguments: [String], name: String, expected: String) {
+        #expect(RunawaySessionCommandLabeler().label(arguments: arguments, processName: name) == expected)
+    }
 }
