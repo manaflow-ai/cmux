@@ -2,10 +2,7 @@ import type { AcpmuxCatalogModel, AcpmuxSnapshot } from "./model";
 import { harnessProfiles } from "./harnessProfiles";
 
 /** A new chat uses the model's advertised tiers before it has session options of its own. */
-export function pendingSpeed(
-  snapshot: AcpmuxSnapshot,
-  advertised?: Pick<AcpmuxCatalogModel, "fast" | "serviceTiers">,
-) {
+export function pendingSpeed(snapshot: AcpmuxSnapshot, advertised?: Pick<AcpmuxCatalogModel, "fast" | "serviceTiers">) {
   const summary = snapshot.summary;
   if (!summary?.harness || (summary.sessionId && !snapshot.switching)) return undefined;
   const model = snapshot.catalog
