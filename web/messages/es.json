@@ -108,9 +108,9 @@
       }
     },
     "requiresPro": {
-      "title": "Se requiere cmux Pro",
-      "message": "Las Cloud VM requieren un plan cmux Pro.",
-      "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
+      "title": "Se requiere cmux {plan}",
+      "message": "Las Cloud VM requieren un plan cmux {plan}.",
+      "action": "Actualiza a cmux {plan} en {upgradeUrl} para crear Cloud VM."
     },
     "displayName": {
       "title": "Nombre de máquina no válido",
