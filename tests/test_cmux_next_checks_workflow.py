@@ -2549,21 +2549,15 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     def cascade_jobs() -> tuple[str, ...]:
         """next_macos_cascade.CASCADE_JOBS: the Mac jobs an idle owned mini, then Blacksmith, take."""
         import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "next_macos_cascade", WORKFLOW.parents[2] / "scripts/ci/next_macos_cascade.py")
-        module = importlib.util.module_from_spec(spec)
-        # @dataclass reads its module from sys.modules while the module executes.
-        missing = object()
-        previous = sys.modules.get(spec.name, missing)
-        sys.modules[spec.name] = module
-        try:
+        # Its own module name, registered for the whole process (Python 3.12's @dataclass reads the
+        # module from sys.modules while it executes), so no other test's next_macos_cascade is touched.
+        name = "_cmux_next_gateway_guard_next_macos_cascade"
+        if name not in sys.modules:
+            spec = importlib.util.spec_from_file_location(name, WORKFLOW.parents[2] / "scripts/ci/next_macos_cascade.py")
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[name] = module
             spec.loader.exec_module(module)
-        finally:
-            if previous is missing:
-                sys.modules.pop(spec.name, None)
-            else:
-                sys.modules[spec.name] = previous
-        return module.CASCADE_JOBS
+        return sys.modules[name].CASCADE_JOBS
 
     def context(self, event: str, attempt: int, reading: tuple[str, str] | None) -> dict:
         context = {
