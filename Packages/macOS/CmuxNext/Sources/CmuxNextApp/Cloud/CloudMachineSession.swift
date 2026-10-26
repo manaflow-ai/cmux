@@ -119,7 +119,7 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(String(describing: error)), since: suspendsBefore) }
+                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
                     throw error
                 }
             })
