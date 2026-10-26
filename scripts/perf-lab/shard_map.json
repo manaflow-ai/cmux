@@ -5,11 +5,19 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 11100,
+            "T1": 29100,
             "T2": 960
           },
           "stories": {
             "T1": [
+              "action-sweep-light-1",
+              "action-sweep-light-2",
+              "action-sweep-light-3",
+              "action-sweep-light-4",
+              "action-sweep-stress-1",
+              "action-sweep-stress-2",
+              "action-sweep-stress-3",
+              "action-sweep-stress-4",
               "blocking-hangs",
               "chat-anim",
               "home-idle",
@@ -64,13 +72,17 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 5580
+            "T1": 14580
           },
           "stories": {
             "T0": [
               "new-surfaces"
             ],
             "T1": [
+              "action-sweep-light-1",
+              "action-sweep-light-3",
+              "action-sweep-stress-1",
+              "action-sweep-stress-3",
               "blocking-hangs",
               "home-idle",
               "launch-warm-realistic",
@@ -86,13 +98,17 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 5520
+            "T1": 14520
           },
           "stories": {
             "T0": [
               "launch-warm"
             ],
             "T1": [
+              "action-sweep-light-2",
+              "action-sweep-light-4",
+              "action-sweep-stress-2",
+              "action-sweep-stress-4",
               "chat-anim",
               "launch-cold",
               "launch-cold-realistic",

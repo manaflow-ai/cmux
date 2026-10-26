@@ -43,7 +43,7 @@ Run by hand on a Freestyle VM, never in CI and never on a laptop (macOS-only CLO
 No app, GUI or build: the module's socket helper is replaced by a model of the topology, focus and closed history.
 Run: python3 -I scripts/cmux-next/tests/test_every_action_sweep.py
 """
-import contextlib, copy, importlib.util, io, itertools, json, os, shutil, sys, tempfile, unittest
+import contextlib, copy, glob, importlib.util, io, itertools, json, os, re, shutil, sys, tempfile, unittest
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -943,15 +943,20 @@ class AppTeardownTests(unittest.TestCase):
             def end(self):
                 calls.append("end")
 
+        class Bench:
+            socket = "/tmp/cmux-debug-unit-test.sock"
+
+            def __init__(self, path, **kwargs):
+                pass
+
+            def launch(self, timeout, on_start):
+                on_start(mock.Mock(pid=4000 + len(calls), poll=mock.Mock(return_value=0)))
+                calls.append("up")
+
         teardown = Teardown()
-        app = sweep_mod.App(teardown=teardown)
+        app = sweep_mod.App(teardown=teardown, make_bench=Bench)
 
-        def launch_app(path, env, log, timeout, on_start):
-            on_start(mock.Mock(pid=4000 + len(calls), poll=mock.Mock(return_value=0)))
-            calls.append("up")
-            return None, "/tmp/cmux-debug-unit-test.sock"
-
-        with mock.patch.object(sweep_mod, "launch_app", launch_app), mock.patch.object(sweep_mod.time, "sleep"):
+        with mock.patch.object(sweep_mod.time, "sleep"):
             app.launch()
             app.relaunch()
             app.stop()
@@ -2071,6 +2076,198 @@ class StressShapeTests(unittest.TestCase):
                 mock.patch.object(sweep, "restore", restore):
             with self.assertRaises(sweep_mod.SessionShapeError):
                 sweep.interaction("click.pane", lambda: {"commit_ms": 4.0})
+
+
+ROOT = os.path.dirname(os.path.dirname(SCRIPTS))
+STORIES = os.path.join(ROOT, "scripts/perf-lab/stories.d")
+
+
+def timed_row(ident, p95, **extra):
+    return {"session": "light", "kind": "action", "id": ident, "commit_ms": {"n": 3, "p50": p95, "p95": p95}, **extra}
+
+
+class RecordingApp:
+    """App.record as record_results calls it: each call kept, or `error` raised."""
+
+    def __init__(self, error=None):
+        self.calls, self.error = [], error
+
+    def record(self, session, metric, unit, samples, target_ref=None):
+        if self.error:
+            raise self.error
+        self.calls.append((session, metric, unit, list(samples), target_ref))
+        return f"/out/{len(self.calls)}.ndjson"
+
+
+class PerfLabTests(unittest.TestCase):
+    """p12-perf-process-041: the sweep as perf-lab T1 stories. Its percentiles are perf_stats', each session writes
+    result-v1 next to its own report (action.<id>.<session>.commit samples and the actions.over_budget aggregate),
+    and the action-sweep stories' shards cover every catalog id once per session."""
+
+    def test_row_statistics_are_perf_stats_linear_interpolation_with_p99(self):
+        # The old private pct() took the nearest rank: p95 of [1, 2, 10] was 10.0 and p50 of [1, 2, 3, 10] was 3.0.
+        self.assertEqual(sweep_mod.stat([1.0, 2.0, 10.0]), {"n": 3, "p50": 2.0, "p95": 9.2, "p99": 9.84, "max": 10.0})
+        self.assertEqual(sweep_mod.stat([1.0, 2.0, 3.0, 10.0])["p50"], 2.5)
+        self.assertEqual(sweep_mod.stat([4.0, None, "x"]), {"n": 1, "p50": 4.0, "p95": 4.0, "p99": 4.0, "max": 4.0})
+        self.assertIsNone(sweep_mod.stat([None]))
+
+    def test_the_sweep_is_off_the_private_percentile_and_p95_without_p99_queues(self):
+        with open(os.path.join(SCRIPTS, "every-action-sweep.py")) as f:
+            text = f.read()
+        # p12-perf-process.md section 7, MQ1 and MQ3.
+        mq1 = (r"def (pct|percentile|percentiles|p95|p99|quantile|_pct|_percentile|_percentiles|_quantile|med|median|"
+               r"_median|_med|stats|_stats)\(|\b(p99|p95|p90|pct|med|median) = lambda|int\(len\([a-z_]+\) \* 0\.9")
+        self.assertIsNone(re.search(mq1, text))
+        self.assertIn("p99", text)
+
+    def test_each_timed_action_and_the_over_budget_count_are_recorded(self):
+        entry = session("light", [timed_row("splitRight", 15.3), timed_row("newTab", 3.0),
+                                  {"session": "light", "kind": "action", "id": "quit", "skipped": "ends the app"},
+                                  timed_row("signIn", 50.0, refused=True),
+                                  {"session": "light", "kind": "action", "id": "broken", "errors": ["harness: x"]}])
+        samples = {"splitRight": [12.0, 15.3], "newTab": [2.5, 3.0], "signIn": [50.0], "broken": []}
+        app = RecordingApp()
+        with mock.patch.object(sweep_mod.opts, "story", "action-sweep-light-1"):
+            written = sweep_mod.record_results(app, entry, samples)
+        ref = sweep_mod.COMMIT_TARGET_REF
+        self.assertEqual(app.calls, [("light", "action.splitRight.light.commit", "ms", [12.0, 15.3], ref),
+                                     ("light", "action.newTab.light.commit", "ms", [2.5, 3.0], ref),
+                                     ("light", "actions.over_budget", "count", [1], None)])
+        self.assertEqual(len(written), 3)
+        # The count is the rows every-action.md lists with a commit miss.
+        self.assertEqual(sweep_mod.over_budget(entry["rows"]),
+                         sum(1 for r in entry["rows"] if any(w.startswith("commit p95") for w in sweep_mod.misses(r))))
+
+    def test_a_failed_session_records_its_actions_but_no_over_budget_count(self):
+        entry = session("stress", [timed_row("splitRight", 15.3)], failures=[{"name": "stress", "error": "x", "rows": 1}])
+        app = RecordingApp()
+        with mock.patch.object(sweep_mod.opts, "story", "action-sweep-stress-1"):
+            sweep_mod.record_results(app, entry, {"splitRight": [15.3]})
+        self.assertEqual([c[1] for c in app.calls], ["action.splitRight.stress.commit"])
+
+    def test_a_launch_that_cannot_describe_a_result_stops_at_the_first_series(self):
+        entry = session("light", [timed_row("a", 1.0), timed_row("b", 2.0)])
+        app = RecordingApp(error=sweep_mod.RecordError("no features.list snapshot"))
+        with mock.patch.object(sweep_mod.opts, "story", "action-sweep-light-1"):
+            written = sweep_mod.record_results(app, entry, {"a": [1.0], "b": [2.0]})
+        self.assertEqual(written, {"action.a.light.commit": "not recorded: no features.list snapshot"})
+
+    def test_main_records_each_session_on_its_own_launch_and_leaves_the_report_as_it_was(self):
+        events = []
+
+        class App:
+            process = None
+
+            def launch(self):
+                events.append("launch")
+
+            def relaunch(self):
+                events.append("relaunch")
+
+            def stop(self):
+                pass
+
+            def record(self, session, metric, unit, samples, target_ref=None):
+                events.append(("record", session, metric, list(samples)))
+                return "/out/x.ndjson"
+
+        class Sweep(sweep_mod.Sweep):
+            def run(self, actions):
+                self.validity, self.idle, self.summary = {"chromium_ok": True}, {"frames": {}}, {}
+                self.rows.append(timed_row("splitRight", 15.3, session=self.session))
+                self.commit_samples["splitRight"] = [15.3]
+                return self
+
+        def rpc(method, params=None, timeout=60):
+            return {"actions": []} if method == "action.list" else {}
+
+        def run(story):
+            events.clear()
+            signposts = sweep_mod.SIGNPOSTS
+            with mock.patch.object(sweep_mod, "App", App), mock.patch.object(sweep_mod, "Sweep", Sweep), \
+                    mock.patch.object(sweep_mod, "rpc", rpc), mock.patch.object(signposts, "live", False), \
+                    mock.patch.object(signposts, "start", lambda module: setattr(signposts, "live", True)), \
+                    mock.patch.object(sweep_mod.opts, "sessions", "light,stress"), \
+                    mock.patch.object(sweep_mod.opts, "keep", True), mock.patch.object(sweep_mod.opts, "story", story), \
+                    mock.patch.dict(os.environ, {"CMUX_CI_SHA": "b" * 40}):
+                sweep_mod.main()
+            with open(os.path.join(OUT, "every-action.json")) as f:
+                report = json.load(f)
+            for key in ("load", "signposts"):
+                report["env"].pop(key, None)
+            return report
+
+        plain = run(None)
+        self.assertEqual(events, ["launch", "relaunch"])
+        with_results = run("action-sweep-light-1")
+        self.assertEqual(events, ["launch", ("record", "light", "action.splitRight.light.commit", [15.3]),
+                                  ("record", "light", "actions.over_budget", [1]), "relaunch",
+                                  ("record", "stress", "action.splitRight.stress.commit", [15.3]),
+                                  ("record", "stress", "actions.over_budget", [1])])
+        self.assertEqual(with_results, plain, "result-v1 is in addition: the sweep's own report does not change")
+
+    def test_results_are_valid_result_v1_of_the_last_launch_and_one_run(self):
+        bench_launch = sys.modules["bench_launch"]
+        perf_result = sweep_mod.perf_result
+        folder = tempfile.mkdtemp(prefix="every-action-v1-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        app_path = os.path.join(folder, "cmux DEV sweep-v1.app")
+        os.makedirs(os.path.join(app_path, "Contents/MacOS"))
+        import plistlib
+        with open(os.path.join(app_path, "Contents/Info.plist"), "wb") as f:
+            plistlib.dump({"CFBundleIdentifier": "com.cmuxterm.app.debug.sweep-v1", "CFBundleExecutable": "cmux DEV",
+                           "CMUXCommit": "c" * 40, bench_launch.BUILD_CONFIG_KEY: "bench"}, f)
+        with open(os.path.join(app_path, "Contents/MacOS/cmux DEV"), "wb") as f:
+            f.write(b"\xcf\xfa\xed\xfe" + b"\0" * 64 + bench_launch.BENCH_HOOKS_MARKER + b"\0" * 64)
+        out = os.path.join(folder, "out")
+        host = bench_launch.host_record("Apple M4 Pro", 48 * 2**30, "26.1", "25B78", 120)
+        features = ({"tabSwitchFastPath": {"state": "on", "source": "default"}}, "fh-1", "off")
+
+        def make_bench(path, **kwargs):
+            bench = bench_launch.BenchApp(app_path, out=out, teardown=False, host=lambda: dict(host),
+                                          build_config=kwargs.get("build_config"))
+            bench.launch = lambda timeout, on_start: setattr(bench, "features", features)
+            return bench
+
+        app = sweep_mod.App(teardown=mock.Mock(), make_bench=make_bench)
+        with mock.patch.object(sweep_mod.time, "sleep"), mock.patch.object(sweep_mod.opts, "story", "action-sweep-light-1"):
+            app.launch()
+            sweep_mod.record_results(app, session("light", [timed_row("splitRight", 15.3)]), {"splitRight": [12.0, 15.3]})
+            app.launch()  # the next session's launch
+            sweep_mod.record_results(app, session("stress", [timed_row("newTab", 3.0)]), {"newTab": [3.0]})
+        results = sorted((r.to_dict() for r in perf_result.read_dir(out)), key=lambda r: (r["session"], r["metric"]))
+        self.assertEqual([(r["session"], r["metric"], r["samples"]) for r in results],
+                         [("light", "action.splitRight.light.commit", [12.0, 15.3]),
+                          ("light", "actions.over_budget", [1]),
+                          ("stress", "action.newTab.stress.commit", [3.0]),
+                          ("stress", "actions.over_budget", [0])])
+        for result in results:
+            self.assertEqual(perf_result.validation_errors(result, ROOT), [])
+            self.assertEqual((result["story"], result["engine"], result["better"]), ("action-sweep-light-1", "chromium", "lower"))
+            self.assertEqual(result["build"]["config"], "bench")
+            self.assertEqual(result["features_hash"], "fh-1")
+        self.assertEqual(results[0]["target_ref"], {"path": "scripts/cmux-next/every-action-sweep.py", "key": "TARGET_COMMIT_MS"})
+        self.assertEqual(len({json.dumps(r["run"]) for r in results}), 1, "one sweep is one run")
+
+    def test_the_action_sweep_stories_cover_every_catalog_id_once_per_session(self):
+        with open(os.path.join(ROOT, "plans/cmux-next/action-surfaces.json")) as f:
+            ids = sorted(a["id"] for a in json.load(f)["actions"])
+        actions = [{"id": ident} for ident in ids]
+        for name in ("light", "stress"):
+            specs, covered = [], []
+            for path in sorted(glob.glob(os.path.join(STORIES, f"action-sweep-{name}-*.json"))):
+                with open(path) as f:
+                    story = json.load(f)
+                command = story["command"]
+                flag = dict(zip(command[1::2], command[2::2]))
+                self.assertEqual(command[0], "scripts/cmux-next/every-action-sweep.py")
+                self.assertEqual((flag["--story"], flag["--sessions"], story["session"], story["tier"]),
+                                 (story["id"], name, name, "T1"))
+                specs.append(flag["--shard"])
+                covered += [a["id"] for a in sweep_mod.shard_actions(actions, flag["--shard"])]
+            self.assertEqual(len(specs), 4)
+            self.assertIsNone(sweep_mod.shard_set_problem(specs))
+            self.assertEqual(sorted(covered), ids, f"the {name} shards do not cover each catalog id exactly once")
 
 
 if __name__ == "__main__":
