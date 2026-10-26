@@ -228,6 +228,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::OfferMcp) => crate::offer_mcp::run().await,
         Some(Command::SubsessionMcp) => crate::subsession_mcp::run().await,
         Some(Command::ForumMcp) => crate::forum_mcp::run().await,
+        Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());

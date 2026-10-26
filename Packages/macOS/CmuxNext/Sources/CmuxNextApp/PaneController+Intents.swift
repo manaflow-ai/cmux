@@ -230,6 +230,11 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
+            // A mirror's close takes the mirror out; the tab and its page stay in their own pane.
+            if isMirror(id) {
+                services.tabMirrors.remove(id.rawValue, from: paneKey) // its strip maps again (observed)
+                continue
+            }
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)

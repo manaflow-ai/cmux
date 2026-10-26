@@ -27,7 +27,11 @@ cmux tab list --json
 
 The terminal record lists the tabs that show it, and a tab record names its pane. Use those ids for every mutating command.
 
-`current` means the session's active workspace, screen and pane, which is what the user is looking at. It is not the caller: an agent can run in one workspace while the user looks at another. Use `current` only when the user asked about the focused context, and say so.
+In the CLI, `current` means the session's active workspace, screen and pane, which is what the user is looking at. It is not the caller: an agent can run in one workspace while the user looks at another. Use `current` only when the user asked about the focused context, and say so.
+
+In the cmux MCP server (`cmux_exec`), `current` is the caller's own workspace, screen, pane or tab: the server asks the app where the chat is on every call, so the person can look at another workspace while the script runs. `focused` is the one the person looks at. A chat the app cannot place fails with `caller.unresolved` instead of acting on the focused workspace.
+
+An agent's new terminal or link that names no place opens beside its own chat, in its own workspace: `tab_create_terminal` (and `cmux tab create terminal`) with no workspace, screen or pane goes to the column right of the chat, or makes that column; `workspace_open_url` with no workspace opens through the app's beside-the-chat rule, never in Home. Name a pane only to put it somewhere else.
 
 ## Non-disruptive automation
 
@@ -67,6 +71,38 @@ cmux pane list --json                             # or inspect every pane
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
 
 An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, make it once with `cmux pane <chat pane> split --right --viewport-width 0.5` (a chat dock takes no plain split). `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
+
+## Larger layouts beside a chat
+
+When the chat is the only agent chat in its workspace, make it a docked left column first, then build to its right. In a `cmux_exec` script, one `workspace_layout_apply` does it; its viewport `base_width` must equal the first column's width:
+
+```js
+await cmux.workspace_layout_apply({workspace: "current", layout: {
+  screen_id, version: 1, active_pane_id: chatPane, zoomed_pane_id: null,
+  root: {kind: "viewport", base_width: 0.32, columns: [
+    {column_id: chatColumn, width: 0.32, dock: {edge: "left", mode: "docked", role: "agent_chat"}, root: chatLeaf},
+    {column_id: workColumn, width: 0.62, root: workTree},
+  ]},
+}});
+```
+
+Every `column_id` and `split_id` must already exist (read them with `screen_layout_export`); the daemon refuses an id it does not know. Make new ones with `pane_split`: `viewport_width` makes a new column, `ratio` makes a split. Then move them with one apply.
+
+Columns or splits:
+
+- **A column** for each separate task the person switches between: a browser, a dev server, a second repo. Columns scroll sideways, so there is no limit to their count.
+- **A split inside a column** for views read together: a server above its log, a page above its console, a test run beside the diff it tests.
+- Never more than three panes in one column; make a new column.
+
+Widths, as fractions of the viewport:
+
+- Chat dock: about a third (0.3 to 0.35). Chat text needs about 80 characters.
+- Main work column: half to two thirds (0.5 to 0.66).
+- Side columns (logs, monitors, a second terminal): a third (0.33 to 0.4).
+- Never under a quarter: a terminal narrower than about 80 columns wraps its output.
+- The chat dock and the first work column together should fill the viewport, so the main work shows without a scroll.
+
+Name every tab you make (`tab_rename`), so the person can find it by title.
 
 ## Classic commands are gone
 

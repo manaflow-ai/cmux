@@ -56,7 +56,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     if (m.seq <= cursor) continue
     top = Math.max(top, m.seq)
     if (m.author === w.agent || m.retracted_at !== undefined) continue
-    const text = formatMessage(view.head, m, { files })
+    const text = formatMessage(view.head, m, { files, owner: w.owner })
     if (!text) continue
     const fresh = b.sql
       .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, messageEffectAuthorized(view.head, m, view.messages, w.owner, w.agent) ? 1 : 0)
