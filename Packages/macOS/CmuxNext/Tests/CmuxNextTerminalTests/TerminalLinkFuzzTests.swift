@@ -8,8 +8,9 @@ import Testing
 /// the text Ghostty hands over to open (OSC 8 or link detection), and the link filter's cache of
 /// file checks. Any output keeps each contract and never traps. Seeded property tests on
 /// CmuxFuzzSupport (long mode: CMUX_FUZZ_SECONDS); the URL pieces follow Chromium's
-/// url_parse_fuzzer (url/url_parse_fuzzer.cc).
-struct TerminalLinkFuzzTests {
+/// url_parse_fuzzer (url/url_parse_fuzzer.cc). Nonisolated: only the opened-URL property needs the
+/// main actor (TerminalSurfaceView).
+nonisolated struct TerminalLinkFuzzTests {
     /// Pieces of program output: URL parts, prose, frames, wide and combining characters.
     static let rowPieces: [String] = [
         "https://", "http://", "https:/", "ht", "h", "example.com", "/", "?", "=", "&", "%20", "#", "a", "Z", "0",
@@ -19,7 +20,7 @@ struct TerminalLinkFuzzTests {
     static let urlPieces: [String] = [
         "http", "https", "file", "HTTP", "javascript", "ftp", ":", "//", "/", "user:pw@", "@", "localhost", "example.com",
         "host", ":8080", ":0", "?q=1", "#frag", "%00", "%0a", "%E2%80%AE", "%", "%zz", " ", "\t", "\n", "\u{202E}",
-        "\u{200B}", "\u{FEFF}", "\u{AD}", "[::1]", "é", "🙂", "..", "~",
+        "\u{200B}", "\u{FEFF}", "\u{AD}", "\u{2066}", "\u{E0041}", "%F3%A0%81%81", "\u{0085}", "[::1]", "é", "🙂", "..", "~",
     ]
 
     static func joined(_ pieces: [String], _ rng: inout FuzzRNG, _ limit: Int) -> String {
@@ -28,13 +29,16 @@ struct TerminalLinkFuzzTests {
         return out
     }
 
-    /// One input of a property its first choice picks (the libFuzzer entry, p10-stability-182).
-    @MainActor static func oneInput(_ data: Data) throws {
+    /// One input of a property its first choice picks, replayed from bytes: the two properties that
+    /// need no view (``openURL(_:)`` needs the main actor and AppKit). Darwin only for now:
+    /// CmuxNextTerminal imports AppKit, so the Linux libFuzzer targets (p10-stability-182) skip this
+    /// suite unless they build TerminalWrappedLink.swift, which needs only Foundation, on its own.
+    static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
-        switch rng.below(3) {
-        case 0: try wrappedLink(&rng)
-        case 1: try openURL(&rng)
-        default: try linkFilter(&rng)
+        if rng.bool() {
+            try wrappedLink(&rng)
+        } else {
+            try linkFilter(&rng)
         }
     }
 
@@ -72,7 +76,8 @@ struct TerminalLinkFuzzTests {
     // MARK: - Opened URLs
 
     /// What a delegate-free terminal opens: an `http(s)` URL with a host and no credentials, or a
-    /// local `file` URL, never one with control or invisible format characters.
+    /// local `file` URL, never one with control or invisible format characters (Unicode Cc and Cf,
+    /// raw or percent-encoded: bidi overrides, zero-width marks, tag characters).
     @MainActor static func openURL(_ rng: inout FuzzRNG) throws {
         let text = joined(urlPieces, &rng, 10)
         guard let url = TerminalSurfaceView.url(from: text) else { return }
@@ -87,7 +92,8 @@ struct TerminalLinkFuzzTests {
             try FuzzRun.check(url.host?.isEmpty == false, "no host: \(shown)")
         }
         let decoded = url.absoluteString.removingPercentEncoding ?? ""
-        try FuzzRun.check(!decoded.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }, "control character: \(shown)")
+        let hidden = decoded.unicodeScalars.first { [.control, .format].contains($0.properties.generalCategory) }
+        try FuzzRun.check(hidden == nil, "U+\(String(hidden?.value ?? 0, radix: 16, uppercase: true)): \(shown)")
     }
 
     // MARK: - Link filter
@@ -129,7 +135,8 @@ struct TerminalLinkFuzzTests {
     /// Any sequence of hovers, check swaps, folder changes and finished checks against a model:
     /// no check is the answer "link"; otherwise a text is a link once the current check said so,
     /// a text asks one check at a time, a check started before a swap is dropped, and the view
-    /// hears of each answer that changed exactly once.
+    /// hears exactly once of each answer that changed and of each dropped check whose text the
+    /// current check has not asked about (so Ghostty asks again).
     static func linkFilter(_ rng: inout FuzzRNG) throws {
         let checks = ManualChecks()
         let filter = TerminalLinkFilter(schedule: { checks.schedule($0) })
@@ -179,6 +186,9 @@ struct TerminalLinkFuzzTests {
                     if (answers[key] ?? false) != ran.isLink { expected = 1 }
                     answers[key] = ran.isLink
                     pending.remove(key)
+                } else if answers[key] == nil, !pending.contains(key) {
+                    // Dropped, and the current check has not asked: the view sends the pointer again.
+                    expected = 1
                 }
                 try FuzzRun.check(checks.changeCount - heard == expected,
                                   "\(key) of generation \(ran.generation) (now \(String(describing: current))) told the view \(checks.changeCount - heard) times")
@@ -200,15 +210,15 @@ struct TerminalLinkFuzzTests {
         try FuzzRun("TerminalLink.filter", seed: 0xF117_E4, iterations: 3_000).forEach { rng in try Self.linkFilter(&rng) }
     }
 
-    @MainActor @Test func oneInputTakesAnyBytes() throws {
+    @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("TerminalLink.oneInput", seed: 0x11CC, iterations: 1_024)
-        // Choice tapes: a first byte picks the property, then counts and piece indices.
-        let tapes: [[UInt8]] = [[0, 1, 2, 0, 5, 1], [1, 3, 1, 6, 12], [2, 8, 2, 3, 5, 5, 0, 1]]
+        // Choice tapes: a first choice picks the property (even: wrapped link), then counts and piece indices.
+        let tapes: [[UInt8]] = [[0, 1, 2, 0, 5, 1], [1, 8, 2, 3, 5, 5, 0, 1]]
         try run.forEachInput(run.corpus(seeds: tapes.map { Data($0) })) { try Self.oneInput($0) }
     }
 
-    /// Found by `linkFilterMatchesItsModel`: a check started before the filter got a new one landed
-    /// after the swap and answered for the new check, so a stale answer showed for up to 3 s.
+    /// A check started before the filter got a new one landed after the swap and answered for the
+    /// new check, so a stale answer showed for up to 3 s.
     @Test func checkFromBeforeASwapIsDropped() {
         let checks = ManualChecks()
         let filter = TerminalLinkFilter(schedule: { checks.schedule($0) })
@@ -221,5 +231,24 @@ struct TerminalLinkFuzzTests {
         #expect(!filter.isLink("a.txt"))
         _ = checks.run(0)
         #expect(!filter.isLink("a.txt"))
+    }
+
+    /// The pointer rests on a path while the session swaps its check (TerminalSession.delegate
+    /// changes): the old check's answer is dropped, so the view must send the pointer again for
+    /// Ghostty to ask under the new check; without it the underline waits for the next move.
+    @Test func droppedCheckAsksTheViewAgain() {
+        let checks = ManualChecks()
+        let filter = TerminalLinkFilter(schedule: { checks.schedule($0) })
+        filter.onChange { checks.changed() }
+        filter.setCheck { _, _ in true }
+        #expect(!filter.isLink("a.txt"))
+        filter.setCheck { _, _ in true }
+        _ = checks.run(0)
+        #expect(checks.changeCount == 1)
+        #expect(!filter.isLink("a.txt"))
+        #expect(checks.queued == 1)
+        _ = checks.run(0)
+        #expect(checks.changeCount == 2)
+        #expect(filter.isLink("a.txt"))
     }
 }

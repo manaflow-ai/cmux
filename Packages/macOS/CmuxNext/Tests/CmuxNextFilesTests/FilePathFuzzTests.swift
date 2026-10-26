@@ -30,7 +30,8 @@ struct FilePathFuzzTests {
         return out
     }
 
-    /// One input of a property its first choice picks (the libFuzzer entry, p10-stability-182).
+    /// One input of a property its first choice picks, replayed from bytes: the entry a Linux
+    /// libFuzzer target (p10-stability-182) calls; CmuxNextFiles builds in the Linux tier.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(6) {
@@ -107,7 +108,10 @@ struct FilePathFuzzTests {
         try FuzzRun.check(namer.isValid(name) == valid, "isValid(\(name.debugDescription)) is \(!valid)")
     }
 
-    /// Rename Items: one item per name in order, and each problem is the one its name has.
+    /// Rename Items: one item per name in order, and each problem is the one its name has: a name
+    /// the namer refuses is invalid, a name an earlier item took is a duplicate, a name another item
+    /// of the folder has is taken, a Format number past `Int.max` is too large, and an item with no
+    /// problem has none of these. Name and Index puts each item's number in its name.
     static func batchRename(_ rng: inout FuzzRNG) throws {
         let position: BatchRename.Position = rng.bool() ? .beforeName : .afterName
         let rule: BatchRename.Rule = switch rng.below(3) {
@@ -120,29 +124,63 @@ struct FilePathFuzzTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? calendar.timeZone
         let rename = BatchRename(rule: rule, now: Date(timeIntervalSince1970: 1_792_000_000), calendar: calendar)
-        let items = rename.plan(names(&rng), taken: Set(names(&rng)))
+        let from = names(&rng), taken = Set(names(&rng))
+        let items = rename.plan(from, taken: taken)
+        try FuzzRun.check(items.map(\.from) == from, "\(items) are not \(from)")
         let namer = FileNamer()
+        let leaving = Set(from)
         for (index, item) in items.enumerated() {
+            let shown = "\(item) of \(from) by \(rule), taken \(taken)"
+            var number: Int?, tooLarge = false
+            if case .format(_, let style, _, let start) = rule, style != .date {
+                let (sum, overflow) = start.addingReportingOverflow(index)
+                if overflow { tooLarge = true } else if style == .index { number = sum }
+            }
             let earlier = items[..<index].contains { $0.to == item.to }
+            let elsewhere = item.to != item.from && taken.contains(item.to) && !leaving.contains(item.to)
+            try FuzzRun.check((item.problem == .numberTooLarge) == tooLarge, "too large \(tooLarge): \(shown)")
             switch item.problem {
             case nil:
-                try FuzzRun.check(namer.isValid(item.to) && !earlier, "\(item) has a problem it does not name")
+                try FuzzRun.check(namer.isValid(item.to) && !earlier && !elsewhere, "a problem it does not name: \(shown)")
+            case .invalid?:
+                try FuzzRun.check(!namer.isValid(item.to), "a valid name is invalid: \(shown)")
             case .duplicate?:
-                try FuzzRun.check(earlier, "\(item) is no duplicate")
-            case .invalid?, .exists?:
-                break
+                try FuzzRun.check(namer.isValid(item.to) && earlier, "no duplicate: \(shown)")
+            case .exists?:
+                try FuzzRun.check(namer.isValid(item.to) && !earlier && elsewhere, "not taken: \(shown)")
+            case .numberTooLarge?:
+                try FuzzRun.check(item.to == item.from, "a name for a number that does not fit: \(shown)")
+            }
+            if let number, item.problem != .invalid {
+                try FuzzRun.check(item.to.contains(String(number)), "number \(number) missing: \(shown)")
             }
         }
     }
 
-    /// Finder's name order: the key comparison is a total order (antisymmetric, transitive, zero
-    /// only for equal keys).
+    /// The characters of Finder-order names the key encodes itself (FileOrderTests' corpus):
+    /// letters in both cases, an accent, digit runs with leading zeros, space and punctuation.
+    static let finderPieces = ["a", "b", "B", "z", "é", "1", "2", "9", "10", "02", "007", " ", "-", "_", ".", "(", "[", "~", "$"]
+
+    /// Finder's name order: two names whose keys differ sort as `localizedStandardCompare` sorts
+    /// them, which is what the key stands in for (names whose keys tie differ only in case or
+    /// accent, and the sort breaks that tie by the raw name). Keys of any text that compare 0 are
+    /// equal and hash alike.
     static func sortKeyOrder(_ rng: inout FuzzRNG) throws {
-        let keys = (text(&rng, 6), text(&rng, 6), text(&rng, 6))
-        let (a, b, c) = (FileNameSortKey(keys.0), FileNameSortKey(keys.1), FileNameSortKey(keys.2))
-        try FuzzRun.check(a.compare(b).signum() == -b.compare(a).signum(), "\(keys.0) and \(keys.1) are not antisymmetric")
+        var names: [String] = []
+        for _ in 0..<2 {
+            var name = ""
+            for _ in 0..<rng.below(7) { name += rng.element(of: finderPieces) ?? "" }
+            names.append(name)
+        }
+        let (left, right) = (FileNameSortKey(names[0]), FileNameSortKey(names[1]))
+        if left != right {
+            let finder = names[0].localizedStandardCompare(names[1])
+            try FuzzRun.check(finder == (left < right ? .orderedAscending : .orderedDescending),
+                              "\(names[0].debugDescription) and \(names[1].debugDescription): key \(left < right ? "<" : ">"), Finder \(finder.rawValue)")
+        }
+        let keys = (text(&rng, 6), text(&rng, 6))
+        let (a, b) = (FileNameSortKey(keys.0), FileNameSortKey(keys.1))
         try FuzzRun.check((a.compare(b) == 0) == (a == b), "\(keys.0) and \(keys.1) compare 0 but differ")
-        if a < b, b < c { try FuzzRun.check(a < c, "\(keys) are not transitive") }
         if a == b { try FuzzRun.check(a.hashValue == b.hashValue, "equal keys hash apart") }
     }
 
@@ -161,14 +199,28 @@ struct FilePathFuzzTests {
         try FuzzRun.check(matches == expected, "\(needle.debugDescription) in \(name.debugDescription) is \(matches)")
     }
 
-    /// The open rule: any name gives a kind; a plain folder is a folder, an app bundle an app.
+    static let stems = ["a", "Read me", "007", "é", "🙂", "a b-c", "IMG_0001"]
+    static let extensions = ["", "md", "MD", "Markdown", "html", "SVG", "png", "PDF", "swift", "ts", "TSX", "json", "txt", "docx",
+                             "zip", "dmg", "zzz", "app", "App", "bundle", "framework"]
+
+    /// The open rule: a directory opens as a folder or an app (an app when it is a package or named
+    /// like a bundle), a file never does; a name's kind depends only on its extension, not on the
+    /// extension's case or the rest of the name.
     static func openKind(_ rng: inout FuzzRNG) throws {
-        let name = text(&rng, 6)
+        let ext = rng.element(of: extensions) ?? ""
+        let named = { (stem: String, ext: String) in ext.isEmpty ? stem : stem + "." + ext }
+        let name = named(rng.element(of: stems) ?? "a", ext)
+        let other = named(rng.element(of: stems) ?? "a", rng.bool() ? ext.uppercased() : ext.lowercased())
         let isDirectory = rng.bool(), isPackage = rng.bool()
         let kind = FileOpenKind(fileName: name, isDirectory: isDirectory, isPackage: isPackage)
-        guard isDirectory else { return }
-        let bundle = isPackage || FileOpenKind.packageExtensions.contains((name as NSString).pathExtension.lowercased())
-        try FuzzRun.check(kind == (bundle ? .app : .folder), "directory \(name.debugDescription) is \(kind)")
+        let otherKind = FileOpenKind(fileName: other, isDirectory: isDirectory, isPackage: isPackage)
+        try FuzzRun.check(kind == otherKind, "\(name.debugDescription) is \(kind) but \(other.debugDescription) is \(otherKind)")
+        if isDirectory {
+            let bundle = isPackage || ["app", "bundle", "framework"].contains(ext.lowercased())
+            try FuzzRun.check(kind == (bundle ? .app : .folder), "directory \(name.debugDescription) is \(kind)")
+        } else {
+            try FuzzRun.check(kind != .folder && kind != .app, "file \(name.debugDescription) is \(kind)")
+        }
     }
 
     // MARK: - Runs
@@ -185,7 +237,7 @@ struct FilePathFuzzTests {
         try FuzzRun("FilePath.batchRename", seed: 0xBA7C, iterations: 3_000).forEach { rng in try Self.batchRename(&rng) }
     }
 
-    @Test func sortKeysAreATotalOrder() throws {
+    @Test func sortKeysFollowFinderOrder() throws {
         try FuzzRun("FilePath.sortKey", seed: 0x5027, iterations: 5_000).forEach { rng in try Self.sortKeyOrder(&rng) }
     }
 
@@ -204,13 +256,14 @@ struct FilePathFuzzTests {
         try run.forEachInput(run.corpus(seeds: tapes.map { Data($0) })) { try Self.oneInput($0) }
     }
 
-    /// Found by `batchRenameNamesEachProblem`: a start number near `Int.max` made the next item's
-    /// number overflow and trap, and Counter printed only an `Int`'s low 32 bits.
-    @Test func hugeStartNumberIsInvalidNotATrap() {
+    /// A start number near `Int.max` made the next item's number overflow and trap, and Counter
+    /// printed only an `Int`'s low 32 bits. The overflowing item keeps its name and says the number
+    /// is too large, not that its own name is invalid.
+    @Test func hugeStartNumberIsTooLargeNotATrap() {
         let index = BatchRename(rule: .format(base: "Trip", style: .index, position: .afterName, start: Int.max))
             .plan(["a.jpg", "b.jpg"], taken: [])
         #expect(index.map(\.to) == ["Trip 9223372036854775807.jpg", "b.jpg"])
-        #expect(index.map(\.problem) == [nil, .invalid])
+        #expect(index.map(\.problem) == [nil, .numberTooLarge])
         let counter = BatchRename(rule: .format(base: "Trip", style: .counter, position: .afterName, start: 1 << 32))
             .plan(["a.jpg", "b.jpg"], taken: [])
         #expect(counter.map(\.to) == ["Trip 4294967296.jpg", "Trip 4294967297.jpg"])

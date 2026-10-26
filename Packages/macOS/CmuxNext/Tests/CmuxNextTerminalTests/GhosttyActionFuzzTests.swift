@@ -25,7 +25,8 @@ struct GhosttyActionFuzzTests {
         return out
     }
 
-    /// One input (the libFuzzer entry, p10-stability-182).
+    /// One input, replayed from bytes. Darwin only: the decoder needs GhosttyNextKit, so the Linux
+    /// libFuzzer targets (p10-stability-182) skip this suite; the seeded runs here are its fuzzing.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try decodeOne(&rng)
