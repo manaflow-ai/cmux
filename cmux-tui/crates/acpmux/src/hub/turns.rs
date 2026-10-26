@@ -485,7 +485,9 @@ impl Hub {
         if let Err(e) = &result {
             // A pool launcher that dies on the prompt (its proxy is down)
             // moves the session too, not only a usage or auth limit.
+            // A stopped session's agent closed because of the stop: no failover starts it again.
             if (is_limit_error(&e.message) || e.message.starts_with("agent process closed"))
+                && !session.closing.load(Ordering::SeqCst)
                 && let Some(to) = self.fallback_profile(session).await
             {
                 let from = session.meta().harness;
@@ -1187,6 +1189,12 @@ impl Hub {
         self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
+        // The prompts queued behind its turn are answered withdrawn: run after the stop, the
+        // next one started the closed session again (ergo-walk2). A restart restores no closed
+        // session's queue either (`queue.rs` `restore_queue`).
+        for queued in session.queue() {
+            self.remove_queued_because(session, &queued.prompt_id, Some("stopped"));
+        }
         if let Some(child) = session.child.lock().await.take() {
             if let Some(sid) = session.meta().agent_session_id {
                 let _ = tokio::time::timeout(

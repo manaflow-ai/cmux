@@ -315,7 +315,7 @@ impl Hub {
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
-            self.set_status(session, SessionStatus::Idle);
+            self.reopen(session);
         }
         Ok(())
     }

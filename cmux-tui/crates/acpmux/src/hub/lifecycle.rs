@@ -435,6 +435,35 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        let child = self.reach_or_start(session, profile).await?;
+        // `acpmux session stop` came while this agent started: `Hub::kill` marked it closing
+        // after the start cleared that mark, or closed it so the start's Ready was not written.
+        // The stop found no agent to end yet, so the one that started is ended here and the
+        // session stays closed.
+        if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
+            if let Some(started) = session.child.lock().await.take() {
+                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+            }
+            if Self::host_record_live(&session.id) {
+                self.end_unadopted_host(session).await;
+            }
+            child.kill().await;
+            session.loading.store(false, Ordering::SeqCst);
+            self.append(session, "mux", "stopped_while_starting", json!({}));
+            return Err(RpcError::invalid_params(
+                "the session was stopped while its agent started",
+            ));
+        }
+        Ok(child)
+    }
+
+    /// `ensure_child` under `spawn_lock`: the live agent, the agent host reached again, a pooled
+    /// session or a cold start.
+    async fn reach_or_start(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        profile: &super::spawn::Spawn,
+    ) -> Result<Arc<ChildAgent>, RpcError> {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
@@ -446,11 +475,15 @@ impl Hub {
         // A running agent host for this session is reached again, never
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
+            session.closing.store(false, Ordering::SeqCst);
+            // A stopped session whose host outlived the stop reopens, as a cold start does.
+            if session.status() == SessionStatus::Closed && self.reopen(session) {
+                self.append(session, "mux", "reopened", json!({}));
+            }
             match self.readopt(session).await {
                 Some(child) if child.is_alive().await => {
                     // Reached again, not started: no start below decides its Ctrl-B.
                     self.note_host_kind(session, &child, Some(profile.kind)).await;
-                    session.closing.store(false, Ordering::SeqCst);
                     return Ok(child);
                 }
                 // The host ended meanwhile: start a fresh agent below.

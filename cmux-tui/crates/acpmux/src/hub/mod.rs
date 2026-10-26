@@ -1261,10 +1261,33 @@ impl Hub {
         std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
+    /// Sets `session`'s status. A stopped (closed) session stays closed: only a close writes
+    /// Closed, and only [`Self::reopen`] leaves it. `acpmux session stop` cancels the turn and its
+    /// asks and closes the session while that turn's task, its asks and an agent start are still
+    /// ending; each of them read the session as open before it waited, and its write came after
+    /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
+    /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.write_status(session, status, false);
+    }
+
+    /// A stopped session starts again: a new agent start for it (`ready_to_start`). Its status
+    /// leaves Closed for Idle.
+    /// Not while a stop is under way (`Session::closing`): false then, and it stays closed.
+    pub(super) fn reopen(&self, session: &Session) -> bool {
+        self.write_status(session, SessionStatus::Idle, true)
+    }
+
+    fn write_status(&self, session: &Session, status: SessionStatus, reopen: bool) -> bool {
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
+            if was == SessionStatus::Closed
+                && status != SessionStatus::Closed
+                && (!reopen || session.closing.load(Ordering::SeqCst))
+            {
+                return false;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so
@@ -1288,6 +1311,7 @@ impl Hub {
             self.save_meta(session);
             self.care_status(status);
         }
+        true
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
