@@ -60,9 +60,10 @@ public final class BrowserPictureView: NSImageView {
     /// (a page with a transparent background).
     private nonisolated static func decoded(_ image: CGImage) -> CGImage {
         let opaque = [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
-        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue) else { return image }
+        guard let context = CGContext.ownedBitmap(width: image.width, height: image.height,
+                                                  space: image.colorSpace ?? CGColorSpaceCreateDeviceRGB(),
+                                                  bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue)
+        else { return image }
         context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
         return context.makeImage() ?? image
     }

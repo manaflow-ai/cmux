@@ -148,7 +148,7 @@ final class OmnibarPillView: NSView {
             layer?.shadowOpacity = Float(elevation.alpha)
             layer?.shadowRadius = elevation.layerRadius
             layer?.shadowOffset = elevation.layerOffset()
-            layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+            layer?.shadowPath = CGPath.rounded(bounds, radius: radius)
         } else {
             layer?.shadowOpacity = 0
             layer?.shadowPath = nil
@@ -244,7 +244,7 @@ final class OmnibarCardTopView: NSView {
         // Extend the shadow shape past the seam toward the rows, so no line shows
         // between the two halves (the panel of rows casts no shadow of its own).
         let shape = CGRect(x: 0, y: opensUpward ? 0 : -40, width: bounds.width, height: bounds.height + 40)
-        card.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
+        card.shadowPath = CGPath.rounded(shape, radius: OmnibarStyle.cardCornerRadius)
         CATransaction.commit()
     }
 

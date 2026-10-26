@@ -84,12 +84,18 @@ public struct WebKitInspector {
     private var inspector: NSObject? {
         prepare()
         guard webView.responds(to: Selector(("_inspector"))) else { return nil }
-        return webView.perform(Selector(("_inspector")))?.takeUnretainedValue() as? NSObject
+        // crash-allow: guarded by responds(to: _inspector) above; KVC's getter search finds -_inspector, so no undefined-key exception
+        return webView.value(forKey: "_inspector") as? NSObject
     }
 
+    /// Sends one of `_WKInspector`'s no-argument, void actions (show, close, attach, detach,
+    /// showConsole, showResources, toggleElementSelection, togglePageProfiling).
     private func call(_ name: String) {
         let selector = Selector((name))
         guard let inspector, inspector.responds(to: selector) else { return }
-        inspector.perform(selector)
+        // SAFETY: the selector is answered and takes no argument. Its return is void, so the
+        // Unmanaged result holds whatever the return register held; it is dropped unread and
+        // never retained or released.
+        _ = unsafe inspector.perform(selector)
     }
 }

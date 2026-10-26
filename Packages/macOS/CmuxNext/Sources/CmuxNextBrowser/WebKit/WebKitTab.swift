@@ -180,7 +180,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         let image = try await webView.takeSnapshot(configuration: nil)
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // SAFETY: a nil rect pointer: AppKit uses the image's own size and writes nothing back.
+        guard let cgImage = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw BrowserTabError.snapshotUnavailable
         }
         return cgImage
