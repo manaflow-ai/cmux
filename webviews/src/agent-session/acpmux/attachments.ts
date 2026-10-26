@@ -395,11 +395,7 @@ export const thumbnail = thumbnailOffThread;
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 /// Its tokens read as `orderedDraftParts` reads them.
-export function promptText(
-  text: string,
-  attachments: ComposerAttachment[],
-  options: InlineReadOptions = {},
-): string {
+export function promptText(text: string, attachments: ComposerAttachment[], options: InlineReadOptions = {}): string {
   const runs = inlineRuns(text, idsOf(attachments), options.dropped);
   const visibleText =
     !placesSome(runs) && legacyMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : wordsOf(runs);

@@ -338,8 +338,10 @@ test("the strip orders by each id's first place, as the prompt does", () => {
   expect(orderedByMarks([a, b], ["b", "a", "b"]).map((attachment) => attachment.id)).toEqual(["b", "a"]);
   const draft = `${inlineToken("b")}${inlineToken("a")}${inlineToken("b")}`;
   expect(placeInline(draft, [a, b]).attachments.map((attachment) => attachment.id)).toEqual(["b", "a"]);
-  expect(orderedByMarks([a, b], inlineTokenIds(draft, () => true)).map((attachment) => attachment.id)).toEqual([
-    "b",
-    "a",
-  ]);
+  expect(
+    orderedByMarks(
+      [a, b],
+      inlineTokenIds(draft, () => true),
+    ).map((attachment) => attachment.id),
+  ).toEqual(["b", "a"]);
 });
