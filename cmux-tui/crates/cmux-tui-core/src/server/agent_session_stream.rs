@@ -1,5 +1,6 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
 use super::*;
+use crate::panic_free::JsonFields;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -147,16 +148,16 @@ pub(crate) fn bound_page(mut page: Value, newest_first: bool) -> Value {
     let mut keep_to = events.len();
     while total > MAX_PAGE_BYTES && keep_from < keep_to {
         if newest_first {
-            total -= sizes[keep_from];
+            total = total.saturating_sub(sizes.get(keep_from).copied().unwrap_or(0));
             keep_from += 1;
         } else {
             keep_to -= 1;
-            total -= sizes[keep_to];
+            total = total.saturating_sub(sizes.get(keep_to).copied().unwrap_or(0));
         }
     }
     let kept: Vec<Value> = events.drain(keep_from..keep_to).collect();
     *events = kept;
-    page["hasMore"] = json!(true);
+    page.insert("hasMore", json!(true));
     page
 }
 
@@ -200,6 +201,13 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 return attachment.end(Some("detached"));
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
+            if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
+                attachment.end(None);
+            }
+        }
+        // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
+        "_acpmux/presence" if same_session && attachment.wants_presence() => {
+            let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
                 attachment.end(None);
             }

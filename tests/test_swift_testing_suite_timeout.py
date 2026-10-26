@@ -512,13 +512,36 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             next_package.mkdir(parents=True)
             other_package = temp / "Packages" / "macOS" / "CmuxCore"
             other_package.mkdir(parents=True)
+            # The CmuxNext path also resolves the live-daemon cmux-tui (pin-cmux-tui.sh). Unstubbed,
+            # that downloaded a published tree from files.cmux.com: 88 MB that took past the
+            # runner deadline on 2026-10-21 (no tree published in 30 commits, a slow host). A test
+            # of the runner never reaches the network; a curl first on PATH says if it does.
+            network = temp / "network.txt"
+            fake_curl = temp / "curl"
+            fake_curl.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf 'curl %s\\n' \"$*\" >> \"$CMUX_TEST_NETWORK_CALLS\"\n"
+                "exit 7\n",
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
+            # No hosted cmux-tui to resolve: the live-daemon tree has its own test
+            # (test_an_unpublished_tree_falls_back_to_the_newest_published_one).
+            pin = temp / "pin"
+            pin.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            pin.chmod(0o755)
             env = os.environ.copy()
+            env.pop("CMUX_NEXT_TUI_TREE_PATH", None)
+            env["CMUX_PIN_CMUX_TUI"] = str(pin)
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
             env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
+            env["CMUX_TEST_NETWORK_CALLS"] = str(network)
 
             completed = run_runner(next_package, env)
             self.assertEqual(completed.returncode, 0, completed.stdout)
+            self.assertFalse(network.exists() and network.read_text(encoding="utf-8").strip(),
+                             network.read_text(encoding="utf-8") if network.exists() else "")
             invocations = calls.read_text(encoding="utf-8").splitlines()
             self.assertTrue(invocations[0].startswith("ensure "), invocations)
             self.assertTrue(same_path(invocations[0][len("ensure "):], ROOT), invocations)

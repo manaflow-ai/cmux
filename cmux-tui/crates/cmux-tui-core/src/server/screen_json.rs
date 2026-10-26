@@ -2,6 +2,7 @@
 //! `dock-columns-v1` flags and their `rows-v1` rows.
 
 use super::*;
+use crate::panic_free::JsonFields;
 
 pub(super) fn screen_json(
     state: &State,
@@ -48,38 +49,45 @@ pub(crate) fn screen_layout_json(
         "layout": node_json(&screen.root, screen.active_pane, split_ids),
     });
     if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
+        value.insert(
+            "viewport_splits",
+            json!(
+                screen
+                    .viewport_splits
+                    .iter()
+                    .map(|(split, width)| json!({"split": split, "width": width}))
+                    .collect::<Vec<_>>()
+            ),
         );
         if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
+            value.insert("viewport_base_width", json!(width));
         }
     }
     if screen.layout_columns_active() {
-        value["columns"] = json!(
-            screen
-                .layout_columns
-                .iter()
-                .map(|column| {
-                    let mut value = json!({
-                        "id": column.id,
-                        "width": column.width,
-                        "layout": node_json(&column.root, screen.active_pane, split_ids),
-                    });
-                    // `dock-columns-v1`: every edge (top and bottom need
-                    // `edge-docks-v1` too) as one optional `dock`.
-                    if let Some(dock) = column.dock {
-                        value["dock"] = json!(dock);
-                    }
-                    // `rows-v1`: only for a column with two or more rows; its
-                    // `layout` above is their compat chain.
-                    let rows = column.row_trees();
-                    if !rows.is_empty() {
-                        value["rows"] = json!(
+        value.insert(
+            "columns",
+            json!(
+                screen
+                    .layout_columns
+                    .iter()
+                    .map(|column| {
+                        let mut value = json!({
+                            "id": column.id,
+                            "width": column.width,
+                            "layout": node_json(&column.root, screen.active_pane, split_ids),
+                        });
+                        // `dock-columns-v1`: every edge (top and bottom need
+                        // `edge-docks-v1` too) as one optional `dock`.
+                        if let Some(dock) = column.dock {
+                            value.insert("dock", json!(dock));
+                        }
+                        // `rows-v1`: only for a column with two or more rows; its
+                        // `layout` above is their compat chain.
+                        let rows = column.row_trees();
+                        if !rows.is_empty() {
+                            value.insert(
+                                "rows",
+                                json!(
                             rows.iter()
                                 .map(|(row, tree)| json!({
                                     "id": row.id,
@@ -87,11 +95,13 @@ pub(crate) fn screen_layout_json(
                                     "layout": node_json(tree, screen.active_pane, split_ids),
                                 }))
                                 .collect::<Vec<_>>()
-                        );
-                    }
-                    value
-                })
-                .collect::<Vec<_>>()
+                        ),
+                            );
+                        }
+                        value
+                    })
+                    .collect::<Vec<_>>()
+            ),
         );
     }
     value

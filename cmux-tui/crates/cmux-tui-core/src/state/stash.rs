@@ -115,6 +115,16 @@ impl Mux {
         {
             return Ok(replay.into());
         }
+        // Home's pinned page (`pinned-dock-v1`): a Workspace-form stash skips
+        // it as it skips pinned tabs; a Tabs-form stash that names it is
+        // refused by the close.
+        let dock_pinned = self.with_state(|state| {
+            pinned_dock_tabs(state)
+                .iter()
+                .filter_map(|surface| state.resource_indexes.tab_ids.get(surface))
+                .map(ToString::to_string)
+                .collect::<HashSet<_>>()
+        });
         let (tabs, skipped, name) = self.read_registry_state(|connection| {
             let (candidates, workspace) = match source {
                 StashSource::Tabs(tabs) => (tabs.clone(), None),
@@ -147,7 +157,10 @@ impl Mux {
             let candidates = candidates.into_iter().filter(|tab| seen.insert(tab.clone()));
             for tab in candidates {
                 match store::stash_member(connection, &tab)? {
-                    Ok(member) if workspace_form(source) && member_pinned(&member) => {
+                    Ok(member)
+                        if workspace_form(source)
+                            && (member_pinned(&member) || dock_pinned.contains(&tab)) =>
+                    {
                         skipped.push(tab);
                     }
                     Ok(member) => {
@@ -206,9 +219,11 @@ impl Mux {
         };
         // The space-delete close carries a write before its patch; a stash
         // uses it for its own group (no space is involved).
+        // The stashed tabs close as a tab close does: the pinned tab stays.
         let outcome = self.close_tabs_for_room_delete(
             surfaces,
             OPERATION,
+            crate::resource::ResourceOperation::TabClose,
             &fingerprint,
             mutation,
             RoomClose { before_patch: &before_patch, result, bare: Vec::new() },

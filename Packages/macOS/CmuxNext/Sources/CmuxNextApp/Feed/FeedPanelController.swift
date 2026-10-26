@@ -56,7 +56,7 @@ final class FeedPanelController {
 
     private func makePanel(model: FeedModel) -> FeedPanel {
         let panel = FeedPanel()
-        panel.contentView = FeedHostView(model: model, floating: true)
+        panel.contentView = FeedHostView(model: model, surface: .panel)
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }

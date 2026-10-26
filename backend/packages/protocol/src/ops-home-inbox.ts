@@ -160,6 +160,21 @@ export const ChiefArchive = def({
   mcp: { expose: "never", group: "home" }
 })
 
+export const ChiefDelete = def({
+  name: "chief.delete",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "destructive",
+  target: "chief",
+  principals: ["session"],
+  params: Schema.Struct({ chief: ChiefId, expected_rev: Schema.Number }),
+  result: Chief,
+  errors: [...mutationErrors, "selector.not_found", "chief_is_default"],
+  docs: "Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore.",
+  cli: { path: "chief delete", visible: true },
+  mcp: { expose: "never", group: "home" }
+})
+
 export const ChiefList = def({
   name: "chief.list",
   owner: "cloud:UserDO",
@@ -279,6 +294,7 @@ export const homeInboxOps = [
   ChiefCreate,
   ChiefUpdate,
   ChiefArchive,
+  ChiefDelete,
   ChiefList,
   HomeSettingsSet,
   MuxAck,
@@ -314,6 +330,7 @@ export const homeInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("mux.bind", "cloud:MuxDO", "chief", "Internal: binds a MuxDO to its chief and owner when the chief is created."),
   internal("mux.wake", "cloud:MuxDO", "chief", "Internal: a ConversationDO queues a wake for a chief."),
   internal("invite.delivery.report", "cloud:ConversationDO", "invite", "Internal: an AddressDO reports an invite's delivery state (forward only)."),
+  internal("chief.rename", "cloud:ConversationDO", "chief", "Internal: the owner's UserDO renames a Chief's main conversation (its title and the Chief's name) after chief.update."),
   internal("address.ensure", "cloud:AddressDO", "address", "Internal: stores a normalized address; returns its id, linked user and suppression."),
   internal("address.deliver", "cloud:AddressDO", "address", "Internal: sends an invite through the provider after the invite commit (suppression, limits, environment policy)."),
   internal("address.delivery.record", "cloud:AddressDO", "address", "Internal: records a provider delivery callback."),

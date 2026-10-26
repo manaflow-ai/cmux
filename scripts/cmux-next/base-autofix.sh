@@ -12,6 +12,8 @@
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
+#     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
@@ -54,16 +56,17 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
     --strings) shift ;; # a no-op since #21946 (page strings are build output)
     --sdk) sdk=1; shift ;;
+    --capabilities) capabilities=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
@@ -72,10 +75,10 @@ while (( $# > 1 )); do
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -135,6 +138,17 @@ if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
   fi
 fi
 
+# 1d2. Daemon capability export. The source parser is the same check used by
+# cmux-next checks; write mode keeps the base bot from leaving a stale catalog
+# after a Swift-only capability change.
+if (( capabilities )) && [[ -f "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" ]]; then
+  before="$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json" 2>/dev/null || true)"
+  python3 -I "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" --repo "$repo" --write >/dev/null
+  if [[ "$before" != "$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json")" ]]; then
+    echo "fixed: regenerated plans/cmux-next/daemon-capabilities.json"
+  fi
+fi
+
 # 1e. The docs shortcuts copy of the catalog export.
 shortcuts=web/data/cmux-shortcuts.generated.json
 if (( unverified_exports )); then
@@ -174,7 +188,7 @@ fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
 # (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a call owner's approval on the pull request.
+# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()

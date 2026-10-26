@@ -56,7 +56,6 @@ PATH_OWNERS = {
     "scripts/whats-new/validate.py": frozenset(("release-notary",)),
     "scripts/whats-new/community.py": frozenset(("release-notary",)),
     "scripts/cmux-next/release-notes.py": frozenset(("release-notary",)),
-
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
@@ -68,6 +67,8 @@ PATH_OWNERS = {
     # workflow's runs-on against .github/runners.json.
     "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
+    # test_ci_upload_artifact_retention.py reads its allowlist.
+    "tests/upload_artifact_retention_allowlist.json": frozenset(("ci",)),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
@@ -108,6 +109,14 @@ PATH_OWNERS = {
     # tests/test_ci_pr_media_privacy.py (ci) imports the check, and every
     # upload in tests/test_pr_media.py (preflight) runs it.
     "scripts/ci/pr_media_privacy.py": frozenset(("ci", "preflight")),
+    # tests/test_ci_pr_media_privacy.py (ci) runs the publishing action's
+    # preflight and Linux OCR tool, reads the action, and OCRs the fixtures.
+    "scripts/ci/pr_media_gate.py": frozenset(("ci",)),
+    "scripts/ci/pr_media_ocr_tesseract.py": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/action.yml": frozenset(("ci",)),
+    ".github/actions/pr-media-publish/canary.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/clean.png": frozenset(("ci",)),
+    "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py loads it by path and also reads its workflow
@@ -145,6 +154,8 @@ PATH_OWNERS = {
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
+    # test_ci_starved_labels.py (ci) loads it by path; queue_janitor.py imports it.
+    "scripts/ci/starved_labels.py": frozenset(("ci",)),
     "scripts/ci/required_status_checks.py": frozenset(("ci",)),
     "scripts/ci/relocate_package_framework_rpaths.py": frozenset(("preflight",)),
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),

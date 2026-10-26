@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering,
+    BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -36,6 +37,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var passwordFill = PasswordFillState()
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
+    /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
+    /// stands (`CEFRuntime+FileDialogs`).
+    @ObservationIgnored public private(set) lazy var agentFiles: BrowserAgentFiles = {
+        let files = BrowserAgentFiles()
+        files.onArmedChange = { [weak self] armed in
+            guard let self else { return }
+            runtime.agentFileOfferChanged(self, armed: armed)
+        }
+        return files
+    }()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -105,6 +116,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// turns white at its first real page like Chrome.
     @ObservationIgnored public var pageThemeSurface: SurfaceKind? {
         didSet { if pageThemeSurface != oldValue { applyPageBackground() } }
+    }
+    /// The page is see-through (fork API 17): where its document draws no background, the pane and
+    /// the window backdrop show, as under a WebKit page that draws none. A cmux page sets it (the page
+    /// host, `PageChromiumPage.setSeeThrough`); a web page stays opaque like Chrome.
+    @ObservationIgnored public var pageSeeThrough = false {
+        didSet {
+            guard pageSeeThrough != oldValue else { return }
+            // A web page never calls the fork's see-through switch; only a page leaving see-through does.
+            if !pageSeeThrough, let browserID { _ = runtime.shim?.tabSetTransparentBackground(browserID, 0) }
+            applyPageBackground()
+        }
     }
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
@@ -223,6 +245,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         leaveAutomaticDownloadsToCmux(browser)
         applyDeviceEmulation()
         agentRelay.browserAttached()
+        if host.freezesPlaceholder, host.placeholder === self { freezeNeverShownPage(browser) }
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -439,7 +462,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func exitContentFullscreen() {
         guard state.isContentFullscreen else { return }
-        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()"); withExtendedLifetime(runtime) {} }
+        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()", world: .page, gesture: .cmux); withExtendedLifetime(runtime) {} }
     }
 
     public func showDevTools() { performDevTools(.show) }
@@ -448,6 +471,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        agentFiles.withdraw()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

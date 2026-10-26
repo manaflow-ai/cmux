@@ -45,14 +45,16 @@ public final class AgentPageRedraw {
     }
 
     /// The page drew before and shows again at another size than it drew at: out of the window, or
-    /// parked hidden in its pane (it stays sized with the pane meanwhile, but draws nothing hidden),
-    /// at a size that changed or is about to (the pane has a layout pending: the strip hides with
-    /// this switch, cx-f6i7). Shown again at the size it drew at, it shows at once (perf-tabs).
+    /// parked hidden in its pane (the pane keeps it at the size it shows at meanwhile, which a window
+    /// resize changes, but it draws nothing hidden), at a size that changed or is about to (the pane
+    /// has a layout pending: the strip hides with this switch, cx-f6i7). Its own frame, not its
+    /// host's: a chat sharing the tab row shows over the whole pane while the host behind a terminal
+    /// is the area under the strip. Shown again at the size it drew at, it shows at once (perf-tabs).
     public func awaits(_ pane: NSView) -> Bool {
         guard let drawnSize else { return false }
         if pane.window == nil { return true }
         guard pane.isHidden, let host = pane.superview else { return false }
-        return host.bounds.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
+        return pane.frame.size != drawnSize || host.superview?.needsLayout == true || host.needsLayout
     }
 
     /// Runs `body` once the page drew at the size `pane` shows it at: at the pane's next layout when
@@ -116,11 +118,14 @@ public final class AgentPageRedraw {
     public func rememberFrame(of pane: NSView, appearance: NSAppearance.Name?) {
         // Only a page that draws today's chats and model (`AgentPaneNewTabFrame`).
         guard let model = (pane as? AgentPaneView)?.model, AgentPaneNewTabFrame.shared.shows(model).0 else { return }
+        // A Chromium picture draws the page's clear areas black (``PageWebView/snapshotKeepsClearAreas``):
+        // checked before and after, as the page can move to or from Chromium while its picture is taken.
+        guard page?.snapshotKeepsClearAreas ?? true else { return }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
         Task { @MainActor [weak self, weak webView, weak page, weak pane, weak place] in
             let image: NSImage? = if let page { await page.snapshot() } else { try? await webView?.takeSnapshot(configuration: nil) }
-            guard let image, image.size == size,
+            guard let image, image.size == size, page?.snapshotKeepsClearAreas ?? true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }
             self?.remembered = (image, size, appearance, generation)
         }

@@ -5,4 +5,3 @@
 #   EXPIRES  YYYY-MM-DD, UTC, the review date; after it the skip still applies and each run warns
 #   OS       any, macos or linux: where the skip applies
 # Remove the line in the same push as the fix. Never extend an expiry without the bead owner.
-the_allowlist_is_what_the_page_sends	cx-c0wvp	2026-10-18	any	the page sends _acpmux/process/{list,tail,kill,background} (228b3eafb53), _acpmux/route/list and _acpmux/chat/route.set (c61789058e3) with this.request, and policy.json lists none of them; adding them to the pane allowlist needs the protocol/origin lead review (policy.json, ad349). The parser reads this.typed now (2026-10-21)

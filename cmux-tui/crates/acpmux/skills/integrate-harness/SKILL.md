@@ -18,7 +18,7 @@ until every step passes.
    adapter (`<name>-acp`).
 2. Start the file: `cmux harness add <id> --command <program>` (ACP) or
    `cmux harness add <id> --command <program> --protocol terminal` (no ACP).
-   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider|muse|unii`.
+   For a known agent start from an example: `--example claude|codex|opencode|pi|gemini|aider|muse|muse-terminal|unii`.
 3. Edit the file (schema below).
 4. Run `cmux harness doctor <id>`. It starts the harness in a temp folder,
    runs `initialize`, `session/new` and one prompt, and prints PASS/WARN/FAIL

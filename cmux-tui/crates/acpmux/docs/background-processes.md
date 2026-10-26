@@ -162,7 +162,7 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
-| `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
 | `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 

@@ -7,29 +7,109 @@
 //! `peer_forward.rs` takes it to the daemon that owns it, and a peer that does not advertise
 //! [`FEATURE`] is refused before anything is sent.
 //!
-//! Each file is at most [`MAX_BYTES`]: the request crosses the peer link as one WebSocket frame,
-//! and an older peer's listener reads at most tungstenite's default 16 MiB frame (a larger one
-//! resets the link and every chat on it). 10 MiB is 13.4 MiB of base64, leaving room for the rest
-//! of the request. Like the app's own Chat Uploads folder, nothing deletes them yet.
+//! The old one-shot request is bounded to [`LEGACY_MAX_BYTES`] because it crosses the peer link as
+//! one WebSocket frame. New clients use the resumable methods below, whose chunks are bounded by
+//! [`CHUNK_BYTES`], and may send a larger file up to [`MAX_BYTES`].
+//!
+//! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
+//! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
+//! any file goes once it is older than `uploadsMaxAgeDays` (default 30; 0 keeps them), read from
+//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). A folder
+//! the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::io::{Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// The `initialize` feature of a daemon that takes `_acpmux/file_put`.
 pub const FEATURE: &str = "filePut";
-/// The most bytes one file has (see the module doc for why).
-pub const MAX_BYTES: usize = 10 << 20;
+/// The resumable upload feature advertised by current daemons.
+pub const CHUNKS_FEATURE: &str = "filePutChunks";
+/// The largest file a local or peer upload may hold.
+pub const MAX_BYTES: usize = 1 << 30;
+/// The largest one-shot request accepted for compatibility with older peers.
+pub const LEGACY_MAX_BYTES: usize = 10 << 20;
+/// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
+pub const CHUNK_BYTES: usize = 512 << 10;
 
 fn root() -> PathBuf {
     crate::config::home().join("uploads")
 }
 
 /// The folder of session `id`'s uploads; none for an id that is not a plain name.
-fn session_dir(id: &str) -> Option<PathBuf> {
+pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
     let plain =
         !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
     plain.then(|| root().join(id))
+}
+
+/// Deletes session `id`'s uploads: the chat was deleted. Blocking: run it off the runtime.
+pub(crate) fn remove_session(id: &str) {
+    let Some(dir) = session_dir(id) else { return };
+    // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
+    match std::fs::remove_dir_all(&dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
+    }
+}
+
+/// When the folder `name` was made, in Unix ms: the time a UUIDv7 name holds ([`put`] names each
+/// file's folder so); None for any other name.
+fn made_at(name: &str) -> Option<u64> {
+    let id = uuid::Uuid::try_parse(name).ok().filter(|id| id.get_version_num() == 7)?;
+    let (secs, nanos) = id.get_timestamp()?.to_unix();
+    Some(secs * 1000 + u64::from(nanos) / 1_000_000)
+}
+
+/// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
+/// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
+/// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
+pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
+    let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
+    let real_dirs =
+        |dir: &Path| {
+            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
+            })
+        };
+    let mut removed = 0;
+    for session in real_dirs(root) {
+        for upload in real_dirs(&session.path()) {
+            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        // Only an empty folder goes (`remove_dir` refuses any other).
+        let _ = std::fs::remove_dir(session.path());
+    }
+    removed
+}
+
+impl super::Hub {
+    /// The age cap's sweep (module docs): at the start, then every day. `uploadsMaxAgeDays` is
+    /// read at each sweep, so a config reload applies from the next.
+    pub fn start_upload_sweep(self: &Arc<Self>) {
+        let hub = self.clone();
+        tokio::spawn(async move {
+            let mut every = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                every.tick().await;
+                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
+                let now = crate::store::now_ms();
+                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
+                    Err(e) => tracing::warn!("the upload sweep failed: {e}"),
+                }
+            }
+        });
+    }
 }
 
 /// A name a folder holds as one plain file (the app's `AgentPaneUpload.isFileName`): 1 to 255
@@ -91,6 +171,150 @@ fn too_large() -> RpcError {
         .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": MAX_BYTES}))
 }
 
+fn upload_id(id: &str) -> Option<String> {
+    uuid::Uuid::try_parse(id).ok().filter(|id| id.get_version_num() == 7).map(|id| id.to_string())
+}
+
+fn part_path(session: &str, upload: &str) -> Option<PathBuf> {
+    Some(session_dir(session)?.join(upload_id(upload)?).join(".part"))
+}
+
+fn meta_path(session: &str, upload: &str) -> Option<PathBuf> {
+    Some(session_dir(session)?.join(upload_id(upload)?).join(".meta"))
+}
+
+fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
+    let name = params
+        .get("fileName")
+        .and_then(Value::as_str)
+        .filter(|name| is_file_name(name))
+        .ok_or_else(|| {
+            RpcError::invalid_params("fileName must be a plain file name")
+                .with_data(json!({"reason": "filePut.name"}))
+        })?;
+    let size = params
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("size is required"))?;
+    if size > MAX_BYTES as u64 {
+        return Err(too_large());
+    }
+    let id = uuid::Uuid::now_v7().to_string();
+    let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
+    let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
+    crate::config::private_state_dir(parent).map_err(|e| RpcError::internal(e.to_string()))?;
+    crate::agent_tools::write_private(&path, &[])
+        .map_err(|e| RpcError::internal(format!("cannot start upload: {e}")))?;
+    let meta =
+        meta_path(session, &id).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let metadata = serde_json::to_vec(&json!({"fileName": name, "size": size}))
+        .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
+    crate::agent_tools::write_private(&meta, &metadata)
+        .map_err(|e| RpcError::internal(format!("cannot record upload: {e}")))?;
+    Ok(json!({"uploadId": id, "fileName": name, "size": size}))
+}
+
+fn chunk(params: &Value) -> Result<Value, RpcError> {
+    let upload = params
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let session = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+    let offset = params
+        .get("offset")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("offset is required"))?;
+    let data = params
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
+    if decoded_len(data) > CHUNK_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "a chunk is at most {} KiB",
+            CHUNK_BYTES >> 10
+        )));
+    }
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
+    let path =
+        part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let meta =
+        meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let metadata = crate::config::private_state_file(&meta)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    let declared: Value = serde_json::from_reader(metadata)
+        .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
+    let declared_size = declared
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("invalid upload size"))?;
+    let mut file = crate::config::private_state_rw(&path)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    let current = file.metadata().map_err(|e| RpcError::internal(e.to_string()))?.len();
+    if current != offset {
+        return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
+    }
+    let next = current.saturating_add(bytes.len() as u64);
+    if next > declared_size || next > MAX_BYTES as u64 {
+        return Err(too_large());
+    }
+    file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
+    file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
+    file.sync_data().map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
+    Ok(json!({"offset": next}))
+}
+
+fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
+    let upload = params
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let name = params
+        .get("fileName")
+        .and_then(Value::as_str)
+        .filter(|name| is_file_name(name))
+        .ok_or_else(|| RpcError::invalid_params("fileName must be a plain file name"))?;
+    let size = params
+        .get("size")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| RpcError::invalid_params("size is required"))?;
+    if size > MAX_BYTES as u64 {
+        return Err(too_large());
+    }
+    let part =
+        part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let meta =
+        meta_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
+    let metadata = crate::config::private_state_file(&meta)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
+    let declared: Value = serde_json::from_reader(metadata)
+        .map_err(|e| RpcError::invalid_params(format!("invalid upload metadata: {e}")))?;
+    if declared.get("fileName").and_then(Value::as_str) != Some(name)
+        || declared.get("size").and_then(Value::as_u64) != Some(size)
+    {
+        return Err(RpcError::invalid_params("upload metadata does not match"));
+    }
+    let current = std::fs::metadata(&part)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?
+        .len();
+    if current != size {
+        return Err(RpcError::invalid_params(format!(
+            "upload has {current} bytes, expected {size}"
+        )));
+    }
+    let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
+    let path = dir.join(name);
+    std::fs::rename(&part, &path)
+        .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
+    let _ = std::fs::remove_file(meta);
+    Ok(json!({"path": path.to_string_lossy()}))
+}
+
 /// The request's `fileName` and `data` (base64) when they keep the contract, before anything is
 /// decoded or sent on: the daemon a request reaches first checks it, so no oversize frame goes
 /// over a peer link. (Not `name`: that names a session (`server::session_key`), and a forward to
@@ -108,10 +332,25 @@ pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
         .get("data")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
-    if decoded_len(data) > MAX_BYTES {
+    if decoded_len(data) > LEGACY_MAX_BYTES {
         return Err(too_large());
     }
     Ok((name, data))
+}
+
+/// Validates a resumable chunk before a peer forward sends its base64 frame over the link.
+pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
+    let data = params
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
+    if decoded_len(data) > CHUNK_BYTES {
+        return Err(RpcError::invalid_params(format!(
+            "a chunk is at most {} KiB",
+            CHUNK_BYTES >> 10
+        )));
+    }
+    Ok(())
 }
 
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
@@ -123,10 +362,84 @@ fn decoded_len(data: &str) -> usize {
 
 /// `_acpmux/file_put` for one of this daemon's chats: an unknown or purged one is refused.
 pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
-    let id = hub.resolve(crate::server::session_key(&params)?)?.id.clone();
-    tokio::task::spawn_blocking(move || put(&id, &params))
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || put(&id, &params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+    reject_purged(&session).await?;
+    Ok(answer)
+}
+
+pub async fn handle_begin(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || begin(&id, &params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    if params.get("sessionId").and_then(Value::as_str) != Some(session.id.as_str()) {
+        return Err(RpcError::invalid_params("sessionId is required"));
+    }
+    let answer = tokio::task::spawn_blocking(move || chunk(&params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || finish(&id, &params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
+    let session = hub.resolve(crate::server::session_key(&params)?)?;
+    let id = session.id.clone();
+    let answer = tokio::task::spawn_blocking(move || cancel(&id, &params))
+        .await
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
+}
+
+/// A purge can race any blocking upload operation. Remove files created after the purge and
+/// reject the late event, while keeping uploads for a chat that was brought back in place.
+async fn reject_purged(session: &std::sync::Arc<super::Session>) -> Result<(), RpcError> {
+    use std::sync::atomic::Ordering::SeqCst;
+    if !session.purged.load(SeqCst) || session.replaced.load(SeqCst) {
+        return Ok(());
+    }
+    let id = session.id.clone();
+    let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
+    Err(RpcError::invalid_params("no such chat"))
+}
+
+/// Removes an unfinished resumable upload. The operation is idempotent so a failed client can
+/// retry cleanup without learning whether the daemon already removed its partial files.
+pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
+    let upload = params
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .and_then(upload_id)
+        .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    if let Some(part) = part_path(id, &upload) {
+        let _ = std::fs::remove_file(part);
+    }
+    if let Some(meta) = meta_path(id, &upload) {
+        let _ = std::fs::remove_file(meta);
+    }
+    Ok(json!({}))
 }
 
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.
@@ -225,10 +538,10 @@ mod tests {
     fn one_byte_past_the_cap_is_refused_before_it_is_sent() {
         use base64::Engine;
         let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
-        for n in [0, 1, 2, 3, 4, MAX_BYTES] {
+        for n in [0, 1, 2, 3, 4, LEGACY_MAX_BYTES] {
             assert_eq!(decoded_len(&encode(n)), n, "{n}");
         }
-        for n in [MAX_BYTES + 1, MAX_BYTES + 2] {
+        for n in [LEGACY_MAX_BYTES + 1, LEGACY_MAX_BYTES + 2] {
             let params = json!({"fileName": "big.bin", "data": encode(n)});
             let err = check(&params).expect_err("past the cap");
             assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.tooLarge", "{n}");
@@ -236,9 +549,51 @@ mod tests {
     }
 
     #[test]
+    fn the_sweep_deletes_old_uploads_and_keeps_new_ones_and_what_it_did_not_name() {
+        let root = std::env::temp_dir().join(format!("acpmux-sweep-{}", uuid::Uuid::now_v7()));
+        let day = 24 * 60 * 60 * 1000;
+        let now = crate::store::now_ms();
+        let named = |ms: u64| {
+            let at = uuid::Timestamp::from_unix(uuid::NoContext, ms / 1000, 0);
+            uuid::Uuid::new_v7(at).to_string()
+        };
+        let old = root.join("chat-a").join(named(now - 31 * day));
+        let new = root.join("chat-a").join(named(now - day));
+        let only_old = root.join("chat-b").join(named(now - 40 * day));
+        let other = root.join("chat-c").join("notes");
+        let v4 = root.join("chat-c").join("0190a000-0000-4000-8000-000000000000");
+        for dir in [&old, &new, &only_old, &other, &v4] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("f.txt"), b"x").unwrap();
+        }
+        // An old-named link, and a linked session folder: neither is followed.
+        let outside = root.with_extension("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("keep.txt"), b"x").unwrap();
+        let outside_old = outside.join(named(now - 90 * day));
+        std::fs::create_dir_all(&outside_old).unwrap();
+        #[cfg(unix)]
+        {
+            std::fs::create_dir_all(root.join("chat-d")).unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("chat-d").join(named(now - 90 * day)))
+                .unwrap();
+            std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
+        }
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
+        assert!(!old.exists() && new.exists());
+        assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
+        assert!(other.exists() && v4.exists());
+        assert!(outside.join("keep.txt").exists() && outside_old.exists());
+        // Nothing past the cap is left: a second sweep deletes nothing.
+        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
     fn the_cap_leaves_the_frame_room_on_an_old_peers_link() {
         // tungstenite's default frame limit, which an older peer's listener keeps.
         let frame = 16 << 20;
-        assert!(MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
+        assert!(LEGACY_MAX_BYTES.div_ceil(3) * 4 + 4096 < frame);
     }
 }

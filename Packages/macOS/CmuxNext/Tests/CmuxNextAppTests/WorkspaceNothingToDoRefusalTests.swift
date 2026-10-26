@@ -127,6 +127,30 @@ struct WorkspaceNothingToDoRefusalTests {
         }
     }
 
+    /// `cmux workspace new-on-machine --machine <id>` answers with the workspace it made: the CLI's
+    /// run tracks the create (`action.run` lists it in `created`; it answered `created: []` before
+    /// the create had even started) and its `result` names the workspace's public id, its name and
+    /// its machine.
+    @Test func newWorkspaceOnMachineAnswersWithTheWorkspaceItMade() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            var results: [ActionResultWork] = []
+            let refusal = services.registry.capturingRefusal {
+                results = services.registry.capturingRun {
+                    _ = services.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(
+                        arguments: ["machine": .string(MachineRegistry.localID)], origin: .cli))
+                }.results
+            }
+            #expect(refusal == nil, "New Workspace on Machine refused: \(refusal ?? "")")
+            let result = try #require(results.first, "the create is not tracked: action.run answers before it with created: []")
+            let fields = try await result.value.get()
+            #expect(fields["machine_id"] == .string(MachineRegistry.localID), "\(fields)")
+            guard case .string(let id)? = fields["workspace_id"] else { Issue.record("no workspace_id: \(fields)"); return }
+            #expect(id.hasPrefix("ws_"), "not the public id: \(id)")
+            let workspace = try #require(services.machines.local.store.workspace(resourceID: ResourceID(rawValue: id)), "\(id) is not listed")
+            #expect(fields["name"] == .string(workspace.displayName), "\(fields)")
+        }
+    }
+
     /// Rename Workspace with no name edits the row where it is listed: another window's sidebar.
     @Test func renameWorkspaceEditsTheRowInTheWindowThatListsIt() async throws {
         try await PinnedPageTests.withApp { services, _ in

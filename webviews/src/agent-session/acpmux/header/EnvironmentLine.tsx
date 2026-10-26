@@ -2,12 +2,13 @@
 // branch, so it shows without opening the Inspector. Only a new chat's composer names its folder and
 // machine (the location strip goes with the first send), so this is the one place a running chat
 // says so up front. It reads what the Inspector's Environment reads (inspector/EnvironmentSection.tsx
-// `machineOf`), so the two never disagree, and clicking it opens the Inspector there.
+// `machineOf`), so the two never disagree. A click opens the Inspector at Environment and lights that
+// section (so a click with it already in view still answers); with the Inspector off (Debug Settings
+// `agent.inspector`) it opens the chat folder's Files tree instead (`environmentOpener`).
 //
-// A header with its own row has it in the status slot, which it never sizes: a long name ends in an
-// ellipsis and the tools stay put. A header in the pane's tab row (`compact`) leads the tools with
-// it instead, its width capped, as the connection warning does there. A connection problem's label
-// takes its place in either (ChatHeaderStatus.tsx).
+// The App keeps Left in a small row below the tab row; Right preserves the original header slot and
+// compact tab-row lead. A connection problem's label takes the header's status slot instead.
+import { memo } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -16,22 +17,35 @@ import { projectLabel } from "../sessionList";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
-export function EnvironmentLine({
-  summary,
-  machineName,
-  peerKinds,
-  compact,
-  onOpen,
-}: {
+export type EnvironmentLineProps = {
   summary?: Summary;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   /// The tab-row header's version: it leads the tools with a capped width.
   compact?: boolean;
-  /// Opens the Inspector at Environment; without it the line only says where the chat runs.
+  /// Opens where the chat runs (`environmentOpener`); without it the line only says so.
   onOpen?: () => void;
-}) {
+};
+
+/// What a click on the line opens (Leo 2026-10-21: no dead clicks in the header): the Inspector at
+/// Environment while the Inspector is on, else the chat folder's Files tree when the folder is on this
+/// Mac. With neither the line is a note, not a button.
+export function environmentOpener(
+  reveal: ((section: "environment") => void) | undefined,
+  openFiles: (() => void) | undefined,
+): (() => void) | undefined {
+  if (reveal) return () => reveal("environment");
+  return openFiles;
+}
+
+export const EnvironmentLine = memo(function EnvironmentLine({
+  summary,
+  machineName,
+  peerKinds,
+  compact,
+  onOpen,
+}: EnvironmentLineProps) {
   const t = useT();
   const machine = machineOf(summary, machineName, peerKinds);
   const cwd = summary?.cwd;
@@ -92,5 +106,24 @@ export function EnvironmentLine({
     >
       {content}
     </div>
+  );
+}, sameEnvironmentLine);
+
+function sameEnvironmentLine(previous: EnvironmentLineProps, next: EnvironmentLineProps): boolean {
+  const previousSummary = previous.summary;
+  const nextSummary = next.summary;
+  const previousPeer = previousSummary?.peer;
+  const nextPeer = nextSummary?.peer;
+  return (
+    previous.compact === next.compact &&
+    previous.machineName === next.machineName &&
+    previous.onOpen === next.onOpen &&
+    previousSummary?.cwd === nextSummary?.cwd &&
+    previousSummary?.branch === nextSummary?.branch &&
+    previousSummary?.worktree === nextSummary?.worktree &&
+    previousSummary?.host === nextSummary?.host &&
+    previousSummary?.hostKind === nextSummary?.hostKind &&
+    previousPeer === nextPeer &&
+    previous.peerKinds?.[previousPeer ?? ""] === next.peerKinds?.[nextPeer ?? ""]
   );
 }

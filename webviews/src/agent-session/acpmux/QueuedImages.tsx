@@ -98,6 +98,18 @@ function QueuedImage({
   const openImage = useContext(ImageViewerContext);
   const [loaded, setLoaded] = useState<{ id: string; src?: string }>();
   const src = image.src ?? (loaded?.id === image.id ? loaded.src : undefined);
+  // Whether its picture drew, for chat_state (queuedRowsState.ts): the slot says how far it got.
+  const [drawn, setDrawn] = useState<{ src: string; ok: boolean }>();
+  const reading = !image.src && read !== undefined && loaded?.id !== image.id;
+  const thumbnail = !src
+    ? reading
+      ? "reading"
+      : "missing"
+    : drawn?.src !== src
+      ? "loading"
+      : drawn?.ok
+        ? "loaded"
+        : "failed";
   useEffect(() => {
     if (image.src || !read) return;
     let live = true;
@@ -111,7 +123,7 @@ function QueuedImage({
   }, [image.id, image.src, read]);
   const label = imageLabel(t, { name: image.name });
   return (
-    <span className="acpmux-queued-image-slot">
+    <span className="acpmux-queued-image-slot" data-image-id={image.id} data-thumbnail={thumbnail}>
       <button
         type="button"
         className="acpmux-queued-image"
@@ -123,7 +135,17 @@ function QueuedImage({
         onKeyDown={onEscape}
         onClick={() => src && openImage?.(src, label)}
       >
-        {src ? <img src={src} alt="" decoding="async" /> : <span className="acpmux-queued-image-empty" />}
+        {src ? (
+          <img
+            src={src}
+            alt=""
+            decoding="async"
+            onLoad={() => setDrawn({ src, ok: true })}
+            onError={() => setDrawn({ src, ok: false })}
+          />
+        ) : (
+          <span className="acpmux-queued-image-empty" />
+        )}
       </button>
       {onRemove && (
         <button

@@ -41,6 +41,7 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const START: &str = "_acpmux/subsession/start";
 const SEND: &str = "_acpmux/subsession/send";
+const RETRY: &str = "_acpmux/subsession/retry";
 
 /// The process environment every test here shares: an empty settings file
 /// (sub-sessions on, new chats start in full access where the harness has it).
@@ -77,6 +78,7 @@ impl Scratch {
             codex_config: root.join("codex.toml"),
             record: root.join("acpmux").join("trust.json"),
             agent_home: Some(root.join("agent-home")),
+            cmux_worktrees: None,
         };
         Scratch { root, trust }
     }
@@ -119,6 +121,8 @@ fn hub_with(s: &Scratch, extra: Value, gate: Option<FolderGate>) -> Arc<Hub> {
             "skipper": {"argv": ["python3", FAKE, "--dangerously-skip-permissions"], "family": "fake"},
             "lax": {"argv": ["python3", FAKE], "family": "fake", "policy": "approve-all"},
             "nomodes": fake("custom", json!({"FAKE_NO_MODES": "1"})),
+            // Claude Code's modes: a new chat starts in `bypassPermissions`.
+            "cc": fake("claude", json!({"FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude"})),
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -453,6 +457,25 @@ async fn a_child_runs_the_callers_policy_when_the_caller_names_none() {
     assert_eq!(info["enforcement"]["policy"], "ask", "{info}");
 }
 
+/// The daemon default `ask` does not narrow a chat (`policy_mode.rs`): a caller in full access
+/// under it starts its child in full access too, with the same policy, never in an asking mode.
+#[tokio::test]
+async fn a_full_access_callers_child_stays_in_full_access_under_the_default_policy() {
+    let s = Scratch::new("default-policy");
+    let own = s.own();
+    let hub = hub_with(&s, json!({"permissionPolicy": "ask"}), None);
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&own, "cc").await;
+    let info = app.info(&parent).await;
+    assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
+    assert_eq!(info["enforcement"]["policy"], "ask", "{info}");
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo x"})).await;
+    let info = app.info(child["sessionId"].as_str().unwrap()).await;
+    assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
+    assert_eq!(info["enforcement"]["policy"], "ask", "{info}");
+}
+
 #[tokio::test]
 async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     let s = Scratch::new("send");
@@ -465,8 +488,11 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     let mid =
         t.ok(START, json!({"prompt": "echo mid"})).await["sessionId"].as_str().unwrap().to_owned();
     let mut m = Client::as_session(&hub, &mid).await;
-    let low =
-        m.ok(START, json!({"prompt": "echo low"})).await["sessionId"].as_str().unwrap().to_owned();
+    // Its first turn fails, for the retries below.
+    let low = m.ok(START, json!({"prompt": "fail-once: low"})).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     assert_eq!(app.info(&low).await["modes"]["currentModeId"], "full-access");
     // The middle session is moved back to asking (a narrowing needs nobody).
     app.ok("session/set_mode", json!({"sessionId": mid, "modeId": "normal"})).await;
@@ -478,6 +504,12 @@ async fn a_message_never_reaches_a_session_that_asks_less_than_its_sender() {
     assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
     let e = m.refused(SEND, json!({"sessionId": top, "text": "echo hi"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
+    // Nor retries its child's failed turn (Codex review of #25296); the session in full access
+    // above them does.
+    let e = m.refused(RETRY, json!({"sessionId": low})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.receiver_asks_less", "{e}");
+    let retried = t.ok(RETRY, json!({"sessionId": low})).await;
+    assert_eq!(retried["kind"], "turn", "{retried}");
     // The session in full access still messages it.
     t.ok(SEND, json!({"sessionId": mid, "text": "echo hi"})).await;
 }

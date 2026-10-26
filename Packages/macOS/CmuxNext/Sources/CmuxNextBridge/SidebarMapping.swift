@@ -53,6 +53,8 @@ public struct SidebarMapping {
     /// `rowSource`, when given, supplies each row instead of mapping it here:
     /// it gets the workspace and the mapping to run later (`SidebarRowFeed`),
     /// so a structural pass reads no row's status.
+    /// `workspaceFilter` drops workspaces that are no longer valid sidebar rows
+    /// (for example, an acpmux session that was purged while its tab lingers).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -65,7 +67,8 @@ public struct SidebarMapping {
                                 tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
-                                rowSource: RowSource? = nil) -> [SidebarRowSection] {
+                                rowSource: RowSource? = nil,
+                                workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
@@ -73,7 +76,7 @@ public struct SidebarMapping {
             // The home workspace (`kind` "home") is what the Home item in the
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
-            let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
+            let rows = section.workspaces.filter { (!hidesHomeWorkspace || $0.kind != Self.homeKind) && workspaceFilter($0) }
                 .map { workspace in
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
@@ -86,9 +89,9 @@ public struct SidebarMapping {
                     id: GroupID(group.id.rawValue),
                     name: group.name,
                     // No stored color (a group an agent or the CLI made): a stable palette color, not grey.
-                    color: color(group.color) ?? .unset(id: group.id.rawValue),
-                    // A custom `#RRGGBB` (cx-25az) draws instead of the token.
-                    custom: group.color.flatMap { $0.hasPrefix("#") ? GroupTint(wire: $0)?.wire : nil },
+                    color: group.color == GroupTint.noneWire ? .grey : color(group.color) ?? .unset(id: group.id.rawValue),
+                    // A custom `#RRGGBB` (cx-25az) or no color (`none`) draws instead of the token.
+                    custom: group.color.flatMap { $0.hasPrefix("#") || $0 == GroupTint.noneWire ? GroupTint(wire: $0)?.wire : nil },
                     isCollapsed: group.collapsed || collapsedGroups.contains(group.id.rawValue),
                     isPinned: group.pinned,
                     icon: group.icon.flatMap { groupImage($0).map(WorkspaceIcon.favicon) ?? WorkspaceIcon.parse($0) },
@@ -121,7 +124,8 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
+        let page = front.flatMap { pageFace(workspace, $0, work) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
@@ -134,8 +138,8 @@ public struct SidebarMapping {
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
-            // The Chief's subagent workspaces show their task title, never the subagent id.
-            title: machine.isLocalChief ? ChiefWorkspaceName.taskTitle(title) ?? title : title,
+            // An older Chief's subagent workspaces show their task title, never the subagent id.
+            title: machine.isLocalChief ? title.chiefTaskTitle ?? title : title,
             directory: folder?.cwd.map(shorten),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
             process: process(front),
@@ -147,8 +151,10 @@ public struct SidebarMapping {
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
             agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
+            // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon),
+                ?? (work == nil ? page?.favicon.map(WorkspaceIcon.favicon) : nil),
             kind: kind(front),
             kindBrand: front?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
@@ -173,6 +179,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
@@ -183,6 +190,15 @@ public struct SidebarMapping {
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
+    }
+
+    /// Nobody named `workspace` and nothing names it: no title, the daemon's default name, and
+    /// no name from its front tab (`label`, the auto name) beyond the home folder (Leo 2026-10-20:
+    /// "~", "workspace-11" and "workspace-29" rows clutter the sidebar).
+    public static func isUnnamed(_ workspace: WorkspaceModel, label: String?) -> Bool {
+        guard workspace.isUnnamed else { return false }
+        guard let label, !label.isEmpty else { return true }
+        return label == "~"
     }
 
     /// A daemon checklist item as the sidebar draws it.

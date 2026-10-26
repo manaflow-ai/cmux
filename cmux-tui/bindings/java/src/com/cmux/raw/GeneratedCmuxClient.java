@@ -208,6 +208,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationPresence(CloudConversationPresenceRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_PRESENCE, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationRun(CloudConversationRunRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_RUN, request.toWire());
         return Wire.immutableJson(result);
@@ -606,6 +611,11 @@ public abstract class GeneratedCmuxClient {
     public final FrontendProjection getFrontendProjection(GetFrontendProjectionRequest request) throws CmuxException {
         Object result = execute(Commands.GET_FRONTEND_PROJECTION, request.toWire());
         return FrontendProjection.fromWire(result);
+    }
+
+    public final GetHostSizePolicyResult getHostSizePolicy(GetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_HOST_SIZE_POLICY, request.toWire());
+        return GetHostSizePolicyResult.fromWire(result);
     }
 
     public final GetSizeStateResult getSizeState(GetSizeStateRequest request) throws CmuxException {
@@ -1147,6 +1157,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final SetHostSizePolicyResult setHostSizePolicy(SetHostSizePolicyRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_HOST_SIZE_POLICY, request.toWire());
+        return SetHostSizePolicyResult.fromWire(result);
+    }
+
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
         return Wire.immutableJson(result);
@@ -1287,6 +1302,11 @@ public abstract class GeneratedCmuxClient {
     public final TerminalHistoryPagesResult terminalHistory(TerminalHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.TERMINAL_HISTORY, request.toWire());
         return TerminalHistoryPagesResult.fromWire(result);
+    }
+
+    public final TerminalPortsResult terminalPorts(TerminalPortsRequest request) throws CmuxException {
+        Object result = execute(Commands.TERMINAL_PORTS, request.toWire());
+        return TerminalPortsResult.fromWire(result);
     }
 
     public final TerminalReadRangeResult terminalReadRange(TerminalReadRangeRequest request) throws CmuxException {

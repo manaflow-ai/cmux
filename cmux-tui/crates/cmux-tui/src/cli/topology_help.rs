@@ -62,8 +62,10 @@ its id or exact name. list --order session gives the session's workspace
 order: creation order unless a workspace was moved. list --order personal
 gives the cmux app's sidebar order: loose workspaces, and each group's
 workspaces where the group shows. Without --order, list gives the sidebar
-order in the app's context (an app terminal or Chief addressing the app's
-own daemon), else the session order. The app's
+order to every caller when the session has the sidebar document; without
+the document it gives the sidebar order in the app's context (an app
+terminal or Chief addressing the app's own daemon), else the session
+order. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
@@ -160,6 +162,7 @@ pub(super) const TERMINAL_HELP: &str = "\
 USAGE
   cmux terminal list [--workspace <selector>] [--screen <selector>] [--pane <selector>]
     [--tab <selector>]
+  cmux terminal list --agents
   cmux terminal <selector> show
   cmux terminal <selector> status
   cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
@@ -174,6 +177,8 @@ USAGE
   cmux terminal <selector> copy|process show [OPTIONS]
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>]
+  cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none]
+    [--timeout <5m>] [--settle <3s>] [--force]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
@@ -189,6 +194,14 @@ wait --until prompt returns when the shell shows its prompt; --until idle
 when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
 --timeout exits 124.
+list --agents lists the terminals that run a coding agent (Claude Code,
+Codex, or a program reporting OSC 7501 status): harness, state (busy, idle,
+waiting-for-input, ended), age, workspace and title.
+send types the message as one bracketed paste, presses Enter, waits until
+the agent is idle (no fresh working report, screen still for --settle) or
+the shell shows its prompt, and prints only what the terminal printed after
+the message. A passed --timeout exits 124 with the output so far. An agent
+that waits on a dialog is refused unless --force.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

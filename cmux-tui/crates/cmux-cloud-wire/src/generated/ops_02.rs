@@ -4,6 +4,37 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineCreateResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
+    /// The error codes cloud.machine.create declares.
+    CloudMachineCreateError {
+        ApprovalDenied = "approval.denied",
+        ApprovalExpired = "approval.expired",
+        ApprovalPending = "approval.pending",
+        ApprovalTooManyPending = "approval.too_many_pending",
+        AuthForbidden = "auth.forbidden",
+        AuthSsoRequired = "auth.sso_required",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ClientTooOld = "client.too_old",
+        CloudNoSnapshotConfigured = "cloud.no_snapshot_configured",
+        CloudPlanRequired = "cloud.plan.required",
+        CloudProviderUnavailable = "cloud.provider.unavailable",
+        CloudQuotaExceeded = "cloud.quota.exceeded",
+        CloudRateLimited = "cloud.rate_limited",
+        CloudSizeLocked = "cloud.size.locked",
+        CloudSnapshotNotFound = "cloud.snapshot.not_found",
+        IdempotencyConflict = "idempotency.conflict",
+        MutationIndeterminate = "mutation.indeterminate",
+        OwnerUnreachable = "owner.unreachable",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.
     CloudMachineDeleteOp {
@@ -871,29 +902,4 @@ wire_errors! {
         CloudRateLimited = "cloud.rate_limited",
         ValidationInvalid = "validation.invalid",
     }
-}
-
-wire_op! {
-    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmSelfGetOp {
-        name: "cloud.vm.self.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:CloudDO",
-        risk: "read",
-        principals: [Install],
-        params: CloudVmSelfGetParams,
-        result: CloudVmSelfGetResult,
-        error: CloudVmSelfGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetParams {
-    pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetResult {
-    pub machine: CloudMachine,
 }

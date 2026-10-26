@@ -72,19 +72,21 @@ enum WorkspaceCreation {
     /// Creates workspace `key` and its first tab from `firstTab`, which gets
     /// the created workspace (its handle, for commands that take one), owned
     /// by `repair` like ``create(_:name:on:repair:terminal:)``: a failure
-    /// closes the workspace.
+    /// closes the workspace. A late create reply asks again until `giveUp`
+    /// (``DaemonConnection/retryingLateReplies(_:until:_:)``).
     @MainActor
     static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
         name: String?,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
+        giveUp: ContinuousClock.Instant? = nil,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
         try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
@@ -114,8 +116,10 @@ enum WorkspaceCreation {
                 guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
                 // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
                 let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
-                _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
-                                                                           origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
+                let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                        origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
+                // One mutation id for every send: a tab the daemon made after the deadline replays.
+                _ = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
             } else {
                 if let token = spawn.inputToken, spawn.firstChat == nil { tabs.firstPageTokens[created.workspace] = token }
                 _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)

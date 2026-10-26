@@ -62,6 +62,7 @@ enum AppearanceHandlers {
         for style in TitlebarStyle.allCases {
             registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
+        registry.bind("appearance.glass.lens.toggle", run: { _ in GlassLensMode.choose(GlassLensMode.tunable.value.lensToggled) })
         registry.bind("appearance.interfaceSize.reset", run: { _ in
             let path = context.design.interfaceSizePath; try requireUnmanaged(path, context); context.design.resetInterfaceSize()
             context.writeSetting("reset interface size", path, nil, reloadOnFailure: true)

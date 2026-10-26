@@ -34,6 +34,7 @@ enum WorkspaceVerbHandlers {
             // The group forms last in its section in one write, where the store lists a new
             // group, not at the row's daemon slot first (no slide, cx-f6i7); no reorder races it.
             try create(context, invocation, anchorFree: nil) { id, bridge in
+                guard let bridge = bridge as? SidebarBridge else { return }
                 bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(id)], name: name, byUser: byUser, index: .max)
             }
         })
@@ -43,9 +44,7 @@ enum WorkspaceVerbHandlers {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
             guard daemon.connection != nil else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
-            // Born in the window's room, so it shows even when that room
-            // does not follow the machine's session (data-model.md 3.2).
-            context.services.windows.newWorkspace(in: context.activeWindow?.state, on: daemon)
+            newWorkspace(on: daemon, invocation, context)
         })
 
         // Top or bottom of the row's container: its group, else the loose rows. A grouped row's
@@ -100,14 +99,14 @@ enum WorkspaceVerbHandlers {
     /// New workspace in the target workspace's window (else the active
     /// one) at an anchor-free `slot`; `then` runs once it is listed.
     static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
-                               then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
                   then: then)
     }
 
     private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil,
-                              then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil) throws {
+                              then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
         let window = anchor.flatMap { windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
         let target = windows.targetWindow(preferring: window)
@@ -127,6 +126,40 @@ enum WorkspaceVerbHandlers {
                 return ActionWorkFailure("new workspace", error)
             }
         })
+    }
+
+    /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
+    /// window's room so it shows even when the room does not follow the machine's session
+    /// (data-model.md 3.2). A person gets the New Tab page; a CLI, MCP or script run gets a
+    /// terminal and waits for the create, so `action.run` answers with what it made
+    /// (``createdFields``) and lists it in `created`.
+    static func newWorkspace(on daemon: DaemonService, _ invocation: ActionInvocation, _ context: AppActionContext) {
+        let services = context.services, windows = services.windows
+        let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
+        let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
+        services.registry.track(result: Task {
+            do {
+                let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                // The store lists it (its `ws_` id and name) once it applied the create's events.
+                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
+                return .success(createdFields(id, on: daemon, services: services))
+            } catch {
+                daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+                return .failure(ActionWorkFailure("new workspace on machine", error))
+            }
+        })
+    }
+
+    /// `action.run`'s `result` for a workspace made on `daemon`: its public id (`ws_…` on
+    /// registry daemons, else its key), its name once the store lists it, and the machine.
+    static func createdFields(_ id: String, on daemon: DaemonService, services: AppServices) -> [String: ActionResultValue] {
+        let workspace = services.workspace(id: id)
+        var fields: [String: ActionResultValue] = [
+            "workspace_id": .string(workspace?.resourceID?.rawValue ?? id),
+            "machine_id": .string(daemon.machineID),
+        ]
+        if let workspace { fields["name"] = .string(workspace.displayName) }
+        return fields
     }
 
     /// The first tab of a workspace like `anchor`, by the kind of its first tab: a terminal, the

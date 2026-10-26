@@ -430,6 +430,31 @@ pub fn agent_path() -> Option<OsString> {
     joined.or(path)
 }
 
+/// A profile's, preset's or session's own PATH `own`, then every
+/// [`agent_path`] directory it does not list, each directory once. A PATH a
+/// preset saved (the Chief's built-in subagent preset takes the daemon's PATH
+/// when it is installed, which can be before the login import, or a launchd
+/// start's bare `/usr/bin:/bin:/usr/sbin:/sbin`) must not hide the login
+/// PATH's tools: the harness is looked up on this PATH (`claude`), and so is
+/// every tool it runs.
+pub fn with_agent_path(own: &str) -> String {
+    let login = agent_path();
+    let login =
+        login.iter().flat_map(std::env::split_paths).map(|p| p.to_string_lossy().into_owned());
+    merge_paths(own.split(':').map(str::to_owned).chain(login))
+}
+
+/// The non-empty entries of `dirs`, first occurrence kept, joined with `:`.
+fn merge_paths(dirs: impl Iterator<Item = String>) -> String {
+    let mut merged: Vec<String> = Vec::new();
+    for dir in dirs {
+        if !dir.is_empty() && !merged.contains(&dir) {
+            merged.push(dir);
+        }
+    }
+    merged.join(":")
+}
+
 /// The app's bundled `cmux` (BundledCLIEnvironment.swift).
 pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
 
