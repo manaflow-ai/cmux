@@ -5,7 +5,7 @@
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, floats outside the chat's layout so it never
+// default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
@@ -18,7 +18,10 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { INSPECTOR_PLACEMENT_KEY, setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTools";
+import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { resetChangesStatuses } from "../src/agent-session/acpmux/inspector/changesStatus";
 import {
   ChatInspector,
   inspectorTopOffset,
@@ -41,7 +44,7 @@ import {
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
-import { activity, chat, tool } from "../src/gallery/fixtures/acpmux";
+import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -243,12 +246,14 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(inspectorState().open).toBe(false);
 });
 
-test("open, closed, folds and width hold in every chat pane, following another pane's change", async () => {
+test("open, closed, folds and width are this pane's, and another pane's change never reaches it", async () => {
+  // Leo, 2026-10-25: "it opens and closes on the other side too when you do one... they should all be
+  // individual per pane".
   const container = installDom(true);
   await render(container, localChat);
   await click(head(section(container, "context")!));
   await click(toggle(container)!);
-  // Another chat tab mounts closed, with Context still open from the first.
+  // The same pane drawn again (a chat shown again) keeps its state: closed, Context open.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, localChat);
@@ -256,13 +261,47 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await click(toggle(container)!);
   expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
+  await click(toggle(container)!);
 
-  // Another pane closes it: this one follows its storage event.
+  // Another pane opens its own: this one stays closed.
   await act(async () => {
-    localStorage.setItem("cmux.agentPane.inspector.open", "0");
+    localStorage.setItem("cmux.agentPane.inspector.open", "1");
     window.dispatchEvent(new StorageEvent("storage", { key: "cmux.agentPane.inspector.open" }));
   });
   expect(panel(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("a pane switched to another chat shows that chat's Inspector at once, never playing the last one out", async () => {
+  const container = installDom(true);
+  const chatB = { ...localChat, sessionId: "chat-b" };
+  // Chat B was left closed, chat A open.
+  await render(container, chatB);
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+  await render(container, localChat);
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  // Every phase change of an Inspector panel while the pane switches to chat B (chat A's panel
+  // turning to `leaving` is the last chat's panel playing out over chat B).
+  const phases: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      phases.push(`${record.oldValue} -> ${(record.target as HTMLElement).getAttribute("data-presence")}`);
+  });
+  observer.observe(container, { subtree: true, attributeOldValue: true, attributeFilter: ["data-presence"] });
+  await render(container, chatB);
+  await act(async () => undefined);
+  phases.push(...observer.takeRecords().map((record) => `${record.oldValue} ->`));
+  observer.disconnect();
+  expect({ phases, panel: panel(container), pressed: toggle(container)?.getAttribute("aria-pressed") }).toEqual({
+    phases: [],
+    panel: null,
+    pressed: "false",
+  });
+  // And back to chat A: open again, as it was left.
+  await render(container, localChat);
+  expect(panel(container)).not.toBeNull();
 });
 
 test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
@@ -529,6 +568,126 @@ test("Changes lists the pull requests the chat opened or touched, open ones firs
   expect(folder.querySelector("button.acpmux-chat-inspector-pr__more")?.getAttribute("aria-label")).toBe(
     "More for acme/atlas-web#12",
   );
+});
+
+test("Changes reads every pull request's title, state and checks from the App's cache, the issues named like #N left out", async () => {
+  const container = installDom(true);
+  const hq = "https://github.com/manaflow-ai/cmuxterm-hq/pull/2681";
+  const glaeda = "https://github.com/manaflow-ai/glaeda/pull/1546";
+  const calls: string[] = [];
+  const answer = (url: string, number: number, title: string, state: string, failed: number) => ({
+    pullRequest: {
+      url,
+      number,
+      title,
+      state,
+      review: "",
+      mergeable: "",
+      additions: 608,
+      deletions: 8,
+      checks: { state: failed ? "failing" : "passing", passed: 3, total: 3 + failed },
+      checkList: Array.from({ length: failed }, (_, index) => ({ name: `check ${index}`, state: "failed" })),
+    },
+    fetchedAt: 1_700_000_000,
+    reading: false,
+  });
+  setChipHost(async (method, params) => {
+    calls.push(method);
+    if (method !== "pr.inspect") return {};
+    if (params.url === hq) return answer(hq, 2681, "Bash scripts keep here-documents", "open", 2);
+    if (params.url === glaeda) return answer(glaeda, 1546, "ota: hosts report what they run", "merged", 0);
+    // GitHub has no pull request #9: it was an issue.
+    return { pullRequest: null, reading: false };
+  });
+  try {
+    await render(
+      container,
+      chat([
+        activity([ran("glaeda-gh wait pr manaflow-ai/cmuxterm-hq#2681 --sha abc")], 3),
+        activity([ran("glaeda-gh status pr manaflow-ai/glaeda#1546")], 2),
+        assistant("Both are in; glaeda #9 is the issue it fixes.", 1),
+      ]),
+    );
+    // The host's answers settle on promises: yield until both rows have their titles.
+    for (
+      let turn = 0;
+      turn < 20 && !/here-documents[\s\S]*hosts report/.test(section(container, "changes")?.textContent ?? "");
+      turn++
+    )
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const changes = section(container, "changes")!;
+    const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
+    expect(rows.map((row) => row.querySelector(".acpmux-chat-inspector-pr__title")?.textContent)).toEqual([
+      "Bash scripts keep here-documents",
+      "ota: hosts report what they run",
+    ]);
+    expect(rows.map((row) => row.dataset.state)).toEqual(["open", "merged"]);
+    expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
+    expect(rows[0]!.querySelector(".acpmux-diff-counts")?.textContent).toBe("+608-8");
+    expect(meta(changes)).toBe("2");
+    // One registration for the whole list, then the host's cache: never a GitHub read per row.
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
+test("a folded Changes registers nothing with the host and asks it nothing", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    await render(container, chat([activity([opened(31, "Retry the fetch helper")], 2)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(section(container, "changes")).not.toBeNull();
+    expect(calls).toEqual([]);
+    // Opened: one registration for the list, then the host's cache.
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
+test("a folded Changes with only named pull requests the App has not confirmed keeps its header, so it can open", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    // Named only in a reply: hidden until the App says they are pull requests.
+    await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const folded = section(container, "changes");
+    expect(folded).not.toBeNull();
+    // Not presented as confirmed pull requests: no rows and no count.
+    expect(folded!.querySelectorAll("li.acpmux-chat-inspector-pr")).toHaveLength(0);
+    expect(meta(folded!)).toBeUndefined();
+    expect(calls).toEqual([]);
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
 });
 
 test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {
