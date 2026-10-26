@@ -1,4 +1,5 @@
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxUpdater
 import Foundation
 import Testing
@@ -73,10 +74,12 @@ import Testing
     @MainActor @Test func theServiceReportsNoDisabledReasonOnlyForTheTipApp() {
         let defaults = UserDefaults(suiteName: "TipAppTrackTests.\(UUID().uuidString)")!
         let tip = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed),
-                                 policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                 policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                 work: BackgroundWork(label: "test.updater"))
         #expect(tip.disabledReason == nil)
         let local = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.stableFeed),
-                                   policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                   policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                   work: BackgroundWork(label: "test.updater"))
         #expect(local.disabledReason == .developmentBuild)
     }
 }

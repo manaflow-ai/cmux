@@ -104,6 +104,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
                     : ChromiumHostExit(signal: info.si_status, status: nil))
             }
             thread.name = "com.cmuxterm.chromium-host.exit"
+            thread.qualityOfService = .utility
             thread.start()
         }
     }

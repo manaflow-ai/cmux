@@ -66,7 +66,7 @@ public final class BrowserHostProvider {
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
     /// How long `cdp.attach` may take to make a page ready (the host waits 10 s).
     @ObservationIgnored let prepareDeadline: Duration
-    @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.next", category: "browser-host-provider")
+    @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-host-provider")
 
     @ObservationIgnored var backoff: Backoff
     @ObservationIgnored let retryTimer: DemandTimer
