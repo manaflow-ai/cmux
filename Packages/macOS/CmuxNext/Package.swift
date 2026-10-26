@@ -810,7 +810,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPhoneTests",
-            dependencies: ["CmuxNextPhone", "CmuxNextCompat"],
+            dependencies: ["CmuxNextPhone", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             resources: [.copy("Fixtures")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2079,6 +2079,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxMobileSSH", package: "CmuxMobileSSH"),
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
+                "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: daemonSwiftSettings
         ),
