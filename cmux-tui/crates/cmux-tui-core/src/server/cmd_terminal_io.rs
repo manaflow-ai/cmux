@@ -291,7 +291,7 @@ pub(super) fn wait_for(
 ) -> anyhow::Result<Value> {
     let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
     if cancelled() {
-        anyhow::bail!("connection closed while waiting for pattern");
+        anyhow::bail!("cancelled while waiting for pattern");
     }
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
@@ -329,7 +329,7 @@ pub(super) fn wait_for(
     }
     loop {
         if cancelled() {
-            anyhow::bail!("connection closed while waiting for pattern");
+            anyhow::bail!("cancelled while waiting for pattern");
         }
         let now = Instant::now();
         if now >= deadline {

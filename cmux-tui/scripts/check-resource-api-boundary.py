@@ -189,6 +189,12 @@ STRUCTURAL_SCOPES = frozenset({"workspace", "screen", "pane", "tab"})
 # exactly-once delivery for an effect that cmux cannot prove completed.
 # Optional `risk` of a transported operation: what it can affect beyond its
 # class. The app platform derives a permission scope from it.
+# Frame protocol attributes of a transported operation, typed by
+# resource-operations-v2.schema.json; api-compat-check (cmux-api-compat
+# src/wire.rs) keeps their ids append-only.
+OPERATION_WIRE_ATTRIBUTES = frozenset(
+    {"method_id", "priority", "priority_changed_reason", "payload", "layout_version"}
+)
 OPERATION_RISKS = frozenset(
     {"read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"}
 )
@@ -1378,12 +1384,12 @@ def _operation_catalog(
         "operations",
         "local_operations",
     }
-    if set(document) != expected_root:
+    if set(document) - {"families"} != expected_root:
         _catalog_diagnostic(
             diagnostics,
             path,
             text,
-            f"top-level keys must be exactly {sorted(expected_root)!r}",
+            f"top-level keys must be exactly {sorted(expected_root)!r}, plus optional 'families'",
         )
     if document.get("$schema") != "./resource-operations-v2.schema.json":
         _catalog_diagnostic(diagnostics, path, text, "catalog must reference its checked-in schema")
@@ -1664,7 +1670,7 @@ def _operation_catalog(
             _catalog_diagnostic(diagnostics, path, text, f"{operation} descriptor must be an object")
             continue
         required = {"class", "idempotency", "target", "ancestors", "params", "result", "errors"}
-        allowed = required | {"stream", "constraints", "risk"}
+        allowed = required | {"stream", "constraints", "risk"} | OPERATION_WIRE_ATTRIBUTES
         if not required <= set(descriptor) or set(descriptor) - allowed:
             _catalog_diagnostic(
                 diagnostics, path, text, f"{operation} descriptor has a schema hole", operation

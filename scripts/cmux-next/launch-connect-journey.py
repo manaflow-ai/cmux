@@ -5,7 +5,7 @@ Lawrence 2026-10-15: "i'm seeing 'connect to cmux tui' loading screen when app l
 This drives one fleet-built tagged app (`nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA`)
 through the launches a person makes and reads every launch mark as an event (the app writes one
 `<name> <ms since process start>` line per mark to CMUX_NEXT_LAUNCH_MARKS_FD,
-Control/LaunchMarkSink.swift):
+CmuxNextLaunch/LaunchMarkSink.swift):
 
   first    a new tag: no daemon, no saved state (each dogfood build is one)
   warm     the app quit keeping its sessions; the daemon runs on (the daemon is adopted)

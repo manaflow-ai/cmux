@@ -53,7 +53,7 @@ extension PaneController {
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
         // Only a switch that will show is timed: the focus coordinator refuses a run without view-change
         // permission, and a suspended pane shows nothing until `resume`.
-        if stripModel.selectedID != id, !isSuspended, ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self, to: id) }
+        if stripModel.selectedID != id, !isSuspended, ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self, to: id, keyInput: services.keyRouter.keyInput) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)

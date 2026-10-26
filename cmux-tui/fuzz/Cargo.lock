@@ -20,6 +20,7 @@ dependencies = [
  "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-server-core",
  "cmux-trace",
  "cmux-unix-socket",
  "cmux-worktree-care",
@@ -197,6 +198,9 @@ name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "async-trait"
@@ -730,6 +734,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-features"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1131,6 +1139,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-config",
  "cmux-conversation",
+ "cmux-features",
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
@@ -1188,6 +1197,9 @@ name = "cmux-tui-fuzz"
 version = "0.0.0"
 dependencies = [
  "acpmux",
+ "anyhow",
+ "arbitrary",
+ "base64",
  "bytes",
  "cmux-config",
  "cmux-holder",
@@ -1200,10 +1212,12 @@ dependencies = [
  "cmux-tui",
  "cmux-tui-core",
  "cmux-wg",
+ "flate2",
  "ghostty-vt",
  "libfuzzer-sys",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "toml",
 ]
@@ -1594,6 +1608,17 @@ name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
 
 [[package]]
 name = "derive_more"

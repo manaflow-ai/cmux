@@ -4,6 +4,7 @@ import AVFoundation
 @testable import CmuxNextHome
 import Foundation
 import Testing
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
 /// A video as the wallpaper (cx-14vdf): the person's own movie, Apple's moving wallpaper or a
@@ -103,6 +104,39 @@ import CmuxNextWakeupsTestSupport
         #expect(!h.video.isPlaying, "the video plays in Low Power Mode")
         players.setEnergy(lowPowerMode: false, thermal: .fair)
         #expect(h.video.isPlaying, "the video does not resume when the energy inputs allow it again")
+    }
+
+    /// The video follows its window's node (p06-scheduler-047), not its own occlusion observers: a
+    /// hidden or occluded node holds it, and a capture vote on a hidden window plays it.
+    @Test func theVideoFollowsItsWindowsVisibilityNodeAndCaptureVotes() async throws {
+        let clip = try await Self.clip()
+        _ = NSApplication.shared
+        let frame = NSRect(x: 0, y: 0, width: 320, height: 200)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        // The node's state comes from the test, so it holds on a host whose windows never report visible.
+        let source = WindowVisibilitySource.of(window, events: WindowEvents(window: window, center: NotificationCenter()),
+                                               read: { _ in .visible })
+        let root = NSView(frame: frame)
+        window.contentView = root
+        let backdrop = WindowMaterialView(frame: frame, images: BackdropImageStore(maxPixelSize: 256), videos: BackdropVideoPlayers())
+        backdrop.videoView.reduceMotionOverride = false
+        backdrop.videoView.lowPowerOverride = false
+        root.addSubview(backdrop)
+        backdrop.apply(WindowBackdrop(ThemeTokens.derive(from: .ghosttyDefault), selection: .file(path: clip.path)), tint: .black)
+        let video = backdrop.videoView
+        #expect(video.isPlaying, "a video in a visible window's node does not play")
+        source.node.set(.occluded)
+        #expect(!video.isPlaying, "an occluded window's video plays")
+        source.node.set(.hidden)
+        #expect(!video.isPlaying && !video.canBeSeen, "a minimized window's video plays")
+        source.node.setCaptured(true)
+        #expect(video.isPlaying, "a captured hidden window's video holds its frame")
+        source.node.setCaptured(false)
+        #expect(!video.isPlaying, "the video plays after the capture vote ends")
+        source.node.set(.visible)
+        #expect(video.isPlaying, "the video does not resume when the window shows")
     }
 
     @Test func windowsShowingOneVideoShareOneDecoderAndAClosedWindowLetsItGo() async throws {

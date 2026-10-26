@@ -126,8 +126,10 @@ fn resource_class(operation: ResourceOperation) -> MethodClass {
 enum Reply {
     /// The handler answers on this thread; recorded at its reply or drop.
     Pending,
-    /// Recorded already, or handed to an [`AsyncReply`].
+    /// Recorded already.
     Done,
+    /// Handed to an [`AsyncReply`], which records it at the real reply.
+    Async,
 }
 
 /// One request being handled. Not `Send`: its slice ends on its own thread.
@@ -174,6 +176,17 @@ impl<'a> RequestSpan<'a> {
         Self { stats, method, arrival, reply: Reply::Pending, _scope: scope }
     }
 
+    /// The span of a resource request that arrives now (tests).
+    #[cfg(test)]
+    pub(super) fn for_resource(stats: &'a Arc<RequestStats>, operation: ResourceOperation) -> Self {
+        Self::open_method(
+            stats,
+            RequestMethod::of_resource(operation),
+            0,
+            RequestArrival::parsed_now(Instant::now()),
+        )
+    }
+
     /// Sends the reply the handler built with `send`: `handled` before,
     /// `reply.queued` after (the outbound queue took it, or refused it), and
     /// the latency sample then.
@@ -185,7 +198,12 @@ impl<'a> RequestSpan<'a> {
 
     /// A route sent its own reply and returned `keep_open`: `reply.queued`
     /// and the latency sample now.
+    /// A span handed to an [`AsyncReply`] stamps nothing here: its worker
+    /// stamps the reply.
     pub(super) fn answered(&mut self, keep_open: bool) -> bool {
+        if matches!(self.reply, Reply::Async) {
+            return keep_open;
+        }
         trace_instant!(daemon, "daemon.request.reply.queued", keep_open);
         self.record();
         keep_open
@@ -194,7 +212,7 @@ impl<'a> RequestSpan<'a> {
     /// Hands the latency to a worker that answers later: an async slice
     /// `daemon.request.async` that its [`AsyncReply`] ends.
     pub(super) fn start_async(&mut self) -> AsyncReply {
-        self.reply = Reply::Done;
+        self.reply = Reply::Async;
         let id = self.stats.next_async_id();
         trace_async_begin!(daemon, "daemon.request.async", id, self.method.id);
         AsyncReply {

@@ -191,7 +191,6 @@ final class NotificationCenterService {
                 self.updateDockBadge(self.currentUnreadCount())
             }
         })
-        followChiefPet(settings)
     }
 
     /// The source of `tab`'s retained marker, from the daemon

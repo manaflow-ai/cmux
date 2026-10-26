@@ -4,6 +4,7 @@
 //! after every command.
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -159,7 +160,7 @@ pub(crate) fn run_host_parser(
             let _ = writer.flush();
         }
     };
-    while let Ok(command) = parser_command_receiver.recv() {
+    while let Ok(command) = waits::recv(&parser_command_receiver) {
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

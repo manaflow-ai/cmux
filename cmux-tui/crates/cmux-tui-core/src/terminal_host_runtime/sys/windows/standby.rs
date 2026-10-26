@@ -30,8 +30,9 @@
 //! `terminal_host_fallback`). The in-process ConPTY fallback
 //! (`TerminalHostFallback::HostStartFailed`) is for a start that fails.
 
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::ffi::OsStr;
-use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::OpenOptionsExt;
@@ -264,14 +265,14 @@ pub fn open_bootstrap_pipes(base: &str) -> io::Result<(File, File)> {
     if !valid_base_name(base) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a bootstrap pipe name"));
     }
-    let input = OpenOptions::new()
-        .read(true)
-        .security_qos_flags(SECURITY_IDENTIFICATION)
-        .open(format!("{base}.in"))?;
-    let output = OpenOptions::new()
-        .write(true)
-        .security_qos_flags(SECURITY_IDENTIFICATION)
-        .open(format!("{base}.out"))?;
+    let input = files::open_with(
+        File::options().read(true).security_qos_flags(SECURITY_IDENTIFICATION),
+        format!("{base}.in"),
+    )?;
+    let output = files::open_with(
+        File::options().write(true).security_qos_flags(SECURITY_IDENTIFICATION),
+        format!("{base}.out"),
+    )?;
     Ok((input, output))
 }
 
@@ -428,8 +429,8 @@ fn with_connect_watchdog<R>(
             // The host ended or is too slow: release the waiting connects.
             // A pipe that is already connected refuses this (busy).
             // `.in` is outbound from us (the client reads), `.out` inbound.
-            let _ = OpenOptions::new().read(true).open(&names[0]);
-            let _ = OpenOptions::new().write(true).open(&names[1]);
+            let _ = files::open_with(File::options().read(true), &names[0]);
+            let _ = files::open_with(File::options().write(true), &names[1]);
         });
         let result = connect();
         // SAFETY: the event owned above.

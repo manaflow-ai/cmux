@@ -349,6 +349,24 @@ request threads (`mux-control-dispatch`, `mux-surface-control`, `mux-ws-conn`, b
 watchdog; [Daemon threads](#daemon-threads-cmux-tui) gives every other thread its target. The journal writer (not set today) is to run at user-initiated while request paths wait on its
 durable commit (PL-daemon is removing that wait; then the writer is utility and is boosted by a waiting request, task 226).
 
+Request classes (p06-scheduler-035, `cmux_tui_platform::qos`, `crate::request_qos`; behind the default-off daemon
+feature `daemonRequestQos`): a request runs at the class of its cause. A verified-app request runs at userInitiated, an
+automation request (CLI, script, agent, page, remote, or an app line whose `origin` claim narrows it) at utility, on the
+`mux-conn` reader, the `mux-control-dispatch` dispatcher, a `mux-surface-control` clear worker, a creation job and
+commit on the `mux-terminal-work` pool, the `cmux-script` and `mux-agent-start` job threads, and the app and script
+routers' calls; one `CauseScope` enters the cause and the class together, and the thread gets its own class back when
+the request ends. A thread lowered to utility is raised to userInitiated before it waits for any ranked lock (registry,
+connection, state, `pty.*`, leaf) and while it holds one (`HeldRank::acquire` takes the `LockBoost` before the wait; the
+outermost hold raises, the last release lowers), so a lock that hands itself to a parked waiter never goes to a starved
+utility thread, and neither a frontend request nor the PTY echo path waits behind one. The thread raises its own request
+(`pthread_set_qos_class_self_np`, Chromium's `ScopedBoostPriority`), not an override:
+`pthread_override_qos_class_start_np` is for raising another thread. A thread started during a request runs at its
+creator's own class, not the request's: a registered thread (`cmux_threads::spawn`, `echo_thread::spawn`) sets its
+declared class at start, and the unregistered ones (`surface-<id>-wait`, the `mux-terminal-work` workers, the agent
+message pump) start through `spawn_outside_request`. On Linux, utility is nice 5 and is never entered when the process
+could not take it back (no root and an `RLIMIT_NICE` that does not allow nice 0, asked once per thread): the request
+then runs at the thread's own nice value, no refusal is counted, and nothing needs a raise.
+
 Blocking rule for the two "donating waits" above (lead decision 2026-10-24): a short `Mutex` critical
 section on the main thread is allowed (a contended wait over 2 ms is recorded), but a `dispatch_sync` from the
 main thread (`blockingSync`) is still reported: the QoS override bounds the inversion, yet the main thread

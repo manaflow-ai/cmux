@@ -6,6 +6,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -78,6 +79,7 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
+        if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux
         // mirror when a card opens.

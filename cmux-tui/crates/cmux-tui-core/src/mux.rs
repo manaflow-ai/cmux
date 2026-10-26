@@ -502,10 +502,15 @@ pub struct Mux {
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Control-request latency by class and the dispatch queue.
     request_stats: Arc<crate::diagnostics::RequestStats>,
+    /// Streams, messages, parses and writes of every connection
+    /// (`server-stats` `ipc`).
+    ipc_stats: Arc<crate::diagnostics::IpcStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     /// Blocking notes of request handlers (`server-stats` `request_path_io`).
     request_path_stats: Arc<crate::request_path::RequestPathStats>,
+    /// Whether requests run at their cause's QoS class (crate::request_qos).
+    request_qos: crate::request_qos::RequestQosGate,
     started_at: Instant,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
@@ -791,6 +796,9 @@ pub struct Mux {
     /// lanes: files, system, cpu), so a request answers from memory and a
     /// work item does the disk, process or IPC wait (p02-threads 220).
     pub(crate) work: cmux_threads::work::Work,
+    /// Each client's git requests, run on `work` one at a time in arrival
+    /// order (git_ops/sequence.rs).
+    pub(crate) git_sequences: crate::git_ops::Sequences,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,

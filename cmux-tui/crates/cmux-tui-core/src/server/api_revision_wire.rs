@@ -158,6 +158,7 @@ impl NegotiatedRevision {
     /// Upgrades one request line from the client's revision.
     pub(super) fn upgrade_request<'a>(&self, message: &'a str) -> Cow<'a, str> {
         let Some(peer) = self.peer() else { return Cow::Borrowed(message) };
+        crate::diagnostics::note_json_parse();
         let Ok(peek) = serde_json::from_str::<Peek>(message) else { return Cow::Borrowed(message) };
         let Some(cmd) = peek.cmd else { return Cow::Borrowed(message) };
         if let Some(id) = &peek.id {

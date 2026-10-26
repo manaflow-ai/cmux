@@ -15,7 +15,8 @@
 //! `CMUXSNAP1\n` + one JSON line (`generation`, `cols`, `rows`,
 //! `written_at_ms`) + gzip of the replay bytes.
 
-use std::fs;
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -87,7 +88,7 @@ impl Writer {
             // The writer can hold the last Mux handle, so the Mux may drop
             // (and stop the writer) on the writer thread itself.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+                let _ = waits::join(thread);
             }
         }
     }
@@ -269,34 +270,60 @@ fn write(
     rows: u16,
     replay: &[u8],
 ) -> anyhow::Result<()> {
-    fs::create_dir_all(directory)?;
+    files::create_dir_all(directory)?;
+    let header = SnapshotHeader {
+        generation,
+        stream_end,
+        cols,
+        rows,
+        written_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+    };
+    let target = path(directory, terminal_id);
+    let staged = target.with_extension(format!("{SUFFIX}.tmp"));
+    {
+        let mut file = files::create(&staged)?;
+        encode(&mut file, &header, replay)?;
+        files::sync_all(&file)?;
+    }
+    files::rename(&staged, &target)?;
+    Ok(())
+}
+
+/// The header line of a snapshot file.
+pub(crate) struct SnapshotHeader<'a> {
+    pub(crate) generation: &'a str,
+    pub(crate) stream_end: u64,
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) written_at_ms: u64,
+}
+
+/// A snapshot file's bytes: magic, header line, gzip of `replay`.
+pub(crate) fn encode(
+    output: &mut impl Write,
+    header: &SnapshotHeader<'_>,
+    replay: &[u8],
+) -> anyhow::Result<()> {
     let header = serde_json::json!({
-        "generation": generation,
-        "stream_end": stream_end,
-        "cols": cols,
-        "rows": rows,
-        "written_at_ms": crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+        "generation": header.generation,
+        "stream_end": header.stream_end,
+        "cols": header.cols,
+        "rows": header.rows,
+        "written_at_ms": header.written_at_ms,
     });
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(replay)?;
     let compressed = encoder.finish()?;
-    let target = path(directory, terminal_id);
-    let staged = target.with_extension(format!("{SUFFIX}.tmp"));
-    {
-        let mut file = fs::File::create(&staged)?;
-        file.write_all(MAGIC)?;
-        serde_json::to_writer(&mut file, &header)?;
-        file.write_all(b"\n")?;
-        file.write_all(&compressed)?;
-        file.sync_all()?;
-    }
-    fs::rename(&staged, &target)?;
+    output.write_all(MAGIC)?;
+    serde_json::to_writer(&mut *output, &header)?;
+    output.write_all(b"\n")?;
+    output.write_all(&compressed)?;
     Ok(())
 }
 
 /// The header line of a snapshot file (it is short; the replay follows).
 fn read_header(file: &Path) -> Option<serde_json::Value> {
-    let mut reader = std::io::BufReader::new(fs::File::open(file).ok()?);
+    let mut reader = std::io::BufReader::new(files::open(file).ok()?);
     let mut magic = [0_u8; MAGIC.len()];
     reader.read_exact(&mut magic).ok()?;
     (magic == MAGIC).then_some(())?;
@@ -309,7 +336,7 @@ fn read_header(file: &Path) -> Option<serde_json::Value> {
 pub(super) fn stream_ends(
     directory: &Path,
 ) -> std::collections::HashMap<TerminalPublicId, (String, u64)> {
-    let Ok(entries) = fs::read_dir(directory) else { return Default::default() };
+    let Ok(entries) = files::read_dir(directory) else { return Default::default() };
     entries
         .flatten()
         .filter_map(|entry| {
@@ -331,10 +358,14 @@ pub(super) fn read(
     terminal_id: &TerminalPublicId,
 ) -> Option<(TerminalReplay, String)> {
     let file = path(directory, terminal_id);
-    if fs::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
+    if files::metadata(&file).ok()?.len() > MAX_SNAPSHOT_FILE_BYTES {
         return None;
     }
-    let contents = fs::read(&file).ok()?;
+    decode(&files::read(&file).ok()?)
+}
+
+/// A snapshot file's replay and generation, `None` when it is malformed.
+pub(crate) fn decode(contents: &[u8]) -> Option<(TerminalReplay, String)> {
     let rest = contents.strip_prefix(MAGIC)?;
     let newline = rest.iter().position(|byte| *byte == b'\n')?;
     let (header, body) = rest.split_at_checked(newline)?;
@@ -362,13 +393,16 @@ pub(super) fn read(
 /// the files of terminals that are no longer in the session otherwise.
 pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
     let Some(directory) = store.directory() else { return };
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     if policy.mode == PersistenceMode::Memory {
         let mut removed = 0_usize;
         for entry in entries.flatten() {
             let path = entry.path();
-            let result =
-                if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+            let result = if path.is_dir() {
+                files::remove_dir_all(&path)
+            } else {
+                files::remove_file(&path)
+            };
             removed += usize::from(result.is_ok());
         }
         if removed > 0 {
@@ -394,7 +428,8 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
             continue;
         }
         let path = entry.path();
-        let _ = if path.is_dir() { fs::remove_dir_all(&path) } else { fs::remove_file(&path) };
+        let _ =
+            if path.is_dir() { files::remove_dir_all(&path) } else { files::remove_file(&path) };
     }
     if policy.mode != PersistenceMode::Full {
         super::segments::remove_all(directory);
@@ -403,7 +438,7 @@ pub(super) fn prune(mux: &Mux, store: &OutputStore, policy: PersistencePolicy) {
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
 pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+    let Ok(entries) = files::read_dir(directory) else { return };
     let mut files = entries
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|extension| extension == suffix))
@@ -421,7 +456,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         if total <= cap {
             break;
         }
-        if fs::remove_file(&path).is_ok() {
+        if files::remove_file(&path).is_ok() {
             total -= len;
         }
     }

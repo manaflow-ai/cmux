@@ -104,7 +104,10 @@ struct AppMemoryConsumers {
     /// `browser.hibernation`, the memory pressure and Low Power Mode. Tests pass one on their own deadlines.
     func installPageLifecycle(_ lifecycle: PageLifecycle) {
         let pages = services.pages
-        lifecycle.pageOfTab = { [weak pages] key in (pages?.existingView(key)?.content as? PageWebView).map(PageWebViewLifecycle.init) }
+        let encoder = PageSnapshotEncoder(work: services.work, mainWork: services.mainWork)
+        lifecycle.pageOfTab = { [weak pages] key in
+            (pages?.existingView(key)?.content as? PageWebView).map { PageWebViewLifecycle($0, encoder: encoder) }
+        }
         services.webUI.lifecycle = lifecycle
         services.cache.pageLifecycle = lifecycle
     }

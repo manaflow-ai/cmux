@@ -7,7 +7,7 @@ pub(super) mod machine_catalog;
 
 use super::*;
 use cmux_threads::work::{Lane, Priority, Shutdown};
-use crate::event_cause::{EventCause, EventCauseScope};
+use crate::event_cause::EventCause;
 use crate::request_origin::page_router_table;
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
@@ -55,7 +55,9 @@ pub(super) fn handle_connection_frame_at(
     // Every event this frame sets off, here or on a thread it hands work
     // to, carries the connection's cause (crate::event_cause).
     let (remote, cause) = mux.frame_client(client);
-    let _cause = EventCauseScope::enter(cause);
+    // The frame runs at its cause's class (crate::request_qos).
+    let request_qos = mux.request_qos();
+    let _cause = request_qos.enter(cause);
     if matches!(transport, ClientTransport::Remote) || remote {
         return remote_relay::handle_watched_frame(
             mux,
@@ -205,9 +207,12 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
     }
     // An envelope's `origin` claim may only narrow the cause, as it
     // only narrows the origin; the origin gate still checks the claim.
+    // The narrowed cause sets the class too: a claimed automation line
+    // runs at UTILITY here, as it would on the dispatcher.
+    let request_qos = mux.request_qos();
     let _claimed =
         request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-            EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+            request_qos.enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
         });
     let arrival = RequestArrival::parsed_now(arrived);
     let mut span = match (page_span, &request) {
@@ -236,7 +241,8 @@ fn resource_line(line: &LineFrame<'_>, head: &RequestHead<'_>) -> Option<bool> {
             crate::debug_spans::install(Some(trace));
             true
         });
-    let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
+    let keep_open =
+        origin_gate::handle_resource_line(mux, client, message, request, writer, &mut span);
     if traced {
         crate::debug_spans::mark("reply.sent");
         crate::debug_spans::finish(crate::debug_spans::take());
@@ -278,6 +284,10 @@ pub(super) fn handle_request_with_cancellation(
     }
     if sized_browser_attach(mux, &cmd) {
         return start_sized_browser_attach(mux, client, id, cmd, span.start_async(), writer);
+    }
+    // A remote client goes on to the relay gate, which refuses it.
+    if matches!(cmd, Command::MachineListeningTcp) && !mux.is_remote_client(client) {
+        return cmd_server::start_machine_listening_tcp(mux, id, span.start_async(), writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);
@@ -492,7 +502,7 @@ pub(super) fn write_vt_state_command_json(
 }
 
 pub(super) fn auth_token(message: &str) -> Option<String> {
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::line_parses::parse(message).ok()?;
     let object = value.as_object()?;
     if object.len() != 1 {
         return None;
@@ -505,7 +515,7 @@ pub(super) fn auth_token(message: &str) -> Option<String> {
 }
 
 pub(super) fn pairing_request(message: &str) -> bool {
-    let Ok(value) = serde_json::from_str::<Value>(message) else { return false };
+    let Ok(value) = crate::line_parses::parse::<Value>(message) else { return false };
     let Some(object) = value.as_object() else { return false };
     if object.len() != 1 {
         return false;
