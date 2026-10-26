@@ -136,6 +136,7 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -357,6 +358,8 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { avatarRows } from "./header/avatarRow";
+import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -519,6 +522,8 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
+      agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -6675,6 +6680,9 @@ function AcpmuxPane() {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      agentAvatarChanged(sessionId) {
+        if (typeof sessionId === "string") agentAvatarChanged(sessionId);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -7794,6 +7802,16 @@ function AcpmuxPane() {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  const avatarSrc = useAgentAvatar(snapshot.sessionId);
+  const avatar = avatarRows(
+    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    {
+      set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
+      remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
+    },
+    t,
+  );
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8090,6 +8108,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
@@ -9734,7 +9753,14 @@ function AcpmuxPane() {
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
-                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                    <HomeLists
+                      sessions={snapshot.sessions}
+                      currentId={snapshot.sessionId}
+                      asks={snapshot.asks}
+                      onSelect={selectSession}
+                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      shortcuts={!hasBottomAsk}
+                    />
                   </div>
                 )}
                 {hostErrorCard}
