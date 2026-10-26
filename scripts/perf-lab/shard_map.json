@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 18850,
-            "T2": 28530
+            "T1": 19120,
+            "T2": 29940
           },
           "stories": {
             "T1": [
@@ -54,8 +54,10 @@
               "tab-switch",
               "tab-switch-repeat",
               "tab-switch-stages",
+              "terminal-resize",
               "typing",
-              "typing-stress"
+              "typing-stress",
+              "window-live-resize"
             ],
             "T2": [
               "acpmux-overhead",
@@ -76,12 +78,17 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "browser-engine-chromium",
+              "browser-engine-webkit",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
+              "devtools-resize-live",
+              "drag-daemon",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -91,6 +98,8 @@
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "terminal-resize-stress",
+              "tui-browser-frames",
               "typing-flood-stress"
             ]
           }
@@ -106,7 +115,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 28530
+            "T2": 29940
           },
           "stories": {
             "T2": [
@@ -128,12 +137,17 @@
               "action-sweep-stress-7",
               "action-sweep-stress-8",
               "automation-typing",
+              "browser-engine-chromium",
+              "browser-engine-webkit",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
+              "devtools-resize-live",
+              "drag-daemon",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -143,6 +157,8 @@
               "sidebar-churn-typing",
               "sidebar-drag-live",
               "sidebar-drag-stress",
+              "terminal-resize-stress",
+              "tui-browser-frames",
               "typing-flood-stress"
             ]
           }
@@ -158,7 +174,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 9430
+            "T1": 9520
           },
           "stories": {
             "T0": [
@@ -186,7 +202,8 @@
               "switch",
               "tab-switch",
               "tab-switch-repeat",
-              "typing-stress"
+              "typing-stress",
+              "window-live-resize"
             ]
           }
         },
@@ -194,7 +211,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 9420
+            "T1": 9600
           },
           "stories": {
             "T0": [
@@ -225,6 +242,7 @@
               "sidebar-mirror-rebuild",
               "sidebar-stress",
               "tab-switch-stages",
+              "terminal-resize",
               "typing"
             ]
           }
