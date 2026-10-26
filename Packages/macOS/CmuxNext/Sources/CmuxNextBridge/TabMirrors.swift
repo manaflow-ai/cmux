@@ -12,22 +12,29 @@ import CmuxNextCompat
 /// observes pane X only.
 @MainActor
 public final class TabMirrors {
-    private let panes = ObservedMap<String, [String]>()
+    /// One pane's mirrors, and a count of the selections asked of it (so a pane whose mirror was
+    /// already listed still maps its strip again and shows the selection).
+    private struct Entry: Equatable {
+        var tabs: [String] = []
+        var shows: UInt64 = 0
+    }
+
+    private let panes = ObservedMap<String, Entry>()
 
     public init() {}
 
     /// The tabs `pane` (`PaneModel.id`) mirrors, in strip order.
     public subscript(pane: String) -> [String] {
-        panes[pane] ?? []
+        panes[pane]?.tabs ?? []
     }
 
     /// Adds `tab` to `pane`'s mirrors (last in its strip); false when it was there already.
     @discardableResult
     public func add(_ tab: String, to pane: String) -> Bool {
-        var tabs = self[pane]
-        guard !tabs.contains(tab) else { return false }
-        tabs.append(tab)
-        panes[pane] = tabs
+        var entry = panes[pane] ?? Entry()
+        guard !entry.tabs.contains(tab) else { return false }
+        entry.tabs.append(tab)
+        panes[pane] = entry
         return true
     }
 
@@ -39,7 +46,10 @@ public final class TabMirrors {
     @discardableResult
     public func show(_ tab: String, in pane: String, selecting memories: [TabSelectionMemory]) -> Bool {
         add(tab, to: pane)
+        guard !memories.isEmpty else { return true }
         for memory in memories { memory.select(tab, in: pane) }
+        // The pane observes its entry: a selection of a mirror it already listed maps its strip again.
+        panes[pane]?.shows &+= 1
         return true
     }
 
@@ -51,10 +61,9 @@ public final class TabMirrors {
         let candidates = pane.map { [$0] } ?? panes.keys
         var left: [String] = []
         for key in candidates {
-            var tabs = self[key]
-            guard let index = tabs.firstIndex(of: tab) else { continue }
-            tabs.remove(at: index)
-            panes[key] = tabs.isEmpty ? nil : tabs
+            guard var entry = panes[key], let index = entry.tabs.firstIndex(of: tab) else { continue }
+            entry.tabs.remove(at: index)
+            panes[key] = entry.tabs.isEmpty ? nil : entry
             left.append(key)
         }
         return left.sorted()

@@ -35,18 +35,21 @@ lease), [agent-cursor.md](agent-cursor.md), [tab-lifecycle.md](tab-lifecycle.md)
 
 Picked A. It costs nothing while not shown, keeps one page, needs no new engine work, and the person
 can take over in Home (click, type) because it is the real page. The one limit: one page view draws
-in one place at a time. Two windows that show both places at once show it in the one that presented
-it last; the other pane shows its last state when it re-shows. B is the follow-up for that case.
+in one place at a time. While another pane draws the page on screen (its own pane in another window,
+or a second window's mirror), a mirror yields and shows nothing; it takes the page on its next show
+once that pane stops drawing it. B is the follow-up for showing both at once.
 
 ## 3. Behavior
 
+- Only a tab whose page the app draws can be mirrored (not a daemon-rendered or app browser tab).
 - `browser.page.mirror {tab, pane?, off?}` (`cmux browser <tab_…> mirror [--pane P] [--off]`): lists
   the tab in `pane`'s strip too, default the column right of the Home chat. Selected unless the
   person's focus is in that pane. `off` takes it out of `pane`, or of every pane. It drives nothing,
   so it takes no lease. Refused for the tab's own pane (`invalid_params`).
 - Home mirror: an agent's first write on a tab outside the Home workspace (any `browser.page.*`
   write naming `agent`) mirrors that tab into Home's right column; the agent's next such tab
-  replaces its earlier mirror (at most one mirror per agent). A tab already in Home, or a request
+  replaces its earlier mirror (at most one mirror per agent). A tab is mirrored once: a mirror the
+  person closed does not come back when the agent writes again after its lease lapsed. A tab already in Home, or a request
   with no agent name, mirrors nothing.
 - Showing the mirror presents the tab's page in Home's pane. While it is on screen it is the page's
   presenter, so the page renders and is not frozen or hibernated, though its own workspace is parked.
@@ -58,7 +61,8 @@ it last; the other pane shows its last state when it re-shows. B is the follow-u
 - `browser.page.right` treats a mirrored tab the column shows as the shown tab (reads it without a
   lease; writes need `--take`, as for the person's own tab).
 - The topology lists `mirrored_tabs` on a pane that has any; `tabs` stays the daemon's.
-- Closing the mirror chip takes the mirror out; the tab and its page stay. Closing the tab removes
+- Closing the mirror chip (×, Cmd-W) takes the mirror out; the tab and its page stay (the page's
+  beforeunload never runs for a mirror's close). Closing the tab removes
   its mirrors. Mirrors are session state (not restored after a relaunch).
 
 ## 4. Screenshots

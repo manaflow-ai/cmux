@@ -18,7 +18,8 @@ import Foundation
 /// workspace mirrors that tab into Home's right column (``leasing(_:)``), and
 /// the agent's next such tab replaces its earlier mirror, so Home lists at
 /// most one mirror per agent and the person sees every agent's browser
-/// without opening its workspace.
+/// without opening its workspace. A tab is mirrored once: a mirror the person
+/// closed does not come back when the agent writes again after a pause.
 extension BrowserPageService {
     func mirrorMethod() -> ControlMethod {
         let mirrors = mirrors
@@ -73,9 +74,10 @@ extension BrowserPageService {
         guard let column = BrowserRightColumn.resolve(in: topology), let pane = column.pane else { return }
         let home = column.workspace.screens.lazy.flatMap(\.panes)
         guard !home.contains(where: { $0.tabs.contains { $0.id == tab.id } || $0.mirroredTabIDs.contains(tab.id) }) else { return }
-        if let earlier = await leases.noteHomeMirror(tab.id, for: agent), earlier != tab.id {
-            _ = await mirrors.unmirror(tab: earlier, from: pane.id)
-        }
+        let earlier = await leases.noteHomeMirror(tab.id, for: agent)
+        // Once per tab: a mirror the person closed, or moved off, stays so after the agent's pauses.
+        guard earlier != tab.id else { return }
+        if let earlier { _ = await mirrors.unmirror(tab: earlier, from: pane.id) }
         _ = await mirrors.mirror(tab: tab.id, into: pane.id, select: topology.focus.paneID != pane.id)
     }
 }

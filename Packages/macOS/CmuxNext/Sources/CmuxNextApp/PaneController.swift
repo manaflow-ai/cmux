@@ -559,12 +559,21 @@ final class PaneController: SurfacePresenter, PresentablePane {
 /// presenter, so the page keeps rendering and is never frozen or hibernated
 /// as hidden, though the tab's own workspace is parked.
 extension PaneController {
-    /// The live mirrored tabs: a tab that closed, or that is this pane's own, lists no mirror.
+    /// The live mirrored tabs: a tab that closed, that is this pane's own, or whose page the app does not
+    /// draw (a daemon-rendered or app browser tab) lists no mirror.
     var liveMirrors: [(id: String, tab: TabModel)] {
         services.tabMirrors[paneKey].compactMap { id in
-            guard let (tab, holder) = services.locateTab(id), holder !== pane, tab.kind == .browser else { return nil }
+            guard let (tab, holder) = services.locateTab(id), holder !== pane, Self.mirrorable(tab) else { return nil }
             return (id, tab)
         }
+    }
+
+    /// A browser tab whose one page this app draws, so a second pane can show it.
+    static func mirrorable(_ tab: TabModel) -> Bool { tab.kind == .browser && tab.isFrontendOwned && tab.appTab == nil }
+
+    /// Strip item `id` is a mirror here (`TabMirrors`), not one of this pane's own tabs.
+    func isMirror(_ id: StripTabID) -> Bool {
+        services.tabMirrors.mirrors(id.rawValue, in: paneKey) && !pane.tabs.contains { $0.id == id.rawValue }
     }
 
     /// Strip items of this pane's mirrors, after its own tabs.
@@ -585,9 +594,14 @@ extension PaneController {
     }
 
     /// The page of mirrored tab `key`, made or woken like its own pane would; nil for any other key.
+    /// A mirror yields while another pane draws the page on screen (its own pane, or another
+    /// window's mirror): one view draws in one place, and taking it back and forth would blank one
+    /// pane and move the page view each frame. It shows the page again on its next show once that
+    /// pane stops drawing it (its workspace parked).
     func mirroredContent(for key: String) -> TabContent? {
         guard services.tabMirrors.mirrors(key, in: paneKey), let (tab, holder) = services.locateTab(key), holder !== pane,
-              tab.kind == .browser, tab.isFrontendOwned, tab.appTab == nil else { return nil }
+              Self.mirrorable(tab) else { return nil }
+        if let owner = services.cache.presenter(of: key), owner !== self, services.cache.isRendering(key) { return nil }
         return services.cache.browser(for: tab).map(TabContent.browser)
     }
 }

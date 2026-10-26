@@ -231,7 +231,7 @@ extension PaneController {
         var keys: [String] = []
         for id in ids {
             // A mirror's close takes the mirror out; the tab and its page stay in their own pane.
-            if services.tabMirrors.mirrors(id.rawValue, in: paneKey), pane.tabs.allSatisfy({ $0.id != id.rawValue }) {
+            if isMirror(id) {
                 services.tabMirrors.remove(id.rawValue, from: paneKey) // its strip maps again (observed)
                 continue
             }
