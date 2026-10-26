@@ -6,10 +6,10 @@
 // (mojo/public/cpp/bindings/lib/message_internal.h, `MessageHeader`).
 //
 // Every member has an explicit CodingKey with its wire name: the generated encoder needs
-// no key strategy, so the keys inside dictionary values go out as given
-// (RequestSchema.dictionaryValuedFields lists where that changes bytes on purpose).
+// no key strategy (WireKeyInventory lists the keys the old snake-case one sent otherwise).
 // Nothing it writes is committed; main writes the files once the requests' target
-// carries DaemonRequest (task 025) and the named schema types (task 020).
+// carries DaemonRequest and FieldUpdate (task 025) and the named schema types (task 020),
+// which must be Hashable to be a FieldUpdate's value.
 
 /// Emits the request and response types of a ``RequestSchema``.
 struct RequestEmitter {
@@ -73,8 +73,9 @@ struct RequestEmitter {
         switch type {
         case .object(let object):
             writer.blank()
-            let conformance = role == .encodable ? "Encodable" : "Decodable"
-            writer.open("public struct \(object.name): \(conformance), Sendable, Equatable")
+            // An encodable object can be a `FieldUpdate` value, which needs Hashable.
+            let conformance = role == .encodable ? "Encodable, Sendable, Hashable" : "Decodable, Sendable, Equatable"
+            writer.open("public struct \(object.name): \(conformance)")
             for field in object.fields {
                 if let declared = field.type.declared { declare(declared, role: role, into: &writer) }
             }
@@ -143,7 +144,7 @@ struct RequestEmitter {
         case .encodable:
             writer.open("public func encode(to encoder: any Encoder) throws")
             writer.line("var container = encoder.container(keyedBy: CodingKeys.self)")
-            for member in coded { writer.line(member.encodeStatement) }
+            for member in coded { member.encodeStatements.forEach { writer.line($0) } }
         case .decodable:
             writer.open("public init(from decoder: any Decoder) throws")
             writer.line("let container = try decoder.container(keyedBy: CodingKeys.self)")

@@ -1,10 +1,13 @@
 /// One member of a generated request or response: its Swift property and how the
 /// generated coder writes or reads it (RequestEmitter, p05-ipc task 021).
 ///
-/// A request writes what it holds: a nil optional is left out, so a line carries
-/// only the members the caller set (the daemon applies the schema's defaults); a
-/// required nullable member writes `null`. A response reads the schema's `default`
-/// for an absent optional member when that default has a Swift literal.
+/// A request writes what it holds, so a line carries only the members the caller set
+/// (the daemon applies the schema's defaults). An optional nullable member is a
+/// `FieldUpdate`, as in the hand-written requests: `.unchanged` leaves the key out,
+/// `.clear` writes `null` (update-bookmark: "null clears"), `.set` the value. An
+/// optional member that is not nullable, or is `omit_nil`, is `T?` and left out when
+/// nil; a required nullable member writes `null`. A response reads the schema's
+/// `default` for an absent optional member when that default has a Swift literal.
 struct RequestMember {
     static let integerTypes: Set = ["Int32", "UInt16", "UInt32", "Int64", "UInt64"]
 
@@ -51,31 +54,48 @@ struct RequestMember {
         }
     }
 
+    /// Whether a request sends this member as absent, `null` or a value: a `FieldUpdate`.
+    var isUpdate: Bool {
+        role == .encodable && literal == nil && !field.required && field.nullable && !field.omitNil
+    }
+
     var isOptional: Bool {
-        guard literal == nil else { return false }
+        guard literal == nil, !isUpdate else { return false }
         if field.required { return field.nullable }
         return defaultLiteral == nil
     }
 
-    var propertyType: String { field.type.swift + (isOptional ? "?" : "") }
+    var propertyType: String {
+        isUpdate ? "FieldUpdate<\(field.type.swift)>" : field.type.swift + (isOptional ? "?" : "")
+    }
 
-    /// The init parameter's default: nil for an optional member, its constant or schema
-    /// default otherwise; a required member, nullable or not, has none.
+    /// The init parameter's default: `.unchanged` for an update, nil for an optional member,
+    /// its constant or schema default otherwise; a required member, nullable or not, has none.
     var parameterDefault: String? {
         if let literal { return literal.swift }
         if field.required { return nil }
+        if isUpdate { return ".unchanged" }
         return isOptional ? "nil" : defaultLiteral
     }
 
-    /// The statement of `encode(to:)`.
-    var encodeStatement: String {
-        if let literal { return "try container.encode(\(literal.swift) as \(literal.base), forKey: \(key))" }
+    /// The statements of `encode(to:)`.
+    var encodeStatements: [String] {
+        if let literal { return ["try container.encode(\(literal.swift) as \(literal.base), forKey: \(key))"] }
+        if isUpdate {
+            return [
+                "switch self.\(name) {",
+                "case .unchanged: break",
+                "case .clear: try container.encodeNil(forKey: \(key))",
+                "case .set(let value): try container.encode(value, forKey: \(key))",
+                "}",
+            ]
+        }
         // A required nullable member writes `null` for nil (Optional encodes as null); an
         // optional one, or one marked omit_nil, leaves the key out.
         if isOptional && (!field.required || field.omitNil) {
-            return "try container.encodeIfPresent(self.\(name), forKey: \(key))"
+            return ["try container.encodeIfPresent(self.\(name), forKey: \(key))"]
         }
-        return "try container.encode(self.\(name), forKey: \(key))"
+        return ["try container.encode(self.\(name), forKey: \(key))"]
     }
 
     /// The statements of `init(from:)`.

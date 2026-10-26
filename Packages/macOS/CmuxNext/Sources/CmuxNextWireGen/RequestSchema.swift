@@ -41,6 +41,8 @@ struct RequestSchema: Equatable {
     ]
     /// Aliases with a Swift type of their own; the others resolve to their target.
     static let aliasTypes = ["Base64": "Data"]
+    /// The `opaque_json` type of an arbitrary JSON document; the others hold a number or a string.
+    static let documentType = "JsonValue"
     /// Keys `RequestEnvelope` writes around every request's fields.
     static let envelopeKeys: Set = ["id", "cmd"]
     static let scalars = [
@@ -57,6 +59,8 @@ struct RequestSchema: Equatable {
     }
 
     let commands: [RequestCommand]
+    /// Where the generated coder's keys differ from the old snake-case encoder's.
+    let inventory: WireKeyInventory
 
     init(sdkSchema: Data, client: String = MethodTableSchema.macOSClient) throws(RequestSchemaError) {
         let document: SchemaJSON
@@ -76,8 +80,10 @@ struct RequestSchema: Equatable {
         for (name, family) in document["families"]?.object ?? [:] {
             if let raw = family["id"]?.integer, let id = UInt8(exactly: raw) { families[id] = name }
         }
-        let reader = RequestTypeReader(types: document["types"]?.object ?? [:])
+        let types = document["types"]?.object ?? [:]
+        let reader = RequestTypeReader(types: types)
         var commands: [RequestCommand] = []
+        var requests: [(wire: String, request: SchemaJSON)] = []
         var owners: [String: String] = [:]
         for wire in entries.keys.sorted() {
             guard let node = entries[wire] else { continue }
@@ -88,34 +94,18 @@ struct RequestSchema: Equatable {
                 throw RequestSchemaError(path: path, message: "\(command.typeName) is also \"\(other)\"'s name")
             }
             commands.append(command)
+            if let request = node["request"] { requests.append((wire: wire, request: request)) }
         }
         self.commands = commands
+        inventory = WireKeyInventory(types: types, requests: requests)
     }
 
-    /// `command.field` (and `command.field.member` inside inline objects) of every
-    /// request field whose value can be a dictionary. The old encoder's snake-case
-    /// strategy renamed the keys inside them; the generated encoder writes them as
-    /// given, so their bytes change on purpose (p05-ipc tasks 030-043 and 046).
-    var dictionaryValuedFields: [String] {
-        var out: [String] = []
-        for command in commands { Self.collectDictionaries(command.fields, path: command.wire, into: &out) }
-        return out.sorted()
-    }
-
-    private static func collectDictionaries(_ fields: [WireType.Field], path: String, into out: inout [String]) {
-        for field in fields {
-            let fieldPath = "\(path).\(field.wire)"
-            if field.type.holdsDictionary { out.append(fieldPath) }
-            if case .object(let object)? = field.type.declared {
-                collectDictionaries(object.fields, path: fieldPath, into: &out)
-            }
-        }
-    }
-
+    /// Whether `client` calls the command (design 3.3: Swift generates only methods whose
+    /// `clients` include macos). A command must name its clients: absent is refused, not
+    /// read as every client, so a new command never gets a macOS type by omission.
     private static func serves(_ node: SchemaJSON, client: String, path: String) throws(RequestSchemaError) -> Bool {
-        guard let value = node["clients"] else { return true }
-        guard case .array(let items) = value else {
-            throw RequestSchemaError(path: "\(path).clients", message: "must be an array of client names")
+        guard case .array(let items)? = node["clients"], !items.isEmpty, items.allSatisfy({ $0.string != nil }) else {
+            throw RequestSchemaError(path: "\(path).clients", message: "must be a non-empty array of client names")
         }
         return items.contains(.string(client))
     }

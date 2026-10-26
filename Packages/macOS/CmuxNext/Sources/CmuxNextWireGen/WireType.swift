@@ -57,18 +57,6 @@ indirect enum WireType: Equatable {
         }
     }
 
-    /// Whether a value of this type can hold a JSON object whose keys the old
-    /// snake-case encoder renamed: a map, or the schema's arbitrary JSON document
-    /// (`JsonValue`; the other opaque types hold a number or a string).
-    var holdsDictionary: Bool {
-        switch self {
-        case .json(let schema): schema == "JsonValue"
-        case .map: true
-        case .array(let item): item.holdsDictionary
-        case .named, .object, .enumeration, .literal: false
-        }
-    }
-
     /// Whether the generated file needs Foundation (for `Data`).
     var usesFoundation: Bool {
         switch self {
