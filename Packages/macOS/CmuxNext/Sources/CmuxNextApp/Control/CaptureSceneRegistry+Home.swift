@@ -65,6 +65,7 @@ extension CaptureSceneRegistry {
         let settled = await frames.settled(
             until: {
                 guard terminal.tab.agent?.state == .blocked, agents.allSatisfy({ $0.0.reached($0.1) }),
+                      // visibility-walk-allow: the capture waits for what AppKit shows before it snapshots the window; a node would mirror it a turn late
                       let host = page.host, host.window != nil, !host.isHiddenOrHasHiddenAncestor,
                       let transcript = HomePageTab.transcript(in: host), transcript.debugFirstRunShown else { return false }
                 return statuses.isSubset(of: transcript.debugFirstRunAgents.filter(\.shown).map(\.status))
