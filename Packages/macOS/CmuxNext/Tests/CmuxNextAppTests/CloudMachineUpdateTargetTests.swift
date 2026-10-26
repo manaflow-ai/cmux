@@ -290,7 +290,7 @@ nonisolated final class FakeCloudMachine: @unchecked Sendable {
                     return answer
                 }
             },
-            reconnect: { self.lock.withLock { self.counts.reconnects += 1 } })
+            reconnect: { _ in self.lock.withLock { self.counts.reconnects += 1 } })
     }
 }
 

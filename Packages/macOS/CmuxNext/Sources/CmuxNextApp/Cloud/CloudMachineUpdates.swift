@@ -22,8 +22,8 @@ import os
 @MainActor
 final class CloudMachineUpdates {
     private weak var services: AppServices?
-    /// Each machine's last handshake seen (``handshake(_:machines:)``).
-    private var seen: [String: String] = [:]
+    /// Which handshakes are still to offer (``HandshakeFollower``).
+    private var follower = HandshakeFollower()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.machine-update")
 
     private init(services: AppServices) {
@@ -37,11 +37,13 @@ final class CloudMachineUpdates {
         let machines = services.machines
         // task-owner: app lifetime; follows the Cloud machines' handshakes
         return Task { @MainActor in
+            // The toggles too: a handshake left while they were off is offered once they turn on.
             let stream = ObservationStream({
-                machines.cloud.map { Handshake(machineID: $0.machineID, key: CloudMachineUpdates.handshake($0, machines: machines)) }
+                Snapshot(enabled: CloudTunables.updatesCloudMachines,
+                         handshakes: machines.cloud.map { Handshake(machineID: $0.machineID, key: CloudMachineUpdates.handshake($0, machines: machines)) })
             })
-            for await handshakes in stream {
-                updates.note(handshakes)
+            for await snapshot in stream {
+                updates.note(snapshot)
             }
         }
     }
@@ -50,6 +52,12 @@ final class CloudMachineUpdates {
     nonisolated struct Handshake: Sendable, Equatable {
         var machineID: String
         var key: String?
+    }
+
+    /// The Cloud machines' handshakes and the toggles, as the follower sees them at once.
+    nonisolated struct Snapshot: Sendable, Equatable {
+        var enabled: Bool
+        var handshakes: [Handshake]
     }
 
     /// A key that changes with every new daemon connection of `session`: the connection object,
@@ -61,26 +69,24 @@ final class CloudMachineUpdates {
         return machines.compatibility(of: session.daemon)?.level == .incompatible ? "refused" : nil
     }
 
-    private func note(_ handshakes: [Handshake]) {
-        let present = Set(handshakes.map(\.machineID))
-        seen = seen.filter { present.contains($0.key) }
-        for handshake in handshakes {
-            guard let key = handshake.key, seen[handshake.machineID] != key else { continue }
-            seen[handshake.machineID] = key
-            offer(handshake.machineID)
+    private func note(_ snapshot: Snapshot) {
+        for handshake in follower.due(snapshot) where offer(handshake.machineID) {
+            follower.offered(handshake)
         }
     }
 
     /// Offers machine `machineID` to the shared policy unless the toggles are off or the app has
-    /// no `cmux` client. The policy keeps one entry per machine, so an offer per handshake is safe.
-    private func offer(_ machineID: String) {
+    /// no `cmux` client; false when it made no offer. The policy keeps one entry per machine, so an
+    /// offer per handshake is safe.
+    private func offer(_ machineID: String) -> Bool {
         guard CloudTunables.updatesCloudMachines, let services,
-              let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return }
+              let session = services.machines.session(machineID), let binary = services.cloud.move.cli else { return false }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         let target = CloudMachineUpdateTarget(machineID: machineID, displayName: session.machine.title,
                                               source: Self.source(session, machines: services.machines, cli: cli, logger: logger))
         // task-owner: returns once the policy queued the machine; the policy's drain owns the update
         Task { await DaemonUpdatePolicy.shared.offer(target) }
+        return true
     }
 
     // MARK: The machine's side
@@ -99,7 +105,7 @@ final class CloudMachineUpdates {
                 logger.info("cloud machine \(machineID, privacy: .public): updating cmux-tui to the app's build")
                 return try await cli.machineUpdate(socket: socket, toBundled: true)
             },
-            reconnect: { [weak session] in await session?.reconnectAfterUpdate() })
+            reconnect: { [weak session] restarted in await session?.reconnectAfterUpdate(restarted: restarted) })
     }
 
     /// The machine's daemon as the app sees it: connected (its build and level), refused
@@ -123,5 +129,28 @@ final class CloudMachineUpdates {
         if let appLink = session.appLink { return await appLink.currentSocket }
         guard session.link != nil, let endpoint = session.daemon.remoteEndpoint else { return nil }
         return try? await endpoint().socketPath
+    }
+}
+
+/// Which Cloud machine handshakes ``CloudMachineUpdates`` still has to offer: each new handshake
+/// once. Only an offer that was made spends it: one left while the toggles are off, or while the
+/// app has no `cmux` client, stays due. A machine with no handshake (no connection, not refused)
+/// forgets its last, so its next one is new, also a second refusal, whose key is the same.
+nonisolated struct HandshakeFollower: Sendable {
+    /// Each machine's last handshake offered.
+    private(set) var spent: [String: String] = [:]
+
+    /// The handshakes to offer now: none while the toggles are off; else each that differs from
+    /// its machine's last offered one. Forgets machines that are gone or have no handshake.
+    mutating func due(_ snapshot: CloudMachineUpdates.Snapshot) -> [CloudMachineUpdates.Handshake] {
+        let present = Set(snapshot.handshakes.compactMap { $0.key == nil ? nil : $0.machineID })
+        spent = spent.filter { present.contains($0.key) }
+        guard snapshot.enabled else { return [] }
+        return snapshot.handshakes.filter { $0.key != nil && spent[$0.machineID] != $0.key }
+    }
+
+    /// `handshake` was offered: not due again until its machine's handshake changes.
+    mutating func offered(_ handshake: CloudMachineUpdates.Handshake) {
+        spent[handshake.machineID] = handshake.key
     }
 }
