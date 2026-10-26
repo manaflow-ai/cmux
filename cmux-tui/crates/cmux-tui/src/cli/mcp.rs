@@ -1014,7 +1014,7 @@ impl<B: Backend> Server<B> {
         }
         let Some(tool) = v2_tools::find("pane_split") else {
             return tool_error(envelope(
-                v2_tools::invalid("pane_split is unavailable".into()),
+                v2_tools::invalid("pane_split is unavailable"),
                 "not_run",
                 None,
             ));
