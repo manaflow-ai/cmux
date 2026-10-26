@@ -41,8 +41,10 @@ public struct ApprovalBanner: Equatable, Sendable {
         let rows = PushForm(payload: p).rows.filter { seen.insert($0.id).inserted }
         let kinds = Dictionary(p.options.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
         // The single-use answers lead, as the notification's own buttons (`PushActions.plan`).
-        deny = rows.first { $0.style == .deny && kinds[$0.id] == .rejectOnce } ?? rows.first { $0.style == .deny }
-        allow = rows.first { $0.style == .allow && kinds[$0.id] == .allowOnce } ?? rows.first { $0.style == .allow }
+        let deny = rows.first { $0.style == .deny && kinds[$0.id] == .rejectOnce } ?? rows.first { $0.style == .deny }
+        let allow = rows.first { $0.style == .allow && kinds[$0.id] == .allowOnce } ?? rows.first { $0.style == .allow }
+        self.deny = deny
+        self.allow = allow
         more = rows.filter { $0.id != deny?.id && $0.id != allow?.id }
     }
 
