@@ -32,6 +32,13 @@ pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 /// reading one of that peer's chats here reads it again from its last record.
 pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
+/// Removes peer `name`'s rows from `map`, answering their summaries (for the purge notices).
+fn take_peer_rows(map: &mut HashMap<String, RemoteSession>, name: &str) -> Vec<Value> {
+    let ids: Vec<String> =
+        map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
+    ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
+}
+
 impl Hub {
     // ------------------------------------------------------------- peers
 
@@ -73,7 +80,14 @@ impl Hub {
             self.peer_notices.clone(),
         );
         let settled = peer.settled();
-        if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
+        // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
+        // the instance this replaces, checked current under it (`is_current`), is done before the
+        // new one is registered, never after, so it never removes the new one's rows or copies.
+        let old = {
+            let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            self.peers.lock().unwrap().insert(name.to_owned(), peer.clone())
+        };
+        if let Some(old) = old {
             old.stop();
             // A reconnect keeps when the peer was last seen.
             peer.seed_last_seen(old.link().last_seen);
@@ -173,7 +187,7 @@ impl Hub {
     /// config.json, and it ends with the connection that holds it
     /// (`peer_lease.rs`).
     pub async fn remove_peer(&self, name: &str) -> Result<(), RpcError> {
-        {
+        let gone = {
             // Under the lease lock, so no save of the removed peer's sessions
             // lands after its cache is gone (`save_peer_cache`).
             let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
@@ -182,16 +196,22 @@ impl Hub {
                     "{name:?} is a leased peer; it ends when the connection that leased it closes"
                 )));
             }
+            // Its rows, its cache and its snapshots go under the rows lock it leaves the
+            // registry under (lock order: `peer_leases`, `remote_sessions`, then `peers`): a peer
+            // added again under the name registers after (`spawn_peer`), and keeps what it lists.
+            let mut rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
             let peer = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
             let Some(peer) = peer else {
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
-            self.forget_peer_cache(name);
+            self.forget_peer_files(name);
+            take_peer_rows(&mut rows, name)
+        };
+        // A late notice of it finds it gone. Clients watching the list drop its rows.
+        for summary in gone {
+            self.announce_remote(name, summary, "purged");
         }
-        // After the peer left the registry: a late notice of it finds it
-        // gone, or its rows go here.
-        self.purge_peer_rows(name);
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
         if let Err(e) = cfg.save() {
@@ -202,12 +222,7 @@ impl Hub {
 
     /// Drop every row of peer `name` and tell watching clients they left.
     pub(super) fn purge_peer_rows(&self, name: &str) {
-        let gone: Vec<Value> = {
-            let mut map = self.remote_sessions.lock().unwrap();
-            let ids: Vec<String> =
-                map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
-            ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
-        };
+        let gone = take_peer_rows(&mut self.remote_sessions.lock().unwrap(), name);
         // Clients watching the list drop these rows.
         for summary in gone {
             self.announce_remote(name, summary, "purged");
@@ -532,9 +547,10 @@ impl Hub {
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
-                PeerNotice::Notification { method: m, params, .. } if m == "_acpmux/lagged" => {
-                    // Its live records have a hole now: none is kept until a page (`peer_snapshot.rs`).
-                    self.peer_snapshots.lagged(&peer);
+                PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
+                    // This link's live records have a hole now: none of it is kept until a page
+                    // (`peer_snapshot.rs`). A copy a later link's page joined is not this link's.
+                    self.peer_snapshots.lagged(&peer, (generation, link));
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
@@ -761,9 +777,14 @@ impl Hub {
 
     /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
     /// reconnect. `generation` is the one the row named when the purge was asked: a session
-    /// recreated since keeps its row, and only that generation's event snapshot goes.
-    pub fn forget_remote(&self, peer: &str, mux: &str, generation: Option<u64>) {
+    /// recreated since keeps its row, and only that generation's event snapshot goes. `instance`
+    /// is the peer the purge went to: one replaced since (another machine under the name) keeps
+    /// its rows and copies.
+    pub fn forget_remote(&self, (peer, instance): (&str, u64), mux: &str, generation: Option<u64>) {
         let mut map = self.remote_sessions.lock().unwrap();
+        if !self.is_current(peer, instance) {
+            return;
+        }
         let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
         let key = map
             .iter()

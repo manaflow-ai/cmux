@@ -519,7 +519,9 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
-        let peer_snapshots = peer_snapshot::PeerSnapshots::open(store.peer_cache_dir());
+        // Beside the peer caches, in the home they are in; a memory store keeps neither.
+        let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
