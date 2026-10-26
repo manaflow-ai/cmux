@@ -680,7 +680,8 @@ class PathRoutingStructure(unittest.TestCase):
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
-        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
+        # (the fast tier's fast_runner is attempt 1 only, so not counted here).
         self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
@@ -1837,10 +1838,10 @@ FAST_TIER_FORK_CLAUSE = (
     "&& 'blacksmith-6vcpu-macos-26' || "
 )
 FAST_LANE_CLAUSE = (
-    "vars.CI_FAST_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
-    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || "
+    "needs.macos-placement.outputs.fast_runner != '' && "
+    "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
-# The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
+# The fast tier's runs-on without its fast-lane clause: with no idle fast runner it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
     # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
@@ -1868,18 +1869,75 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
 
 class FastTierRunner(unittest.TestCase):
     def test_the_fast_lane_label_comes_after_the_fork_clause(self):
-        """vars.CI_FAST_LANE_RUNNER gives the fast tier its own owned runner label. A fork pull
-        request must take its hosted label before that variable is read, and with the variable
-        unset the route is the one the job had before it."""
+        """The placement's fast_runner (vars.CI_FAST_LANE_RUNNER while one of its runners is idle)
+        gives the fast tier its own owned runner label. A fork pull request must take its hosted
+        label before it is read, and with it empty the route is the one every cascaded job has."""
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
         runs_on = job["runs-on"]
         self.assertIn(FAST_LANE_CLAUSE, runs_on)
-        self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("vars.CI_FAST_LANE_RUNNER"))
+        self.assertLess(runs_on.index(FAST_TIER_FORK_CLAUSE), runs_on.index("outputs.fast_runner"))
         self.assertTrue(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE) == runs_on.index(FAST_LANE_CLAUSE))
         self.assertEqual(runs_on.replace(FAST_LANE_CLAUSE, "", 1), FAST_TIER_RUNNER_WITHOUT_FAST_LANE)
         # No env value mirrors runs-on with the old route.
         for value in (job.get("env") or {}).values():
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
+
+
+class ReservedLaneLabels(unittest.TestCase):
+    """No runs-on waits on one small reserved pool with no way off it (rulebook: "No job waits on one
+    reserved machine"; 2026-10-25, 15 runs' fast tiers queued an hour behind the two runners left on
+    glaeda-fast-light-xcode-26.6). A reserved lane's label reaches a runs-on only through a placement
+    output that names it while one of its runners is idle; reading the variable there is refused."""
+
+    # Variables naming one reserved owned lane, and the runs-on still reading one directly, with why.
+    RESERVED = ("CI_FAST_LANE_RUNNER", "CI_SESSION_LANE_RUNNER")
+    DIRECT = {
+        ("generated-files", "CI_SESSION_LANE_RUNNER"): (
+            "unset since it was added; setting it needs the same idle gate the fast tier has "
+            "(side_lane_placement.fast_route()) first"
+        ),
+    }
+
+    def test_no_runs_on_reads_a_reserved_lane_variable(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        found = {(name, variable) for name, job in jobs.items() for variable in self.RESERVED
+                 if f"vars.{variable}" in str(job.get("runs-on") or "")}
+        self.assertEqual(found, set(self.DIRECT))
+
+    def test_the_fast_tier_takes_its_label_only_while_the_placement_saw_it_idle(self):
+        runs_on = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]["runs-on"]
+
+        def context(fast="", side="glaeda-side-std-xcode-26.6", attempt=1, actor="someone", **outputs):
+            values = {
+                "github.repository_owner": "manaflow-ai",
+                "github.repository": "manaflow-ai/cmux",
+                "github.event_name": "pull_request",
+                "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                "github.run_attempt": attempt,
+                "github.triggering_actor": actor,
+                "vars.CI_PR_POOL_OWNED": "1",
+                "vars.CI_FAST_LANE_RUNNER": "glaeda-fast-light-xcode-26.6",
+                "vars.CI_SIDE_LANE_RUNNER": side,
+                "needs.macos-placement.outputs.fast_runner": fast,
+                "needs.macos-placement.outputs.runner": side,
+            }
+            values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
+            return values
+
+        fast = "glaeda-fast-light-xcode-26.6"
+        self.assertEqual(evaluate(runs_on, context(fast)), fast)
+        # Busy or unread: the cascade's slot, else the side route; never the reserved label.
+        self.assertEqual(evaluate(runs_on, context(blacksmith_6_jobs=" fast-tier ")), "blacksmith-6vcpu-macos-26")
+        self.assertEqual(evaluate(runs_on, context(hosted_jobs=" fast-tier ", hosted_runner="macos-26")), "macos-26")
+        self.assertEqual(evaluate(runs_on, context()), "glaeda-side-std-xcode-26.6")
+        # The rescue's overflow attempt never goes back to the fast label.
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
+                                                   retry_runner="blacksmith-6vcpu-macos-26")),
+                         "blacksmith-6vcpu-macos-26")
+        # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
+        # side route, never the reserved label (review of #25158).
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "glaeda-side-std-xcode-26.6")
 
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
