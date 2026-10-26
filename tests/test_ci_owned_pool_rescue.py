@@ -703,10 +703,12 @@ class QueueBudget(unittest.TestCase):
         # CI_OWNED_POOL_RESCUE_SECONDS is 30 on manaflow-ai/cmux (2026-09-25).
         clock = Clock()
         api = FakeAPI(clock, persistent_run(compile_started_at=40 + 300), marker=True)
-        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        # Main's dispatch, which the rescue still cancels: so "no cancel" is the budget's doing.
+        code, summary = run_main(api, clock, payload=main_event(), env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
         self.assertEqual(code, 0)
         self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
         self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rescue:", summary)
 
     def test_a_ci_job_waiting_past_the_expected_wait_is_still_rescued(self):
         clock = Clock()
@@ -937,8 +939,9 @@ class Rescuing(unittest.TestCase):
     def test_budget_variable_moves_the_deadline(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(compile_started_at=200), marker=True, finished=lambda s: s >= 400)
-        run_main(api, clock, env_extra={"RESCUE_SECONDS": "300"})
+        _, summary = run_main(api, clock, payload=main_event(), env_extra={"RESCUE_SECONDS": "300"})
         self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rescue:", summary)
 
     def test_newer_head_or_closed_pr_is_not_rerun(self):
         for kwargs, why in (({"head": "b" * 40}, "newer head"), ({"state": "closed"}, "closed")):
