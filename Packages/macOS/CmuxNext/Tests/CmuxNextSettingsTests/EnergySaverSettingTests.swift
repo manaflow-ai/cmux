@@ -2,7 +2,7 @@
 import Testing
 
 /// `energy.saver` (``EnergySaverSetting``): the four modes, `auto` by default, and one schema row
-/// whose choices are exactly the modes.
+/// whose choices are exactly the modes, refused to agents.
 struct EnergySaverSettingTests {
     @Test func aMissingOrUnknownValueIsAuto() {
         #expect(EnergySaverSetting().value(in: .object([:])) == .auto)
@@ -29,6 +29,12 @@ struct EnergySaverSettingTests {
         #expect(choices.map(\.value) == Self.modes)
         #expect(choices.allSatisfy { $0.titleKey != nil })
         #expect(!row.isShownOnSettingsPage, "the row stays off the page until p14-energy-129")
-        #expect(SettingsSchema.agentSettableKeys.contains("energy.saver"))
+    }
+
+    /// Battery and power are the person's call, like `sessions.keepAwake`, and a write of the setting
+    /// ends their "Turn Off Energy Saver for Now": an agent must not do either.
+    @Test func agentsCannotSetIt() {
+        #expect(SettingsSchema.agentRefusedKeys["energy.saver"] == .userOnly)
+        #expect(!SettingsSchema.agentSettableKeys.contains("energy.saver"))
     }
 }

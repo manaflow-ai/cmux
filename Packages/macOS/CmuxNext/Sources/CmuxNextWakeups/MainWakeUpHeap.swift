@@ -19,8 +19,9 @@ struct MainWakeUpHeap<Payload> {
         let earliest: UInt64
         /// The entry must run by here.
         let latest: UInt64
-        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid
-        /// (a flexible window below one second, ``WakeLeeway``'s table).
+        /// It snaps to the heap's ``MainWakeUpHeap/alignment`` at wake time instead of its window's grid:
+        /// a flexible window on the sub-second alignment grid (``WakeLeeway``'s table). Whole-second and
+        /// hidden windows (``WakeLeeway/hidden(delay:)``, a 1 s grid) keep their own.
         let followsAlignment: Bool
         let owner: String
         let payload: Payload
@@ -31,10 +32,13 @@ struct MainWakeUpHeap<Payload> {
             self.window = window
             self.earliest = window.earliest(deadline: deadline)
             self.latest = window.latest(deadline: deadline)
-            self.followsAlignment = window.policy != .precise && window.delay < WakeLeeway.wholeSecondDelay
+            self.followsAlignment = window.policy != .precise && window.grid < WakeLeeway.wholeSecondDelay
             self.owner = owner
             self.payload = payload
         }
+
+        /// When the entry fires if nothing else shares its wake: ``WakeLeeway/fireTime(deadline:)``.
+        var fireTime: UInt64 { window.fireTime(deadline: deadline) }
     }
 
     /// The grid of entries that follow the alignment, in ns (> 0): 8 ms, 32 ms under Energy Saver. It is
@@ -67,6 +71,14 @@ struct MainWakeUpHeap<Payload> {
     /// must run sooner.
     mutating func popDue(now: UInt64) -> Entry? {
         guard let top = entries.first, top.earliest <= now else { return nil }
+        return remove(at: 0)
+    }
+
+    /// Pops the top when its fire time has passed: the release of a heap whose entries all share one
+    /// window shape (the hidden one), where an entry runs only in a fire at or after its own boundary.
+    /// With one shape the fire time grows with the latest time, so looking at the top alone is exact.
+    mutating func popReleased(now: UInt64) -> Entry? {
+        guard let top = entries.first, top.fireTime <= now else { return nil }
         return remove(at: 0)
     }
 

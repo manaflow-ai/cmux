@@ -32,7 +32,7 @@ import PackageDescription
 //   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
-//   CmuxNextTrace -> Compat (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
+//   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
@@ -828,7 +828,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Energy Saver's power inputs (plans/cmux-next/chrome-parity/p14-energy.md D): Low Power Mode,
         // IOKit's power source and battery charge, the thermal state, each observed once for the app
-        // by EnergyMonitor. Only CmuxNextApp (the composition root) depends on it.
+        // by EnergyMonitor, and EnergyPolicyResolver, which turns them and energy.saver into the saver's
+        // reason (EnergySaverMode and EnergyPolicy are core values in CmuxNextWakeups). Only CmuxNextApp
+        // (the composition root) depends on it.
         .target(
             name: "CmuxNextEnergy",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
@@ -855,15 +857,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // The memory coordinator (plans/cmux-next/chrome-parity/p07-memory.md section 3.A): one per
         // process, a port of Chrome's base/memory_coordinator over the consumer protocol and traits in
-        // CmuxNextCompat/Memory. A leaf: it depends only on CmuxNextCompat and only the App imports it.
+        // CmuxNextCompat/Memory. Near a leaf: it depends on CmuxNextCompat and on CmuxNextWakeups (the
+        // footprint emitter's one-shot DemandTimer), and only the App imports it.
         .target(
             name: "CmuxNextMemory",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextMemoryTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextMemory"],
+            dependencies: ["CmuxNextCompat", "CmuxNextMemory", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
@@ -1329,10 +1332,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Release tracing, hang watch and crash keys (plans/cmux-next/chrome-parity/p09-observability.md):
-        // one TraceRuntime per process, like Chrome's TraceLog. Core: it depends only on Compat.
+        // one TraceRuntime per process, like Chrome's TraceLog. Core: it depends only on Compat and swift-atomics.
         .target(
             name: "CmuxNextTrace",
-            dependencies: ["CmuxNextCompat"],
+            // swift-atomics: TraceRuntime's inlinable category check names its `UInt64: AtomicValue` conformance.
+            dependencies: ["CmuxNextCompat", .product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

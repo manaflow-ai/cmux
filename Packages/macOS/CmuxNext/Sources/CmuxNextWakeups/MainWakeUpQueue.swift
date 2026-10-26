@@ -20,12 +20,18 @@ import Foundation
 ///   (`PendingTask::latest_delayed_run_time`, base/pending_task.cc) and the grid is applied at wake time
 ///   (`AdjustDelayedRunTime`): a switch snaps every pending flexible sub-second entry to the new grid,
 ///   never past the latest time it was inserted with. Precise and whole-second entries keep theirs.
+/// - A second heap for hidden entries (``insertHidden(owner:after:_:)``), released only in a fire at or
+///   after each entry's whole uptime second, so hidden work never rides a visible fire before its boundary
+///   (Blink's fenced throttled queue, `WakeUpBudgetPool::CanRunTasksAt`,
+///   third_party/blink/renderer/platform/scheduler/common/throttling/wake_up_budget_pool.cc). Blink also
+///   runs tasks that fall due in the 3 ms after the wake-up (`kThrottledWakeUpDuration`); here those wait
+///   for their own boundary, so a hidden owner that re-arms runs at most once per second.
 ///
 /// ``insert(owner:after:policy:_:)`` and ``cancel(_:)`` work from any thread. They re-arm the timer only
 /// when the fire date changes, earlier or later (`ScheduleDelayedWorkImpl` skips only an equal date); an
-/// insert behind the top costs nothing. A fire runs every due entry on the main actor in deadline order,
-/// with one ledger record per owner that ran (reason `deadline`) and one `MainWakeUpQueue` `fire` record
-/// per wake. No Task and no pool thread take part.
+/// insert behind the top costs nothing. A fire runs due entries (``fire()`` says which) on the main actor
+/// in latest-time order, with one ledger record per owner that ran (reason `deadline`) and one
+/// `MainWakeUpQueue` `fire` record per wake. No Task and no pool thread take part.
 public final class MainWakeUpQueue: Sendable {
     /// Names one pending entry for ``cancel(_:)``.
     public struct Token: Hashable, Sendable {
@@ -40,6 +46,8 @@ public final class MainWakeUpQueue: Sendable {
 
     private struct State {
         var heap = MainWakeUpHeap<Action>()
+        /// Hidden entries, all in ``WakeLeeway/hidden(delay:)`` windows.
+        var hidden = MainWakeUpHeap<Action>()
         var nextID: UInt64 = 0
         /// The uptime the timer is armed for and the last instant its tolerance lets it fire; nil while
         /// it is parked.
@@ -97,7 +105,7 @@ public final class MainWakeUpQueue: Sendable {
     }
 
     /// Entries waiting to run.
-    public var count: Int { state.withLock { $0.heap.count } }
+    public var count: Int { state.withLock { $0.heap.count + $0.hidden.count } }
 
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
     /// `policy` at the energy policy's alignment. Callable from any thread.
@@ -105,11 +113,31 @@ public final class MainWakeUpQueue: Sendable {
     public func insert(
         owner: String, after delay: Duration, policy: DelayPolicy = .flexibleNoSooner, _ action: @escaping Action
     ) -> Token {
-        let (sum, overflow) = uptime().addingReportingOverflow(delay.nanosecondCount)
-        let deadline = overflow ? .max : sum
+        let at = deadline(after: delay)
         return state.withLock { state in
             let window = WakeLeeway.window(delay: delay, policy: policy, alignment: state.alignment)
-            return add(&state, owner: owner, deadline: deadline, window: window, action)
+            return add(&state, owner: owner, deadline: at, window: window, action)
+        }
+    }
+
+    /// Runs `action` on the main thread in the first fire at or after the whole uptime second at or after
+    /// `delay` from now: a hidden node's timer. It runs in no earlier fire, even one made for a visible
+    /// deadline after its own deadline. A delay of zero or less is not throttled and runs on the next fire,
+    /// as Blink throttles only delayed tasks. Its one-second grid does not follow the energy alignment.
+    /// Callable from any thread.
+    @discardableResult
+    public func insertHidden(owner: String, after delay: Duration, _ action: @escaping Action) -> Token {
+        guard delay > .zero else {
+            return insert(owner: owner, at: deadline(after: delay), window: .window(delay: delay), action)
+        }
+        let at = deadline(after: delay)
+        return state.withLock { state in
+            let entry = MainWakeUpHeap<Action>.Entry(
+                id: nextID(&state), deadline: at, window: .hidden(delay: delay), owner: owner, payload: action
+            )
+            state.hidden.insert(entry)
+            rearm(&state)
+            return Token(id: entry.id)
         }
     }
 
@@ -125,8 +153,7 @@ public final class MainWakeUpQueue: Sendable {
     }
 
     private func add(_ state: inout State, owner: String, deadline: UInt64, window: WakeLeeway, _ action: @escaping Action) -> Token {
-        state.nextID &+= 1
-        let id = state.nextID
+        let id = nextID(&state)
         state.heap.insert(.init(id: id, deadline: deadline, window: window, owner: owner, payload: action))
         rearm(&state)
         return Token(id: id)
@@ -146,18 +173,33 @@ public final class MainWakeUpQueue: Sendable {
         }
     }
 
+    private func deadline(after delay: Duration) -> UInt64 {
+        let (deadline, overflow) = uptime().addingReportingOverflow(delay.nanosecondCount)
+        return overflow ? .max : deadline
+    }
+
+    private func nextID(_ state: inout State) -> UInt64 {
+        state.nextID &+= 1
+        return state.nextID
+    }
+
     /// Drops the entry; false when it already ran or was cancelled. Re-arms the timer for the next entry
     /// (or parks it) when the entry was the one the timer waits for. Callable from any thread.
     @discardableResult
     public func cancel(_ token: Token) -> Bool {
         state.withLock { state in
-            guard state.heap.remove(id: token.id) != nil else { return false }
+            if state.heap.remove(id: token.id) == nil, state.hidden.remove(id: token.id) == nil { return false }
             rearm(&state)
             return true
         }
     }
 
     /// The fire: runs every entry due at its start, then arms the timer for the next one.
+    ///
+    /// A visible entry is due once its earliest time has passed and every visible entry with a smaller
+    /// latest time is due too (Chrome's `WakeUpQueue` looks only at the top), so a due entry behind a top
+    /// that is not due waits for the fire of that top. A hidden entry is due once its whole-second fire
+    /// time has passed. The two kinds run merged in latest-time order.
     ///
     /// "Due" is judged at the uptime read here, as `TaskQueueImpl::MoveReadyDelayedTasksToWorkQueue` judges
     /// it with `LazyNow`, never at the armed date: a cancel on another thread may have re-armed the timer
@@ -187,20 +229,40 @@ public final class MainWakeUpQueue: Sendable {
     /// Pops the next entry due at `now` and arms the timer for what is left.
     private func popDue(at now: UInt64) -> MainWakeUpHeap<Action>.Entry? {
         state.withLock { state in
-            guard let entry = state.heap.popDue(now: now) else { return nil }
+            let visible: UInt64? = state.heap.top.flatMap { $0.earliest <= now ? $0.latest : nil }
+            let hidden: UInt64? = state.hidden.top.flatMap { $0.fireTime <= now ? $0.latest : nil }
+            let entry: MainWakeUpHeap<Action>.Entry?
+            switch (visible, hidden) {
+            case let (visible?, hidden?) where hidden < visible: entry = state.hidden.popReleased(now: now)
+            case (_?, _): entry = state.heap.popDue(now: now)
+            case (nil, _?): entry = state.hidden.popReleased(now: now)
+            case (nil, nil): entry = nil
+            }
+            guard let entry else { return nil }
             rearm(&state, floor: now)
             return entry
         }
     }
 
-    /// Arms the timer for the heap's wake-up, or parks it when the heap is empty. A wake-up before `floor`
+    /// The earlier fire date of the two heaps, and the smaller latest time of their tops: a fire for one
+    /// heap may not come after the other's top must run.
+    private static func wakeUp(_ state: State) -> (date: UInt64, latest: UInt64)? {
+        switch (state.heap.wakeUp(), state.hidden.wakeUp()) {
+        case let (visible?, hidden?): return (min(visible.date, hidden.date), min(visible.latest, hidden.latest))
+        case let (visible?, nil): return visible
+        case let (nil, hidden?): return hidden
+        case (nil, nil): return nil
+        }
+    }
+
+    /// Arms the timer for the earlier wake-up of the two heaps, or parks it when both are empty. A wake-up before `floor`
     /// (default: now) arms for `floor`, so the due entries of one fire share one arm. The tolerance runs
     /// from the instant the timer can fire, the later of the date and now, to the top's latest time
     /// (zero once that has passed): CFRunLoop adds it after that instant. A re-arm to the armed date is
     /// skipped unless the new top needs a shorter tolerance.
     private func rearm(_ state: inout State, floor: UInt64? = nil) {
         guard let timer = state.timer else { return }
-        guard let wakeUp = state.heap.wakeUp() else {
+        guard let wakeUp = Self.wakeUp(state) else {
             if state.armed != nil {
                 timer.park()
                 state.armed = nil

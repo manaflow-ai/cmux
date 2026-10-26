@@ -119,7 +119,7 @@
     "CmuxNextTestExitTrace": {"layer": "core"},
     "CmuxNextSignposts": {"layer": "core"},
     "CmuxNextSignpostsC": {"layer": "core", "note": "C: os_signpost macros for the key and stall signposts, no heap allocation (p09-observability 007); libSystem only"},
-    "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat only"},
+    "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat and swift-atomics only"},
     "CmuxNextMetrics": {"layer": "core", "note": "field histograms (HistogramID, Metrics.record; p09-observability); depends on Compat and Trace only"},
     "CmuxNextFeatures": {"layer": "core", "note": "base::FeatureList: feature declarations and the immutable resolved snapshot (p12-perf-process 3.9)"},
     "CmuxNextInputCore": {"layer": "core", "note": "input latency (Chrome EventMetrics): kinds, stages, open-slot table, closed-slot ring, buckets; InputEventRecord and InputObserving for core and service consumers; pure, no AppKit (p04-input 3 (A), (I))"},
