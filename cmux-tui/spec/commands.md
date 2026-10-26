@@ -698,6 +698,12 @@ requests may be missing. `watchdog_wakeups` counts wakes of the
 `mux-request-watchdog` thread: it has no periodic timer, so the count stays
 still while the daemon is idle, and it wakes only on a 250 ms grid, so the
 count grows by at most four a second (plus one) under any request pattern.
+The same thread is the daemon's one hang watcher: it also watches each batch
+commit of the journal writer and each frame a holder link routes, and writes a
+scope busy past its hang tier (`hang_ms`, 2000, for a request or a journal
+commit; 1 s for a holder-link frame) once to the owner's hang log
+`owner-hangs-<session>.jsonl`, with its method and its thread's stack.
+`hangs` counts those lines, over every kind of scope.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every

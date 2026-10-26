@@ -15,8 +15,12 @@
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]), and `crash_keys` (the
 //! process's [`crash_keys`] at the panic) when any key is set.
+//!
+//! The hang log beside it ([`hang`]) gets one JSON line per watched scope
+//! that runs past its hang deadline, with the hung thread's stack.
 
 pub mod crash_keys;
+pub mod hang;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

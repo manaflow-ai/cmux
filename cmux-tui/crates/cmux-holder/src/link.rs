@@ -57,6 +57,39 @@ pub enum TraceForward {
     Untraced,
 }
 
+/// Watches each frame the reader thread routes, for the daemon's hang
+/// watcher (cmux-panic-log `hang`, which this std-and-libc crate does not
+/// link): `enter` gets the frame's kind before it is routed and returns a
+/// token, `exit` gets that token once the frame is done.
+#[derive(Clone, Copy)]
+pub struct FrameWatch {
+    pub enter: fn(u16) -> u32,
+    pub exit: fn(u32),
+}
+
+impl FrameWatch {
+    /// Watches nothing.
+    pub const NONE: Self = Self { enter: |_| 0, exit: |_| {} };
+}
+
+/// One watched frame: ends its watch when it drops.
+struct WatchedFrame {
+    watch: FrameWatch,
+    token: u32,
+}
+
+impl WatchedFrame {
+    fn enter(watch: FrameWatch, kind: u16) -> Self {
+        Self { watch, token: (watch.enter)(kind) }
+    }
+}
+
+impl Drop for WatchedFrame {
+    fn drop(&mut self) {
+        (self.watch.exit)(self.token);
+    }
+}
+
 /// Why a link ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkEnd {
@@ -167,6 +200,18 @@ impl HolderLink {
         on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
         spawn_timeout: Duration,
     ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
+        Self::connect_watched(socket, token, on_lost, spawn_timeout, FrameWatch::NONE)
+    }
+
+    /// [`Self::connect_with_spawn_timeout`], with every frame the reader
+    /// thread routes watched by `watch`.
+    pub fn connect_watched(
+        socket: &Path,
+        token: &[u8; 32],
+        on_lost: Box<dyn FnOnce(LinkEnd) + Send>,
+        spawn_timeout: Duration,
+        watch: FrameWatch,
+    ) -> io::Result<(Arc<Self>, Vec<Listed>)> {
         let (client, listed) = crate::client::HolderClient::connect(socket, token)?;
         let (stream, reader, version, granted) = client.into_parts();
         stream.set_read_timeout(None)?;
@@ -180,7 +225,7 @@ impl HolderLink {
         });
         let weak = Arc::downgrade(&link);
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
-            let end = read_loop(&stream, reader, &weak);
+            let end = read_loop(&stream, reader, &weak, watch);
             if let Some(link) = weak.upgrade() {
                 link.lost();
             }
@@ -514,6 +559,7 @@ fn read_loop(
     stream: &UnixStream,
     mut reader: wire::Reader,
     link: &std::sync::Weak<HolderLink>,
+    watch: FrameWatch,
 ) -> LinkEnd {
     let mut ending = LinkEnd::Lost;
     // Per channel, the offset the link last acknowledged for a sink that
@@ -526,6 +572,7 @@ fn read_loop(
                 Ok(None) => break,
                 Err(_) => return ending,
             };
+            let _watched = WatchedFrame::enter(watch, frame.kind);
             let Some(link) = link.upgrade() else { return ending };
             let chan = frame.chan;
             let mut input = In(&frame.payload);

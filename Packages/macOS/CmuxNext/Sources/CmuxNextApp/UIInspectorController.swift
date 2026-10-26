@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextSettings
+import CmuxNextWakeups
 import ImageIO
-import Observation
 import UniformTypeIdentifiers
 
 /// Debug/Labs picker for cmux NEXT's own window. While it picks, an intercept on
@@ -27,6 +27,8 @@ final class UIInspectorController {
     private weak var activePage: AgentPaneView?
     private var selectionGeneration = 0
     private var pendingAction: SelectionAction = .send
+    /// Follows the picker's tunable (``observeToggle(on:)``).
+    private var toggleWatch: FrameObservation<Bool>?
 
     private enum SelectionAction { case send, copy }
 
@@ -39,7 +41,7 @@ final class UIInspectorController {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.inspectFromContextMenu() }
         }
-        observeToggle()
+        observeToggle(on: services.mainWork)
     }
 
     // The tap subscriptions end when they are released, on any thread. The controller can be
@@ -83,13 +85,13 @@ final class UIInspectorController {
         return (NSPoint(x: record.screenLocation.x, y: record.screenLocation.y), record.windowNumber)
     }
 
-    private func observeToggle() {
-        withObservationTracking { _ = AgentPaneTunables.pointerInspector.value } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !AgentPaneTunables.pointerInspector.value { self.stop() }
-                self.observeToggle()
-            }
+    /// Ends the picker when its tunable turns off.
+    private func observeToggle(on work: MainWorkScheduler) {
+        // node-free: the picker spans every window, so turning it off ends it whichever window shows.
+        toggleWatch = FrameObservation(owner: "ui-inspector.toggle", delivery: .visible(nil), on: work) {
+            AgentPaneTunables.pointerInspector.value
+        } onChange: { [weak self] enabled in
+            if !enabled { self?.stop() }
         }
     }
 
