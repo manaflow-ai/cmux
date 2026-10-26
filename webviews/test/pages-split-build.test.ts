@@ -93,3 +93,34 @@ describe("split page build", () => {
     expect(checkPageTree(tree(whole), ["history", "stats"])).toEqual(["stats: no index.html"]);
   });
 });
+
+describe("the shared React (cmux-page://cmux.shared/)", () => {
+  const REACT = "cmux-page://cmux.shared/react-R.js";
+  const sharedHtml = pageHtml({ page: "history", entry: "app-H.js", preload: [REACT], loader: "", css: "" });
+  const sharedEntry = `import{useState as u}from"${REACT}";import{a}from"../_shared/chunk-A.js";a(u);`;
+  const withReact = {
+    ...whole,
+    "history/index.html": sharedHtml,
+    "history/app-H.js": sharedEntry,
+    "_shared/react-R.js": "export const react$useState=()=>{};",
+  };
+
+  test("an import and a preload of a file in the tree's _shared resolve", () => {
+    expect(checkPageTree(tree(withReact), ["history"])).toEqual([]);
+  });
+
+  test("a file the tree's _shared lacks fails, for the preload and the import", () => {
+    const { ["_shared/react-R.js"]: _, ...files } = withReact;
+    expect(checkPageTree(tree(files), ["history"])).toEqual([
+      `history/index.html: ${REACT} is not in _shared/`,
+      `history/app-H.js: ${REACT} is not in _shared/`,
+    ]);
+  });
+
+  test("a shared name that leaves _shared fails", () => {
+    const escape = sharedEntry.replace(REACT, "cmux-page://cmux.shared/../history/app-H.js");
+    expect(checkPageTree(tree({ ...withReact, "history/app-H.js": escape }), ["history"])).toEqual([
+      "history/app-H.js: cmux-page://cmux.shared/../history/app-H.js is not in _shared/",
+    ]);
+  });
+});

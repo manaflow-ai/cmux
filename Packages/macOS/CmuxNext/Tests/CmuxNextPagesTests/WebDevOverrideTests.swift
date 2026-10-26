@@ -66,6 +66,21 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride().overlayRoot("agent-pane") == nil)
     }
 
+    /// The overlay's shared chunks (React, `cmux-page://cmux.shared/`) are its pages' `_shared`, through the
+    /// symlink an install swaps: the same install as the overlay's pages and viewers.
+    @Test func theSharedChunksComeFromTheOverlaysPages() throws {
+        let overlay = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: overlay) }
+        #expect(WebDevOverride(overlay: overlay).sharedOverlayRoot == nil)
+        try write("export{}", to: overlay.appending(path: ".gen-1/pages/_shared/react-AB12.js"))
+        try FileManager.default.createSymbolicLink(at: overlay.appending(path: "pages"),
+                                                   withDestinationURL: overlay.appending(path: ".gen-1/pages"))
+        let shared = try #require(WebDevOverride(overlay: overlay).sharedOverlayRoot)
+        #expect(shared.path == overlay.appending(path: ".gen-1/pages/_shared").standardizedFileURL.resolvingSymlinksInPath().path)
+        #expect(FileManager.default.fileExists(atPath: shared.appending(path: "react-AB12.js").path))
+        #expect(WebDevOverride().sharedOverlayRoot == nil)
+    }
+
     @Test func pageFilesComeFromTheOverlay() async throws {
         let bundled = try temporaryDirectory()
         let overlay = try temporaryDirectory()

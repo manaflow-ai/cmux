@@ -14,12 +14,18 @@
 // /pages/_shared/ copy, on the page's own cmux-page:// origin (which serves only its folder) the
 // page's copy. --shiki resolves `shiki` to the agent pane's trimmed copy (pages that render the
 // pane's Markdown). Every import, script and preload is checked to resolve on both (checkPageTree).
+//
+// React is not in these chunks: every web tree the app ships imports the one shared React
+// (scripts/shared/shared-react.mjs) by its cmux-page://cmux.shared/ URL, and this build writes that
+// file into <dir>/_shared/, the folder that origin serves. checkPageTree checks that every such
+// import names a file there.
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appBundleOptions, reactCompilerPass, shikiAlias, sourcePlugins } from "../agent-pane/bundle.mjs";
+import { buildSharedReact, SHARED_ORIGIN, sharedImports, sharedReactEsbuildPlugin } from "../shared/shared-react.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pagesRoot = path.resolve(here, "../../src/pages");
@@ -82,6 +88,7 @@ async function buildPages(options) {
   const work = fs.mkdtempSync(path.join(fs.realpathSync(process.env.TMPDIR ?? "/tmp"), "cmux-pages-"));
   try {
     const compiler = reactCompilerPass();
+    const shared = await buildSharedReact();
     const result = await build({
       ...appBundleOptions,
       entryPoints: options.pages.map((page) => path.join(pagesRoot, page, "main.tsx")),
@@ -93,14 +100,15 @@ async function buildPages(options) {
       entryNames: "[dir]/app-[hash]",
       chunkNames: `${SHARED}/[name]-[hash]`,
       alias: shikiAlias(options.shiki),
-      plugins: [compiler.plugin, ...sourcePlugins({ split: true })],
+      plugins: [sharedReactEsbuildPlugin(shared.url), compiler.plugin, ...sourcePlugins({ split: true })],
     });
     await compiler.finish(options.report);
     const outputPath = (file) => path.relative(work, path.resolve(file));
     const outputs = Object.fromEntries(
       Object.entries(result.metafile.outputs).map(([file, output]) => [outputPath(file), output]),
     );
-    for (const output of Object.values(outputs)) for (const item of output.imports) item.path = outputPath(item.path);
+    for (const output of Object.values(outputs))
+      for (const item of output.imports) if (!item.external) item.path = outputPath(item.path);
     // Each page's <style> is its entry's stylesheet, which holds every sheet the page imports,
     // through dynamic imports too; any other stylesheet would never load.
     const pageCss = new Set(
@@ -110,7 +118,10 @@ async function buildPages(options) {
     if (strayCss.length) throw new Error(`stylesheets no page loads: ${strayCss.join(", ")}`);
 
     fs.rmSync(path.join(options.out, SHARED), { recursive: true, force: true });
-    fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    fs.mkdirSync(path.join(options.out, SHARED), { recursive: true });
+    if (fs.existsSync(path.join(work, SHARED)))
+      fs.cpSync(path.join(work, SHARED), path.join(options.out, SHARED), { recursive: true });
+    fs.writeFileSync(path.join(options.out, SHARED, shared.name), shared.bytes);
     for (const page of options.pages) {
       const entryFile = Object.keys(outputs).find(
         (file) =>
@@ -139,6 +150,9 @@ async function buildPages(options) {
         : "";
       const firstLoad = closure(outputs, entryFile, STATIC);
       const preload = firstLoad.slice(1).map((chunk) => `../${chunk}`);
+      // React, when the first frame imports it.
+      const firstLoadImports = firstLoad.flatMap((file) => outputs[file].imports);
+      if (firstLoadImports.some((item) => STATIC.has(item.kind) && item.path === shared.url)) preload.push(shared.url);
       fs.writeFileSync(
         path.join(dir, "index.html"),
         pageHtml({ page, entry: path.basename(entryFile), preload, loader, css }),
@@ -174,11 +188,14 @@ const SERVERS = [
  * The problems in a built pages tree (`root`, the --out directory) for `pages`: an inline script, a
  * page with no module script, or a script, modulepreload or import that does not resolve to a file
  * on either server: the page's own origin (its folder is the root) and the daemon's /pages/<page>/
- * (the tree is the root). Empty when the tree is whole.
+ * (the tree is the root). A cmux.shared URL (a modulepreload or an import) must name a file in the
+ * tree's _shared/, the folder that origin serves. Empty when the tree is whole.
  */
 export function checkPageTree(root, pages) {
   const problems = [];
   const exists = (file) => fs.existsSync(path.join(root, file)) && fs.statSync(path.join(root, file)).isFile();
+  const inShared = (name) =>
+    !name.split("/").some((part) => part === ".." || part === ".") && exists(path.join(SHARED, name));
   for (const page of pages) {
     const htmlFile = path.join(root, page, "index.html");
     if (!fs.existsSync(htmlFile)) {
@@ -212,6 +229,12 @@ export function checkPageTree(root, pages) {
       };
       for (const tag of tags) {
         if (!tag.loads || !tag.source) continue;
+        if (tag.source.startsWith(SHARED_ORIGIN)) {
+          const name = tag.source.slice(SHARED_ORIGIN.length);
+          if (server === SERVERS[0] && !inShared(name))
+            problems.push(`${page}/index.html: ${tag.source} is not in ${SHARED}/`);
+          continue;
+        }
         const url = reach(document, tag.source);
         if (tag.module) scripts.push(url);
       }
@@ -220,8 +243,11 @@ export function checkPageTree(root, pages) {
         const url = scripts.pop();
         if (seen.has(url) || !exists(server.file(page, url))) continue;
         seen.add(url);
-        for (const [, specifier] of fs.readFileSync(path.join(root, server.file(page, url)), "utf8").matchAll(IMPORT))
-          scripts.push(reach(url, specifier));
+        const text = fs.readFileSync(path.join(root, server.file(page, url)), "utf8");
+        for (const [, specifier] of text.matchAll(IMPORT)) scripts.push(reach(url, specifier));
+        if (server !== SERVERS[0]) continue;
+        for (const name of sharedImports(text))
+          if (!inShared(name)) problems.push(`${server.file(page, url)}: ${SHARED_ORIGIN}${name} is not in ${SHARED}/`);
       }
     }
   }
