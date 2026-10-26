@@ -16,7 +16,10 @@ import UIKit
 @MainActor
 @Observable
 final class AppLockController {
-    private(set) var locked: Bool
+    /// Notification replies that need Face ID wait while it holds (PushReplies).
+    private(set) var locked: Bool {
+        didSet { if locked != oldValue { NotificationRouter.shared.appLocked = locked } }
+    }
     private(set) var evaluating = false
     private(set) var enabled: Bool
     /// The scene is inactive or in the background (the app switcher, a system sheet).
@@ -37,6 +40,8 @@ final class AppLockController {
         self.enabled = enabled
         locked = enabled
         asksOnActivate = enabled
+        NotificationRouter.shared.appLocked = enabled
+        PushReplies.shared.setRequireFaceID(enabled)
     }
 
     /// What the lock window shows: the lock, or the privacy cover while inactive.
@@ -45,6 +50,7 @@ final class AppLockController {
     func setEnabled(_ on: Bool) {
         guard on != enabled else { return }
         enabled = on
+        PushReplies.shared.setRequireFaceID(on)
         // Turning it off unlocks; turning it on locks from the next background.
         if !on { locked = false }
         update()

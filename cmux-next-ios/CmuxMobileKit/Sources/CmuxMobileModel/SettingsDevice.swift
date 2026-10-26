@@ -18,9 +18,15 @@ public struct SettingsDevice: Identifiable, Hashable, Sendable {
     public var isThisDevice: Bool
     /// A phone with an APNs token registered.
     public var receivesNotifications: Bool
+    /// A Mac's machine id (``MacDevice/machineID``): rows with one are builds of one computer.
+    public var machineID: String?
+    /// The team (or personal space) the device is registered in, when known.
+    public var teamID: String?
 
     public init(ids: [String], kind: Kind, name: String, online: Bool?, lastSeenAt: Date?, addedAt: Date? = nil,
-                isThisDevice: Bool, receivesNotifications: Bool) {
+                isThisDevice: Bool, receivesNotifications: Bool, machineID: String? = nil, teamID: String? = nil) {
+        self.machineID = machineID
+        self.teamID = teamID
         self.ids = ids
         self.kind = kind
         self.name = name
@@ -38,12 +44,15 @@ public enum SettingsDeviceRows {
     /// The Mac rows. With a device service (`hasService`), the service's list
     /// with live presence from `liveMacs` laid over it, or nil while it has not
     /// loaded. Without one, every Mac the phone knows (`liveMacs`, each once).
-    public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice]) -> [SettingsDevice]? {
+    /// `teamOf`: each live Mac's team (the fallback's rows carry it for ``otherBuilds(_:)``).
+    public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice],
+                            teamOf: [String: String]? = nil) -> [SettingsDevice]? {
         guard hasService else {
             var seen = Set<String>()
             return liveMacs.filter { seen.insert($0.id).inserted }.map {
                 SettingsDevice(ids: [$0.id], kind: .mac, name: $0.name, online: $0.isOnline, lastSeenAt: $0.lastSeenAt,
-                               isThisDevice: false, receivesNotifications: false)
+                               isThisDevice: false, receivesNotifications: false, machineID: $0.machineID,
+                               teamID: teamOf?[$0.id])
             }
         }
         guard let service else { return nil }
@@ -53,7 +62,21 @@ public enum SettingsDeviceRows {
             var next = device
             next.online = mac.isOnline
             next.lastSeenAt = mac.lastSeenAt ?? device.lastSeenAt
+            next.machineID = device.machineID ?? mac.machineID
             return next
+        }
+    }
+
+    /// The Mac rows that are another cmux build on a computer whose most
+    /// recently active build Workspaces lists (``MacRoster``, per team, as
+    /// each team's Workspaces groups them): Settings still lists them, so each
+    /// can be removed, and says what they are. Every row is the caller's own.
+    public static func otherBuilds(_ macs: [SettingsDevice]) -> Set<String> {
+        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).values.reduce(into: Set<String>()) { hidden, team in
+            let devices = team.map {
+                MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
+            }
+            hidden.formUnion(MacRoster(devices).hiddenIDs)
         }
     }
 

@@ -13,6 +13,7 @@ import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vm
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
 import {
   capabilityList,
+  gcpCredentialFromRequest,
   optionalClientIdentifier,
   optionalString,
   parseLenientObjectBody,
@@ -58,6 +59,10 @@ export async function POST(
       // legacy WebSocket PTY/RPC endpoint only if a future provider advertises one;
       // a cmux-tui-only machine answers 409 vm_attach_transport_unsupported.
       const transport = optionalString(body.transport);
+      if (transport === "ssh") {
+        setSpanAttributes(span, { "cmux.vm.attach.transport": "ssh" });
+        return openSshAttach(request, id, user, account.entitlements);
+      }
       if (transport === "cmux-remote") {
         let deviceFingerprint: string | undefined;
         try {
@@ -89,7 +94,7 @@ export async function POST(
       if (transport && transport !== "websocket") {
         return jsonResponse({
           error: "invalid_request",
-          message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
+          message: `Unknown attach transport "${transport}". Use "ssh", "websocket", or "cmux-remote".`,
         }, 400);
       }
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
@@ -111,4 +116,29 @@ export async function POST(
       return jsonResponse(endpoint);
     },
   );
+}
+
+/** GCP IAP SSH attach. The workflow owns the request's credential and wipes it when it ends. */
+async function openSshAttach(
+  request: Request,
+  id: string,
+  user: { readonly id: string; readonly teamIds: readonly string[] },
+  entitlements: { readonly billingTeamId: string; readonly maxActiveVms: number | null; readonly planId: string },
+): Promise<Response> {
+  const run = await runVmRoute(openAttachEndpoint({
+    userId: user.id,
+    billingTeamId: entitlements.billingTeamId,
+    maxActiveVms: entitlements.maxActiveVms,
+    callerPlanId: entitlements.planId,
+    teamIds: user.teamIds,
+    providerVmId: id,
+    transport: "ssh",
+    providerCredential: gcpCredentialFromRequest(request),
+    modelPlane: vmModelPlaneRevoker(),
+  }), {
+    request,
+    deadline: { operation: "attach", continuationKey: `attach:${id}` },
+  });
+  if (!run.ok) return run.response;
+  return jsonResponse(run.value);
 }

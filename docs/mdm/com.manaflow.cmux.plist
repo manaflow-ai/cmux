@@ -208,11 +208,11 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.</string>
+			<string>New tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic, instead of the New Tab page. To open the New Tab page while this is on, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P). Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab.</string>
 			<key>pfm_name</key>
 			<string>tabs.terminalFirst</string>
 			<key>pfm_title</key>
-			<string>New Tabs and Splits Open a Terminal</string>
+			<string>cmux Classic Mode</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -605,13 +605,13 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
-			<string>Off: a found update waits, and one click downloads and installs it.</string>
+			<string>Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.</string>
 			<key>pfm_name</key>
 			<string>updates.downloadAutomatically</string>
 			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
+			<string>Download and Install Updates Automatically</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -708,7 +708,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<integer>900</integer>
+			<integer>600</integer>
 			<key>pfm_description</key>
 			<string>A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.</string>
 			<key>pfm_name</key>
@@ -925,6 +925,27 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask.</string>
+			<key>pfm_name</key>
+			<string>ssh.linkAllowedHosts</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Always Allowed SSH Link Hosts</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.</string>
@@ -1047,6 +1068,46 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>smallest</string>
+			<key>pfm_description</key>
+			<string>Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone.</string>
+			<key>pfm_name</key>
+			<string>mobile.terminalSizing</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>smallest</string>
+				<string>mac</string>
+				<string>latest</string>
+				<string>priority</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Size When Shared</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order.</string>
+			<key>pfm_name</key>
+			<string>mobile.terminalSizingOrder</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Terminal Size Priority</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -1161,6 +1222,23 @@
 			<string>Scroll Areas</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>command</string>
+			<key>pfm_description</key>
+			<string>Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.</string>
+			<key>pfm_name</key>
+			<string>layout.scrollModifier</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>command</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Scroll Columns and Rows With</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1597,6 +1675,42 @@
 			<string>More Screenshot Folders</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>suggest</string>
+			<key>pfm_description</key>
+			<string>What cmux does with workspaces you have not used for a while. Archived workspaces stay in their group, dimmed and last, and come back when you open them.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoArchive.style</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>suggest</string>
+				<string>quiet</string>
+				<string>groups</string>
+				<string>manual</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Idle Workspaces</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>3</integer>
+			<key>pfm_description</key>
+			<string>A workspace counts as idle when you have not opened it and nothing in it changed for this many days. Pinned workspaces, running commands and workspaces that need you never archive.</string>
+			<key>pfm_name</key>
+			<string>workspaces.autoArchive.idleDays</string>
+			<key>pfm_range_max</key>
+			<real>365</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Idle For</string>
+			<key>pfm_type</key>
+			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2039,6 +2153,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off.</string>
+			<key>pfm_name</key>
+			<string>ui.reducedBackgrounds</string>
+			<key>pfm_title</key>
+			<string>Plain Backgrounds</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Applies Hue and Saturation to the window's tint. Off, they have no effect.</string>
 			<key>pfm_name</key>
 			<string>appearance.experimentalControls</string>
@@ -2093,6 +2219,18 @@
 			<string>Dim Inactive Windows</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The glass takes the colors of your desktop picture and follows it when the picture or Space changes.</string>
+			<key>pfm_name</key>
+			<string>appearance.wallpaperTint</string>
+			<key>pfm_title</key>
+			<string>Tint with Desktop Wallpaper</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2243,6 +2381,30 @@
 			<real>0.0</real>
 			<key>pfm_title</key>
 			<string>Column Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.dividerThickness</string>
+			<key>pfm_range_max</key>
+			<real>6</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Divider Thickness</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.dividerHitWidth</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Divider Drag Width</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -2483,7 +2645,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_name</key>
 			<string>focusRing.enabled</string>
 			<key>pfm_title</key>
@@ -3122,11 +3284,12 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>unified</string>
+			<string>auto</string>
 			<key>pfm_name</key>
 			<string>diff.layout</string>
 			<key>pfm_range_list</key>
 			<array>
+				<string>auto</string>
 				<string>split</string>
 				<string>unified</string>
 			</array>
@@ -3224,6 +3387,26 @@
 			<string>diff.groupByKind</string>
 			<key>pfm_title</key>
 			<string>Group Files by Kind</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.hideWhitespace</string>
+			<key>pfm_title</key>
+			<string>Hide White Space</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>diff.showBulkActions</string>
+			<key>pfm_title</key>
+			<string>Stage All and Revert All Bar</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -3428,6 +3611,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.vscodeMinimap</string>
+			<key>pfm_title</key>
+			<string>VS Code Minimap</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>markdown</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.font.preset</string>
@@ -3499,7 +3694,7 @@
 			<key>pfm_default</key>
 			<string>overlay</string>
 			<key>pfm_description</key>
-			<string>Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.</string>
+			<string>Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.inspector.placement</string>
 			<key>pfm_range_list</key>
@@ -3508,7 +3703,43 @@
 				<string>overlay</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Inspector</string>
+			<string>Session Info</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>left</string>
+			<key>pfm_description</key>
+			<string>Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.environment.placement</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>left</string>
+				<string>right</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Session Info Chip</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>compact</string>
+			<key>pfm_description</key>
+			<string>What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.</string>
+			<key>pfm_name</key>
+			<string>agentPane.display.minimap</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>compact</string>
+				<string>full</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Chat Minimap</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -4441,6 +4672,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set.</string>
+			<key>pfm_name</key>
+			<string>sidebar.showColors</string>
+			<key>pfm_title</key>
+			<string>Show Workspace Colors</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too.</string>
@@ -4578,6 +4821,23 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Show Spaces</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>workspaces</string>
+			<key>pfm_description</key>
+			<string>Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces.</string>
+			<key>pfm_name</key>
+			<string>tabs.commandDigits</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>workspaces</string>
+				<string>tabs</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Command-1 to 9 Select</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -4942,11 +5202,23 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A short greeting over the composer.</string>
+			<string>Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected.</string>
+			<key>pfm_name</key>
+			<string>media.pictureInPicture.enabled</string>
+			<key>pfm_title</key>
+			<string>Picture in Picture</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A headline over the composer that asks what to work on, with the project as a picker.</string>
 			<key>pfm_name</key>
 			<string>tabs.newTabWidgets.greeting</string>
 			<key>pfm_title</key>
-			<string>Show Greeting on New Tab</string>
+			<string>Ask What to Work On on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -4995,6 +5267,90 @@
 			<string>tabs.newTabWidgets.styleDots</string>
 			<key>pfm_title</key>
 			<string>Show Template Dots on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The current weather and today's high and low, for the city below or your time zone's city.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.weather</string>
+			<key>pfm_title</key>
+			<string>Show Weather on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>A city for the weather widget. Empty uses your time zone's city.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.weatherCity</string>
+			<key>pfm_title</key>
+			<string>Weather City</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Your machines and whether each is online.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.machines</string>
+			<key>pfm_title</key>
+			<string>Show Machines on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A quiet local time display beside the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.clock</string>
+			<key>pfm_title</key>
+			<string>Show Clock on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A small elapsed-time stopwatch beside the composer.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.timer</string>
+			<key>pfm_title</key>
+			<string>Show Stopwatch on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A time-of-day greeting such as Good afternoon.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.warmGreeting</string>
+			<key>pfm_title</key>
+			<string>Show Warm Greeting on New Tab</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A bundled public-domain quote, changing daily.</string>
+			<key>pfm_name</key>
+			<string>tabs.newTabWidgets.quote</string>
+			<key>pfm_title</key>
+			<string>Show Quote of the Day on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6031,6 +6387,18 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
+			<string>Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.</string>
+			<key>pfm_name</key>
+			<string>browser.import.enabled</string>
+			<key>pfm_title</key>
+			<string>Import from Other Browsers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
 			<string>When an agent drives a browser tab, show its cursor, clicks and typed keys on the page. Password fields show dots.</string>
 			<key>pfm_name</key>
 			<string>browser.showAgentCursor</string>
@@ -6714,6 +7082,72 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>auto</string>
+			<key>pfm_description</key>
+			<string>Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.</string>
+			<key>pfm_name</key>
+			<string>home.chiefEngine</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>auto</string>
+				<string>local</string>
+				<string>hosted</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Engine</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.</string>
+			<key>pfm_name</key>
+			<string>chief.reactionsCanWake</string>
+			<key>pfm_title</key>
+			<string>Reactions Can Wake the Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>The agent harness the reaction classifier runs on, for example claude or codex. Empty uses the Chief's Claude route.</string>
+			<key>pfm_name</key>
+			<string>chief.reactionClassifier.harness</string>
+			<key>pfm_title</key>
+			<string>Reaction Classifier Harness</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>claude-haiku-5-5</string>
+			<key>pfm_description</key>
+			<string>The model that decides whether a reaction starts a turn. Claude Haiku by default: it is fast and cheap.</string>
+			<key>pfm_name</key>
+			<string>chief.reactionClassifier.model</string>
+			<key>pfm_title</key>
+			<string>Reaction Classifier Model</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>What the classifier is told when it decides. Empty uses the built-in instructions.</string>
+			<key>pfm_name</key>
+			<string>chief.reactionClassifier.prompt</string>
+			<key>pfm_title</key>
+			<string>Reaction Classifier Instructions</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>click</string>
 			<key>pfm_name</key>
 			<string>notifications.dismissal</string>
@@ -7357,6 +7791,35 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Underlines misspellings and offers system suggestions in the composer.</string>
+			<key>pfm_name</key>
+			<string>agentPane.spellChecking</string>
+			<key>pfm_title</key>
+			<string>Check Spelling While Typing</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>inline</string>
+			<key>pfm_description</key>
+			<string>How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same.</string>
+			<key>pfm_name</key>
+			<string>agentPane.attachmentView</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>inline</string>
+				<string>strip</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Attachment View</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_description</key>
 			<string>The display size for agent chat. Cmd-0 resets it.</string>
@@ -7375,7 +7838,7 @@
 			<key>pfm_default</key>
 			<string>fullAccess</string>
 			<key>pfm_description</key>
-			<string>What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again.</string>
+			<string>What a new chat may do without asking. A mode you pick in a chat applies to that chat only.</string>
 			<key>pfm_name</key>
 			<string>agents.defaultPermissionMode</string>
 			<key>pfm_range_list</key>
@@ -7386,6 +7849,54 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Permission Mode for New Chats</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.</string>
+			<key>pfm_name</key>
+			<string>diagnostics.hangReports</string>
+			<key>pfm_title</key>
+			<string>Send Hang Reports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility.</string>
+			<key>pfm_name</key>
+			<string>macScreen.systemShortcuts</string>
+			<key>pfm_title</key>
+			<string>Send System Shortcuts to the Remote Mac</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect.</string>
+			<key>pfm_name</key>
+			<string>macScreen.debug.relayOnly</string>
+			<key>pfm_title</key>
+			<string>Relay Only</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.</string>
+			<key>pfm_name</key>
+			<string>deviceHub.url</string>
+			<key>pfm_title</key>
+			<string>Device Hub Address</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

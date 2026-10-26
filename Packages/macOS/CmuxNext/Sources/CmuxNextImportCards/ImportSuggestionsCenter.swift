@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextActions
-import CmuxNextAgentPane
 public import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextDesign
@@ -14,8 +13,8 @@ import Observation
 /// ``rescanInterval``), keeps the person's dismissals and the Chief's
 /// requests, and runs each card's import as a job saved after every step, so
 /// a quit or crash leaves it paused for Resume (or resumes it at launch when
-/// no prompt is left). Home, New Tab (through `AgentPaneImportCards`) and
-/// Settings › Import draw what ``list(for:)`` returns.
+/// no prompt is left). Settings › Import draws what ``list()`` returns; Home and
+/// New Tab show no suggestion (Leo 2026-10-21: "yes to both", removing it from both).
 @MainActor
 @Observable
 public final class ImportSuggestionsCenter {
@@ -27,6 +26,8 @@ public final class ImportSuggestionsCenter {
     public internal(set) var ledger = ImportJobLedger()
     /// A scan is running.
     public private(set) var isScanning = false
+    /// The cards' source app icons, rendered off the main thread when a scan lands.
+    let icons = ImportAppIconCache()
 
     /// cmux comes forward this long after the last scan before the next one.
     public static let rescanInterval: TimeInterval = 10 * 60
@@ -38,6 +39,10 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored let ledgerURL: URL
     @ObservationIgnored private var lastScan: Date?
+    /// The scan in flight, cancelled when `browser.import.enabled` turns off.
+    @ObservationIgnored private var scanning: Task<Void, Never>?
+    /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var started = false
@@ -60,8 +65,24 @@ public final class ImportSuggestionsCenter {
             .appending(path: "import-jobs.json")
     }
 
-    /// Debug Settings `browserImport.suggestionCards` (on by default).
-    public var isEnabled: Bool { BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default): off, no card shows and nothing scans or resumes.
+    /// Turned on again, the cards scan this Mac.
+    public var importEnabled = true {
+        didSet {
+            if importEnabled, !oldValue, started { scan { [weak self] in self?.resumeInterrupted() } }
+            // Off: a scan in flight stops before it reads another browser, and its findings are dropped;
+            // on again, the next scan starts at once.
+            if !importEnabled, isScanning {
+                scanning?.cancel()
+                scanning = nil
+                scanGeneration += 1
+                isScanning = false
+            }
+        }
+    }
+
+    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
+    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -71,23 +92,18 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        AgentPaneImportCards.shared.onAction = { [weak self] id, action in
-            guard let action = ImportCardAction(rawValue: action) else { return }
-            // A New Tab page's button: a first-party control, never the person's own gesture, so a
-            // start asks natively first and a cookie request still gets its consent panel.
-            try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
-        }
-        follow()
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             Task { @MainActor in self?.rescanIfStale() }
         }
-        scan { [weak self] in
-            // A job the quit cut off goes on by itself only when nothing it has left asks the person.
-            guard let self, isEnabled else { return }
-            for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
-                try? perform(job.id, .resume)
-            }
+        scan { [weak self] in self?.resumeInterrupted() }
+    }
+
+    /// A job the quit cut off goes on by itself only when nothing it has left asks the person.
+    private func resumeInterrupted() {
+        guard isEnabled else { return }
+        for job in ledger.jobs where job.phase == .paused && job.pause == .interrupted && job.resumesQuietly {
+            try? perform(job.id, .resume)
         }
     }
 
@@ -111,12 +127,21 @@ public final class ImportSuggestionsCenter {
         guard isEnabled, !isScanning, let host else { then?(); return }
         isScanning = true
         lastScan = now()
-        let scanning = scanThisMac
-        Task { [weak self] in
-            let found = await scanning(host)
-            guard let self else { return }
-            findings = found
+        let scan = scanThisMac
+        let generation = scanGeneration
+        // task-owner: ImportSuggestionsCenter.scanning (cancelled when browser import turns off)
+        scanning = Task { [weak self] in
+            let found = await scan(host)
+            // Dropped while it ran (browser import turned off): what it found is not shown.
+            guard let self, generation == scanGeneration else { return }
             isScanning = false
+            scanning = nil
+            guard isEnabled else {
+                then?()
+                return
+            }
+            findings = found
+            icons.load(deck.list().cards.compactMap(\.app))
             then?()
         }
     }
@@ -128,10 +153,18 @@ public final class ImportSuggestionsCenter {
         let imported = await host.importedProfiles()
         // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
         let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-        return await Task.detached(priority: .utility) {
-            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
-        }.value
+        // Browser import turned off meanwhile: no other browser's data is read. The scan itself
+        // runs detached, so the cancel reaches it through `stop`, checked before each source.
+        guard !Task.isCancelled else { return [] }
+        let stop = ImportScanStop()
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+            }.value
+        } onCancel: {
+            stop.set()
+        }
     }
 
     // MARK: Cards
@@ -149,16 +182,16 @@ public final class ImportSuggestionsCenter {
         "terminal.iterm2": "com.googlecode.iterm2", "terminal.ghostty": "com.mitchellh.ghostty", "cmux.classic": "com.cmuxterm.app",
     ]
 
-    /// The cards `surface` draws now; empty while the cards are off.
-    public func list(for surface: ImportCardDeck.Surface) -> ImportCardList {
+    /// The cards Settings › Import lists now; empty while the cards are off.
+    public func list() -> ImportCardList {
         guard isEnabled else { return .empty }
-        return deck.list(for: surface, now: now())
+        return deck.list()
     }
 
     /// Settings › Import's list for the page's host lists (`import_suggestions`), with its empty text; null while the cards are off.
     public var settingsJSON: JSONValue {
         guard isEnabled else { return .null }
-        var value = ImportCardJSON.value(list(for: .settings), keepEmpty: true)
+        var value = ImportCardJSON.value(list(), icons: icons, keepEmpty: true)
         if case .object(var members) = value {
             members["empty"] = .string(ImportSuggestionStrings.settingsEmpty)
             members["scanning"] = .bool(isScanning)
@@ -167,23 +200,16 @@ public final class ImportSuggestionsCenter {
         return value
     }
 
-    /// Pushes the New Tab cards to every agent page on each change of what they show.
-    private func follow() {
-        withObservationTracking {
-            AgentPaneImportCards.shared.cards = ImportCardJSON.value(list(for: .newTab))
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.follow() }
-        }
-    }
-
     // MARK: Buttons
 
-    /// Runs a card's button (Home's row, a page, `import.card`). `caller` is the run that
+    /// Runs a card's button (Settings › Import's page, `import.card`). `caller` is the run that
     /// pressed it, the person's own click when nil. Only that click starts an import at once: any
     /// other caller's Import, Resume or Try Again asks the person in a native dialog first (page
     /// script cannot answer it), and an agent's cookie request always gets
     /// `browser.importCookies`' consent panel. Whatever the card opens runs as `caller`.
     public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
+        // Off (`browser.import.enabled`, the Debug toggle): a row or dialog still on screen starts nothing.
+        guard isEnabled || action == .dismiss else { throw ImportCardsFailure.noSuchCard(id) }
         if action.startsWork, let caller, caller.origin != .user, let question = try question(id, action) {
             return ask(question, id: id, action: action, caller: caller)
         }
@@ -252,7 +278,7 @@ public final class ImportSuggestionsCenter {
         } else {
             guard let job = ledger.job(id), job.phase != .running else { throw ImportCardsFailure.noSuchCard(id) }
         }
-        guard let card = deck.cards(for: .settings, now: now()).first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
+        guard let card = deck.cards().first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
         let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
         return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
                               buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")

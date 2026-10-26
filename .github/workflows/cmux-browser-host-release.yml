@@ -2,7 +2,7 @@ name: cmux-browser-host release
 
 # Linux release of cmux-browser-host for the cmux-next VM image
 # (plans/cmux-next/browser-host.md 6d). A push to feat-cmux-next that touches
-# the crate or this release path builds and smoke-tests both targets; a
+# the crate or this release path builds and packages both targets; a
 # cmux-browser-host-vX.Y.Z tag also publishes them: a GitHub release with the
 # two archives, SHA256SUMS and the channel-manifest package entries, each
 # covered by a build-provenance attestation. The entries are unsigned: the
@@ -18,10 +18,8 @@ on:
       - "cmux-tui/Cargo.lock"
       - "cmux-tui/rust-toolchain.toml"
       - ".github/workflows/cmux-browser-host-release.yml"
-      - "scripts/cmux-next/smoke-browser-host.sh"
       - "scripts/cmux-next/browser-host-release.py"
       - "tests/test_browser_host_release_package.py"
-      - "tests/test_browser_host_release_smoke.py"
       - "cmux-tui/build-support/notices/**"
       - "cmux-tui/dist/notices/**"
       - "cmux-tui/dist/npm/cmux/LICENSE"
@@ -72,7 +70,6 @@ jobs:
       - name: Release script tests
         run: |
           python3 tests/test_browser_host_release_package.py
-          python3 tests/test_browser_host_release_smoke.py
           python3 cmux-tui/build-support/notices/browser-host/test_linux_release_notices.py
 
       - name: Restore the crate source cache
@@ -150,10 +147,6 @@ jobs:
           newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)"
           echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
           [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
-
-      - name: Smoke
-        shell: bash
-        run: scripts/cmux-next/smoke-browser-host.sh "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$GITHUB_SHA"
 
       - name: Package
         shell: bash

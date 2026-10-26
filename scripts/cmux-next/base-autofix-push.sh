@@ -12,7 +12,7 @@
 # a base autofix repair made from a newer tree), when it adds into a directory
 # a newer commit removed, and when no area is known to build it. An earlier
 # base autofix repair made from an older tree is replaced. The exports land as
-# a whole or not at all (the settings schema, docs/mdm and their stamp; the
+# a whole or not at all (the settings schema and docs/mdm; the
 # three action exports), and files built from an export that waits wait with
 # it. The defaults snapshot reads flags anywhere in the app's sources, so it is
 # never copied: on a moved tip it is derived again there
@@ -25,11 +25,12 @@
 # there (every file of the list below whose made copy differs from the tip's).
 # An export made from inputs that changed later never lands as it is. A
 # SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. A move
-# of the settings area that leaves their stamp what the tip's sources give (and
-# the regeneration as it was) does not hold them: their inputs did not change. When
-# they would wait but the tip's own stamp is already current
-# (defaults_guard.py check-stamp), someone else regenerated them: they are
-# dropped from the repair, and nothing waits for them.
+# of the settings area whose sources give the same source stamp at the tip as at
+# SETTINGS_MADE_AT (defaults_guard.py source-stamp, derived from each tree; the
+# stamp is never committed), with the regeneration as it was, does not hold them:
+# their inputs did not change. Otherwise they wait, and the run fails, even when
+# someone else may have regenerated them on the tip: whether the tip's committed
+# exports are current takes the Mac export to say.
 #
 # The action exports are judged from ACTIONS_MADE_AT, the commit the Mac job made them at
 # (base-autofix-action-exports.sh; without it, BASE_SHA), and land whole, as made there. When
@@ -60,16 +61,12 @@ attempts="${CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS:-5}"
 # SHA after "at" is the tree the repair was made from. Only the subject counts.
 autofix_subject='^chore\(next\): base autofix at ([0-9a-f]{7,40})([^0-9a-f]|$)'
 snapshot=schemas/defaults/cmux-next.json
-# Every file of the settings export (regenerate-settings-exports.sh writes the same list).
-settings_exports=(
-  docs/mdm/com.manaflow.cmux.json
-  docs/mdm/com.manaflow.cmux.plist
-  docs/mdm/com.manaflow.cmux.intune.plist
-  docs/mdm/cmux-example.mobileconfig
-  docs/mdm/managed-preferences.md
-  schemas/settings/settings-schema.json
-  schemas/settings-export/settings-schema.sources.sha256
-)
+# Every file of the settings export: scripts/cmux-next/settings-exports.txt is the one list, which
+# regenerate-settings-exports.sh exports and check-settings-exports.sh restores.
+settings_exports=()
+while IFS= read -r cmux_next_export; do settings_exports+=("$cmux_next_export"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#settings_exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 # Every file of the action export (regenerate-action-exports.sh writes the same list).
 action_exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"
@@ -91,7 +88,8 @@ output_areas() {
       cmux-tui/bindings/*) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
-      schemas/settings/settings-schema.json | schemas/settings-export/* | docs/mdm/*) echo settings ;;
+      plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
+      schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
       cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
@@ -108,7 +106,7 @@ output_areas() {
 export_of() {
   case "$1" in
     plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
-    schemas/settings/settings-schema.json | schemas/settings-export/* | docs/mdm/*) echo settings ;;
+    schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
   esac
 }
 # The exports a file is generated from (base-autofix.sh). The snapshot is derived again instead.
@@ -161,14 +159,14 @@ made_from() { # <made-at> <tip>
   [[ -n "$from" ]] && git merge-base --is-ancestor "$base" "$from" 2>/dev/null \
     && git merge-base --is-ancestor "$from" "$2" 2>/dev/null && echo "$from"
 }
-# The settings exports' inputs are what their stamp hashes (CmuxNextSettings and the two export
-# tests; defaults_guard.py source-stamp gives it for a commit). Exports whose stamp the tip's
-# sources give, made by the same regeneration, are exactly what the tip would make, however
-# else the settings area moved (a note beside the sources, the guard, the bot's own scripts).
-# Fails closed: any read that fails counts as moved.
+# The settings exports' inputs are what their source stamp hashes (CmuxNextSettings and the two
+# export tests; defaults_guard.py source-stamp derives it for a commit). Exports made where the
+# sources give the tip's stamp, by the same regeneration, are exactly what the tip would make,
+# however else the settings area moved (a note beside the sources, the guard, the bot's own
+# scripts). Fails closed: any read that fails counts as moved.
 settings_inputs_same() { # <made-at> <tip>
   local made stamp
-  made="$(git show "$repair:schemas/settings-export/settings-schema.sources.sha256" 2>/dev/null)" || return 1
+  made="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$1" 2>/dev/null)" || return 1
   stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$2" 2>/dev/null)" || return 1
   [[ -n "$made" && "$made" == "$stamp" ]] || return 1
   git diff --quiet "$1" "$2" -- scripts/cmux-next/regenerate-settings-exports.sh 2>/dev/null
@@ -283,22 +281,12 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     if [[ -z "$settings_unproven" ]] && grep -qx settings <<<"$moved_areas" \
       && grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
       && settings_inputs_same "$settings_from" "$tip"; then
-      echo "The settings exports' inputs are unchanged on ${tip:0:12} (their stamp is what its sources give); they are not held for the settings area's move."
+      echo "The settings exports' inputs are unchanged on ${tip:0:12} (its sources give the source stamp of ${settings_from:0:12}); they are not held for the settings area's move."
       moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
     fi
-    # Exports this repair holds that would wait, while the tip's own stamp is current: someone
-    # else regenerated them, so they are dropped and nothing waits for them. Not after a bad
-    # SETTINGS_MADE_AT: that is a workflow defect, so they wait and the run fails with an error.
+    # A bad SETTINGS_MADE_AT is a workflow defect: the exports wait and the run fails with an error.
     if [[ -n "$settings_unproven" ]]; then
       echo "::error::$settings_unproven; they wait." >&2
-    elif grep -qxF settings <<<"$moved_areas" \
-      || [[ -n "$(comm -12 <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo" | sort -u) <(printf '%s\n' "$newer_settings"))" ]]; then
-      if grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
-        && python3 scripts/ci/defaults_guard.py check-stamp --ref "$tip" >/dev/null 2>&1; then
-        echo "The settings exports are already current on ${tip:0:12} (defaults_guard.py check-stamp); dropping them from this repair."
-        todo="$(while IFS= read -r path; do [[ -z "$path" ]] || is_settings_export "$path" || echo "$path"; done <<<"$todo")"
-        moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
-      fi
     fi
     # The action exports this repair holds: a newer commit's own copy stays, else they land as progress.
     partial_actions=0

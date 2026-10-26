@@ -79,7 +79,7 @@ enum PaneHandlers {
         let named = invocation["cwd"]?.stringValue
             ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
         // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
-        let inherited = named ?? NewTerminalStart.folder(of: controller?.selectedTab, services: ctx.services)
+        let inherited = named ?? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services)
         let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
@@ -129,10 +129,13 @@ enum PaneHandlers {
         let keys = ctx.services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, earlyTab: daemon.queuesCreatingInput ? provisional?.tabID : nil, tab: provisional?.tabID)
         // The provisional pane is in the store now, and the window lays it out and mounts it in this
         // turn, so it draws in the key's frame (instant-new-surfaces), not after a main-actor hop.
-        // The split and the even sizing of its chain are one gesture: both show in this frame, so
-        // every pane of the chain moves on one spring (split-spring-animation); the ratio intents
-        // go once the daemon made the split.
-        let shownSizing = provisional == nil ? nil : content?.layoutModel.showSplitSizing(sizing)
+        // The split and the even sizing of its chain are one gesture: hold the chain's target
+        // before waiting for the daemon even on the compatibility path. Optimistic splits also
+        // show their provisional pane in this frame; older daemons cannot show that pane until
+        // the reply, but their existing chain must not wait for a second sizing phase. The ratio
+        // intents go once the daemon made the split.
+        let shownSizing = content?.layoutModel.showSplitSizing(sizing)
+        if provisional == nil { content?.layoutView.syncWithModel() }
         let intended = provisional.map { provisional in
             defer { BenchSpans.measure("split.layout") { content?.applyCurrent() } }
             return BenchSpans.measure("split.intend") { command.intendNow(on: daemon, provisional: provisional) }
@@ -149,7 +152,7 @@ enum PaneHandlers {
                 BenchSpans.mark(provisional == nil ? "split.reply" : "split.reply.optimistic")
                 if provisional == nil { content?.expectFocus(on: created.surface, generation: intent) }
                 landed = true
-                if let model = content?.layoutModel { model.commitSplitSizing(shownSizing ?? model.showSplitSizing(sizing)) }
+                if let shownSizing { content?.layoutModel.commitSplitSizing(shownSizing) }
                 return nil
             } catch {
                 if let shownSizing { content?.layoutModel.cancelSplitSizing(shownSizing) }
@@ -188,7 +191,7 @@ enum PaneHandlers {
                   let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace.
-            let order = screen.layout.panes
+            let order = screen.layout.visualPanes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
             focusByKey(order[index], in: content)
@@ -198,7 +201,7 @@ enum PaneHandlers {
     private static func cycleFocus(_ ctx: AppActionContext, _ invocation: ActionInvocation, offset: Int) {
         guard let pane = ctx.paneController(invocation), let content = pane.workspace,
               let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
-        let order = screen.layout.panes
+        let order = screen.layout.visualPanes
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
