@@ -68,7 +68,7 @@ dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { DEFAULT_CHAT_DISPLAY, MINIMAP_KEY, resolveChatDisplay, setChatDisplay } =
+const { DEFAULT_CHAT_DISPLAY, MINIMAP_KEY, chatDisplay, resolveChatDisplay, setChatDisplay } =
   await import("../src/agent-session/acpmux/chatDisplay");
 
 afterAll(() => {
@@ -98,6 +98,16 @@ test("the Chat Minimap key is unset by default and only an arm, or the old toggl
   expect(resolveChatDisplay({ [MINIMAP_KEY]: true }).minimap).toBe("full");
   expect(resolveChatDisplay({ [MINIMAP_KEY]: false }).minimap).toBeNull();
   expect(resolveChatDisplay({ [MINIMAP_KEY]: "yes" }).minimap).toBeNull();
+});
+
+test("switching the thread minimap preserves the transcript's measured look", () => {
+  setChatDisplay({});
+  const measuredLook = chatDisplay();
+  for (const arm of ["full", "off", "compact"]) {
+    setChatDisplay({ [MINIMAP_KEY]: arm });
+    expect(chatDisplay()).toBe(measuredLook);
+  }
+  setChatDisplay({});
 });
 
 for (const arm of ["off", "compact"] as const)
