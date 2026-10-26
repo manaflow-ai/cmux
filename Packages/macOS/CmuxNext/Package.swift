@@ -837,6 +837,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextCompat", "CmuxNextMemory"],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextHibernationTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextHibernation", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(

@@ -68,14 +68,38 @@ package struct HibernationPlanner {
         package static let normal = Pace(perPass: 2, interval: 5, minimumHidden: 0)
         package static let warning = Pace(perPass: 1, interval: 15, minimumHidden: 60)
         package static let critical = Pace(perPass: 3, interval: 3, minimumHidden: 10)
+        /// Chrome's urgent pace (`UrgentPace.chrome`) with cmux's minimum hidden time, so the two
+        /// critical paces differ only in how many pages go and how often.
+        package static let chromeCritical = Pace(perPass: 1, interval: 5, minimumHidden: 10)
 
-        package static func at(_ pressure: MemoryPressureLevel) -> Pace {
-            switch pressure {
-            case .normal: .normal
-            case .warning: .warning
-            case .critical: .critical
+        package static func at(_ pressure: MemoryPressureLevel, urgent: UrgentPace = .forBrowsers) -> Pace {
+            switch (pressure, urgent) {
+            case (.normal, _): .normal
+            case (.warning, _): .warning
+            case (.critical, .cmux): .critical
+            case (.critical, .chrome): .chromeCritical
             }
         }
+    }
+
+    /// How fast critical memory pressure takes hidden pages. Only critical differs: Chrome does not
+    /// discard at moderate pressure on macOS (`kSkipModerateMemoryPressureLevelMac`), and cmux's
+    /// warning pace stays as it is.
+    package enum UrgentPace: String, Hashable {
+        /// Three pages per pass and a pass every 3 s while critical lasts.
+        case cmux
+        /// Chrome's `UrgentPageDiscardingPolicy`
+        /// (chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc): one page per
+        /// critical event on macOS and, with `kSustainedPMUrgentDiscarding`, one more every 5 s while
+        /// the pressure lasts.
+        case chrome
+
+        /// Browser tabs keep cmux's pace: at 60 hidden tabs Chrome's pace relieves at most 7 pages
+        /// (385 MB of 55 MB tabs) in 30 s, cmux's 33 (`HibernationPlannerTests.urgentPaceTrial`).
+        package static let forBrowsers = UrgentPace.cmux
+        /// Content kinds that start discarding after the browser (agent and internal pages, parked
+        /// workspaces, terminal render state) take Chrome's pace from the start.
+        package static let forNewKinds = UrgentPace.chrome
     }
 
     /// Why a page does not hibernate (reported by `debug.surfaces`).
@@ -189,14 +213,16 @@ package struct HibernationPlanner {
     /// A page is due once its idleness reaches the timeout (`browser.hibernation`; 10 minutes at
     /// most under pressure). Under memory pressure, when no page is due, the least valuable page
     /// hidden at least `Pace.minimumHidden` goes anyway, to relieve it. Each pass takes at most
-    /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting.
-    package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel, candidates: [Candidate]) -> Plan {
+    /// `Pace.perPass` pages and looks again after `Pace.interval` while more are waiting; `urgent`
+    /// picks the critical pace.
+    package static func plan(_ setting: BrowserHibernationSetting, pressure: MemoryPressureLevel,
+                             urgent: UrgentPace = .forBrowsers, candidates: [Candidate]) -> Plan {
         var plan = Plan()
         guard let threshold = threshold(setting, pressure: pressure == .critical ? .warning : pressure) else {
             for candidate in candidates { plan.exemptions[candidate.key] = .disabled }
             return plan
         }
-        let pace = Pace.at(pressure)
+        let pace = Pace.at(pressure, urgent: urgent)
         var ranked: [(key: String, idleness: Double, hiddenFor: Double, kept: Bool)] = []
         for candidate in candidates {
             if let exemption = exemption(candidate, setting: setting) {
