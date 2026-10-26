@@ -42,6 +42,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         public var carriesInputLatency: Bool { self == .v3 }
         /// Whether a report in this schema has blocking samples.
         public var carriesBlocking: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (p02-threads-123; the
+        /// schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesLaneWait: Bool { self == .v3 }
         /// Whether a report in this schema carries ``HangReport/activeSeconds`` and the main-thread
         /// histograms (``HangReport/mainThreadCategory`` entries of ``HangReport/intervals``). The
         /// server's schema 3 decode accepts them in the PL-telemetry web PR that lands before a build
