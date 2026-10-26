@@ -28,7 +28,6 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
-import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -445,12 +444,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil)) {
         self.work = work
         // First: trace points record from here on; the ring file opens on `.files`, never on main.
-        let traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps(
-            blackBox: TraceBlackBox(role: .app, directory: TraceBlackBoxFileSteps.appDirectory(bundleID: environment.launch.bundleID).path,
-                                    runtime: .shared, buildVersion: TraceBlackBoxFileSteps.buildVersion(of: .main)),
-            work: work) : nil
-        self.traceBlackBox = traceBlackBox
-        traceBlackBox?.start()
+        traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)

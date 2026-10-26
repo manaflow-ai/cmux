@@ -247,8 +247,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCrashReporting",
                 "CmuxNextHangReports",
                 "CmuxNextSignposts",
-                // The app process's black box (TraceBlackBox, built in AppServices).
-                "CmuxNextTrace",
                 "CmuxNextErrorJournal",
                 "CmuxNextDiff",
                 "CmuxNextHome",

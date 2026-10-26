@@ -44,6 +44,22 @@ public final class TraceBlackBoxFileSteps: Sendable {
         }
     }
 
+    /// Starts the app process's black box: the heap ring and the black-box categories of `runtime` now,
+    /// then ``start()``.
+    ///
+    /// - Parameters:
+    ///   - bundleID: The app's bundle id; it names the folder (``appDirectory(bundleID:home:)``).
+    ///   - work: The app's blocking-work lanes.
+    ///   - runtime: The process's trace runtime.
+    /// - Returns: The started steps; the owner keeps them so the spare deadline lives.
+    public static func startApp(bundleID: String?, work: BackgroundWork, runtime: TraceRuntime = .shared) -> TraceBlackBoxFileSteps {
+        let blackBox = TraceBlackBox(role: .app, directory: appDirectory(bundleID: bundleID).path, runtime: runtime,
+                                     buildVersion: buildVersion(of: .main))
+        let steps = TraceBlackBoxFileSteps(blackBox: blackBox, work: work)
+        steps.start()
+        return steps
+    }
+
     /// The black-box folder of the app with bundle id `bundleID`: `~/Library/Logs/<bundle id>/trace`, beside
     /// its hang files (`HangEpisodeRecorder.defaultDirectory`), so each build keeps its own rings.
     public static func appDirectory(bundleID: String?, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
