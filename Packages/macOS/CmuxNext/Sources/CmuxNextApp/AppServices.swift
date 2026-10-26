@@ -26,6 +26,7 @@ import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
+import CmuxNextRemoteLocalhostService
 import CmuxNextBrowserImport
 import CmuxNextPhone
 import CmuxNextPhoneAccess
@@ -100,7 +101,10 @@ final class AppServices {
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
-    private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
+    /// Made on first use (`AppServices+RemoteServices`), the launch's `SSH.start` post at the latest.
+    var ssh: SSHService { madeSSH ?? makeSSH() }
+    /// `ssh` once made: the quit and the policy reach it without making it.
+    var madeSSH: SSHService?
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
@@ -140,7 +144,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); madeRemoteLocalhost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -402,10 +406,12 @@ final class AppServices {
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
-    /// Browser tabs of remote machines reach that machine's localhost.
-    private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
+    /// Browser tabs of remote machines reach that machine's localhost. Made on first use (a browser tab's route).
+    var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? makeRemoteLocalhost() }
+    /// `remoteLocalhost` once made: a removed machine and a settings change reach it without making it.
+    var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
-    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, localhost: remoteLocalhost)
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     /// Repaints on `appearance.borders` changes (`observeBorders`).
     var borderObservation: Task<Void, Never>?
@@ -478,8 +484,11 @@ final class AppServices {
     )
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
-    /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
-    private(set) lazy var remoteTerminals: RemoteTerminalService = RemoteTerminalService(services: self)  // first read in init (no IUO)
+    /// Remote-terminal tabs: mount, placeholder, snapshot, moves. Made on first use (a remote-terminal tab
+    /// shown, closed or moved), or by the launch post when the restore shows one.
+    var remoteTerminals: RemoteTerminalService { madeRemoteTerminals ?? makeRemoteTerminals() }
+    /// `remoteTerminals` once made: the quit, a stash and a pane's existing content ask it without making it.
+    var madeRemoteTerminals: RemoteTerminalService?
     /// Cross-build session discovery and acknowledge-then-close handoff.
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for
@@ -537,7 +546,6 @@ final class AppServices {
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
         _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
-        _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
@@ -551,7 +559,6 @@ final class AppServices {
             previousConfigChange?()
             self?.terminalColors.apply()
         }
-        _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
@@ -663,9 +670,9 @@ final class AppServices {
         }
         _ = dragSession  // built here, as before
         _ = previews  // built here, as before
-        _ = remoteTerminals  // built here, as before
-        remoteTerminals.start()
-        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
+        WorkspaceClose.willClose = { [weak self] workspace in
+            if !RemoteTerminalService.remoteTabIDs(in: workspace).isEmpty { self?.remoteTerminals.workspaceClosing(workspace) }
+        }
         daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self

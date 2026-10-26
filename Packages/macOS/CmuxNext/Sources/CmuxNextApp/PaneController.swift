@@ -273,7 +273,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         } else {
             // A browser tab names the machine whose localhost it sees.
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            let badge = services.remoteLocalhost.badge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
+            let badge = services.localhostBadge(for: tab, url: tab.url.flatMap(URL.init(string:)), engine: engine)
             (item.machineBadge, item.machineBadgeHelp, item.machineName) = (badge?.text, badge?.help, services.machines.tabColorName(daemon.machineID, badge: badge?.text))
             // Incognito tabs have only a placeholder record in the daemon.
             let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
@@ -520,7 +520,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
         if let notice = services.agentTabs.notices[services.agentTabs.resolve(key)] { return .notice(notice) }
         if let view = services.pages.existingView(key) { return .page(view) }
-        if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let placeholder = services.madeRemoteTerminals?.existingPlaceholder(key) { return .placeholder(placeholder) }
         if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }

@@ -74,6 +74,18 @@ public struct LaunchServicePosts {
         ])
     }
 
+    /// The remote-terminal service, made at the end of the launch's restore (p08-startup-021): one
+    /// afterFirstFrame post when a restored window shows a remote-terminal tab, so its terminal
+    /// reconnects as its session connects; none otherwise, and the first such tab makes it.
+    ///
+    /// - Parameters:
+    ///   - shown: Whether a restored window's pane shows a remote-terminal tab.
+    ///   - start: Makes the service and starts following its sessions.
+    /// - Returns: One afterFirstFrame post, or no post.
+    public static func restoredRemoteTerminals(shown: Bool, start: @escaping @MainActor @Sendable () -> Void) -> LaunchServicePosts {
+        LaunchServicePosts(posts: shown ? [Post(priority: .afterFirstFrame, name: "RemoteTerminals.start", work: start)] : [])
+    }
+
     /// Posts each start on its own, in order, to the main thread.
     ///
     /// - Parameter startup: The launch's scheduler.

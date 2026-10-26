@@ -13,9 +13,9 @@ extension AppServices {
     /// of another machine's workspace that runs here (cx-whr7: the page
     /// notice sits under a Chromium page's child window; the chip does not).
     func browserMachineBadge(key: String, url: URL?) -> (text: String, help: String)? {
-        if let tab = remoteLocalhost.tab(id: key) {
+        if isLoopback(url), let tab = remoteLocalhost.tab(id: key) {
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
-            if let badge = remoteLocalhost.badge(for: tab, url: url, engine: engine) { return badge }
+            if let badge = localhostBadge(for: tab, url: url, engine: engine) { return badge }
         }
         // A machine browser page runs (or waits) on the machine, whatever address it shows.
         guard !MachineBrowserRecord.matches(url), !(cache.existingBrowser(key)?.tab is MachineBrowserPageTab),
@@ -71,12 +71,12 @@ extension AppServices {
         // Built now so it reads each machine's browser status when the machine connects.
         let hosts = machineBrowserHosts
         browserTabs.browserHostAvailable = { [weak hosts] machine in hosts?.available(machine) ?? false }
-        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
-        let localhost = remoteLocalhost
-        browserTabs.localhostRoute = { [weak localhost] daemon, pane, engine in
-            localhost?.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
+        // The remote localhost is made by the first route it gives, not here (p08-startup-021).
+        browserTabs.localhostRoute = { [weak self] daemon, pane, engine in
+            self?.remoteLocalhost.route(daemon: daemon, workspace: daemon.store.workspace(containing: pane.handle)?.id, engine: engine)
         }
-        machines.onDaemonRemoved = { [weak localhost] daemon in localhost?.closeClient(of: daemon) }
+        // A forgotten machine's forwarding connection closes, so its browser runtimes stop.
+        machines.onDaemonRemoved = { [weak self] daemon in self?.madeRemoteLocalhost?.closeClient(of: daemon) }
         browserTabs.isIncognitoPane = { [weak self] pane in
             guard let self, let workspace = machines.daemon(forPane: pane).store.workspace(containing: pane.handle)?.id else { return false }
             return windows.isIncognito(workspace: workspace)

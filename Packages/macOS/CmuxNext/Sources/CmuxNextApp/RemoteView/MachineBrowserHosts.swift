@@ -10,13 +10,14 @@ import Foundation
 @MainActor
 final class MachineBrowserHosts {
     private let machines: MachineRegistry
-    private let localhost: RemoteLocalhostService
+    /// The app's remote localhost, made on first use (a machine connected, a browser started there).
+    private let localhost: @MainActor () -> RemoteLocalhostService?
     /// The last status by machine, for the daemon connection it came from.
     private var known: [String: (connection: ObjectIdentifier, status: BrowserRuntimeStatus?)] = [:]
     private var probing: Set<String> = []
     private var observation: Task<Void, Never>?
 
-    init(machines: MachineRegistry, localhost: RemoteLocalhostService) {
+    init(machines: MachineRegistry, localhost: @escaping @MainActor () -> RemoteLocalhostService?) {
         self.machines = machines
         self.localhost = localhost
         #if DEBUG
@@ -48,7 +49,7 @@ final class MachineBrowserHosts {
 
     /// Reads the machine's status again (a new connection, Retry).
     func refresh(_ machine: String) {
-        guard let connection = connection(of: machine), let client = localhost.loopbackClient(machine: machine),
+        guard let connection = connection(of: machine), let client = localhost()?.loopbackClient(machine: machine),
               !probing.contains(machine) else { return }
         probing.insert(machine)
         // task-owner: one status read; ends with its answer.
@@ -61,7 +62,7 @@ final class MachineBrowserHosts {
 
     /// Starts a browser on the machine; the answer updates `available`.
     func start(_ machine: String, url: URL?) async -> Result<BrowserRuntime, BrowserRuntimeError> {
-        guard let connection = connection(of: machine), let client = localhost.loopbackClient(machine: machine) else {
+        guard let connection = connection(of: machine), let client = localhost()?.loopbackClient(machine: machine) else {
             return .failure(.unavailable(machine))
         }
         do {
@@ -76,7 +77,7 @@ final class MachineBrowserHosts {
 
     /// The tab of `runtime` closed: the machine stops its browser.
     func stop(_ machine: String, runtime: UInt64) {
-        guard let client = localhost.loopbackClient(machine: machine) else { return }
+        guard let client = localhost()?.loopbackClient(machine: machine) else { return }
         // task-owner: one stop request; ends with its answer.
         Task { await client.stopBrowserRuntime(runtime) }
     }

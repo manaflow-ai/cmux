@@ -103,6 +103,24 @@ import Testing
         #expect(slot.postedPriority == .afterStartup)
         #expect(ran.names == ["warm"], "a launch with no restore (daemon unavailable, failsafe) still warms")
     }
+
+    /// p08-startup-021: a restore that shows a remote-terminal tab makes the remote-terminal service
+    /// after the first frame and before startup completes; one that shows none posts nothing.
+    @Test func aShownRemoteTerminalAtRestoreStartsItsServiceAfterTheFirstFrame() {
+        let f = LaunchOrderFixture()
+        let ran = LaunchServiceRan()
+        LaunchServicePosts.restoredRemoteTerminals(shown: false) { ran.names.append("hidden") }.post(on: f.order.startup)
+        LaunchServicePosts.restoredRemoteTerminals(shown: true) { ran.names.append("RemoteTerminals.start") }.post(on: f.order.startup)
+        f.hand.drain()
+        let posted = f.order.startup.log.records.map { ($0.name.description, $0.priority) }
+        #expect(posted.map(\.0) == ["RemoteTerminals.start"], "a restore with no remote-terminal tab posts nothing")
+        #expect(posted.first?.1 == .afterFirstFrame)
+        f.fire()
+        #expect(ran.names.isEmpty, "it waits for the first frame")
+        f.order.startup.firstFrameCommitted()
+        f.fire()
+        #expect(ran.names == ["RemoteTerminals.start"], "before startup completes")
+    }
 }
 
 /// The service starts that ran, in order.

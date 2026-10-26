@@ -82,13 +82,17 @@ struct CrossMachineTabMoveTests {
         let macConnection: DaemonConnection
         let macPane: PaneModel
         let target: WorkspaceModel
+        /// The other machine's link socket, to connect its daemon again after a drop.
+        let machineSocket: String
 
-        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel) {
+        init(services: AppServices, machine: CloudMachineSession, macConnection: DaemonConnection, macPane: PaneModel, target: WorkspaceModel,
+             machineSocket: String) {
             self.services = services
             self.machine = machine
             self.macConnection = macConnection
             self.macPane = macPane
             self.target = target
+            self.machineSocket = machineSocket
         }
 
         /// Moves `tab` to the other machine's workspace as the tab menu and a drag do; whether it moved.
@@ -167,7 +171,8 @@ struct CrossMachineTabMoveTests {
             }
             while target() == nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(100)) }
             let workspace = try #require(target(), "the other machine's workspace has no pane")
-            try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace))
+            try await body(World(services: services, machine: machine, macConnection: macConnection, macPane: pane, target: workspace,
+                                 machineSocket: vmSocket))
             result = .success(())
         } catch {
             result = .failure(error)
