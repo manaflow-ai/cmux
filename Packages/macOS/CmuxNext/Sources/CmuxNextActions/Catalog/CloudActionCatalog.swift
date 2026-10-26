@@ -177,9 +177,11 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudNewTerminal",
-                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal on Machine", bundle: .module),
+                // It makes a workspace (with a terminal), so its title says so; `--workspace <id>` adds
+                // a terminal tab to that workspace of the machine instead. The CLI name stays for scripts.
+                title: String(localized: "action.cloudNewTerminal", defaultValue: "New Terminal Workspace on Machine", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "apple.terminal", surfaces: [.contextMenu],
-                targets: [.machine], cliName: "cloud new-terminal-on-machine"
+                arguments: [CatalogArgument.cloudWorkspaceString], targets: [.machine], cliName: "cloud new-terminal-on-machine"
             ),
             ActionDescriptor(
                 id: "cloudOpenMachine",
@@ -295,6 +297,8 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // output, the new machine's or workspace's id (CloudHandlers+Results.swift).
             "palette.cloud.status", "palette.cloud.ports", "palette.cloud.tools", "palette.cloud.handoff",
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
+            // The new terminal tab's ids (`surface_id`), so a script can type into it next.
+            "cloudSSH",
             "cloudSetupGitHub",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
