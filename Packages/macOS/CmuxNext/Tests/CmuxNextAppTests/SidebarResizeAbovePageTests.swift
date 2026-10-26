@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Testing
 
 /// The sidebar's resize edge works whatever has focus (Leo 2026-10-20: "when im focused in
@@ -16,7 +17,7 @@ import Testing
         _ = NSApplication.shared
         let model = SidebarModel()
         if sidebarHidden { model.presentation = .hidden }
-        let root = WindowRootView(sidebar: SidebarContainerView(model: model))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         let window = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)

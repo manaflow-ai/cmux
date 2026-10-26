@@ -165,7 +165,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), mainWork: mainWork)  // first read in init (no IUO); its Chromium engine at its first read
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {

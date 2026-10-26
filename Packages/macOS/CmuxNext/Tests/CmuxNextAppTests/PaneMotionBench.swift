@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Darwin
 import Foundation
 @testable import CmuxNextLayout
@@ -35,7 +36,7 @@ struct PaneMotionBench {
 
         init(_ screens: [LayoutScreen], focused: PaneID) {
             model = LayoutModel(screens: screens, activeScreenID: "s", focusedPane: focused)
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless],
                               backing: .buffered, defer: false)

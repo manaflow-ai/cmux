@@ -7,6 +7,7 @@ import CmuxNextDesign
 import CmuxNextInput
 @testable import CmuxNextSettings
 import Foundation
+import CmuxNextWakeups
 import Testing
 
 /// The App's Chromium engine is built at its first Chromium need (a tab, a page, the warm-up), not in
@@ -56,7 +57,7 @@ import Testing
     @Test func theCacheBuildsNoEngineUntilItsFirstChromiumRead() {
         let builds = Builds()
         let slot = Self.slot(builds)
-        let cache = TabContentCache(daemon: DaemonService(), chromium: slot, fileInput: NoFileInput())
+        let cache = TabContentCache(daemon: DaemonService(), chromium: slot, fileInput: NoFileInput(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         // The WebKit engine, the tab service and the stores come from the slot, not from an engine.
         _ = cache.webKit.profileStore
         _ = cache.browserTabs.offTheRecord
