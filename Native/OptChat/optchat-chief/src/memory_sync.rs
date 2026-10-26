@@ -479,7 +479,7 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
                     .join("\n")
             });
         }
-        ["undo"] => return undo(flags, home),
+        ["undo"] => return undo(flags, home, json_out),
         _ => {}
     }
     let [source, mode] = words.as_slice() else {
@@ -566,6 +566,10 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
                 },
             )?;
         }
+        if json_out {
+            return Ok(json!({"plan": plan, "est_cost_usd": cost, "written": n, "batch": batch, "to": "local",
+                "backup": backup}).to_string());
+        }
         return Ok(format!(
             "{}\nwrote {n} items as notes (backup {})",
             render(&plan, price, json_out),
@@ -626,6 +630,10 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
             },
         )?;
     }
+    if json_out {
+        return Ok(json!({"plan": plan, "est_cost_usd": cost, "written": done.added, "batch": batch, "to": "cloud",
+            "already_there": done.duplicate, "rejected": done.rejected}).to_string());
+    }
     Ok(format!(
         "{}\nwrote {} items to {chief} ({} already there, {} rejected by the server)",
         render(&plan, price, json_out),
@@ -636,15 +644,20 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
 }
 
 /// `import-from undo`: the last write into this memory (local), or the last append to a Cloud Chief.
-fn undo(flags: &crate::cli::Flags, home: &Path) -> Result<String, String> {
+fn undo(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<String, String> {
     let paths = Paths::new(home);
     let to = flags.value("to").unwrap_or("local");
     if to == "local" {
-        return crate::memory_sync_state::with_host_stopped(
+        let (removed, text) = crate::memory_sync_state::with_host_stopped(
             &paths,
             flags.value("stop-host").is_some(),
             || crate::memory_sync_state::undo_local(&paths, flags.value("batch")),
-        );
+        )?;
+        return Ok(if json_out {
+            json!({"removed": removed, "to": "local"}).to_string()
+        } else {
+            text
+        });
     }
     let chief = flags
         .value("chief")
@@ -673,10 +686,11 @@ fn undo(flags: &crate::cli::Flags, home: &Path) -> Result<String, String> {
         return Err(format!("undo: HTTP {status} {}", value["error"]));
     }
     crate::memory_sync_state::forget(&paths, &run.batch)?;
-    Ok(format!(
-        "took back {} imported items from {chief}",
-        value["value"]["removed"].as_u64().unwrap_or(0)
-    ))
+    let removed = value["value"]["removed"].as_u64().unwrap_or(0);
+    if json_out {
+        return Ok(json!({"removed": removed, "to": "cloud"}).to_string());
+    }
+    Ok(format!("took back {removed} imported items from {chief}"))
 }
 
 fn render(plan: &Plan, price: Price, json_out: bool) -> String {

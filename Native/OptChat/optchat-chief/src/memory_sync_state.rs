@@ -239,7 +239,7 @@ pub fn forget(paths: &Paths, batch: &str) -> Result<(), String> {
 /// Restores a local write: the memory returns to its backup when nothing came
 /// after the write (host stopped); the write's keys leave `import-keys.txt`.
 /// Returns what it did.
-pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<String, String> {
+pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<(usize, String), String> {
     let all = runs(paths);
     let run = match batch {
         Some(b) => all.iter().rev().find(|r| r.batch == b),
@@ -297,15 +297,18 @@ pub fn undo_local(paths: &Paths, batch: Option<&str>) -> Result<String, String> 
         std::fs::write(&keys_path, out).map_err(|e| e.to_string())?;
     }
     forget(paths, &run.batch)?;
-    Ok(format!(
-        "took back {} imported items from {} (the memory is as before; a copy of the memory with them stays as {}.undo-backup-{stamp})",
+    Ok((
         run.written,
-        run.source,
-        paths
-            .memory_db
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("memory.sqlite3")
+        format!(
+            "took back {} imported items from {} (the memory is as before; a copy of the memory with them stays as {}.undo-backup-{stamp})",
+            run.written,
+            run.source,
+            paths
+                .memory_db
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("memory.sqlite3")
+        ),
     ))
 }
 
@@ -479,7 +482,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(runs(&paths).len(), 1);
-        let msg = undo_local(&paths, None).unwrap();
+        let (removed, msg) = undo_local(&paths, None).unwrap();
+        assert_eq!(removed, 1);
         assert!(msg.contains('1'), "{msg}");
         let after = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db).unwrap();
         assert_eq!(after, before, "the memory is what it was");
