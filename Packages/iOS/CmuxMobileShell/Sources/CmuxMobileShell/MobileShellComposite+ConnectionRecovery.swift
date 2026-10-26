@@ -1071,9 +1071,9 @@ extension MobileShellComposite {
                 }
                 if !disconnectForAuthorizationFailureIfNeeded(error) {
                     applyOperationalError(error)
-                    connectionState = .disconnected
-                    macConnectionStatus = .unavailable
-                    clearRemoteConnectionContext()
+                    // connect() keeps a different live Mac until the target
+                    // authenticates. A failed first pairing must preserve it.
+                    releaseForegroundAfterPairingFailure()
                 }
             }
         } else {

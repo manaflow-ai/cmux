@@ -12460,7 +12460,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// A pairing that fails validation, fails to dial, or is cancelled tears
     /// down only a foreground it already retired. A live Mac the attempt never
     /// replaced stays connected.
-    private func releaseForegroundAfterPairingFailure() {
+    func releaseForegroundAfterPairingFailure() {
         guard !hasActiveMacConnection else { return }
         connectionState = .disconnected
         macConnectionStatus = .unavailable
