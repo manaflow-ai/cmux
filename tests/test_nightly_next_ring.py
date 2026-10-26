@@ -301,5 +301,73 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("scripts/ci/nightly_next_ring.py", text)
 
 
+class LegacyPublishedTests(unittest.TestCase):
+    """Run 40239403743 published cmux NEXT while every legacy job skipped: a rate-limited
+    requirement read was taken for a refusal, and continue-on-error kept the run quiet."""
+
+    WORKFLOW = NIGHTLY_YML.read_text()
+
+    def job(self, name: str) -> str:
+        match = re.search(rf"\n  {name}:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)", self.WORKFLOW, re.S)
+        self.assertIsNotNone(match, name)
+        return match.group(1)
+
+    def gate(self, **env: str) -> subprocess.CompletedProcess:
+        body = self.job("nightly-identity-legacy-published")
+        script = body[body.index("        run: |\n") + len("        run: |\n"):]
+        script = "\n".join(line[10:] for line in script.splitlines())
+        base = {"DECIDED": "true", "ACTION": "new", "BUILD": "4023940374302", "NEXT_BUILD": "4023940374302",
+                "SIGN_SKIP": "false", "SIGN_PENDING": "false", "SIGN_OK": "true", "TESTED": "abc123", "ALREADY": "false",
+                "PUBLISHED": "true"}
+        return subprocess.run(["bash", "-c", script], env={"PATH": "/usr/bin:/bin", **base, **env},
+                              capture_output=True, text=True)
+
+    def test_the_gate_is_red_unless_the_old_feed_published_or_had_nothing_to(self):
+        self.assertEqual(self.gate().returncode, 0)
+        for env in ({"ACTION": "none", "BUILD": "", "PUBLISHED": ""}, {"SIGN_SKIP": "true", "PUBLISHED": ""},
+                    {"ALREADY": "true", "PUBLISHED": "false"}, {"SIGN_PENDING": "true", "PUBLISHED": ""},
+                    # A continued older build: the publisher runs only for this run's build.
+                    {"ACTION": "continue", "BUILD": "4023540480101", "PUBLISHED": ""}):
+            self.assertEqual(self.gate(**env).returncode, 0, env)
+        # A failed target leaves no outputs (continue-on-error reports it as success).
+        for env in ({"DECIDED": "", "ACTION": "", "BUILD": "", "PUBLISHED": ""},
+                    {"PUBLISHED": ""}, {"PUBLISHED": "false"},
+                    {"ACTION": "continue", "PUBLISHED": "false"},
+                    # Pending, but the sign job failed after Apple took it (no stored bundle).
+                    {"SIGN_PENDING": "true", "SIGN_OK": "false", "PUBLISHED": ""},
+                    # A continued older build whose sign or verify failed.
+                    {"ACTION": "continue", "BUILD": "4023540480101", "SIGN_OK": "false", "PUBLISHED": ""},
+                    {"ACTION": "continue", "BUILD": "4023540480101", "TESTED": "", "PUBLISHED": ""}):
+            result = self.gate(**env)
+            self.assertEqual(result.returncode, 1, env)
+            self.assertIn("::error title=cmux NIGHTLY feed not published::", result.stdout)
+
+    def test_the_gate_reads_outputs_and_runs_whenever_cmux_next_published(self):
+        body = self.job("nightly-identity-legacy-published")
+        for need in ("publish-nightly", "legacy-identity-target", "sign-nightly-identity-legacy",
+                     "verify-nightly-identity-legacy", "publish-nightly-identity-legacy"):
+            self.assertIn(need, body.split("\n", 1)[0])
+        self.assertIn("always() && !cancelled()", body)
+        self.assertIn("needs.publish-nightly.result == 'success'", body)
+        self.assertNotIn("\n    continue-on-error:", body)
+        self.assertNotRegex(body, r"needs\.(?:legacy-identity-target|[a-z-]*identity-legacy)\.result")
+        target = self.job("legacy-identity-target")
+        self.assertIn("decided: ${{ steps.target.outputs.decided }}", target)
+        self.assertEqual(target.count('echo "decided=true"'), 2)
+        publish = self.job("publish-nightly-identity-legacy")
+        self.assertIn("published: ${{ steps.publish.outcome == 'success' && 'true' || 'false' }}", publish)
+        self.assertIn("already: ${{ steps.order.outputs.skip }}", publish)
+
+    def test_only_a_refusal_skips_a_build_and_an_error_fails_the_target(self):
+        body = self.job("legacy-identity-target")
+        self.assertIn('nightly-next-legacy-requirement.sh "$GITHUB_REPOSITORY" "$build" $REQUIRED)" || rc=$?', body)
+        self.assertIn('if [ "$rc" != 3 ]; then', body)
+        self.assertNotIn('if check="$(', body)
+        listing = body[body.index('candidates="$(gh api'):]
+        listing = listing[:listing.index("\n          for candidate")]
+        self.assertNotIn("|| true", listing)
+        self.assertIn("exit 1", listing)
+
+
 if __name__ == "__main__":
     unittest.main()

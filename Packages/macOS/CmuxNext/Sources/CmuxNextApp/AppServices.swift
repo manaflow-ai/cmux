@@ -489,6 +489,8 @@ final class AppServices {
                                                                           profile: profile.map(BrowserProfileRecord.wireID(for:)))
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
+        // A Chromium page's file chooser that reaches the app with no agent offer asks with the same panel WebKit tabs use.
+        cache.cef.fileInput = openPanel
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
@@ -527,6 +529,9 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
+            entry.chrome.onContentFullscreenChange = { [weak self, weak entry] on in
+                if let entry { self?.pageContentFullscreenChanged(entry, on: on) }
+            }
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }
