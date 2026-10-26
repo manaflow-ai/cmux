@@ -55,6 +55,9 @@ extension PageWebView {
 
     /// Runs `script` in the page's main frame in whichever engine shows it.
     func evaluateInPage(_ script: String) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if router.debugPageHidden { censusPushesWhileHidden &+= 1 }
+        #endif
         scriptTarget.evaluate(script)
     }
 

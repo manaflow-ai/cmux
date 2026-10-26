@@ -159,6 +159,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// When the engine was last told the page is hidden; nil while it shows (`debug.webui`,
+    /// PageWebView+Debug.swift).
+    var censusHiddenSince: Date?
+    /// Native pushes (``evaluateInPage(_:)``) while hidden: one integer add each (`debug.webui`).
+    var censusPushesWhileHidden = 0
+    #endif
 
     public var pageID: String { descriptor.id }
 
@@ -320,6 +327,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         router.contextMenu = { [weak self] params in await self?.contextMenu(params) ?? .object(["picked": .null]) }
         router.userGestureEvent = { [weak self] in self?.recentUserGestureEvent() }
         #if DEBUG || CMUX_BENCH_HOOKS
+        // A new view is in no window yet: hidden until it is placed (`debug.webui`).
+        noteCensusVisibility(false)
         // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
         // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
         // users keep WebKit's occlusion throttling.
@@ -537,7 +546,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidMoveToWindow()
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
-        chromiumSession?.page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        chromiumSession?.page.setVisible(visible)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(visible)
+        #endif
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -551,11 +564,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         super.viewDidHide()
         popupHost?.dismiss()
         chromiumSession?.page.setVisible(false)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(false)
+        #endif
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         chromiumSession?.page.setVisible(window != nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        noteCensusVisibility(window != nil)
+        #endif
     }
 
     public override func viewDidChangeEffectiveAppearance() {

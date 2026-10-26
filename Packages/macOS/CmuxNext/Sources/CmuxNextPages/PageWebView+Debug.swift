@@ -175,6 +175,54 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// This page's fields of a `debug.webui` row (DebugWebUI.swift in the app): what the host knows
+    /// of the page's state and what reached it while hidden.
+    nonisolated public struct Census: Equatable, Sendable {
+        /// `chromium` while a Chromium page shows the document, else `webkit`.
+        public var engine: String
+        /// Whether the engine was last told the page is hidden (no window or a hidden ancestor).
+        public var hidden: Bool
+        /// Seconds since the page was last hidden; nil while it shows.
+        public var hiddenForSeconds: Double?
+        /// The document has not finished loading.
+        public var loading: Bool
+        /// Parked in ``PageHostPool``'s parking view.
+        public var parked: Bool
+        /// Made by ``PageHostPool`` (may be rebound to another page).
+        public var pooled: Bool
+        /// Router events delivered while hidden (``PageRouter/debugDeliveriesWhileHidden``).
+        public var deliveriesWhileHidden: Int
+        /// Native script pushes (theme, glass, document attributes) while hidden.
+        public var pushesWhileHidden: Int
+    }
+
+    /// The page's `debug.webui` fields now.
+    public var census: Census {
+        Census(engine: chromiumSession != nil ? "chromium" : "webkit",
+               hidden: router.debugPageHidden,
+               hiddenForSeconds: censusHiddenSince.map { max(0, now().timeIntervalSince($0)) },
+               loading: !loaded, parked: isParkedSpare, pooled: isPooled,
+               deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
+               pushesWhileHidden: censusPushesWhileHidden)
+    }
+
+    /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
+    public func resetCensusCounters() {
+        router.debugDeliveriesWhileHidden = 0
+        censusPushesWhileHidden = 0
+    }
+
+    /// Records the visibility the host just gave the engine: the hidden flag the counters read and
+    /// when the page was hidden.
+    func noteCensusVisibility(_ visible: Bool) {
+        router.debugPageHidden = !visible
+        if visible {
+            censusHiddenSince = nil
+        } else if censusHiddenSince == nil {
+            censusHiddenSince = now()
+        }
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
