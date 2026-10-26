@@ -16,9 +16,7 @@ extension AppServices {
     func paletteBuilt(_ palette: PaletteController) {
         // Energy Saver's session rows show only while they can act (neither while its feature is off).
         palette.hiddenActionIDs = { [energy] in
-            var hidden = energy.driver.paletteHiddenActionIDs
-            if !AgentPaneTunables.pointerInspector.value { hidden.insert("agentPane.togglePointerInspector") }
-            return hidden
+            energy.driver.paletteHiddenActionIDs.union(AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"])
         }
         palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
