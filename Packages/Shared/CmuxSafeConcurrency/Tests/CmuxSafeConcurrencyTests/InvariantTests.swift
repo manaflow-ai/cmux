@@ -34,8 +34,7 @@ private final class Counter: Sendable {
 
 /// The Invariant API's report tiers (p10-stability-099): a failing site reports once per launch through the
 /// installed sink, on the failing thread and without blocking; notFatalUntil traps only from its named build on.
-/// (A trap ends the test process, so ``Invariant/check(_:_:fileID:line:)`` and a reached build are covered by
-/// ``Invariant/traps(fatalFrom:runningBuild:)``, the decision they share.)
+/// The trap tier runs end to end in ``InvariantTrapTests``.
 @Suite struct InvariantTests {
     @Test func aHoldingConditionReportsNothing() {
         let invariant = Invariant(capacity: 8)
@@ -143,3 +142,47 @@ private final class Counter: Sendable {
         #expect(log.recorded.first?.message.hasPrefix("invariant below-build failed at CmuxSafeConcurrencyTests/") == true)
     }
 }
+
+/// One `notFatalUntil` site whose fatal build the caller picks, so a test can fail the same site below and then
+/// at its build.
+private func failOneSite(fatalFrom build: UInt64, in invariant: Invariant) -> Bool {
+    Invariant.notFatalUntil(false, "one-site", build: build, in: invariant)
+}
+
+/// The trap tier end to end (p10-stability-099): each body runs in its own child process, which must stop.
+#if os(macOS) || os(Linux)
+@Suite struct InvariantTrapTests {
+    @Test func aFailedCheckStopsTheProcessInEveryBuild() async {
+        await #expect(processExitsWith: .failure) {
+            Invariant.check(false, "check-traps")
+        }
+    }
+
+    @Test func notFatalUntilStopsTheProcessAtItsBuild() async {
+        await #expect(processExitsWith: .failure) {
+            let invariant = Invariant(capacity: 8)
+            invariant.install(build: 100, sink: EventLog())
+            Invariant.notFatalUntil(false, "at-build", build: 100, in: invariant)
+        }
+    }
+
+    @Test func notFatalUntilStopsTheProcessPastItsBuild() async {
+        await #expect(processExitsWith: .failure) {
+            let invariant = Invariant(capacity: 8)
+            invariant.install(build: 101, sink: EventLog())
+            Invariant.notFatalUntil(false, "past-build", build: 100, in: invariant)
+        }
+    }
+
+    @Test func aSiteThatAlreadyReportedStillStopsTheProcessAtItsBuild() async {
+        await #expect(processExitsWith: .failure) {
+            let invariant = Invariant(capacity: 8)
+            invariant.install(build: 100, sink: EventLog())
+            // Below its build: the site reports, is claimed, and the call returns.
+            _ = failOneSite(fatalFrom: 101, in: invariant)
+            // The same site at its build: the trap is decided before the claim, so it stops the process.
+            _ = failOneSite(fatalFrom: 100, in: invariant)
+        }
+    }
+}
+#endif

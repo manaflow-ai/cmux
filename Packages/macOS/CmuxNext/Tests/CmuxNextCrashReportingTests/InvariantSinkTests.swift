@@ -1,29 +1,63 @@
 import CmuxSafeConcurrency
+#if DEBUG || CMUX_BLOCKING_CHECKS
+@testable import CmuxNextCompat
+#endif
+import Dispatch
 import Foundation
 import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
+/// What a test reads of one sent Sentry `Event` (a class that is not Sendable), copied in the capture.
+private struct SentEvent: Sendable {
+    let level: SentryLevel
+    let fingerprint: [String]?
+    let tags: [String: String]?
+    let exceptionType: String?
+    /// Whether the capture ran on the main thread.
+    let onMainThread: Bool
+
+    init(_ event: Event) {
+        level = event.level
+        fingerprint = event.fingerprint
+        tags = event.tags
+        exceptionType = event.exceptions?.first?.type
+        onMainThread = Thread.isMainThread
+    }
+}
+
+/// The events a sink's captures sent, as ``SentEvent``s.
+private final class SentEvents: Sendable {
+    private let sent = CmuxSafeConcurrency.Mutex<[SentEvent]>([])
+
+    var capture: InvariantSink.Capture {
+        { event in
+            let copy = SentEvent(event)
+            self.sent.withLock { $0.append(copy) }
+        }
+    }
+
+    var events: [SentEvent] { sent.withLock { $0 } }
+}
+
 /// Blocks a lane was given, held until the test runs them, and the events their captures sent.
 private final class HeldLane: Sendable {
-    private let blocks = Mutex<[@Sendable () -> Void]>([])
-    private let sent = Mutex<[Event]>([])
-    private let stackWalks = Mutex(0)
+    private let blocks = CmuxSafeConcurrency.Mutex<[@Sendable () -> Void]>([])
+    private let sent = SentEvents()
+    private let stackWalks = CmuxSafeConcurrency.Mutex(0)
 
     var lane: InvariantSink.Lane {
         { block in self.blocks.withLock { $0.append(block) } }
     }
 
-    var capture: InvariantSink.Capture {
-        { event in self.sent.withLock { $0.append(event) } }
-    }
+    var capture: InvariantSink.Capture { sent.capture }
 
     var stack: @Sendable () -> [UInt] {
         { self.stackWalks.withLock { $0 += 1 }; return [] }
     }
 
     var held: Int { blocks.withLock { $0.count } }
-    var events: [Event] { sent.withLock { $0 } }
+    var events: [SentEvent] { sent.events }
     var walks: Int { stackWalks.withLock { $0 } }
 
     func runHeld() {
@@ -51,6 +85,29 @@ private final class HeldLane: Sendable {
         held.runHeld()
         #expect(held.events.count == 1, "the lane sends it")
     }
+
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    /// The real caller path (the default stack walk and a real DispatchQueue lane) on the main thread makes no
+    /// blocking call the detector sees, and the event is built and captured off the main thread.
+    @MainActor @Test func theMainThreadCallerDoesNoBlockingWork() async {
+        let queue = DispatchQueue(label: "test.invariant-sink.lane", qos: .utility)
+        let sent = SentEvents()
+        let invariant = Invariant(capacity: 8)
+        invariant.install(build: 10, sink: InvariantSink(sends: true, lane: { queue.async(execute: $0) },
+                                                         capture: sent.capture))
+        let table = BlockingViolationTable(mode: .record, poolMode: .record)
+        BlockingViolationTable.$scoped.withValue(table) {
+            Invariant.notFatalUntil(false, "sink-main-thread", build: 100, in: invariant)
+        }
+        await table.flush()
+        #expect(BlockingDetector(table: table).sites.isEmpty, "the failing call blocked the main thread")
+        await withCheckedContinuation { (drained: CheckedContinuation<Void, Never>) in
+            queue.async { drained.resume() }
+        }
+        #expect(sent.events.count == 1, "the lane sends it")
+        #expect(sent.events.first?.onMainThread == false, "the event was captured on the main thread")
+    }
+    #endif
 
     @Test func oneEventPerSitePerLaunch() {
         let held = HeldLane()
