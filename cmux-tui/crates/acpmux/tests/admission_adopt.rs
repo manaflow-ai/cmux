@@ -101,6 +101,7 @@ async fn adopts_at_the_cap() {
     concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session().await;
     an_adopt_of_an_id_another_family_holds_is_admitted_like_a_new_session().await;
     an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session().await;
+    a_refused_adopt_whose_holder_ended_makes_no_worktree().await;
 }
 
 async fn concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session() {
@@ -185,6 +186,54 @@ async fn an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_ses
     assert_eq!(r["error"]["data"]["reason"], "admission_refused", "{r}");
     assert_eq!(r["error"]["data"]["why"], "under_floor", "{r}");
     assert!(hub.sessions().is_empty(), "no session past the floor: {r}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+async fn a_refused_adopt_whose_holder_ended_makes_no_worktree() {
+    let root = std::env::temp_dir().join(format!("acpmux-admwt-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    // The conversation was recorded in a git repository.
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    for args in [&["init", "-q"][..], &["commit", "-q", "--allow-empty", "-m", "first"]] {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&project)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@example.com")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@example.com")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let hub = hub();
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    let r = new_session(&hub, adopt_of("fakecodex", &chat)).await;
+    let holder = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let flag = root.join("home/.cache/worktree-reclaim/under-floor");
+    std::fs::create_dir_all(flag.parent().unwrap()).unwrap();
+    std::fs::write(&flag, "").unwrap();
+    // An adopt that asks for a worktree finds the conversation held, and is held
+    // there while the holder is purged: its create is then refused under the floor.
+    // SAFETY: one test function in this binary; no session reads it concurrently.
+    unsafe { std::env::set_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS", "1500") };
+    let mut adopt = adopt_of("fakecodex", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "lane-x"});
+    let adopt = tokio::spawn(new_session_owned(hub.clone(), adopt));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let r = request(&hub, "_acpmux/kill", json!({"sessionId": holder, "purge": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = adopt.await.unwrap();
+    unsafe { std::env::remove_var("ACPMUX_TEST_ADOPT_ATTACH_DELAY_MS") };
+    assert_eq!(r["error"]["data"]["reason"], "admission_refused", "{r}");
+    // A refusal makes no worktree, as one before the attach makes none.
+    let worktree = root.join("home/.cmux/worktrees/project/lane-x");
+    assert!(!worktree.exists(), "the refused adopt made {}: {r}", worktree.display());
 
     let _ = std::fs::remove_dir_all(&root);
 }
