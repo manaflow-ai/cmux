@@ -9,6 +9,7 @@
 //! is served: path segments are plain names (no `..`, no dot files, no
 //! percent escapes), and the resolved file must stay under the bundle root.
 
+use cmux_threads::checked::fs as files;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
@@ -166,14 +167,15 @@ fn resolve(root: &Path, target: &str) -> Option<PathBuf> {
     if !segments.iter().all(|segment| plain(segment)) {
         return None;
     }
-    let root = root.canonicalize().ok()?;
+    let root = files::canonicalize(root).ok()?;
     let file = segments.iter().fold(root.clone(), |path, segment| path.join(segment));
-    let file = file.canonicalize().ok()?;
-    (file.starts_with(&root) && file.is_file()).then_some(file)
+    let file = files::canonicalize(file).ok()?;
+    let is_file = files::metadata(&file).is_ok_and(|metadata| metadata.is_file());
+    (file.starts_with(&root) && is_file).then_some(file)
 }
 
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
+    let file = files::open(path)?;
     if file.metadata()?.len() > PAGE_FILE_MAX_BYTES {
         return Err(std::io::Error::other("page file too large"));
     }
@@ -223,11 +225,11 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
         return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
-    let resolved = std::fs::canonicalize(&exe).ok();
+    let resolved = files::canonicalize(&exe).ok();
     [Some(exe), resolved]
         .into_iter()
         .flatten()
         .filter_map(|exe| exe.parent()?.parent().map(PathBuf::from))
         .flat_map(|root| PAGE_BUNDLE_LAYOUTS.map(|layout| root.join(layout)))
-        .find(|dir| dir.is_dir())
+        .find(|dir| files::metadata(dir).is_ok_and(|metadata| metadata.is_dir()))
 }

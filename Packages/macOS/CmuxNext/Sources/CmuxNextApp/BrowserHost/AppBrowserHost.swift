@@ -57,7 +57,7 @@ final class AppBrowserHost {
         let relay = AppDevToolsRelay(services: services, marking: tabs)
         relay.drivable = { [weak tabs] id in tabs?.isDrivable(id) ?? false }
         relay.renderWindows = tabs.renderWindows
-        let driver = WebKitDriver(provider: tabs)
+        let driver = WebKitDriver(provider: tabs, mainWork: services.mainWork)
         driver.cookieBackups = Self.cookieBackups(bundleID: services.environment.launch.bundleID)
         let credentials = AppProviderCredentials(daemon: services.daemon)
         self.credentials = credentials
@@ -79,7 +79,7 @@ final class AppBrowserHost {
             })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
-            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, opener: tabs)
+            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, mainWork: services.mainWork, opener: tabs)
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }

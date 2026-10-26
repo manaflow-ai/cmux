@@ -155,19 +155,24 @@ public final class HangWatch: Sendable {
 
     /// Restores `previous` (the enclosing scope's packed word) when a scope closes. An enclosing scope
     /// keeps its reported flag, so it is never reported twice, and takes the ignore flag of
-    /// ``invalidateActive()``; one that is watched again may need an earlier scan.
+    /// ``invalidateActive()``; one that is watched again may need an earlier scan. A reported scope that ends
+    /// asks for a scan now: the monitor takes its thread off what it reported hung (the crash keys' hung
+    /// threads) at once, even when it was parked.
     @inline(__always)
     func close(slotAddress: UInt, registration: Registration, previous: UInt64) {
         guard let slot = UnsafeMutablePointer<UInt64>(bitPattern: slotAddress),
               Self.owns(Self.word(slot, Self.stateWord).load(ordering: .relaxed), registration) else { return }
         let word = Self.word(slot, Self.deadlineWord)
+        let closing = word.load(ordering: .relaxed)
         guard previous != 0 else {
             word.store(0, ordering: .releasing)
+            if closing & Self.reportedFlag != 0 { requestScan(by: clock.nowNanos()) }
             return
         }
-        let restored = previous | word.load(ordering: .relaxed) & Self.ignoredFlag
+        let restored = previous | closing & Self.ignoredFlag
         word.store(restored, ordering: .sequentiallyConsistent)
         if restored & Self.flagMask == 0 { requestScan(by: restored) }
+        if closing & Self.reportedFlag != 0, restored != closing { requestScan(by: clock.nowNanos()) }
     }
 
     /// Wakes the monitor when its plan would see `due` more than one period late: it is parked or
