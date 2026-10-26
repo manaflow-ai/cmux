@@ -2217,12 +2217,12 @@
           ]
         },
         "sidebar": {
-          "description": "Sidebar rows in shown order.",
+          "description": "The active window's sidebar: its rows in model order (each section, then its groups, a group before its subgroups and members, and loose workspaces; members of a collapsed group or section stay listed with the fold on the header).",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/sidebar",
             "v0": null,
-            "provider": "OracleSidebarFacet",
+            "provider": "SidebarSnapshot.oracleFacet",
             "task": "p15-oracle-036",
             "from": "sidebar store public values"
           },
@@ -2230,9 +2230,20 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["hidden", "widthFraction", "selectedWorkspace", "filterSha256", "rows"],
+              "required": ["window", "hidden", "editing", "widthFraction", "selectedWorkspace", "selection", "filterSha256", "rows"],
               "properties": {
+                "window": {
+                  "description": "the window whose sidebar this is",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/window"},
+                  "type": "string",
+                  "x-oracle-id-kind": "window"
+                },
                 "hidden": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/hidden"}, "type": "boolean"},
+                "editing": {
+                  "description": "the sidebar's edit mode (Edit Sidebar: items wiggle, Add Items and Done show)",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/editing"},
+                  "type": "boolean"
+                },
                 "widthFraction": {
                   "description": "sidebar width over window width",
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/widthFraction"},
@@ -2243,6 +2254,13 @@
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/selectedWorkspace"},
                   "type": ["string", "null"],
                   "x-oracle-id-kind": "workspace"
+                },
+                "selection": {
+                  "description": "the multi-selection (Cmd/Shift-click) in tree order; holds the selected workspace",
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/selection"},
+                  "type": "array",
+                  "x-oracle-order": "sequence",
+                  "items": {"type": "string", "x-oracle-id-kind": "workspace"}
                 },
                 "filterSha256": {
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/filterSha256", "derive": "sha256"},
@@ -2287,6 +2305,7 @@
                       },
                       "label": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/rows/*/label"},
+                        "description": "a workspace's title or a group's name (names a case sets); a section's kind (pinned, local, cloud, ssh, server) or a custom section's title; null for a document item, whose title can be a tab's",
                         "type": ["string", "null"]
                       },
                       "depth": {
