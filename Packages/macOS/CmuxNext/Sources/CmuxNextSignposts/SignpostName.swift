@@ -242,14 +242,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case daemonRequest = 44
 
     // MARK: frame (reserved: PL-motion-core, PL-ghostty)
-    /// Reserved (task 037, PL-motion-core; perf-hot `frame-tick`). One display-link tick (`FrameScheduler`).
-    /// Ring: instant; arg0 the tick's timestamp, arg1 its target timestamp (uptime ns).
+    /// Task 037 (perf-hot `frame-tick`). One display-link tick (``FramePresentEstimate``, from `DisplayClock`).
+    /// Ring: instant; arg0 the tick's timestamp (uptime ns), arg1 its display (`CGDirectDisplayID`) in the high
+    /// 32 bits and the nanoseconds from the timestamp to its vsync target in the low 32.
     case frameTick = 45
-    /// Reserved (task 037, PL-motion-core). The end of a Core Animation commit (``CommitBoundary``). Ring: instant.
+    /// Task 037. A main run-loop turn's commit, once per turn end after Core Animation's commit observer
+    /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
+    /// arg1 how many it carries.
     case frameCommit = 46
     /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
     case frameGPUDone = 47
-    /// Reserved (task 037, PL-motion-core). The first vsync at or after max(``frameCommit``, ``frameGPUDone``)
+    /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
     /// arg0 the flow id, arg1 the vsync target (uptime ns).
     case framePresentEstimate = 48
