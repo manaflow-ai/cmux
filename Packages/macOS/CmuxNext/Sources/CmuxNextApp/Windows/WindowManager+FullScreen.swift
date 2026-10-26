@@ -54,7 +54,10 @@ final class RestoredFullScreen {
     init(window: NSWindow, events: WindowEvents, deadlines: MainDeadlineScheduler, done: @escaping @MainActor () -> Void) {
         self.done = done
         deadline = MainDeadline(owner: "WindowManager.fullScreenRestore", workClass: .visible, scheduler: deadlines)
-        guard !window.styleMask.contains(.fullScreen) else { return startSettling() }
+        guard !window.styleMask.contains(.fullScreen) else {
+            startSettling()
+            return
+        }
         // raw-observer-allow: the name opens a subscription on the window's one WindowEvents (recipe R-notif)
         began = events.subscribe(NSWindow.willEnterFullScreenNotification, owner: "WindowManager.fullScreenRestore") { [weak self] in
             self?.startSettling()

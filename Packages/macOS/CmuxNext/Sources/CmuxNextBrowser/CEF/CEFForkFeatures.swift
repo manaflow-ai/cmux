@@ -15,10 +15,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// gives each unnumbered export the train's API, 32. This gate moves with the train's number.
     static let pageSiteSharingForkAPI: Int32 = 32
 
+    /// The first fork API with `cmux_tab_set_visibility` (p06-scheduler-212): the tab's visibility tree node caps
+    /// its WebContents' visibility, and a capture keeps a hidden tab painting (`IncrementCapturerCount`). Max + 1 of
+    /// the fork lines (36 is p03-rendering-044's attached views) and of the numbers the app claims.
+    static let tabVisibilityForkAPI: Int32 = 37
+
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
     /// The shim exports every renderer-path call (`CEFShimLibrary.hasRendererPaths`).
     var shimHasRendererPaths: Bool
+    /// The shim exports `cmux_shim_tab_set_visibility` (`CEFShimLibrary.tabSetVisibility`).
+    var shimHasTabVisibility = false
 
     /// No always-on per-tab DevTools session: a tab gets a DevTools agent only when DevTools opens
     /// or an agent drives it over CDP, so Chrome's process reuse can put up to 2 same-site main
@@ -31,11 +38,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// pages and sinks with recent input, 32 ms wake alignment, battery saver mode in child processes. Below
     /// this API the app makes no call (the shim also returns 0 when the fork lacks the symbol).
     var energySaver: Bool { forkAPIVersion >= Self.energySaverForkAPI }
+
+    /// Chromium takes each tab's visibility from its node (``CEFTab/followVisibility(of:capture:)``): hidden and
+    /// occluded tabs are hidden and occluded to Blink in the node's turn. Below this API the page window and its
+    /// view decide alone, as before.
+    var tabVisibility: Bool { shimHasTabVisibility && forkAPIVersion >= Self.tabVisibilityForkAPI }
 }
 
 extension CEFForkFeatures {
     /// The features of a loaded shim.
     init(_ shim: CEFShimLibrary) {
-        self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths)
+        self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
+                  shimHasTabVisibility: shim.tabSetVisibility != nil)
     }
 }

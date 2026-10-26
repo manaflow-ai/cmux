@@ -97,7 +97,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// confirmation sheet, a menu or popup, a drop it reads, Web Inspector, dictation); each change
     /// tells the lifecycle.
     package let keepReasons = PageKeepReasons()
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [PageLoadWaiter] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?

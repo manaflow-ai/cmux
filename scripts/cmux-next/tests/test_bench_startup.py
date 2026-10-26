@@ -204,6 +204,22 @@ class ValueSummaryTests(unittest.TestCase):
                          ["temperature cold", "page-ins 4100", "interrupted"])
 
 
+    def test_sidebar_launch_rows_print_against_the_visible_rows(self):
+        """p08-startup-064: the sidebar's row views built before startup_complete, against its visible rows."""
+        runs = [{bs.SIDEBAR_ROWS_BUILT: 18.0, bs.SIDEBAR_ROWS_VISIBLE: 17.0} for _ in range(4)]
+        runs += [{bs.SIDEBAR_ROWS_BUILT: 23.0, bs.SIDEBAR_ROWS_VISIBLE: 17.0}, {"main_start": 1}]
+        self.assertTrue(set([bs.SIDEBAR_ROWS_BUILT, bs.SIDEBAR_ROWS_VISIBLE]) <= set(bs.VALUE_MARKS), "counts, not times")
+        self.assertEqual(bs.run_values(runs[0]), ["sidebar rows built 18 for 17 visible"])
+        self.assertEqual(bs.run_values(runs[-1]), [])
+        lines = bs.value_summary(runs)
+        line = next(line for line in lines if line.startswith(f"  {bs.SIDEBAR_ROWS_BUILT}:"))
+        self.assertIn("p50 18", line)
+        self.assertIn("n 5; visible p50 17; 1 of 5 over visible + 2", line)
+        self.assertEqual(lines[-1], "  launch.interrupted: none of 6 runs", "the interrupted line stays last")
+        self.assertEqual(bs.sidebar_rows_summary([{"main_start": 1}]), [], "an older build prints no sidebar line")
+        self.assertNotIn(bs.SIDEBAR_ROWS_BUILT, [row[1] for row in bs.table(runs)], "never a timed row")
+
+
 class CompletionReasonTests(unittest.TestCase):
     """p08-startup-012: `startup_complete.<reason>` comes before `startup_complete`; the bench counts reasons."""
 

@@ -2,7 +2,10 @@ import Darwin
 
 /// The watchdog thread's only wait (``MainThreadWatchdog``): a kqueue holding one one-shot
 /// timer, which the main thread arms when its run loop wakes and deletes before it sleeps, and
-/// one user event that `stop()` and a scheduled task's start trigger.
+/// one user event that `stop()`, a scheduled task's start and a hang-watch scope trigger. A scope
+/// triggers it only when the hang monitor would see it more than one minimum deadline late: the
+/// first open after the monitor parks, one trigger (`HangWatch` `requestScan`). The monitor's own
+/// scans need no timer of their own: they bound the wait's timeout (`HangMonitor.service()`).
 ///
 /// A main-thread turn shorter than the timer wakes no other thread: an idle app's occasional
 /// wakes cost the watchdog nothing (plans/cmux-next/idle-wakeups.md). A turn that outlasts it
@@ -46,8 +49,8 @@ final class MainThreadWatchdogAlarm: Sendable {
         submit(ident: Self.timerIdent, filter: EVFILT_TIMER, flags: EV_DELETE)
     }
 
-    /// Ends a wait now, or the next one if none runs (`stop()`, and a scheduled task's start:
-    /// `MainThreadWatchdog.wakeForTask()`).
+    /// Ends a wait now, or the next one if none runs (`stop()`, a scheduled task's start:
+    /// `MainThreadWatchdog.wakeForTask()`, and a hang-watch scope the monitor must scan sooner).
     func wake() {
         guard descriptor >= 0 else { return }
         submit(ident: Self.stopIdent, filter: EVFILT_USER, flags: 0, fflags: UInt32(truncatingIfNeeded: NOTE_TRIGGER))

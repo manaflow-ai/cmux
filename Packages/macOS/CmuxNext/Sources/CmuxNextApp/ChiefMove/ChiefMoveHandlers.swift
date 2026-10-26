@@ -7,6 +7,9 @@ import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// "Move Chief To…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
 /// SSH and server remote groups and cmux Cloud (`ChiefMoveTargets`), then runs the bundled
@@ -121,10 +124,11 @@ enum ChiefMoveHandlers {
                 return ActionWorkFailure(report.text)
             }
             if interactive {
-                let go = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+                // A dialog that goes unanswered is a no.
+                let go = (try? await withOnceContinuation { (done: OnceContinuation<Bool, OnceContinuationError>) in
                     CloudPresenter.confirm(ChiefMoveStrings.confirmTitle(title), report.text, button: ChiefMoveStrings.move,
                                            identifier: "cmux.dialog.chief.move", in: window) { done.resume(returning: $0) }
-                }
+                }) ?? false
                 guard go else { return nil }
             }
             let moved = await run(cli, plan.move, timeout: .seconds(1800))

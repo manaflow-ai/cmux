@@ -1,6 +1,9 @@
 import AppKit
 import CmuxNextPalette
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The cmux picker (R89): cmux's own open and save panel, a palette page
 /// that walks one folder level at a time. Every open and save panel in
@@ -79,16 +82,23 @@ final class CmuxPicker {
 
     /// Chooses files or folders; nil when the user leaves.
     func open(_ options: OpenOptions, over window: NSWindow? = nil) async -> [URL]? {
-        await withCheckedContinuation { continuation in
-            guard let palette = services?.palette else { return continuation.resume(returning: nil) }
+        // A page dropped unanswered ends the wait abandoned: the user left.
+        try? await withOnceContinuation { (continuation: OnceContinuation<[URL]?, OnceContinuationError>) in
+            guard let palette = services?.palette else {
+                continuation.resume(returning: nil)
+                return
+            }
             palette.show(page: openPage(options) { continuation.resume(returning: $0) }, relativeTo: window)
         }
     }
 
     /// Chooses a new file's folder and name; nil when the user leaves.
     func save(_ options: SaveOptions, over window: NSWindow? = nil) async -> URL? {
-        await withCheckedContinuation { continuation in
-            guard let palette = services?.palette else { return continuation.resume(returning: nil) }
+        try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
+            guard let palette = services?.palette else {
+                continuation.resume(returning: nil)
+                return
+            }
             palette.show(page: savePage(options) { continuation.resume(returning: $0?.first) }, relativeTo: window)
         }
     }

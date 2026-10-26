@@ -13,6 +13,9 @@ import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import Observation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Owns every terminal surface and browser page in the process
 /// (architecture.md 4). Surfaces are keyed by tab, not by pane: a tab moved
@@ -369,7 +372,7 @@ final class TabContentCache {
     /// Returns once no launch read holds browser pages: at once when none does (callers that need a page now).
     func enginesReady() async {
         guard let read = enginesAwait, !read.isSignaled else { return }
-        await withCheckedContinuation { done in read.post { done.resume() } }
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in read.post { done.resume(returning: ()) } }
     }
 
     /// The URL a browser record may open here. A record from a remote

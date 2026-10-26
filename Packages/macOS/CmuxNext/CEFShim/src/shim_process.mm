@@ -317,6 +317,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
   CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
   CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
+  CMUX_BIND(tab_set_visibility, "cmux_tab_set_visibility");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
   CMUX_BIND(install_prompt_reply, "cmux_install_prompt_reply");
@@ -369,6 +370,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_exit_keyboard_lock, "cmux_browser_exit_keyboard_lock");
   CMUX_BIND(browser_send_locked_mouse_move, "cmux_browser_send_locked_mouse_move");
   CMUX_BIND(browser_set_page_display, "cmux_browser_set_page_display");
+  CMUX_BIND(browser_set_page_visibility, "cmux_browser_set_page_visibility");
   CMUX_BIND(tab_entry_page_state, "cmux_tab_entry_page_state");
   CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
   CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");

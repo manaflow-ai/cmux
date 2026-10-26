@@ -1,6 +1,9 @@
 public import Foundation
 import os
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The prompts the person sent from an agent pane that acpmux has not acknowledged yet, kept in a
 /// file so they outlive the app: a crash, a quit or an update relaunch between the send and
@@ -202,7 +205,7 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
 
     /// Returns once every queued write so far is on disk (tests).
     func settle() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in queue.async { done.resume() } }
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in queue.async { done.resume(returning: ()) } }
     }
 
     /// Applies `body` (true when the entries changed) and writes the result when they did.

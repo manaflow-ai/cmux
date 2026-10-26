@@ -20,6 +20,8 @@ public nonisolated enum KeyRouterMode: Int, CaseIterable, Sendable {
     case focusModeEscape
     /// A chord (`ctrl+b c`, the Cmd-J leader) waits for its next key.
     case chord
+    /// A window shows its launch picture, or keys wait for a terminal it showed (`LaunchPictureKeys`, p08-startup-061).
+    case launchPicture
 
     var bit: UInt16 { 1 << UInt16(rawValue) }
 }

@@ -133,11 +133,11 @@ extension SurfaceBridge {
     /// Hands Ghostty this surface's link filter, asking `check` (nil: every regex link is one).
     @MainActor func installLinkFilter(_ check: TerminalLinkCheck?) {
         linkFilter.setCheck(check)
-        guard let surface = view?.surface else { return }
+        guard let view, let surface = view.surface else { return }
         // SAFETY: the view's live surface (TerminalSurfaceView.surface); the userdata is this
-        // bridge unretained, which the view keeps alive past the surface (SurfaceBridge.from),
-        // and the callback has the C signature ghostty.h declares.
-        unsafe ghostty_surface_set_link_filter(surface, ghosttyLinkFilter, Unmanaged.passUnretained(self).toOpaque())
+        // bridge as the view retained it for every surface callback (TerminalSurfaceView.bridge,
+        // released only after ghostty_surface_free), and the callback has the C signature ghostty.h declares.
+        unsafe ghostty_surface_set_link_filter(surface, ghosttyLinkFilter, view.bridge.toOpaque())
     }
 
     /// The pointer's position again, with the keys held now: a link filter answer that

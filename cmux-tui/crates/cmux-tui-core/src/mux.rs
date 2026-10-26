@@ -218,6 +218,7 @@ mod ledger_maintenance;
 #[cfg(any(debug_assertions, feature = "oracle"))]
 mod oracle;
 mod pinned_columns;
+mod power_source;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -778,6 +779,10 @@ pub struct Mux {
     /// This process's Energy Saver: the app's `energy.set` override over the
     /// daemon's own reading (server/energy_op.rs).
     pub(crate) energy: crate::server::energy_op::DaemonEnergy,
+    /// This process's maintenance clock, once the power source follow
+    /// starts it (mux/power_source.rs).
+    #[cfg(target_os = "macos")]
+    maintenance: OnceLock<crate::wake::MaintenanceClock>,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
