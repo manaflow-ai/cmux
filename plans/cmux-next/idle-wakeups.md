@@ -205,36 +205,43 @@ A hidden-wake session fails (`IDLE-BUDGET-SESSION-FAILED`) and prints no `HIDDEN
 
 - the build has no sha (`bench_launch.build_sha`: Info.plist `CMUXCommit` or `CMUX_CI_SHA`), checked before the launch;
 - the hide or minimize action replies with an error;
-- `debug.window_list` at the start or the end of the window shows a visible main window (light-hidden) or a main
-  window that is not miniaturized (minimized).
+- `debug.window_list` at the start or the end of the window, or after the wake trace, shows a visible main window
+  (light-hidden) or a main window that is not miniaturized (minimized).
 
 When p14-energy-100's applied fields do not confirm the shipping app (not activated, `draws_when_occluded`, no
-Sentry thread, no main-thread watchdog), the source lines are `HIDDEN-WAKE-UNCONFIRMED`, and no Q9 task comes from them.
+Sentry thread, no main-thread watchdog), or when atos did not name a callback of a counted source (`atos failed: N
+callbacks unnamed`), the source lines are `HIDDEN-WAKE-UNCONFIRMED`, and no Q9 task comes from them.
 
-After the window, three bases count wakes and one names frames. A source can show under several bases, so each
-basis is its own list and they are never added:
+Right after the window (a 1 s quiet gap, then the trace, then the hidden-state check, then `/usr/bin/sample`, so the
+sample tool's suspensions never precede the trace), three bases count wakes and one names frames. A source can show
+under several bases, so each basis is its own list and they are never added:
 
 | Basis | What it reads | per_s |
 | --- | --- | --- |
-| `callout-count` | DTrace on the main thread for `--wake-trace` s (30): one count per entry into each CFRunLoop callout (timer, source0, source1, main-queue drain, block), by its callback (`atos`) | callouts/s; the owner is the callback when it is in an owner image, else the top sample owner under the same callout and callback (`owner_from`) |
-| `unattributed` | main wakes/s over the trace span (`debug.hangs` `main_wakes`) less the counted callouts/s; without a trace, the window's main wakes less the run-loop timer fires | wakes/s no counted source covers |
+| `callout-count` | DTrace on the main thread for `--wake-trace` s (30), its span from `BEGIN` (after the probes are enabled) to `END`. A wake is a return from a run-loop wait that can block (`__CFRunLoopServiceMachPort` with a timeout other than 0). Each wake goes once to the first non-observer callout after it, keyed per item: a timer by callback and `CFRunLoopTimerRef`, a source by perform function and info, a block by its invoke, and each main-queue drain item by its dispatch function, block invoke or Swift job resume function | wakes/s over the trace span (the rows and `no-callout` add up to the traced wakes), with `calls_per_s` (callout entries/s) beside it. Owner (`owner_from`): `callback` when atos names it in an owner image; `timer` when the run-loop timer at the same address has a naming callout; `item-stack` from the item's own 997 Hz stacks (`multiplexed` when they show several owners: their shares are time, not rates); else `none` |
+| `unattributed` | with a trace, its wakes no callout claimed before the next wait (`CFRunLoopWakeUp` with no work, a wait timeout), on the same span; without a trace, the window's main wakes less the run-loop timer fires, both over the window | wakes/s no counted source covers |
 | `run-loop-timer` | the main run loop's `CFCopyDescription` at both ends of the window: each repeating timer's next fire date advances one interval per fire, by timer address; an `__NSFireTimer` timer is "unnamed NSTimer" (its callout names Foundation) | fires/s (upper bound under App Nap); a timer at one end only is `unpaired` with per_s null |
 | `ledger` | `debug.wakeups` owners (DemandTimer, FrameScheduler, Backoff), every owner | fires/s on any thread (`thread: any`) |
 | `sample-time` (`HIDDEN-WAKE-FRAME`) | 3 x `--sample` s (10) of `/usr/bin/sample`, added: below each outermost callout, the first frame in an owner image (images are OS by their `Binary Images:` path: /System, /usr/lib), wait frames dropped, OS-only samples to the first non-trampoline frame on their own path | null: samples measure time, not wakes; share of callout time only, no floor |
 
-DTrace's pid provider needs root (`sudo -n`) and a process it may trace; when it can not run, the
-`HIDDEN-WAKE-TOTAL` line has `trace.ok: false` with the reason, and the uncounted wakes are in `unattributed`.
+DTrace's pid provider needs root (`sudo -n`) and a process it may trace; atos runs with the same right. When
+DTrace can not run, the `HIDDEN-WAKE-TOTAL` line has `trace.ok: false` with the reason, and the uncounted wakes are
+in `unattributed`. The `debug.hangs` main wakes around the dtrace run (`trace.rpc_main_wakes_per_s` over
+`trace.rpc_seconds`, which include dtrace's start and exit) are given beside the traced rate, never subtracted from
+it. Callback addresses are OS or owner by the sample report's `Binary Images:` ranges, so that decision never rests
+on atos.
 
 Observers (`__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__`) run on every wake that another source
 causes, so they are listed (`HIDDEN-WAKE-OBSERVER`) and never counted as a cause. This is the split Chromium's
 `MessagePumpCFRunLoopBase` makes (base/message_loop/message_pump_apple.mm: a work source and a delayed-work timer
-wake the loop, observers only bracket it); Chrome names the poster of each task the same way, by its
-`posted_from` location (base/task/common/task_annotator.cc).
+wake the loop, observers only bracket it). The per-item key follows Chrome's TaskAnnotator, which keys each task by
+its own `posted_from` location (base/task/common/task_annotator.cc), not by the pump that runs it.
 
 Output for each hidden session: one `HIDDEN-WAKE {json}` line per source above 0.1/s and basis (`session`, `basis`,
-`owner`, `kind`, `per_s`, `top` frame), `HIDDEN-WAKE-FRAME` and `HIDDEN-WAKE-OBSERVER` lines, and one
-`HIDDEN-WAKE-TOTAL` line with the build `sha`, `host`, main wakes/s, the trace's state, `unattributed_per_s`,
-`samples_taken`, `sources_by_basis`, `confirmed` and `problems`. The JSON report keeps them under
+`owner`, `owner_from`, `kind`, `per_s`, `calls_per_s`, `item`, `top` frame), `HIDDEN-WAKE-FRAME` and
+`HIDDEN-WAKE-OBSERVER` lines, and one `HIDDEN-WAKE-TOTAL` line with the build `sha`, `host`, main wakes/s, the
+trace's state and span, `unattributed_per_s`, `unnamed`, `samples_taken`, `sources_by_basis`, `confirmed` and
+`problems`. The JSON report keeps them under
 `sessions.<session>.hidden_wake`.
 
 Run (Q9, a quiet fleet host, Release with bench hooks):
@@ -247,9 +254,9 @@ Run (Q9, a quiet fleet host, Release with bench hooks):
 
 ### Report
 
-Not measured yet. p14-energy-095 stays open until the Q9 run of the command above fills this table: sha, host and
-every `HIDDEN-WAKE` line above 0.1/s for both sessions, with `confirmed: true` and `trace.ok: true` (or the
-unattributed rate it leaves). Until then, the 107/s figure has no named owner.
+Not measured yet, so p14-energy-095 is not done. It stays open until the Q9 run of the command above, on a
+Release build with bench hooks, fills this table: sha, host and every `HIDDEN-WAKE` line above 0.1/s for both
+sessions, with `confirmed: true`, `trace.ok: true` and `unnamed: 0`. Until then, the 107/s figure has no named owner.
 
 | Session | sha | host | main wakes/s | basis | owner | kind | per_s |
 | --- | --- | --- | --- | --- | --- | --- | --- |

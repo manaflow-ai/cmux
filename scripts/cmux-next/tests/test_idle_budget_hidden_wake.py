@@ -206,37 +206,176 @@ class TimerFireTests(unittest.TestCase):
         self.assertEqual([f["unpaired"] for f in gone if f["timer"] == "0x6000d4"], ["gone at the end"])
 
 
+STACK_TAIL = """\
+              CoreFoundation`__CFRunLoopRun+0x7cc
+              AppKit`-[NSApplication run]+0x1e0
+              cmux DEV`main+0x24
+              dyld`start+0xb18
+"""
+
+# A 30 s trace in dtrace's own output: two NSTimers on one callback (a cheap one at 10/s with few stack samples, a
+# costly one at 1/s with many), a Chromium source0 that also runs on other wakes, two main-queue items, a drain that
+# ran no item, a block under the floor, an observer and wakes no callout claimed. The FIRST rows add up to WAKES.
+TRACE_OUT = f"""\
+SPAN 30000000000
+WAKES 3240
+CALL 1 18d0a1234 6000a1 300
+CALL 1 18d0a1234 6000b2 30
+CALL 2 110000040 7000c0 1500
+CALL 4 100a01000 0 600
+CALL 4 100a02000 0 150
+CALL 5 18d000001 0 2
+CALL 6 191000010 6000f0 2400
+FIRST 1 18d0a1234 6000a1 300
+FIRST 1 18d0a1234 6000b2 30
+FIRST 2 110000040 7000c0 1200
+FIRST 4 100a01000 0 600
+FIRST 4 100a02000 0 150
+FIRST 4 0 0 30
+FIRST 0 0 0 930
+STACK 1 18d0a1234 6000a1 2
+              cmux DEV`closure #1 in StatusPoller.start()+0x3c
+              cmux DEV`thunk for @escaping @callee_guaranteed (@guaranteed NSTimer) -> ()+0x1c
+              Foundation`__NSFireTimer+0x68
+              CoreFoundation`__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__+0x20
+              CoreFoundation`__CFRunLoopDoTimer+0x3e8
+{STACK_TAIL}
+END-STACK
+STACK 1 18d0a1234 6000b2 500
+              cmux DEV`HeartbeatTimer.fire()+0x10
+              Foundation`__NSFireTimer+0x68
+              CoreFoundation`__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__+0x20
+{STACK_TAIL}
+END-STACK
+STACK 4 100a01000 0 7
+              libsystem_kernel.dylib`__psynch_cvwait+0x8
+              cmux DEV`closure #1 in WorkspaceSync.flush()+0x40
+              libdispatch.dylib`_dispatch_call_block_and_release+0x20
+              libdispatch.dylib`_dispatch_client_callout+0x14
+              libdispatch.dylib`_dispatch_main_queue_drain+0x3d4
+              CoreFoundation`__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__+0x10
+{STACK_TAIL}
+END-STACK
+"""
+
+SYMBOLS = {0x18d0a1234: "__NSFireTimer (in Foundation) + 0",
+           0x110000040: "base::MessagePumpCFRunLoopBase::RunWorkSource(void*) (in Chromium Embedded Framework) + 0",
+           0x100a01000: "closure #1 in WorkspaceSync.flush() (in cmux DEV) + 0",
+           0x100a02000: "(1) await resume partial function for Presence.poll() (in cmux DEV) + 0",
+           0x18d000001: "__block_invoke (in Foundation) + 0",
+           0x191000010: "CA::Transaction::observer_callback(__CFRunLoopObserver*, unsigned long, void*) (in QuartzCore) + 0"}
+WORKSPACE_SYNC = "closure #1 in WorkspaceSync.flush() (cmux DEV)"
+PRESENCE_POLL = "(1) await resume partial function for Presence.poll() (cmux DEV)"
+
+
+def raw_trace():
+    """count_main_callouts' result for TRACE_OUT (rpc bracket over 33 s, dtrace start and exit included)."""
+    parsed = ib.parse_wake_trace(TRACE_OUT)
+    return {"ok": True, "error": "", "seconds": 30.0, "main_wakes": parsed["wakes"],
+            "main_wakes_per_s": round(parsed["wakes"] / 30.0, 3), "rpc_seconds": 33.0, "rpc_main_wakes_per_s": 97.0,
+            "parsed": parsed}
+
+
+def trace(symbols=SYMBOLS, sample=SAMPLE, raw=None):
+    with mock.patch.object(ib, "symbolize", lambda _pid, _addresses: symbols), \
+            mock.patch.object(ib, "demangle_stacks", lambda stacks: stacks):
+        return ib.name_trace(raw or raw_trace(), 4242, sample)
+
+
 class WakeTraceTests(unittest.TestCase):
-    def test_script_counts_each_callout_on_the_main_thread_and_exits(self):
+    def test_script_measures_its_span_counts_wakes_and_keys_each_item(self):
         script = ib.wake_trace_script(1234, 30)
-        self.assertEqual(script.count("/tid == 1234/"), len(ib.RUN_LOOP_CALLOUTS))
-        self.assertIn("pid$target:CoreFoundation:__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__:entry", script)
-        self.assertIn("copyin(arg0 + 16, 8)", script)  # a block's invoke pointer
+        self.assertIn("BEGIN { began = timestamp; }", script)
+        self.assertIn('printf("SPAN %d\\n", timestamp - began)', script)
         self.assertIn("tick-30s { exit(0); }", script)
+        self.assertNotRegex(script, r"tid == (?!1234\b)\d+")
+        # A wake is the return from a wait that can block; the next such wait ends an unclaimed wake.
+        self.assertIn("__CFRunLoopServiceMachPort:return /tid == 1234 && self->blk/ { @wakes = count(); self->wake = 1;",
+                      script)
+        self.assertIn("__CFRunLoopServiceMachPort:entry /tid == 1234 && arg4 != 0 && self->wake/", script)
+        # Each non-observer callout claims a pending wake; observers never do.
+        for function, kind in ib.RUN_LOOP_CALLOUTS.items():
+            claims = [line for line in script.splitlines() if f"{function}:entry" in line and "@first[" in line]
+            self.assertEqual(bool(claims), kind != "observer", function)
+        # A timer by its CFRunLoopTimerRef, a source1 by its info, a block by its invoke pointer.
+        self.assertIn("this->b = (uint64_t)(arg1) & 0x7fffffffffff; @calls[1, this->a, this->b]", script)
+        self.assertIn("this->b = (uint64_t)(arg4) & 0x7fffffffffff; @calls[3, this->a, this->b]", script)
+        self.assertIn("copyin(arg0 + 16, 8)", script)
+        # Main-queue items: dispatch functions, blocks and Swift jobs (resume function 56 bytes in).
+        self.assertIn("_dispatch_client_callout:entry", script)
+        self.assertIn("_dispatch_call_block_and_release:entry", script)
+        self.assertIn("swift_job_run:entry", script)
+        self.assertIn("copyin(arg0 + 56, 8)", script)
+        self.assertIn("profile-997 /pid == $target && tid == 1234 && self->ik/", script)
 
-    def test_counts_become_rates_by_callback(self):
-        counts = ib.parse_wake_trace("\n  timer 18d0a1234 300\n  source0 110000040 1500\n  main-queue 0 600\n"
-                                     "  observer 191000010 2400\n garbage line\n")
-        self.assertEqual(counts[("source0", 0x110000040)], 1500)
-        symbols = {0x18d0a1234: "__NSFireTimer (in Foundation) + 0",
-                   0x110000040: "base::MessagePumpCFRunLoopBase::RunWorkSource(void*) (in Chromium Embedded Framework) + 0",
-                   0x191000010: "CA::Transaction::observer_callback(__CFRunLoopObserver*, unsigned long, void*) (in QuartzCore) + 0"}
-        rows = {(r["kind"], r["callback"]): r for r in ib.callout_rates(counts, symbols, 30.0, ib.binary_images(SAMPLE))}
-        source = rows[("source0", "base::MessagePumpCFRunLoopBase::RunWorkSource(void*) (Chromium Embedded Framework)")]
-        self.assertEqual((source["per_s"], source["callback_system"]), (50.0, False))
-        self.assertTrue(rows[("timer", "__NSFireTimer (Foundation)")]["callback_system"])
-        self.assertEqual(rows[("main-queue", None)]["per_s"], 20.0)
+    def test_parse_reads_span_wakes_counts_and_stacks(self):
+        parsed = ib.parse_wake_trace(TRACE_OUT + "garbage line\nCALL 9 1 1 5\n")
+        self.assertEqual((parsed["span_ns"], parsed["wakes"]), (30_000_000_000, 3240))
+        self.assertEqual(parsed["calls"][("timer", 0x18d0a1234, 0x6000a1)], 300)
+        self.assertEqual(parsed["first"][("no-callout", 0, 0)], 930)
+        self.assertEqual(sum(parsed["first"].values()), parsed["wakes"])
+        frames, count = parsed["stacks"][("timer", 0x18d0a1234, 0x6000b2)][0]
+        self.assertEqual((frames[0], count), ("cmux DEV`HeartbeatTimer.fire()+0x10", 500))
+        self.assertEqual(len(parsed["calls"]), 7)  # kind 9 is not a kind
 
+    def test_rates_come_from_the_trace_span_not_the_dtrace_run(self):
+        app = types.SimpleNamespace(process=types.SimpleNamespace(pid=4242))
+        reads = iter([{"main_wakes": 1000}, {"main_wakes": 4300}])
+        app.rpc = lambda method, params=None, timeout=60: next(reads)
+        clock = iter([100.0, 133.0])  # dtrace's start, attach and exit make the run 33 s
+        output = TRACE_OUT.replace("SPAN 30000000000", "SPAN 25000000000")
+        folder = tempfile.mkdtemp(prefix="idle-budget-trace-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        with mock.patch.object(ib, "threads", lambda pid: {205: (0, ""), 101: (0, "")}), \
+                mock.patch.object(ib.time, "monotonic", lambda: next(clock)), \
+                mock.patch.object(ib.subprocess, "run", return_value=types.SimpleNamespace(
+                    returncode=0, stdout=output, stderr="")) as run:
+            result = ib.count_main_callouts(app, 30, folder)
+        self.assertIn("-p", run.call_args.args[0])
+        self.assertIn("tid == 101", Path(folder, "wake-trace.d").read_text())
+        self.assertEqual((result["ok"], result["seconds"], result["main_wakes"]), (True, 25.0, 3240))
+        self.assertEqual(result["main_wakes_per_s"], round(3240 / 25.0, 3))
+        self.assertEqual((result["rpc_seconds"], result["rpc_main_wakes_per_s"]), (33.0, 100.0))
+        named = trace(raw=result)
+        self.assertNotIn("parsed", named)
+        timer = next(r for r in named["callouts"] if r["item"] == "0x6000a1")
+        self.assertEqual(timer["per_s"], 12.0)  # 300 over the 25 s traced, not over the 33 s run
 
-def trace(main_wakes=107.0):
-    counts = ib.parse_wake_trace("timer 18d0a1234 300\nsource0 110000040 1500\nmain-queue 0 600\nblock 18d000001 2\n"
-                                 "observer 191000010 2400\n")
-    symbols = {0x18d0a1234: "__NSFireTimer (in Foundation) + 0",
-               0x110000040: "base::MessagePumpCFRunLoopBase::RunWorkSource(void*) (in Chromium Embedded Framework) + 0",
-               0x18d000001: "__block_invoke (in Foundation) + 0",
-               0x191000010: "CA::Transaction::observer_callback(__CFRunLoopObserver*, unsigned long, void*) (in QuartzCore) + 0"}
-    return {"ok": True, "error": "", "seconds": 30.0, "main_wakes_per_s": main_wakes,
-            "callouts": ib.callout_rates(counts, symbols, 30.0, ib.binary_images(SAMPLE))}
+    def test_a_trace_with_no_span_is_not_ok(self):
+        app = types.SimpleNamespace(process=types.SimpleNamespace(pid=4242), rpc=lambda *a, **k: {})
+        folder = tempfile.mkdtemp(prefix="idle-budget-trace-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        with mock.patch.object(ib, "threads", lambda pid: {101: (0, "")}), \
+                mock.patch.object(ib.subprocess, "run", return_value=types.SimpleNamespace(
+                    returncode=0, stdout="CALL 1 1 1 3\n", stderr="")):
+            result = ib.count_main_callouts(app, 30, folder)
+        self.assertEqual((result["ok"], result["error"]), (False, "dtrace printed no SPAN line"))
+        self.assertEqual(trace(raw=result)["callouts"], [])
+
+    def test_each_wake_counts_once_and_items_are_their_own_rows(self):
+        rows = trace()["callouts"]
+        self.assertEqual(sum(r["wakes"] for r in rows), 3240)
+        self.assertAlmostEqual(sum(r["per_s"] for r in rows), 108.0, places=2)
+        source = next(r for r in rows if r["kind"] == "source0")
+        # The source runs 50/s but claims only the 40/s wakes it ran first on.
+        self.assertEqual((source["per_s"], source["calls_per_s"]), (40.0, 50.0))
+        timers = {r["item"]: r for r in rows if r["kind"] == "timer"}
+        self.assertEqual({item: r["per_s"] for item, r in timers.items()}, {"0x6000a1": 10.0, "0x6000b2": 1.0})
+        queue = {r["callback"]: r["per_s"] for r in rows if r["kind"] == "main-queue"}
+        self.assertEqual(queue, {WORKSPACE_SYNC: 20.0, PRESENCE_POLL: 5.0, None: 1.0})
+        # Each item's stacks name only that item.
+        self.assertEqual(timers["0x6000a1"]["stack_owners"],
+                         [{"owner": "closure #1 in StatusPoller.start() (cmux DEV)", "share": 1.0}])
+        self.assertEqual(timers["0x6000b2"]["stack_owners"], [{"owner": "HeartbeatTimer.fire() (cmux DEV)", "share": 1.0}])
+
+    def test_the_image_range_decides_os_or_owner_when_atos_names_nothing(self):
+        rows = {(r["kind"], r["item"], r["callback"]): r for r in trace(symbols={})["callouts"]}
+        fire = rows[("timer", "0x6000a1", "0x18d0a1234 (in Foundation)")]
+        self.assertEqual((fire["callback_named"], fire["callback_system"]), (False, True))
+        flush = rows[("main-queue", None, "0x100a01000 (in cmux DEV)")]
+        self.assertEqual((flush["callback_named"], flush["callback_system"]), (False, False))
+        unknown = ib.trace_callouts(ib.parse_wake_trace(TRACE_OUT), 30.0, {})
+        self.assertTrue(all(r["callback_system"] is None for r in unknown if r["callback"]))
 
 
 class HiddenWakeSourceTests(unittest.TestCase):
@@ -249,26 +388,57 @@ class HiddenWakeSourceTests(unittest.TestCase):
                                                "named": False, "callout": FIRE, "context": "", "interval_s": 0.1,
                                                "per_s": 10.0}], **extra}
 
-    def test_counted_callouts_are_the_sources_named_by_callback_or_sample(self):
-        report = ib.hidden_wake_sources(self.result())
-        counted = {s["kind"]: s for s in report["sources"] if s["basis"] == "callout-count"}
-        self.assertEqual(set(counted), {"timer", "source0", "main-queue"})  # the block (0.067/s) is under the floor
-        self.assertEqual((counted["source0"]["owner_from"], counted["source0"]["per_s"]), ("callback", 50.0))
-        # __NSFireTimer names Foundation: the sample's owner under the same callback names the timer's owner.
-        self.assertEqual((counted["timer"]["owner"], counted["timer"]["owner_from"]),
-                         ("closure #1 in StatusPoller.start() (cmux DEV)", "sample"))
-        self.assertEqual(counted["main-queue"]["sample_owners"][0],
-                         {"owner": "(1) await resume partial function for WorkspaceSync.flush() (cmux DEV)", "share": 0.625})
-        self.assertEqual([s["per_s"] for s in counted.values()], sorted((s["per_s"] for s in counted.values()), reverse=True))
+    def counted(self, report):
+        return {(s["kind"], s["item"], s["callback"]): s for s in report["sources"] if s["basis"] == "callout-count"}
 
-    def test_each_basis_is_its_own_list_and_unattributed_closes_the_count(self):
+    def test_a_cheap_frequent_timer_and_a_costly_rare_one_keep_their_own_owner_and_rate(self):
+        counted = self.counted(ib.hidden_wake_sources(self.result()))
+        cheap = counted[("timer", "0x6000a1", "__NSFireTimer (Foundation)")]
+        costly = counted[("timer", "0x6000b2", "__NSFireTimer (Foundation)")]
+        self.assertEqual((cheap["owner"], cheap["owner_from"], cheap["per_s"]),
+                         ("closure #1 in StatusPoller.start() (cmux DEV)", "item-stack", 10.0))
+        self.assertEqual((costly["owner"], costly["owner_from"], costly["per_s"]),
+                         ("HeartbeatTimer.fire() (cmux DEV)", "item-stack", 1.0))
+
+    def test_two_main_queue_owners_are_two_rows_named_by_their_function(self):
+        counted = self.counted(ib.hidden_wake_sources(self.result()))
+        self.assertEqual((counted[("main-queue", None, WORKSPACE_SYNC)]["owner_from"],
+                          counted[("main-queue", None, WORKSPACE_SYNC)]["per_s"]), ("callback", 20.0))
+        self.assertEqual(counted[("main-queue", None, PRESENCE_POLL)]["per_s"], 5.0)
+        drain = counted[("main-queue", None, None)]
+        self.assertEqual((drain["owner"], drain["owner_from"]),
+                         ("unnamed main-queue (main queue drain, no item ran)", "none"))
+
+    def test_a_named_run_loop_timer_at_the_same_address_names_the_timer(self):
+        named = {"timer": "0x6000b2", "owner": "cmuxHeartbeat (0x1 / 0x2) (cmux DEV)", "named": True,
+                 "callout": "cmuxHeartbeat (0x1 / 0x2) (cmux DEV)", "context": "", "interval_s": 1.0, "per_s": 1.0}
+        report = ib.hidden_wake_sources(self.result(main_run_loop_timer_fires=[named]))
+        costly = self.counted(report)[("timer", "0x6000b2", "__NSFireTimer (Foundation)")]
+        self.assertEqual((costly["owner"], costly["owner_from"]), ("cmuxHeartbeat (0x1 / 0x2) (cmux DEV)", "timer"))
+
+    def test_each_basis_is_its_own_list_and_unattributed_is_the_unclaimed_wakes(self):
         report = ib.hidden_wake_sources(self.result())
-        self.assertEqual(report["sources_by_basis"], {"callout-count": 3, "unattributed": 1, "run-loop-timer": 1, "ledger": 1})
+        self.assertEqual(report["sources_by_basis"], {"callout-count": 6, "unattributed": 1, "run-loop-timer": 1, "ledger": 1})
         unattributed = next(s for s in report["sources"] if s["basis"] == "unattributed")
-        self.assertEqual(unattributed["per_s"], round(107.0 - (10 + 50 + 20 + 2 / 30), 3))
+        self.assertEqual((unattributed["per_s"], unattributed["of"]), (31.0, "trace wakes no callout claimed"))
+        self.assertEqual((report["trace_main_wakes_per_s"], report["trace"]["rpc_main_wakes_per_s"]), (108.0, 97.0))
         ledger = next(s for s in report["sources"] if s["basis"] == "ledger")
         self.assertEqual((ledger["owner"], ledger["thread"]), ("PresenceClient:backoff", "any"))
         self.assertEqual(len(report["observers"]), 2)  # one counted, one sampled
+        self.assertEqual((report["naming_problems"], report["unnamed"]), ([], 1))
+
+    def test_unnamed_callbacks_are_a_problem_and_never_an_owner(self):
+        report = ib.hidden_wake_sources(self.result(wake_trace=trace(symbols={})))
+        counted = self.counted(report)
+        poll = counted[("main-queue", None, "0x100a02000 (in cmux DEV)")]
+        self.assertEqual((poll["owner"], poll["owner_from"]), ("unnamed main-queue (0x100a02000 (in cmux DEV))", "none"))
+        flush = counted[("main-queue", None, "0x100a01000 (in cmux DEV)")]
+        self.assertEqual((flush["owner"], flush["owner_from"]), (WORKSPACE_SYNC, "item-stack"))
+        cheap = counted[("timer", "0x6000a1", "0x18d0a1234 (in Foundation)")]
+        self.assertEqual(cheap["owner_from"], "item-stack")
+        self.assertEqual(report["naming_problems"], ["atos failed: 5 callbacks unnamed"])
+        lines = ib.hidden_wake_lines("minimized", report, "a" * 40, "cmux20", report["naming_problems"])
+        self.assertFalse(any(line.startswith("HIDDEN-WAKE ") for line in lines))
 
     def test_sample_time_frames_have_no_rate_and_no_floor(self):
         report = ib.hidden_wake_sources(self.result())
@@ -281,7 +451,8 @@ class HiddenWakeSourceTests(unittest.TestCase):
         report = ib.hidden_wake_sources(self.result(wake_trace={"ok": False, "error": "sudo: a password is required",
                                                                 "callouts": []}))
         self.assertEqual(report["trace"]["ok"], False)
-        self.assertEqual(next(s for s in report["sources"] if s["basis"] == "unattributed")["per_s"], 97.0)
+        unattributed = next(s for s in report["sources"] if s["basis"] == "unattributed")
+        self.assertEqual((unattributed["per_s"], unattributed["of"]), (97.0, "window main wakes less run-loop timer fires"))
         self.assertNotIn("callout-count", report["sources_by_basis"])
 
     def test_lines_carry_sha_and_host_and_are_unconfirmed_on_a_problem(self):
@@ -289,14 +460,15 @@ class HiddenWakeSourceTests(unittest.TestCase):
         report["samples_taken"] = 3
         lines = ib.hidden_wake_lines("minimized", report, "a" * 40, "cmux20")
         wakes = [json.loads(line.split(" ", 1)[1]) for line in lines if line.startswith("HIDDEN-WAKE ")]
-        self.assertEqual(len(wakes), 6)
+        self.assertEqual(len(wakes), 9)
         self.assertTrue(all({"session", "owner", "per_s", "top", "kind", "basis"} <= set(w) for w in wakes))
         total = json.loads(lines[-1].split(" ", 1)[1])
         self.assertEqual((total["sha"], total["host"], total["samples_taken"], total["confirmed"]), ("a" * 40, "cmux20", 3, True))
+        self.assertEqual(total["trace"]["seconds"], 30.0)
         self.assertEqual(sum(1 for line in lines if line.startswith("HIDDEN-WAKE-FRAME ")), 5)
         unconfirmed = ib.hidden_wake_lines("minimized", report, "a" * 40, "cmux20", ["Sentry did not start"])
         self.assertFalse(any(line.startswith("HIDDEN-WAKE ") for line in unconfirmed))
-        self.assertEqual(sum(1 for line in unconfirmed if line.startswith("HIDDEN-WAKE-UNCONFIRMED ")), 6)
+        self.assertEqual(sum(1 for line in unconfirmed if line.startswith("HIDDEN-WAKE-UNCONFIRMED ")), 9)
         self.assertEqual(json.loads(unconfirmed[-1].split(" ", 1)[1])["problems"], ["Sentry did not start"])
 
 
@@ -375,8 +547,19 @@ class MainHiddenWakeTests(unittest.TestCase):
         with open(os.path.join(self.app, "Contents", "Info.plist"), "wb") as handle:
             plistlib.dump({"CMUXCommit": sha} if sha else {}, handle)
 
-    def run_main(self, sessions, obey=True):
+    def run_main(self, sessions, obey=True, shown_by_trace=False):
         import bench_launch
+        order = self.order = []
+
+        def counted(app, seconds, folder):
+            order.append("trace")
+            if shown_by_trace:
+                FakeApp.instances[-1].window = {"visible": True, "miniaturized": False}
+            return raw_trace()
+
+        def sampled(pid, seconds, path):
+            order.append("sample")
+            return SAMPLE
 
         def fake(*args, **kwargs):
             app = FakeApp(*args, **kwargs)
@@ -395,8 +578,10 @@ class MainHiddenWakeTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(ib, "threads", lambda pid: {7: (0, "SentryCrash Exception Handler (Primary)")}))
             stack.enter_context(mock.patch.object(ib.procs, "Instance", lambda *a: None, create=True))
             self.measure = stack.enter_context(mock.patch.object(ib, "measure", return_value=measured))
-            self.sample = stack.enter_context(mock.patch.object(ib, "run_sample", return_value=SAMPLE))
-            self.count = stack.enter_context(mock.patch.object(ib, "count_main_callouts", return_value=trace()))
+            self.sample = stack.enter_context(mock.patch.object(ib, "run_sample", side_effect=sampled))
+            self.count = stack.enter_context(mock.patch.object(ib, "count_main_callouts", side_effect=counted))
+            stack.enter_context(mock.patch.object(ib, "symbolize", lambda _pid, _addresses: SYMBOLS))
+            stack.enter_context(mock.patch.object(ib, "demangle_stacks", lambda stacks: stacks))
             clock = itertools.count(step=1.0)  # minimize()'s bounded wait ends without real time passing
             stack.enter_context(mock.patch.object(ib.time, "sleep", lambda _s: None))
             stack.enter_context(mock.patch.object(ib.time, "monotonic", lambda: next(clock)))
@@ -417,8 +602,7 @@ class MainHiddenWakeTests(unittest.TestCase):
         self.assertIn(("action.run", {"action": "minimizeWindow", "args": {}, "focus": False, "origin": "script"}),
                       app.calls)
         self.assertIsNone(self.measure.call_args.kwargs["ledger_limit"])  # every ledger owner in a hidden session
-        self.assertEqual(self.sample.call_count, 3)  # 3 x 10 s
-        self.assertEqual(self.count.call_count, 1)
+        self.assertEqual(self.order, ["trace", "sample", "sample", "sample"])  # the trace before sample's suspensions
         wakes = [json.loads(line.split(" ", 1)[1]) for line in lines if line.startswith("HIDDEN-WAKE ")]
         self.assertTrue(any(w["owner"] == "closure #1 in StatusPoller.start() (cmux DEV)" for w in wakes))
         total = json.loads(next(line for line in lines if line.startswith("HIDDEN-WAKE-TOTAL ")).split(" ", 1)[1])
@@ -445,6 +629,15 @@ class MainHiddenWakeTests(unittest.TestCase):
         self.assertIn("not minimized", failed[1])
         self.assertFalse(any(line.startswith("HIDDEN-WAKE") for line in lines))
         self.measure.assert_not_called()
+
+    def test_a_window_shown_during_the_trace_fails_the_session(self):
+        self.stamp("c" * 40)
+        lines, report = self.run_main("light-hidden", shown_by_trace=True)
+        self.assertEqual(report["session_exits"], {"light-hidden": 1})
+        failed = next(line for line in lines if line.startswith("IDLE-BUDGET-SESSION-FAILED"))
+        self.assertIn("after the wake trace: a main window is visible", failed)
+        self.assertFalse(any(line.startswith("HIDDEN-WAKE") for line in lines))
+        self.assertEqual(self.order, ["trace"])
 
     def test_no_build_sha_fails_the_session_before_the_launch(self):
         self.stamp(None)

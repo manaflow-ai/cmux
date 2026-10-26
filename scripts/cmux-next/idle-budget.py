@@ -30,11 +30,12 @@ Sessions (--sessions):
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
   minimized     the light session with its window minimized (minimizeWindow)
   light-hidden and minimized are hidden-wake sessions: they fail unless the app is hidden (no main window visible)
-  or every main window is miniaturized at both ends of the window, and they name every main-thread wake source
-  above 0.1/s in HIDDEN-WAKE lines (`hidden_wake_sources`): a DTrace count of the main thread's run-loop callouts
-  (--wake-trace), the main run loop's repeating timer fires and the wakeup ledger, one list per basis, with the
-  owners' frames from 3 x --sample `/usr/bin/sample` runs. A run whose shipping mode is not confirmed prints
-  HIDDEN-WAKE-UNCONFIRMED instead.
+  or every main window is miniaturized at both ends of the window and after the wake trace, and they name every
+  main-thread wake source above 0.1/s in HIDDEN-WAKE lines (`hidden_wake_sources`): a DTrace trace of the main
+  thread right after the window (--wake-trace) that gives each wake to the first item it ran, the main run loop's
+  repeating timer fires and the wakeup ledger, one list per basis, with the owners' frames from 3 x --sample
+  `/usr/bin/sample` runs after the trace. A run whose shipping mode is not confirmed, or whose callbacks atos did not
+  name, prints HIDDEN-WAKE-UNCONFIRMED instead.
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -408,11 +409,19 @@ RUN_LOOP_CALLOUTS = {
     "__CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__": "block",
     "__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__": "observer",
 }
-# The callback each callout calls, as a DTrace expression on its entry: its first argument (a timer, source or
-# observer function), the block's invoke pointer (Block_layout.invoke, 16 bytes in), or none (the main queue drain
-# takes a mach message).
-CALLOUT_CALLBACK_ARG = {"timer": "arg0", "source0": "arg0", "source1": "arg0", "observer": "arg0",
-                        "block": "*(uint64_t *)copyin(arg0 + 16, 8)", "main-queue": "0"}
+# The trace's kind codes (D keeps integers in thread-locals); 0 is a wake that no callout claimed.
+TRACE_KIND_CODES = {"no-callout": 0, "timer": 1, "source0": 2, "source1": 3, "main-queue": 4, "block": 5, "observer": 6}
+TRACE_KINDS = {code: kind for kind, code in TRACE_KIND_CODES.items()}
+# The (function, item) key of each callout, as DTrace expressions on its entry (CFRunLoop.c's callout signatures):
+# a timer by its callback and CFRunLoopTimerRef, a source0 by its perform function and info, a source1 by its perform
+# function and info (its fifth argument), a block by its invoke pointer (Block_layout.invoke, 16 bytes in), an
+# observer by its callback and CFRunLoopObserverRef. The main-queue drain is keyed by each item it runs instead.
+CALLOUT_KEYS = {"timer": ("arg0", "arg1"), "source0": ("arg0", "arg1"), "source1": ("arg0", "arg4"),
+                "block": ("*(uint64_t *)copyin(arg0 + 16, 8)", "0"), "observer": ("arg0", "arg1")}
+# A Swift job's RunJob/ResumeTask (swift/ABI/Task.h Job: HeapObject, SchedulerPrivate[2], Flags, Id, Voucher,
+# Reserved, then the function): for a task, the partial function it resumes.
+SWIFT_JOB_FUNCTION_OFFSET = 56
+ADDRESS_MASK = 0x7FFFFFFFFFFF  # drops the pointer-auth bits
 WAKE_CAUSES = ("timer", "source0", "source1", "main-queue", "block")
 # Where the OS's images live (the dyld shared cache's images have these paths too); every other image (the app
 # binary, its frameworks, Sentry, Chromium Embedded Framework) is an owner.
@@ -426,19 +435,35 @@ FALLBACK_OS_IMAGES = {"CoreFoundation", "Foundation", "AppKit", "HIToolbox", "Sk
 # work (a run-loop, dispatch, runtime or Swift job frame does none itself).
 TRAMPOLINE_IMAGES = {"CoreFoundation", "Foundation", "libdispatch.dylib", "libobjc.A.dylib", "libswift_Concurrency.dylib"}
 SWIFT_THUNKS = ("thunk for ", "reabstraction thunk", "partial apply for ", "@objc ", "merged ")
-BINARY_IMAGE_RE = re.compile(r"^\s*0x[0-9a-fA-F]+\s+-\s+\S+\s+.*?<[0-9A-Fa-f-]+>\s+(/.+?)\s*$")
+BINARY_IMAGE_RE = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+-\s+(\S+)\s+.*?<[0-9A-Fa-f-]+>\s+(/.+?)\s*$")
 ATOS_RE = re.compile(r"(.+?) \(in ([^)]+)\)")
+
+
+def image_ranges(text):
+    """[(start, end, path)] of a `/usr/bin/sample` report's `Binary Images:` part: where each image is loaded in that
+    process (an end of `???` makes a one-byte range)."""
+    out = []
+    for line in text.split("Binary Images:", 1)[1].splitlines() if "Binary Images:" in text else []:
+        match = BINARY_IMAGE_RE.match(line)
+        if match:
+            start = int(match.group(1), 16)
+            end = int(match.group(2), 16) if match.group(2).startswith("0x") else start
+            out.append((start, end, match.group(3)))
+    return out
 
 
 def binary_images(text):
     """{image name: path} from a `/usr/bin/sample` report's `Binary Images:` part (the call graph's `(in NAME)` is
     the image file's name)."""
     images = {}
-    for line in text.split("Binary Images:", 1)[1].splitlines() if "Binary Images:" in text else []:
-        match = BINARY_IMAGE_RE.match(line)
-        if match:
-            images.setdefault(os.path.basename(match.group(1)), match.group(1))
+    for _start, _end, path in image_ranges(text):
+        images.setdefault(os.path.basename(path), path)
     return images
+
+
+def image_at(address, ranges):
+    """The path of the image loaded at `address` (image_ranges), or None."""
+    return next((path for start, end, path in ranges or () if start <= address <= end), None)
 
 
 def is_system_image(image, images=None):
@@ -553,96 +578,266 @@ def main_callouts_from_samples(texts):
 
 
 def wake_trace_script(main_tid, seconds):
-    """A DTrace script that counts the main thread's run-loop callouts by kind and callback address for `seconds`
-    (each entry is one callout run; one wake runs one or more). Addresses lose their pointer-auth bits."""
-    lines = ["#pragma D option quiet"]
+    """A DTrace script of the main thread (`main_tid`) for `seconds`, its span measured from BEGIN (after the probes
+    are enabled) to END. It counts:
+
+    - WAKES: returns from a run-loop wait that can block (__CFRunLoopServiceMachPort with a timeout other than 0; the
+      main-queue port poll has 0);
+    - FIRST: each wake once, given to the first non-observer callout after it (for a main-queue drain, its first
+      item; a drain with no item is the drain's), or to kind 0 when the next blocking wait comes first;
+    - CALL: every callout entry, by (function, item) (CALLOUT_KEYS), and each item of an outermost main-queue drain:
+      a dispatch function, a block (_dispatch_call_block_and_release's invoke) or a Swift job's resume function;
+    - STACK: 997 Hz stacks while an outermost callout runs, by the same key, to name an item from its own frames.
+
+    Addresses lose their pointer-auth bits."""
+    tid, mask = f"tid == {int(main_tid)}", f"0x{ADDRESS_MASK:x}"
+    cf = "pid$target:CoreFoundation"
+    drain = f"{tid} && self->ik == {TRACE_KIND_CODES['main-queue']} && self->cd == 1"
+    items = "pid$target:libdispatch.dylib:_dispatch_client_callout:{0}, pid$target:libswift_Concurrency.dylib:swift_job_run:{0}"
+    job = f"*(uint64_t *)copyin(arg0 + {SWIFT_JOB_FUNCTION_OFFSET}, 8) & {mask}"
+    lines = ["#pragma D option quiet", "#pragma D option ustackframes=64",
+             *(f"self int {name};" for name in ("wake", "blk", "cd", "ik", "qd", "qref")),
+             *(f"self uint64_t {name};" for name in ("ia", "ib", "qa")),
+             "BEGIN { began = timestamp; }",
+             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid} && arg4 != 0 && self->wake/ "
+             f"{{ @first[self->wake == 2 ? {TRACE_KIND_CODES['main-queue']} : 0, (uint64_t)0, (uint64_t)0] = count(); "
+             "self->wake = 0; }",
+             f"{cf}:__CFRunLoopServiceMachPort:entry /{tid}/ {{ self->blk = arg4 != 0; }}",
+             f"{cf}:__CFRunLoopServiceMachPort:return /{tid} && self->blk/ {{ @wakes = count(); self->wake = 1; self->blk = 0; }}"]
     for function, kind in RUN_LOOP_CALLOUTS.items():
-        lines.append(f"pid$target:CoreFoundation:{function}:entry /tid == {int(main_tid)}/ "
-                     f"{{ @c[\"{kind}\", ({CALLOUT_CALLBACK_ARG[kind]}) & 0x7fffffffffff] = count(); }}")
-    lines.append(f"tick-{max(1, int(seconds))}s {{ exit(0); }}")
-    lines.append('END { printa("%s %x %@d\\n", @c); }')
+        code, probe = TRACE_KIND_CODES[kind], f"{cf}:{function}:entry"
+        if kind == "main-queue":
+            lines += [f"{probe} /{tid} && self->wake == 1 && self->cd == 0/ {{ self->wake = 2; }}",
+                      f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, (uint64_t)0, (uint64_t)0] = count(); "
+                      "self->wake = 0; }",
+                      f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = 0; self->ib = 0; }}"]
+        else:
+            function_expr, item_expr = CALLOUT_KEYS[kind]
+            lines.append(f"{probe} /{tid}/ {{ this->a = (uint64_t)({function_expr}) & {mask}; "
+                         f"this->b = (uint64_t)({item_expr}) & {mask}; @calls[{code}, this->a, this->b] = count(); }}")
+            if kind != "observer":
+                lines.append(f"{probe} /{tid} && self->wake == 1/ {{ @first[{code}, this->a, this->b] = count(); "
+                             "self->wake = 0; }")
+            lines.append(f"{probe} /{tid} && self->cd == 0/ {{ self->ik = {code}; self->ia = this->a; self->ib = this->b; }}")
+        lines.append(f"{probe} /{tid}/ {{ self->cd++; }}")
+    returns = ", ".join(f"{cf}:{function}:return" for function in RUN_LOOP_CALLOUTS)
+    lines += [f"{returns} /{tid} && self->cd > 0/ {{ self->cd--; }}",
+              f"{returns} /{tid} && self->cd == 0/ {{ self->ik = 0; self->ia = 0; self->ib = 0; }}",
+              # One item per outermost dispatch callout or Swift job of the drain; a block or a job inside a dispatch
+              # function names that item instead.
+              f"pid$target:libdispatch.dylib:_dispatch_client_callout:entry /{drain} && self->qd == 0/ "
+              f"{{ self->qa = arg1 & {mask}; self->qref = 0; }}",
+              f"pid$target:libswift_Concurrency.dylib:swift_job_run:entry /{drain} && (self->qd == 0 || "
+              f"(self->qd == 1 && !self->qref))/ {{ self->qa = {job}; self->qref = 1; }}",
+              f"pid$target:libdispatch.dylib:_dispatch_call_block_and_release:entry /{drain} && self->qd == 1 && "
+              f"!self->qref/ {{ self->qa = *(uint64_t *)copyin(arg0 + 16, 8) & {mask}; self->qref = 1; self->ia = self->qa; }}",
+              f"{items.format('entry')} /{drain}/ {{ self->qd++; self->ia = self->qa; }}",
+              f"{items.format('return')} /{drain} && self->qd > 0/ {{ self->qd--; }}",
+              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa/ "
+              f"{{ @calls[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); }}",
+              f"{items.format('return')} /{drain} && self->qd == 0 && self->qa && self->wake == 2/ "
+              f"{{ @first[{TRACE_KIND_CODES['main-queue']}, self->qa, (uint64_t)0] = count(); self->wake = 0; }}",
+              f"{items.format('return')} /{drain} && self->qd == 0/ {{ self->qa = 0; self->ia = 0; }}",
+              f"profile-997 /pid == $target && {tid} && self->ik/ {{ @stacks[self->ik, self->ia, self->ib, ustack()] = count(); }}",
+              f"tick-{max(1, int(seconds))}s {{ exit(0); }}",
+              'END { printf("SPAN %d\\n", timestamp - began); printa("WAKES %@d\\n", @wakes); '
+              'printa("CALL %d %x %x %@d\\n", @calls); printa("FIRST %d %x %x %@d\\n", @first); '
+              'printa("STACK %d %x %x %@d\\n%k\\nEND-STACK\\n", @stacks); }']
     return "\n".join(lines) + "\n"
 
 
-TRACE_LINE_RE = re.compile(r"^\s*([a-z0-9-]+) ([0-9a-f]+) (\d+)\s*$")
+TRACE_ROW_RE = re.compile(r"^(CALL|FIRST|STACK) (\d+) ([0-9a-f]+) ([0-9a-f]+) (\d+)$")
 
 
 def parse_wake_trace(output):
-    """{(kind, address): count} from the trace's printa lines."""
-    counts = {}
-    for line in output.splitlines():
-        match = TRACE_LINE_RE.match(line)
-        if match and match.group(1) in RUN_LOOP_CALLOUTS.values():
-            key = (match.group(1), int(match.group(2), 16))
-            counts[key] = counts.get(key, 0) + int(match.group(3))
-    return counts
+    """{span_ns, wakes, calls, first, stacks} from the trace's output: calls and first map (kind, function, item) to a
+    count, stacks map it to [(frames innermost first, count)]."""
+    parsed = {"span_ns": None, "wakes": 0, "calls": {}, "first": {}, "stacks": {}}
+    stack = None
+    for raw in output.splitlines():
+        line = raw.strip()
+        if stack is not None:
+            if line == "END-STACK":
+                parsed["stacks"].setdefault(stack[0], []).append((tuple(stack[1]), stack[2]))
+                stack = None
+            elif line:
+                stack[1].append(line)
+            continue
+        if line.startswith("SPAN ") and line[5:].isdigit():
+            parsed["span_ns"] = int(line[5:])
+        elif line.startswith("WAKES ") and line[6:].isdigit():
+            parsed["wakes"] += int(line[6:])
+        match = TRACE_ROW_RE.match(line)
+        if not match or int(match.group(2)) not in TRACE_KINDS:
+            continue
+        key = (TRACE_KINDS[int(match.group(2))], int(match.group(3), 16), int(match.group(4), 16))
+        if match.group(1) == "STACK":
+            stack = (key, [], int(match.group(5)))
+        else:
+            table = parsed["calls" if match.group(1) == "CALL" else "first"]
+            table[key] = table.get(key, 0) + int(match.group(5))
+    return parsed
 
 
-def callout_rates(counts, symbols, seconds, images=None):
-    """[{kind, callback, callback_system, count, per_s}] from the trace counts; `symbols` maps a callback address to
-    atos's `symbol (in image)` line."""
-    rows = {}
-    for (kind, address), count in counts.items():
-        callback, system = None, True
-        if address:
-            match = ATOS_RE.match(symbols.get(address, ""))
-            callback = f"{match.group(1)[:120]} ({match.group(2)})" if match else f"0x{address:x}"
-            system = is_system_image(match.group(2), images) if match else False
-        row = rows.setdefault((kind, callback), {"kind": kind, "callback": callback, "callback_system": system, "count": 0})
-        row["count"] += count
-    out = list(rows.values())
-    for row in out:
-        row["per_s"] = round(row["count"] / seconds, 3) if seconds > 0 else None
-    return sorted(out, key=lambda r: (-r["count"], r["kind"], r["callback"] or ""))
+def stack_frame(line):
+    """(image, symbol) of one DTrace ustack line (`image`symbol+0x1c`; a bare address has no image)."""
+    if "`" not in line:
+        return None, line
+    image, rest = line.split("`", 1)
+    return image, rest.rsplit("+0x", 1)[0]
 
 
-def dtrace_command():
-    """dtrace, through `sudo -n` unless this is root (DTrace's pid provider needs root)."""
-    return ["/usr/sbin/dtrace"] if os.geteuid() == 0 else ["sudo", "-n", "/usr/sbin/dtrace"]
+def stack_owner(frames, images=None):
+    """The owner of one DTrace stack taken in a callout (frames innermost first): below the outermost run-loop
+    callout, the first frame in an owner image (a Swift thunk with a frame below it does not count), else the first
+    OS frame outside the trampoline images; None when no frame below the callout names one."""
+    path = [stack_frame(line) for line in reversed(frames)]
+    start = next((index for index, (_image, symbol) in enumerate(path) if symbol in RUN_LOOP_CALLOUTS), None)
+    if start is None:
+        return None
+    below, handler = path[start + 1:], None
+    for index, (image, symbol) in enumerate(below):
+        if not image or any(wait in symbol for wait in BLOCKING_SYMBOLS):
+            continue
+        node = {"symbol": symbol, "image": image, "system": is_system_image(image, images),
+                "children": below[index + 1:index + 2]}
+        if not names_no_owner(node):
+            return owner_name(node)
+        if handler is None and node["system"] and image not in TRAMPOLINE_IMAGES:
+            handler = owner_name(node)
+    return handler
+
+
+def callback_name(address, symbols, images=None, ranges=None):
+    """(callback, named, system) of a callout function address: atos's `symbol (image)` when it resolved, else the
+    address with the image it is loaded in. `system` comes from the image's path (image_ranges) when the sample has
+    it, so the OS or owner decision never rests on atos; None when neither knows the image."""
+    path = image_at(address, ranges)
+    match = ATOS_RE.match(symbols.get(address, ""))
+    symbol, image = (match.group(1), match.group(2)) if match else (None, None)
+    image = image or (os.path.basename(path) if path else None)
+    if path:
+        system = path.startswith(OS_IMAGE_PREFIXES)
+    else:
+        system = is_system_image(image, images) if image else None
+    if symbol and not symbol.startswith("0x"):
+        return f"{symbol[:120]} ({image})", True, system
+    return (f"0x{address:x} (in {image})" if image else f"0x{address:x}"), False, system
+
+
+def trace_callouts(parsed, seconds, symbols, images=None, ranges=None):
+    """[{kind, callback, callback_named, callback_system, item, calls, calls_per_s, wakes, per_s, stack_samples,
+    stack_owners}] from a parsed trace, one row per (kind, function, item): `per_s` is the wakes it claimed (the
+    rows add up to the trace's wakes), `calls_per_s` its callout entries; `stack_owners` names it from its own
+    stacks only."""
+    rows = []
+    for key in sorted(set(parsed["calls"]) | set(parsed["first"]), key=lambda k: (k[0], k[1], k[2])):
+        kind, function, item = key
+        callback, named, system = callback_name(function, symbols, images, ranges) if function else (None, True, None)
+        owners = {}
+        for frames, count in parsed["stacks"].get(key, []):
+            owner = stack_owner(frames, images)
+            if owner:
+                owners[owner] = owners.get(owner, 0) + count
+        sampled = sum(owners.values())
+        calls, wakes = parsed["calls"].get(key, 0), parsed["first"].get(key, 0)
+        rows.append({"kind": kind, "callback": callback, "callback_named": named, "callback_system": system,
+                     "item": f"0x{item:x}" if item else None, "calls": calls, "wakes": wakes,
+                     "calls_per_s": round(calls / seconds, 3), "per_s": round(wakes / seconds, 3),
+                     "stack_samples": sampled,
+                     "stack_owners": [{"owner": owner, "share": round(count / sampled, 3)}
+                                      for owner, count in sorted(owners.items(), key=lambda kv: -kv[1])[:3]]})
+    return sorted(rows, key=lambda r: (-r["wakes"], -r["calls"], r["kind"], r["callback"] or ""))
+
+
+def privileged(tool):
+    """`tool` through `sudo -n` unless this is root: DTrace's pid provider needs root, and atos needs the same right
+    to read a Release app's task."""
+    return [tool] if os.geteuid() == 0 else ["sudo", "-n", tool]
 
 
 def symbolize(pid, addresses):
-    """{address: atos line} for the callback addresses in process `pid`."""
+    """{address: atos line} for the callback addresses in process `pid` ({} when atos can not run)."""
     addresses = sorted(a for a in addresses if a)
     if not addresses:
         return {}
     try:
-        run = subprocess.run(["/usr/bin/atos", "-p", str(pid), *(f"0x{a:x}" for a in addresses)],
+        run = subprocess.run([*privileged("/usr/bin/atos"), "-p", str(pid), *(f"0x{a:x}" for a in addresses)],
                              capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired):
         return {}
-    return dict(zip(addresses, run.stdout.splitlines()))
+    return dict(zip(addresses, run.stdout.splitlines())) if run.returncode == 0 else {}
 
 
-def count_main_callouts(app, seconds, folder, images=None):
-    """Counts the main thread's run-loop callouts for `seconds` after the window (DTrace pid provider), with the
-    main thread's wakes over the same span (debug.hangs `main_wakes`). {ok, error, seconds, main_wakes_per_s,
-    callouts}; ok False with the reason when DTrace can not run (no root, SIP, a restricted process)."""
+def demangle_stacks(stacks):
+    """`stacks` with Swift symbols demangled (`xcrun swift-demangle`); unchanged when it can not run."""
+    lines = sorted({line for entries in stacks.values() for frames, _count in entries for line in frames})
+    if not lines:
+        return stacks
+    try:
+        run = subprocess.run(["/usr/bin/xcrun", "swift-demangle", "--simplified"], input="\n".join(lines) + "\n",
+                             capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.TimeoutExpired):
+        return stacks
+    out = run.stdout.splitlines()
+    if run.returncode != 0 or len(out) != len(lines):
+        return stacks
+    names = dict(zip(lines, out))
+    return {key: [(tuple(names[line] for line in frames), count) for frames, count in entries]
+            for key, entries in stacks.items()}
+
+
+def count_main_callouts(app, seconds, folder):
+    """Traces the main thread for `seconds` (DTrace pid provider, wake_trace_script): {ok, error, seconds (the
+    trace's own span), main_wakes, main_wakes_per_s (wakes on that span), parsed}. The debug.hangs `main_wakes`
+    bracket around the dtrace run is kept apart (`rpc_main_wakes_per_s` over `rpc_seconds`, which include dtrace's
+    start and exit) and never set against the trace's counts. ok False with the reason when DTrace can not run (no
+    root, SIP, a restricted process). name_trace turns `parsed` into named rows."""
     pid = app.process.pid
     ids = threads(pid)
     if not ids:
-        return {"ok": False, "error": "the app has no threads", "seconds": seconds, "callouts": []}
+        return {"ok": False, "error": "the app has no threads", "seconds": None, "callouts": []}
     script = os.path.join(folder, "wake-trace.d")
     with open(script, "w") as handle:
         handle.write(wake_trace_script(min(ids), seconds))  # the main thread is the first: its id is the lowest
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     began = time.monotonic()
     try:
-        run = subprocess.run([*dtrace_command(), "-p", str(pid), "-s", script], capture_output=True, text=True,
-                             timeout=seconds + 120)
+        run = subprocess.run([*privileged("/usr/sbin/dtrace"), "-p", str(pid), "-s", script], capture_output=True,
+                             text=True, timeout=seconds + 120)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return {"ok": False, "error": f"dtrace: {error}"[:300], "seconds": seconds, "callouts": []}
+        return {"ok": False, "error": f"dtrace: {error}"[:300], "seconds": None, "callouts": []}
     elapsed = time.monotonic() - began
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     if run.returncode != 0:
-        return {"ok": False, "error": f"dtrace exit {run.returncode}: {run.stderr.strip()[-300:]}", "seconds": seconds,
+        return {"ok": False, "error": f"dtrace exit {run.returncode}: {run.stderr.strip()[-300:]}", "seconds": None,
                 "callouts": []}
-    counts = parse_wake_trace(run.stdout)
-    result = {"ok": True, "error": "", "seconds": round(elapsed, 1),
-              "callouts": callout_rates(counts, symbolize(pid, {a for _k, a in counts}), elapsed, images)}
+    parsed = parse_wake_trace(run.stdout)
+    if not parsed["span_ns"]:
+        return {"ok": False, "error": "dtrace printed no SPAN line", "seconds": None, "callouts": []}
+    span = parsed["span_ns"] / 1e9
+    result = {"ok": True, "error": "", "seconds": round(span, 3), "main_wakes": parsed["wakes"],
+              "main_wakes_per_s": round(parsed["wakes"] / span, 3), "parsed": parsed}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1 and elapsed > 0:
-        result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
+        result["rpc_seconds"] = round(elapsed, 1)
+        result["rpc_main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
     return result
+
+
+def name_trace(trace, pid, sample_text=None):
+    """The trace with `callouts` (trace_callouts) in place of its parsed counts: callback addresses through atos and
+    the sample report's `Binary Images:` ranges (the same process, so the same load addresses)."""
+    parsed = trace.pop("parsed", None)
+    trace.setdefault("callouts", [])
+    if not trace.get("ok") or parsed is None:
+        return trace
+    images = binary_images(sample_text) if sample_text else None
+    ranges = image_ranges(sample_text) if sample_text else []
+    keys = set(parsed["calls"]) | set(parsed["first"])
+    symbols = symbolize(pid, {function for _kind, function, _item in keys})
+    parsed = {**parsed, "stacks": demangle_stacks(parsed["stacks"])}
+    trace["callouts"] = trace_callouts(parsed, trace["seconds"], symbols, images, ranges)
+    return trace
 
 
 TIMER_ENTRY_RE = re.compile(r"<CFRunLoopTimer (0x[0-9a-fA-F]+)[^>]*>\{valid = (\w+), firing = \w+, interval = "
@@ -665,7 +860,7 @@ def repeating_timers(description):
 
 def timer_owner(address, timer):
     """(owner, named): the timer's callout, or for a callout every timer shares (__NSFireTimer) the timer itself,
-    marked unnamed (the callout count's sample owners name it)."""
+    marked unnamed (the trace names it from the timer's own stacks)."""
     if timer["callout"].startswith(GENERIC_TIMER_CALLOUTS):
         return f"unnamed NSTimer {address} (context {timer['context'] or '?'})", False
     return timer["callout"], True
@@ -699,64 +894,78 @@ def timer_fires(before, after, elapsed):
 HIDDEN_WAKE_FLOOR = 0.1  # per second: every main wake source above it is named
 
 
-def counted_sources(trace, causes, floor):
-    """The `callout-count` sources: each traced main-thread callout kind and callback above `floor` per second. The
-    owner is the callback when it is in an owner image, else the top sample owner under the same callout and
-    callback (`owner_from`)."""
-    by_key = {}
-    for row in causes:
-        by_key.setdefault((row["kind"], row["callback"]), []).append(row)
+def row_owner(row, timers_by_address):
+    """(owner, owner_from) of one traced item: its callback when atos named it in an owner image; for a timer, the
+    run-loop timer at the same address when its callout names it; else the owner frame of the item's own stacks;
+    else unnamed."""
+    if row["callback"] and row["callback_named"] and row["callback_system"] is False:
+        return row["callback"], "callback"
+    timer = timers_by_address.get(int(row["item"], 16)) if row["kind"] == "timer" and row["item"] else None
+    if timer and timer.get("named"):
+        return timer["owner"], "timer"
+    if row["stack_owners"]:
+        return row["stack_owners"][0]["owner"], "item-stack"
+    where = row["callback"] or "main queue drain, no item ran"
+    return f"unnamed {row['kind']} ({where}{', item ' + row['item'] if row['item'] else ''})", "none"
+
+
+def counted_sources(trace, timers, floor):
+    """The `callout-count` sources: each traced main-thread item (kind, function, item) that claimed more than `floor`
+    wakes per second or ran more than `floor` callouts per second, named by row_owner. `per_s` is wakes/s (the
+    sources add up to the trace's wakes with the no-callout wakes), `calls_per_s` callout entries/s. An item whose
+    own stacks show several owners (a source that runs many kinds of work) is `multiplexed`: its owners carry time
+    shares, not rates."""
+    by_address = {int(t["timer"], 16): t for t in timers if str(t.get("timer", "")).startswith("0x")}
     out = []
     for row in trace.get("callouts") or []:
-        if row["kind"] not in WAKE_CAUSES or row["per_s"] is None or row["per_s"] <= floor:
+        if row["kind"] not in WAKE_CAUSES or max(row["per_s"], row["calls_per_s"]) <= floor:
             continue
-        owners = sorted(by_key.get((row["kind"], row["callback"]), []), key=lambda r: -r["samples"])
-        key_samples = sum(o["samples"] for o in owners)
-        if row["callback"] and not row["callback_system"]:
-            owner, owner_from = row["callback"], "callback"
-        elif owners:
-            owner, owner_from = owners[0]["owner"], "sample"
-        else:
-            owner, owner_from = f"unnamed {row['kind']} callout ({row['callback'] or 'main queue drain'})", "none"
+        owner, owner_from = row_owner(row, by_address)
         out.append({"basis": "callout-count", "kind": row["kind"], "owner": owner, "owner_from": owner_from,
-                    "per_s": row["per_s"], "callback": row["callback"],
-                    "top": owners[0]["owner"] if owners else row["callback"],
-                    "sample_owners": [{"owner": o["owner"], "share": round(o["samples"] / key_samples, 3)}
-                                      for o in owners[:3]]})
-    return sorted(out, key=lambda s: -s["per_s"])
+                    "per_s": row["per_s"], "calls_per_s": row["calls_per_s"], "callback": row["callback"],
+                    "callback_named": row["callback_named"], "item": row["item"],
+                    "top": row["stack_owners"][0]["owner"] if row["stack_owners"] else row["callback"],
+                    "multiplexed": len(row["stack_owners"]) > 1, "stack_samples": row["stack_samples"],
+                    "stack_owners": row["stack_owners"]})
+    return sorted(out, key=lambda s: (-s["per_s"], -s["calls_per_s"]))
 
 
 def hidden_wake_sources(result, floor=HIDDEN_WAKE_FLOOR):
     """The main thread's wake sources of a hidden session, one list per basis. A source can be in more than one
     basis, so the bases are never summed and `sources_by_basis` counts each apart:
 
-    - `callout-count`: the DTrace count of each run-loop callout on the main thread (`wake_trace`), per second
-      (`counted_sources`).
-    - `unattributed`: the main wakes per second the counted callouts do not cover (without a trace, the window's
-      main wakes less the run-loop timer fires).
+    - `callout-count`: the DTrace trace of the main thread (`wake_trace`): each wake given once to the first item
+      that ran after it, per second of the trace's own span (`counted_sources`).
+    - `unattributed`: with a trace, its wakes that no callout claimed before the next wait (the same span); without
+      one, the window's main wakes less the run-loop timer fires (both over the window).
     - `run-loop-timer`: each repeating main run-loop timer's fires, by timer; unpaired timers with per_s None.
     - `ledger`: wakeup ledger owners (DemandTimer, FrameScheduler, Backoff) on any thread (`thread: any`).
     - `frames` (sample-time): the `/usr/bin/sample` owners' share of the main thread's callout time. Samples measure
       time, not wakes, so per_s is None and no floor applies: they name frames, they do not rank sources.
 
-    Observers are not causes and come back apart."""
+    Observers are not causes and come back apart. `naming_problems` lists what makes the names unsure (callbacks atos
+    did not name); the caller adds them to the session's problems."""
     main_wakes = result.get("main_wakes_per_s")
     trace = result.get("wake_trace") or {"ok": False, "error": "not run", "callouts": []}
     callouts = result.get("main_callouts") or []
     causes = [c for c in callouts if c["kind"] in WAKE_CAUSES]
     total = sum(c["samples"] for c in causes)
-    timers = [t for t in result.get("main_run_loop_timer_fires") or [] if t.get("unpaired") or (t["per_s"] or 0) > floor]
+    all_timers = result.get("main_run_loop_timer_fires") or []
+    timers = [t for t in all_timers if t.get("unpaired") or (t["per_s"] or 0) > floor]
     if trace.get("ok"):
-        base = trace.get("main_wakes_per_s")
-        covered = sum(r["per_s"] for r in trace["callouts"] if r["kind"] in WAKE_CAUSES and r["per_s"] is not None)
+        unattributed = round(sum(r["per_s"] for r in trace["callouts"] if r["kind"] == "no-callout"), 3)
+        of = "trace wakes no callout claimed"
+    elif isinstance(main_wakes, (int, float)):
+        unattributed = round(max(0.0, main_wakes - sum(t["per_s"] for t in timers if t["per_s"])), 3)
+        of = "window main wakes less run-loop timer fires"
     else:
-        base = main_wakes
-        covered = sum(t["per_s"] for t in timers if t["per_s"])
-    unattributed = round(max(0.0, base - covered), 3) if isinstance(base, (int, float)) else None
-    sources = counted_sources(trace, causes, floor)
+        unattributed, of = None, None
+    sources = counted_sources(trace, all_timers, floor)
+    unnamed = sum(1 for s in sources if s["callback"] and not s["callback_named"])
+    naming_problems = [f"atos failed: {unnamed} callbacks unnamed"] if unnamed else []
     if unattributed is not None and unattributed > floor:
         sources.append({"basis": "unattributed", "kind": "unattributed", "owner": "unattributed", "per_s": unattributed,
-                        "top": None, "of": "trace main wakes" if trace.get("ok") else "window main wakes"})
+                        "top": None, "of": of})
     for timer in timers:
         sources.append({"basis": "run-loop-timer", "kind": "timer", "top": timer["callout"],
                         **{k: v for k, v in timer.items() if k != "next_fire"}})
@@ -772,9 +981,11 @@ def hidden_wake_sources(result, floor=HIDDEN_WAKE_FLOOR):
     for source in sources:
         by_basis[source["basis"]] = by_basis.get(source["basis"], 0) + 1
     return {"main_wakes_per_s": main_wakes, "trace_main_wakes_per_s": trace.get("main_wakes_per_s"),
-            "trace": {k: trace.get(k) for k in ("ok", "error", "seconds")}, "cause_samples": total,
-            "unattributed_per_s": unattributed, "sources": sources, "sources_by_basis": by_basis, "frames": frames,
-            "observers": observers[:20]}
+            "trace": {k: trace.get(k) for k in ("ok", "error", "seconds", "main_wakes", "rpc_seconds",
+                                                "rpc_main_wakes_per_s")},
+            "cause_samples": total, "unattributed_per_s": unattributed, "sources": sources, "sources_by_basis": by_basis,
+            "unnamed": sum(1 for s in sources if s.get("owner_from") == "none"), "naming_problems": naming_problems,
+            "frames": frames, "observers": observers[:20]}
 
 
 def hidden_wake_lines(session, report, build_sha, host, problems=()):
@@ -790,7 +1001,7 @@ def hidden_wake_lines(session, report, build_sha, host, problems=()):
         "session": session, "sha": build_sha, "host": host, "main_wakes_per_s": report["main_wakes_per_s"],
         "trace_main_wakes_per_s": report["trace_main_wakes_per_s"], "trace": report["trace"],
         "unattributed_per_s": report["unattributed_per_s"], "sources_by_basis": report["sources_by_basis"],
-        "samples_taken": report.get("samples_taken", 0), "cause_samples": report["cause_samples"],
+        "unnamed": report.get("unnamed", 0), "samples_taken": report.get("samples_taken", 0), "cause_samples": report["cause_samples"],
         "confirmed": not problems, "problems": list(problems), "floor_per_s": HIDDEN_WAKE_FLOOR}))
     return lines
 
@@ -1984,8 +2195,8 @@ def main(argv=None):
     parser.add_argument("--samples", type=int, default=None,
                         help="how many --sample runs to take and add (default: 3 in a hidden-wake session, else 1)")
     parser.add_argument("--wake-trace", type=float, default=30,
-                        help="seconds of DTrace callout counts of the main thread after the samples, in a hidden-wake "
-                             "session (0: none)")
+                        help="seconds of DTrace wake trace of the main thread right after the window and before the "
+                             "samples, in a hidden-wake session (0: none)")
     parser.add_argument("--chrome-app", default=CHROME_APP,
                         help="the chrome-static browser: a Chromium that runs Manifest V2 (ungoogled-chromium of "
                         "cmux's Chromium major); branded Chrome 137+ and Chrome for Testing 139+ are refused")
@@ -2072,6 +2283,16 @@ def main(argv=None):
             problem = hidden_state_problem(spec, result["window_state"]["end"]) if spec.get("hidden_wake") else None
             if problem:
                 raise HiddenStateError(f"at the end of the window: {problem}")
+            trace = None
+            if spec.get("hidden_wake") and opts.wake_trace:
+                # Before /usr/bin/sample, which suspends the app again and again: no catch-up work in the trace.
+                os.makedirs(folder, exist_ok=True)
+                time.sleep(QUIET_GAP_S)  # bench: the end read's reply settles before the trace
+                trace = count_main_callouts(app, opts.wake_trace, folder)
+                result["window_state"]["after_trace"] = window_state(app)
+                problem = hidden_state_problem(spec, result["window_state"]["after_trace"])
+                if problem:
+                    raise HiddenStateError(f"after the wake trace: {problem}")
             texts = []
             if opts.sample:
                 os.makedirs(folder, exist_ok=True)
@@ -2081,10 +2302,8 @@ def main(argv=None):
                         texts.append(text)
                 result["sample"] = threads_from_sample(texts[0]) if texts else {}
                 result["main_callouts"] = main_callouts_from_samples(texts)
-            if spec.get("hidden_wake") and opts.wake_trace:
-                os.makedirs(folder, exist_ok=True)
-                result["wake_trace"] = count_main_callouts(app, opts.wake_trace, folder,
-                                                           binary_images(texts[0]) if texts else None)
+            if trace is not None:
+                result["wake_trace"] = name_trace(trace, app.process.pid, texts[0] if texts else None)
             entry.update(summarize(session, result, budget))
             kinds, overs, notes = entry["kinds"], [tuple(o) for o in entry["over"]], entry["not_judged"]
             for name, values in kinds.items():
@@ -2113,7 +2332,7 @@ def main(argv=None):
             if spec.get("hidden_wake"):
                 hidden = hidden_wake_sources(result)
                 hidden.update({"sha": sha, "host": machine["host"], "samples_taken": len(texts),
-                               "problems": shipping_problems(entry)})
+                               "problems": shipping_problems(entry) + hidden["naming_problems"]})
                 entry["hidden_wake"] = hidden
                 for line in hidden_wake_lines(session, hidden, sha, machine["host"], hidden["problems"]):
                     print(line, flush=True)
