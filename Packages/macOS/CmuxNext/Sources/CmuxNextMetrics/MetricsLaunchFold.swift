@@ -3,12 +3,13 @@ import CmuxNextCompat
 
 /// One earlier launch's metrics, reported as its own section under that launch's own profile, never merged
 /// into the current launch's (a crashed 1.2 launch read by 1.3 stays a 1.2 section).
-public struct MetricsLaunchSection<Contents: Sendable>: Sendable {
+public struct MetricsLaunchSection<Contents: Sendable & Identifiable>: Sendable where Contents.ID == String {
     /// The source launch's file.
     public let file: URL
-    /// The section's stable id, the source file's name: the upload sends it, so a section sent again after an
-    /// upload whose delete did not happen (the app ended between the two) is counted once by the server.
-    public var id: String { file.lastPathComponent }
+    /// The section's stable id: the source launch's identity from its file's header (``MetricsLaunchReading``),
+    /// never the file name, which a later launch with a reused pid gets too. The upload sends it, so a section
+    /// sent again after an upload whose delete did not happen (the app ended between the two) is counted once.
+    public var id: String { contents.id }
     /// The source launch's profile and unsent samples.
     public let contents: Contents
 }
@@ -26,7 +27,7 @@ public struct MetricsLaunchSection<Contents: Sendable>: Sendable {
 /// never folded again. Every call reads or deletes files: call it off the main thread (BackgroundWork `.files`).
 ///
 /// ```swift
-/// let fold = MetricsLaunchFold(directory: folder, current: thisLaunchFile, reader: store)
+/// let fold = MetricsLaunchFold(directory: folder, current: thisLaunchFile, reader: MetricsLaunchFileReader(role: .app))
 /// let outcome = await fold.run { section in try await reports.send(section) }
 /// ```
 public struct MetricsLaunchFold<Reader: MetricsLaunchReading>: Sendable {

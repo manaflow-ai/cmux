@@ -1391,6 +1391,11 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Change: At launch, read each earlier launch's file as its own report section with its own profile, and
   delete it after the upload succeeds. The run marker stores `kern.bootsessionuuid`. An unclean exit with a
   different boot session counts as system_shutdown, not as a crash.
+- Done in 053: `MetricsLaunchFold` and `MetricsLaunchFileReader` (S/CmuxNextMetrics/MetricsLaunchFileReader.swift),
+  which maps a 052 file read-only and gives its profile, delta and a section id from the header (role, pid,
+  start time, boot session; never the file name, because pids are reused). 063 owns the launch-time call:
+  it runs the fold with `MetricsLaunchFileReader(role: .app)` off main and sends each section with its
+  report upload.
 - Acceptance: A crashed launch's file is folded once and kept under its own version. The fold is
   idempotent. A boot-change test passes.
 - Test phase: fleet: `swift test --filter MetricsLaunchFoldTests`.
@@ -1472,7 +1477,9 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - `histograms[]`: name (catalog only), unit, buckets as `[index,count]`, count, sum, max. At most 32
     histograms × 24 buckets, deltas only.
   - `stability{}` from 109.
-  - Per-launch sections with profiles.
+  - Per-launch sections with profiles: at launch, run 053's `MetricsLaunchFold` with
+    `MetricsLaunchFileReader(role: .app)` off main, send each section under its id, and delete its file
+    only after the upload succeeded.
   - `blackbox[]`: up to 512 events taken at a hang >= 1 s or a key.frame > 50 ms, merged from the app,
     daemon and involved host rings with a process field. Key and per-key PTY records are filtered out
     (128).
