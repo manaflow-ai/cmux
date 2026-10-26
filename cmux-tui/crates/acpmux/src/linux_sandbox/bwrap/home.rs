@@ -59,32 +59,27 @@ pub(super) fn denied_paths(
     let mut outside = BTreeSet::new();
     for path in read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))) {
         path_arg(&path)?;
+        if !path.starts_with(home) {
+            // Outside HOME, reject lexical symlinks before any resolution.
+            validate_outside(&path, outside_stat)?;
+            outside.insert(path);
+            continue;
+        }
         let resolved = resolve_missing(&path)?;
         if path == home || resolved == home {
             return Err("read denial covers HOME itself".into());
         }
-        if path.starts_with(home) {
-            if !resolved.starts_with(home) {
-                return Err(format!(
-                    "denied path {} resolves outside HOME: {}",
-                    path.display(),
-                    resolved.display()
-                ));
-            }
-            inside.insert(path);
-            if resolved != home {
-                inside.insert(resolved);
-            }
-            continue;
+        if !resolved.starts_with(home) {
+            return Err(format!(
+                "denied path {} resolves outside HOME: {}",
+                path.display(),
+                resolved.display()
+            ));
         }
-        if resolved.starts_with(home) {
+        inside.insert(path);
+        if resolved != home {
             inside.insert(resolved);
-            continue;
         }
-        // Share A's full ancestor check, including ownership (chmod) and
-        // writable grandparents. outside_view also checks before masking.
-        validate_outside(&path, outside_stat)?;
-        outside.insert(path);
     }
     Ok((inside, outside.into_iter().collect()))
 }
