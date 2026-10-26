@@ -43,6 +43,7 @@ struct Shim {
   std::vector<std::string> calls;
   HostContext* host = nullptr;
   cmux_shim_focus_request_fn focus = nullptr;
+  int focus_handler_sets = 0;  // set_focus_request_handler calls (nullptr counts)
   cmux_shim_window_request_fn window = nullptr;
   int live = 0;
   int devtools_result = 77;
@@ -58,7 +59,10 @@ void Emit(int kind, int browser, int request, const char* s1 = "") {
 extern "C" {
 const char* cmux_shim_abi_id(void) { return "abi"; }
 int cmux_shim_fork_api_version(void) { return 30; }
-void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) { shim.focus = handler; }
+void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
+  shim.focus = handler;
+  ++shim.focus_handler_sets;
+}
 void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler) { shim.window = handler; }
 void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn) {}
 void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn) {}
@@ -338,7 +342,8 @@ void PreinitBeforeInitialize() {
   Expect(f.Sent(), {"ack 11", Key("mirror", kOpForeignBrowserCount), Key("mirror", kOpLiveBrowserCount),
                     Key("mirror", kOpWindowCount), Key("mirror", kOpTabNavigationState, "5"), "ack 12", "ack 13"},
          "initialize acked, then the counts that refresh on attach too, then the rest");
-  Check(shim.focus != nullptr && shim.window != nullptr, "the host's policies are installed after initialize");
+  Check(shim.focus_handler_sets > 0 && shim.focus == nullptr && shim.window != nullptr,
+        "after initialize the host's window policy is installed and no focus handler (task p01-process-032)");
 }
 
 // What AFTER_CREATED (`verb` "mirror") or BEFORE_CLOSE ("forget") sends for
@@ -499,22 +504,25 @@ void DevToolsPlacementView() {
   Check(shim.calls.empty(), "the shim forgets a closed browser's placement itself");
 }
 
-void FocusOnlyFromCmux() {
+// The host installs no focus handler (task p01-process-032): the shim grants a
+// focus request only for the page cmux marked embedder-active
+// (CEFShim/src/embedder_focus_policy.h). cmux installing its in-process
+// handler over the wire changes nothing, and embedder-active reaches the shim.
+void FocusIsTheShimsEmbedderActiveRule() {
   Fixture f;
   f.Start();
-  Check(shim.focus && shim.focus(&f.host, 3, 0) == 0, "Chromium's own focus request is refused");
-  Writer focus;
-  focus.I32(3);
-  focus.I32(1);
-  f.host.OnMessages({Op(kOpSetFocus, 50, focus)});
-  Check(shim.focus_answer == 1, "the request inside cmux's set_focus is granted");
-  shim.focus_answer = -1;
+  Check(shim.focus == nullptr, "no focus handler after initialize");
+  Writer install;
+  install.I32(1);
+  f.host.OnMessages({Op(kOpSetFocusRequestHandler, 50, install)});
+  Check(shim.focus == nullptr, "cmux's focus handler is not installed in the host");
+  shim.calls.clear();
   Writer active;
   active.I32(3);
   active.I32(1);
   f.host.OnMessages({Op(kOpBrowserSetEmbedderActive, 51, active)});
-  Check(shim.focus_answer == 1, "the request inside cmux's embedder-active is granted (task 046)");
-  Check(shim.focus(&f.host, 3, 0) == 0, "after it, Chromium's own focus request is refused again");
+  Expect(shim.calls, {"embedder_active 3 1"}, "embedder-active reaches the shim, which owns the focus rule");
+  Check(shim.focus_answer == -1, "no host handler is asked inside it");
   Check(shim.window && shim.window(&f.host, 2, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 3,
         "a popup opens as a tab in the opener's window");
   Check(shim.window(&f.host, 3, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 0, "an incognito window opens nothing");
@@ -608,7 +616,7 @@ int main() {
   MintedTab();
   DevTools();
   DevToolsPlacementView();
-  FocusOnlyFromCmux();
+  FocusIsTheShimsEmbedderActiveRule();
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();

@@ -17,6 +17,7 @@
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
+#include "embedder_focus_policy.h"
 #include "embedder_ui_args.h"
 
 namespace cmux_shim {
@@ -158,11 +159,23 @@ struct Host {
   cmux_shim_key_fn unhandled_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
   cmux_shim_focus_request_fn focus_request = nullptr;
+  // Decides Chromium's focus requests when focus_request is null (the
+  // Chromium Host's mode, task p01-process-032).
+  EmbedderFocusPolicy embedder_focus;
 };
 
 ForkApi& fork_api();
 void InstallForkObserver();
 Host& host();
+
+// True when CEF's request to focus `browser_id` must be cancelled
+// (CefFocusHandler::OnSetFocus returns it). In process cmux's focus_request
+// decides; with none installed (host mode) only the browser cmux marked
+// embedder-active may take focus (shim_browser.mm).
+bool RefusesFocus(int browser_id, int source);
+// cmux marked `browser_id` embedder-active or not (shim_helper_host.mm),
+// recorded before the fork is told, which focuses the page inside the call.
+void NoteEmbedderActive(int browser_id, bool active);
 
 // True once quit began to stop Chromium (cmux_shim_close_all): no browser is
 // made after, as CEF aborts creating one once its shutdown began.

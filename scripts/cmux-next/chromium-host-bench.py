@@ -40,7 +40,8 @@ Per mode:
            stays open, idle, in the other pane (cmux's pump still runs for it and the spare page).
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
   input    helper: typing and the caret, one blur and one focus when cmux's focus moves out and back, copy and
-           paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
+           paste through cmux's Edit menu, focus and navigation (a load in the background pane takes no focus,
+           a load in the focused pane has it), and Chromium's native UI from the host (context menu, <select>, alert,
            file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME, find
            and drag are listed as not forwarded.
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
@@ -104,7 +105,7 @@ addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); ret
 addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
 function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
 function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
+function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus, nav: new URLSearchParams(location.search).get('nav')}); }
 window.__pace = function(ms) {
   S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
@@ -540,8 +541,9 @@ def run_helper(rpc, url, inproc_tab):
     # (the probe's elements are at fixed fractions of the viewport), turned into window points by the app.
     # The rightmost pane's content rect (window points, top left): the host page view fills it.
     layers = rpc("debug.pane_chrome") or {}
-    borders = [pane.get("border") for window in layers.get("windows") or [] for pane in window.get("panes") or []
-               if isinstance(pane.get("border"), list)]
+    panes = [pane for window in layers.get("windows") or [] for pane in window.get("panes") or []
+             if isinstance(pane.get("border"), list)]
+    borders = [pane["border"] for pane in panes]
     if not borders:
         RESULT["modes"]["helper"] = {"error": "no pane geometry (debug.pane_chrome)"}
         return False
@@ -597,7 +599,8 @@ def run_helper(rpc, url, inproc_tab):
     row["host_pid"] = state.get("pid")
     row["fork_api"] = state.get("fork_api")
 
-    row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    host_pane = max(panes, key=lambda pane: pane["border"][0]).get("pane")
+    row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid, host_pane)
 
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
@@ -649,7 +652,7 @@ def bounded(rows, name, run):
     rows[name] = result.get("value") if not thread.is_alive() else {"error": f"timed out after {ROW_LIMIT_S} s", "pass": False}
 
 
-def input_rows(rpc, url, title, click_point, borders, host_pid):
+def input_rows(rpc, url, title, click_point, borders, host_pid, host_pane):
     """The host page's input paths, each a pass/fail row (the page's focus is the fork's embedder-active state on fork
     API 30, DevTools focus emulation below it; no host window is ever key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
     cmux's Edit menu, and Chromium's own native UI (context menu, <select>, alert, file picker) with the frontmost
@@ -699,6 +702,34 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(stats()), 5) or stats()
     rows["copy_paste"] = {"typed": typed, "cleared": cleared.get("field"), "pasted": pasted.get("field")}
     rows["copy_paste"]["pass"] = typed > 0 and cleared.get("field") == 0 and pasted.get("field") == typed
+
+    # 3b. Navigation and focus (task p01-process-032): the host grants Chromium's focus request only for the page
+    # cmux marked embedder-active. With cmux's focus in the left pane, a navigation of the host page in its (now
+    # background) pane must not give the new document focus; with the page focused again, the next navigation's
+    # document has focus after its load. Each navigation loads a new document (`?nav=`), so its counters start at 0.
+
+    def navigate(tag):
+        rpc("debug.chromium_host", {"op": "open", "url": f"{url}?nav={tag}", "pane": host_pane})
+        return wait(lambda: (lambda st: st if st.get("nav") == tag else None)(stats()), 10) or stats()
+
+    rpc("debug.mouse", {"x": left[0] + left[2] / 2, "y": left[1] + left[3] / 2})
+    wait(lambda: (lambda st: st if st.get("has_focus") is False else None)(stats()), 5)
+    loaded = navigate("background")
+    time.sleep(1.0)  # test harness: a focus request after the load would land in this second
+    background = stats()
+    rpc("debug.mouse", click_point("t"))
+    wait(lambda: (lambda st: st if st.get("has_focus") is True else None)(stats()), 5)
+    navigate("focused")
+    focused = wait(lambda: (lambda st: st if st.get("nav") == "focused" and st.get("has_focus") is True else None)(
+        stats()), 5) or stats()
+    rows["focus_navigation"] = {"background_loaded": loaded.get("nav") == "background",
+                                "background_has_focus": background.get("has_focus"),
+                                "background_focus_events": background.get("focus"),
+                                "focused_loaded": focused.get("nav") == "focused",
+                                "focused_has_focus": focused.get("has_focus"), "front_is_host": not front_ok()}
+    rows["focus_navigation"]["pass"] = rows["focus_navigation"]["background_loaded"] and \
+        background.get("has_focus") is False and (background.get("focus") or 0) == 0 and \
+        rows["focus_navigation"]["focused_loaded"] and focused.get("has_focus") is True and front_ok()
 
     # 4. Chromium's native UI from the host process. Each one in a fresh host (close, open), so a UI that stays
     # open (a menu, a modal panel) cannot leak into the next row.

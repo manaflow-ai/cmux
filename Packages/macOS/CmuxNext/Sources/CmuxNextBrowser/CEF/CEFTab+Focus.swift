@@ -27,7 +27,20 @@ let cefFocusRequestCallback: CEFShimLibrary.FocusRequestFn = { context, browser,
 }
 
 extension CEFRuntime {
-    /// Chromium asks to focus a page. Unknown browsers (a popup not adopted
+    /// Installs cmux's answer to Chromium's own focus requests, before `initialize`.
+    ///
+    /// In process cmux refuses them (``CEFTab/chromiumRequestsFocus(_:)``). In host mode cmux
+    /// installs none: a synchronous answer would cross the wire. The host's shim grants a request
+    /// only for the page cmux marked embedder-active, the one its first responder shows
+    /// (``CEFTab/applyFocus(_:browser:)``; CEFShim/src/embedder_focus_policy.h): a navigation in a
+    /// background pane takes no focus, and the focused pane's page keeps it after its own load,
+    /// as Chrome focuses only a window's active tab.
+    func installFocusRequestPolicy(_ shim: CEFShimLibrary) {
+        guard hostStart == nil else { return }
+        shim.setFocusRequestHandler(cefFocusRequestCallback)
+    }
+
+    /// Chromium asks to focus a page (in process only). Unknown browsers (a popup not adopted
     /// yet) are refused: only a tab cmux shows can be given focus.
     func focusRequested(browser: Int32, source: Int32) -> Bool {
         guard let tab = tabsByBrowser[browser] else { return false }
@@ -36,7 +49,8 @@ extension CEFRuntime {
 }
 
 extension CEFTab {
-    /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`).
+    /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`), in process only
+    /// (``CEFRuntime/installFocusRequestPolicy(_:)``).
     ///
     /// Only cmux gives a page focus: the focus coordinator decides, and
     /// `setFocused(true)` asks inside `grantFocus`. CEF's own requests are
