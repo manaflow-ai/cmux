@@ -766,12 +766,9 @@ final class AppServices {
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
-    /// and the pane that holds it, on any machine (O(1) per daemon).
+    /// and the pane that holds it, on any machine: one lookup of its machine (``MachineTabIndex``).
     func locateTab(_ id: String) -> (TabModel, PaneModel)? {
-        for daemon in machines.daemons {
-            if let tab = daemon.store.tab(idOrResource: id), let pane = daemon.store.pane(holding: tab) { return (tab, pane) }
-        }
-        return nil
+        machines.tabIndex.locate(id)
     }
     /// The tab on `surface` (the local daemon's surfaces).
     func locateTab(surface: SurfaceID) -> TabModel? {
