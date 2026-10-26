@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Observation
 
 /// The right sidebar's section views, by mode: the app registers Vault, Feed,
@@ -11,7 +12,7 @@ final class RightSidebarSections {
     typealias Provider = @MainActor (WindowController) -> NSView
 
     @ObservationIgnored private var providers: [RightSidebarMode: Provider] = [:]
-    /// The section buttons' SF Symbol images, made off the main thread by ``prewarmIcons()``: CoreUI decodes
+    /// The section buttons' SF Symbol images, made off the main thread by ``postIconBuild(on:)``: CoreUI decodes
     /// each symbol's vectors when its image is made, which cost the first Focus Right Sidebar 47 ms in its turn.
     @ObservationIgnored private var icons: [RightSidebarMode: NSImage] = [:]
     /// Every registered mode's icon is made (tests and the debug report read it).
@@ -35,7 +36,7 @@ final class RightSidebarSections {
         providers[mode]?(window)
     }
 
-    /// The icon of `mode`'s button: the prewarmed one, else made now (only before ``prewarmIcons()`` landed).
+    /// The icon of `mode`'s button: the prewarmed one, else made now (only before ``postIconBuild(on:)`` landed).
     func icon(_ mode: RightSidebarMode) -> NSImage? {
         if let icon = icons[mode] { return icon }
         let made = symbolImage(mode.symbol)
@@ -43,15 +44,19 @@ final class RightSidebarSections {
         return made
     }
 
-    /// Makes the registered modes' icons on a detached task, once, after the sections are registered (launch).
-    func prewarmIcons() {
+    /// Makes the registered modes' icons once startup completes, as one afterStartup post on the cpu lane at
+    /// idle priority (Chrome's `AfterStartupTaskUtils::PostTask` with a background destination runner,
+    /// chrome/browser/after_startup_task_utils.cc): no launch frame waits on CoreUI. The images land on main
+    /// as one more afterStartup post. A panel shown before that makes its own icons (``icon(_:)``).
+    ///
+    /// - Parameter startup: The launch's scheduler.
+    func postIconBuild(on startup: StartupScheduler) {
         let modes = self.modes.filter { icons[$0] == nil }
         guard !modes.isEmpty else { return iconsReady = true }
         let symbolImage = symbolImage
-        // task-owner: one pass per launch; the images land on the main actor.
-        Task.detached(priority: .utility) { [weak self] in
+        startup.post(.afterStartup, "RightSidebar.icons", on: .lane(.cpu, .idle)) { [weak self] in
             let made = modes.compactMap { mode in symbolImage(mode.symbol).map { (mode, $0) } }
-            await self?.land(made)
+            startup.post(.afterStartup, "RightSidebar.icons.land", on: .main) { self?.land(made) }
         }
     }
 
