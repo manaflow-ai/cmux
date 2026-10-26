@@ -144,10 +144,11 @@ check("timeout-minutes: 45" in publish_step.split("run: |")[0] and "--ttl 3000" 
       and "(( wait > 900 - waited ))" in publish_step,
       "the publish lease outlives the publish step, so it is never taken from a run still writing")
 check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip_dmg
-      and "TIP_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}" in tip
+      and "TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
+      and "DMG_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}" in tip
       and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip_dmg + tip
       and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip_dmg,
-      "each attempt's tip archive and deltas have their own names, and tip uploads the ones tip-dmg made")
+      "each tip-dmg and each tip attempt has its own names, so a re-run never shares an upload with an earlier one")
 check("--write-once" in tip, "tip archives and deltas are write-once, so a feed's signature always matches its bytes")
 
 # Move 4 (Leo, 2026-10-26: "And I thought we were incremental..."): tip-dmg builds, signs and
@@ -179,8 +180,8 @@ check("CF_R2_" not in tip_dmg and "r2_cas.py" not in tip_dmg and "upload-r2-obje
 check(dmg_job["outputs"]["ready"] == "${{ steps.ready.outputs.ready }}" and dmg_steps["Mark the tip DMG ready for tip"]["id"] == "ready"
       and "if" in dmg_steps["Mark the tip DMG ready for tip"] and "always()" not in dmg_steps["Mark the tip DMG ready for tip"]["if"],
       "ready is set only by the step after the handoff upload, so a failed tip-dmg never reads as ready")
-check("${{ github.run_attempt }}" not in feed_job["env"]["TIP_RUN_TAG"] and "handoff" in dmg_job["outputs"]
-      and "cmux-next-dev-tip-$GITHUB_RUN_ATTEMPT" in tip_dmg,
+check("handoff" in dmg_job["outputs"] and "cmux-next-dev-tip-$GITHUB_RUN_ATTEMPT" in tip_dmg
+      and feed_job["env"]["DMG_RUN_TAG"] == "${{ needs.tip-dmg.outputs.run_tag }}",
       "each tip-dmg attempt hands off under its own artifact name, which tip reads from its outputs")
 check("ubuntu" in feed_job["runs-on"] and "macos" not in feed_job["runs-on"], "tip, left with only R2 writes, runs on Linux")
 feed_steps = [step.get("name") for step in feed_job["steps"]]
@@ -194,26 +195,39 @@ check(any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for s
 
 # The digest gate, run in bash.
 require = next(step for step in feed_job["steps"] if step.get("name") == "Require the archive verify tested")["run"]
-def run_require(built, tested, tag="r7-1"):
+def run_require(built, tested, tag="r7-1", own="r7-1"):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "tip-handoff").mkdir(); (tmp / "tip-tested").mkdir()
         (tmp / "tip-handoff" / "built-from.sha256").write_text(built)
         (tmp / "tip-tested" / "tested.sha256").write_text(tested)
         (tmp / "tip-handoff" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
-        (tmp / "tip-handoff" / "appcast-arm64.xml").write_text("feed")
+        (tmp / "tip-handoff" / "appcast-arm64.xml").write_text(open(feed(102, 100)).read().replace(
+            "DEV-102.dmg", "DEV-102-r7-1.dmg").replace("</item>", '<sparkle:deltas><enclosure url="https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-1-102-100.delta"/></sparkle:deltas></item>', 1))
         (tmp / "tip-handoff" / "cmux-NEXT-DEV-tip-7-1-102-100.delta").write_text("delta")
-        env = {"PATH": "/usr/bin:/bin", "TIP_RUN_TAG": tag, "TIP_BUILD": "102", "TIP_APPCAST": "appcast-arm64.xml"}
+        env = {"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "DMG_RUN_TAG": tag, "TIP_RUN_TAG": own,
+               "TIP_BUILD": "102", "TIP_APPCAST": "appcast-arm64.xml"}
         result = subprocess.run(["bash", "-e", "-c", require], cwd=tmp, env=env, capture_output=True, text=True, timeout=30)
         placed = sorted(str(path.relative_to(tmp)) for path in (*tmp.glob("tip-new/*"), *tmp.glob("tip-out/*")))
-        return result.returncode, placed
+        feed_out = tmp / "tip-out" / "appcast-arm64.xml"
+        urls = [entry["url"] for entry in tip_feed.items(str(feed_out))] + sum(
+            (entry["deltas"] for entry in tip_feed.items(str(feed_out))), []) if feed_out.exists() else []
+        return result.returncode, placed, urls
 digest = "ab" * 32 + "  cmux-NEXT-DEV.zip\n"
-rc, placed = run_require(digest, digest)
-check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-1.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-1-102-100.delta"],
-      f"the tested archive's DMG, appcast and deltas go where the upload step reads them ({rc} {placed})")
-rc, placed = run_require(digest, "cd" * 32 + "  cmux-NEXT-DEV.zip\n")
+rc, placed, urls = run_require(digest, digest)
+check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-1.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-1-102-100.delta"]
+      and f"{prefix}102-r7-1.dmg" in urls,
+      f"the tested archive's DMG, appcast and deltas go where the upload step reads them ({rc} {placed} {urls})")
+# Codex (2026-10-26): a re-run of tip alone (attempt 2) must not share objects with tip attempt 1,
+# whose late write or delete could otherwise land on them.
+rc, placed, urls = run_require(digest, digest, own="r7-2")
+check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-2.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-2-102-100.delta"]
+      and f"{prefix}102-r7-2.dmg" in urls and "https://files.cmux.com/nightly-next/tip/cmux-NEXT-DEV-tip-7-2-102-100.delta" in urls
+      and not any("r7-1" in url or "tip-7-1-" in url for url in urls),
+      f"a tip re-run publishes tip-dmg's files under its own names, and the appcast names them ({rc} {placed} {urls})")
+rc, placed, urls = run_require(digest, "cd" * 32 + "  cmux-NEXT-DEV.zip\n")
 check(rc != 0 and placed == [], "a DMG around an archive verify did not test never reaches the upload")
-rc, placed = run_require(digest, digest, tag="")
+rc, placed, urls = run_require(digest, digest, tag="")
 check(rc != 0, "a handoff with no run tag never publishes")
 check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
@@ -424,7 +438,7 @@ if [[ "$1" == scripts/ci/upload-r2-object.py ]]; then
 fi
 exec "$REAL_PY" "$@"
 """
-def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=(), attempt="1"):
+def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=()):
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "bin").mkdir()
@@ -446,7 +460,7 @@ def run_tip(lives, conflicts=(), fail_upload="", lost=(), pending=(), attempt="1
                "REAL_PY": sys.executable, "TIP_R2_PREFIX": "nightly-next/tip", "TIP_APPCAST": "appcast-arm64.xml",
                "TIP_BUILD": "102", "TIP_RUN_TAG": "r7-1", "TIP_KEEP": "3", "SOURCE_SHA": "a" * 40,
                "TIP_BASE_URL": "https://files.cmux.com/nightly-next/tip", "GITHUB_STEP_SUMMARY": str(tmp / "summary"),
-               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload, "GITHUB_RUN_ATTEMPT": attempt}
+               "R2_ENDPOINT": "https://r2.invalid", "FAIL_UPLOAD": fail_upload}
         result = subprocess.run(["bash", "-e", "-c", tip_script], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
         log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
         written = sorted(tmp.glob("written*.xml"))
@@ -469,13 +483,6 @@ check(rc != 0 and last == [102, 100, 99] and "r2 delete" not in log,
 rc, log, last, err = run_tip([(100, 99)], pending=(1,))
 check(rc != 0 and "r2 delete" not in log,
       f"a feed write that failed without an answer may still land, so the uploads stay ({rc} {log!r})")
-# Codex (2026-10-26): a re-run of tip alone reuses tip-dmg's names, which an earlier tip attempt
-# may have put in a feed whose write lands late; that re-run never removes them.
-rc, log, last, err = run_tip([(100, 99), (102, 100, 99)], conflicts=(1,), attempt="2")
-check(rc == 0 and "r2 delete" not in log,
-      f"a tip re-run that finds its build already in the feed keeps the shared uploads ({rc} {log!r})")
-rc, log, last, err = run_tip([(100, 99)], fail_upload=".delta", attempt="2")
-check(rc != 0 and "r2 delete" not in log, f"a tip re-run never removes names an earlier attempt uploaded ({rc} {log!r})")
 check("retention-days: 1" in tip_dmg.split("name: Upload the tip DMG and appcast for tip", 1)[1].split("- name:", 1)[0],
       "the per-run DMG handoff is kept one day, not three")
 # CMUX_TIMESTAMP=none makes the Linux signer drop the time stamp and the Developer ID check

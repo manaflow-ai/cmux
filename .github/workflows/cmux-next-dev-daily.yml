@@ -987,8 +987,12 @@ jobs:
     permissions:
       contents: read
     env:
-      # tip-dmg's names, so a re-run of tip alone uploads the files tip-dmg made.
-      TIP_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}
+      # Names unique to this tip attempt, which alone may remove them: a re-run
+      # of tip alone publishes tip-dmg's files under its own names, so it never
+      # shares an object with an earlier tip whose write or delete is still
+      # landing. DMG_RUN_TAG names the files in tip-dmg's handoff.
+      TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}
+      DMG_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}
       TIP_BUILD: ${{ needs.sign.outputs.build }}
       SOURCE_SHA: ${{ needs.sign.outputs.source_sha }}
       TIP_BASE_URL: https://files.cmux.com/nightly-next/tip
@@ -1015,21 +1019,36 @@ jobs:
           name: cmux-next-dev-daily-tested
           path: tip-tested
 
-      # The DMG holds the archive verify passed, byte for byte, and the files
-      # sit where the upload step reads them.
+      # The DMG holds the archive verify passed, byte for byte. The files go
+      # where the upload step reads them, under this attempt's names, and the
+      # appcast's URLs follow (the signatures cover bytes, not names).
       - name: Require the archive verify tested
         run: |
           set -euo pipefail
-          [[ "$TIP_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] || { echo "tip-dmg named no run tag ('$TIP_RUN_TAG')" >&2; exit 1; }
+          [[ "$DMG_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] || { echo "tip-dmg named no run tag ('$DMG_RUN_TAG')" >&2; exit 1; }
+          [[ "$TIP_RUN_TAG" =~ ^r[0-9]+-[0-9]+$ ]] || { echo "bad run tag '$TIP_RUN_TAG'" >&2; exit 1; }
           cmp -s tip-handoff/built-from.sha256 tip-tested/tested.sha256 \
             || { echo "the tip DMG holds an archive verify did not test" >&2; exit 1; }
           mkdir -p tip-new tip-out
-          mv "tip-handoff/cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg" tip-new/
-          mv "tip-handoff/$TIP_APPCAST" tip-out/
+          dmg_from="cmux-NEXT-DEV-$TIP_BUILD-$DMG_RUN_TAG.dmg" dmg_to="cmux-NEXT-DEV-$TIP_BUILD-$TIP_RUN_TAG.dmg"
+          # rRUN-ATTEMPT -> cmux-NEXT-DEV-tip-RUN-ATTEMPT-, the delta prefix tip-dmg used.
+          delta_from="cmux-NEXT-DEV-tip-${DMG_RUN_TAG#r}-" delta_to="cmux-NEXT-DEV-tip-${TIP_RUN_TAG#r}-"
+          mv "tip-handoff/$dmg_from" "tip-new/$dmg_to"
           for delta in tip-handoff/*.delta; do
             [[ -f "$delta" ]] || continue
-            mv "$delta" tip-out/
+            name="$(basename "$delta")"
+            [[ "$name" == "$delta_from"* ]] || { echo "unexpected delta $name" >&2; exit 1; }
+            mv "$delta" "tip-out/$delta_to${name#"$delta_from"}"
           done
+          python3 - "tip-handoff/$TIP_APPCAST" "tip-out/$TIP_APPCAST" "$dmg_from" "$dmg_to" "$delta_from" "$delta_to" <<'EOF'
+          import sys
+          source, out, dmg_from, dmg_to, delta_from, delta_to = sys.argv[1:]
+          text = open(source, encoding="utf-8").read()
+          if text.count("/" + dmg_from + '"') != 1:
+              sys.exit(f"the appcast does not name {dmg_from} exactly once")
+          text = text.replace("/" + dmg_from + '"', "/" + dmg_to + '"').replace("/" + delta_from, "/" + delta_to)
+          open(out, "w", encoding="utf-8").write(text)
+          EOF
 
       # Archives and deltas first, the feed last: a feed never names a file
       # that is not there yet.
@@ -1055,25 +1074,18 @@ jobs:
             fi
           }
           read_live
-          # Archives and deltas are write-once under names unique to the
-          # tip-dmg attempt that made them, so no run replaces bytes a feed
-          # already signed. Until the feed names them, they are that attempt's
-          # alone: a tip of the same attempt that ends without writing the feed
-          # removes them (cmux_binaries_prune.py leaves this prefix alone). A
-          # feed write that failed without a clear conflict may have landed, or
-          # may still land, so after one the uploads stay. A re-run of tip alone
-          # (a later attempt than the names) reuses names an earlier tip may
-          # have put in a feed whose write is still landing, so it never
-          # removes them.
-          owns=false
-          [[ "${TIP_RUN_TAG##*-}" == "${GITHUB_RUN_ATTEMPT:-}" ]] && owns=true
+          # Archives and deltas are write-once under names unique to this
+          # attempt, so no run replaces bytes a feed already signed. Until the
+          # feed names them, they are this attempt's alone: a run that ends
+          # without writing the feed removes them (cmux_binaries_prune.py leaves
+          # this prefix alone). A feed write that failed without a clear
+          # conflict may have landed, or may still land, so after one the
+          # uploads stay.
           uploaded=() written=false unsure=false
           cleanup() {
             local status=$?  # the step's own status, kept: the trap never turns a failure green
             if [[ "$unsure" == true ]]; then
               echo "::warning::a tip feed write ended without a clear answer; keeping this attempt's uploads"
-            elif [[ "$written" != true && "$owns" != true ]]; then
-              echo "::warning::an earlier tip attempt may have put these names in the feed; keeping the uploads"
             elif [[ "$written" != true ]]; then
               for object in ${uploaded[@]+"${uploaded[@]}"}; do
                 python3 scripts/ci/r2_cas.py delete --key "$object" || echo "::warning::could not remove $object"
