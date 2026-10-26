@@ -44,10 +44,11 @@ export function SubagentLimitStepper({
   onSet?: (maxRunning: number | null) => Promise<unknown>;
 }) {
   const t = useT();
-  // The value a click asked for, until acpmux's answer: kept with the chat and the limit it was
-  // asked over, so another chat, or a new limit from acpmux (the reply, a record, another client),
-  // replaces it.
-  const [asked, setAsked] = useState<{ chat?: string; over: number; value: number }>();
+  // The value a click asked for, until acpmux's answer: kept with the chat and the limits it may
+  // still stand over (the one the first click saw, then each value asked since), so another chat,
+  // or a limit from acpmux that is none of those (another client, a refusal), replaces it. An
+  // earlier click's reply landing (16 → 17 while 18 is still asked) keeps the newer ask.
+  const [asked, setAsked] = useState<{ chat?: string; over: readonly number[]; value: number }>();
   const [refused, setRefused] = useState<{ chat?: string; at: number }>();
   // Clicks acpmux has not answered yet: the asked value stands until the last one is answered.
   const inFlight = useRef(0);
@@ -57,7 +58,8 @@ export function SubagentLimitStepper({
     return () => clearTimeout(timer);
   }, [refused]);
   if (!limits) return null;
-  const pending = asked && asked.chat === chatId && asked.over === limits.maxRunning ? asked.value : undefined;
+  const standing = asked !== undefined && asked.chat === chatId && asked.over.includes(limits.maxRunning);
+  const pending = standing && asked ? asked.value : undefined;
   const max = pending ?? limits.maxRunning;
   const failed = refused !== undefined && refused.chat === chatId;
   const { running, queued } = slotCounts(limits, sessions);
@@ -65,7 +67,10 @@ export function SubagentLimitStepper({
     if (!onSet) return;
     const chat = chatId;
     setRefused(undefined);
-    if (value !== null) setAsked({ chat, over: limits.maxRunning, value });
+    if (value !== null) {
+      const over = standing && asked ? [...asked.over, asked.value] : [limits.maxRunning];
+      setAsked({ chat, over, value });
+    }
     inFlight.current += 1;
     const answered = () => {
       inFlight.current -= 1;

@@ -171,6 +171,29 @@ test("− and + send max ∓ 1 for the chat, move at once and clamp to 1..1000",
   expect(button(/Raise/)?.hasAttribute("disabled")).toBe(true);
 });
 
+test("an earlier click's reply keeps the newer click's value, so the next + builds on it", async () => {
+  const sent: (number | null)[] = [];
+  const answers: (() => void)[] = [];
+  const onSet = (value: number | null) => {
+    sent.push(value);
+    return new Promise<void>((resolve) => answers.push(resolve));
+  };
+  await render(<SubagentLimitStepper limits={{ maxRunning: 16 }} onSet={onSet} />);
+  await click(button(/Raise/));
+  await click(button(/Raise/));
+  expect(sent).toEqual([17, 18]);
+  // The first reply lands: acpmux now says 17, but 18 is still asked.
+  await render(<SubagentLimitStepper limits={{ maxRunning: 17, maxRunningSource: "session" }} onSet={onSet} />);
+  await act(async () => answers[0]?.());
+  expect(line()).toBe("Running 0 / 18 max");
+  await click(button(/Raise/));
+  expect(sent).toEqual([17, 18, 19]);
+  expect(line()).toBe("Running 0 / 19 max");
+  // A limit that is none of the asked ones (another client) replaces the ask.
+  await render(<SubagentLimitStepper limits={{ maxRunning: 40, maxRunningSource: "session" }} onSet={onSet} />);
+  expect(line()).toBe("Running 0 / 40 max");
+});
+
 test("a refused change goes back to acpmux's limit and says so", async () => {
   await render(
     <SubagentLimitStepper
