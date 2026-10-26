@@ -20,7 +20,8 @@ const load = (json: unknown, sheet: string, width: number, height: number): Avat
   const parsed = parseAvatarManifest(json);
   if ("error" in parsed) throw new Error(`built-in avatar set: ${parsed.error}`);
   const need = sheetSize(parsed.manifest);
-  if (width < need.width || height < need.height) throw new Error(`built-in avatar set: ${parsed.manifest.id}'s sheet is too small`);
+  if (width < need.width || height < need.height)
+    throw new Error(`built-in avatar set: ${parsed.manifest.id}'s sheet is too small`);
   return { manifest: parsed.manifest, sheet, size: { width, height } };
 };
 
