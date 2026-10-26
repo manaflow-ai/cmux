@@ -117,41 +117,48 @@ pub(crate) struct LaneReports {
     turns: StdMutex<TurnKinds>,
 }
 
-/// Which turns ran on lane reports only, each turn on its own: a turn that started on reports
-/// and had no other prompt steered into it.
+/// Which turns ran on lane reports only: a turn that started on reports, with no other prompt
+/// steered in while it ran. A steer is aimed at a turn but goes into whichever one the agent runs
+/// when it reads it, so steers are counted by session: one on its way when a turn ends, or that
+/// went in since the last turn end, makes that turn report.
 #[derive(Default)]
 struct TurnKinds {
     /// Turns that started on reports only.
     report_only: std::collections::HashSet<(String, u64)>,
-    /// Other prompts steered into a turn and not taken back.
-    carried: HashMap<(String, u64), usize>,
+    /// Other prompts steered in and not answered yet, by session.
+    in_flight: HashMap<String, usize>,
+    /// Sessions another prompt went into since their last turn end.
+    carried: std::collections::HashSet<String>,
 }
 
 impl TurnKinds {
-    fn steer_in(&mut self, id: &str, turn: u64) {
-        *self.carried.entry((id.to_owned(), turn)).or_default() += 1;
+    fn steer_in(&mut self, id: &str) {
+        *self.in_flight.entry(id.to_owned()).or_default() += 1;
     }
 
-    fn steer_out(&mut self, id: &str, turn: u64) {
-        let key = (id.to_owned(), turn);
-        if let Some(n) = self.carried.get_mut(&key) {
+    /// A steer [`TurnKinds::steer_in`] counted was answered: `entered`, it went into a turn.
+    fn steer_done(&mut self, id: &str, entered: bool) {
+        if let Some(n) = self.in_flight.get_mut(id) {
             *n -= 1;
             if *n == 0 {
-                self.carried.remove(&key);
+                self.in_flight.remove(id);
             }
+        }
+        if entered {
+            self.carried.insert(id.to_owned());
         }
     }
 
     /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
     fn end(&mut self, id: &str, turn: u64) -> bool {
-        let key = (id.to_owned(), turn);
-        let carried = self.carried.remove(&key).is_some();
-        self.report_only.remove(&key) && !carried
+        let carried = self.carried.remove(id) || self.in_flight.contains_key(id);
+        self.report_only.remove(&(id.to_owned(), turn)) && !carried
     }
 
     fn forget(&mut self, id: &str) {
         self.report_only.retain(|(s, _)| s != id);
-        self.carried.retain(|(s, _), _| s != id);
+        self.in_flight.remove(id);
+        self.carried.remove(id);
     }
 }
 
@@ -374,27 +381,21 @@ impl Hub {
         }
     }
 
-    /// A prompt that is not a lane report is about to be steered into `session`'s running turn:
-    /// that turn did more than take in reports, unless [`Hub::lane_steer_out`] takes it back.
-    /// Counted before the steer reaches the agent, so however the turn ends after it, its end
-    /// sees it. The turn it counts for.
-    pub(super) fn lane_steer_in(
-        &self,
-        session: &Session,
-        provenance: Option<&Value>,
-    ) -> Option<u64> {
+    /// A prompt that is not a lane report is about to be steered into `session`: counted before
+    /// it reaches the agent, so any turn that ends while it is on its way reports. Whether one
+    /// was counted.
+    pub(super) fn lane_steer_in(&self, session: &Session, provenance: Option<&Value>) -> bool {
         if reports_only(provenance) {
-            return None;
+            return false;
         }
-        let turn = session.meta().turn_count;
-        self.lane_turns().steer_in(&session.id, turn);
-        Some(turn)
+        self.lane_turns().steer_in(&session.id);
+        true
     }
 
-    /// The steer [`Hub::lane_steer_in`] counted never went into turn `turn`: it found no turn
-    /// running, or was withdrawn before the agent read it.
-    pub(super) fn lane_steer_out(&self, session: &Session, turn: u64) {
-        self.lane_turns().steer_out(&session.id, turn);
+    /// The steer [`Hub::lane_steer_in`] counted was answered: `entered`, it went into a turn, which
+    /// reports (the one running, or, if that one already ended, the next).
+    pub(super) fn lane_steer_done(&self, session: &Session, entered: bool) {
+        self.lane_turns().steer_done(&session.id, entered);
     }
 
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's
@@ -776,20 +777,25 @@ mod tests {
         // A task steered in before the turn ends: counted before the end, whenever its own
         // answer comes, so the turn reports.
         k.report_only.insert(("c".into(), 3));
-        k.steer_in("c", 3);
+        k.steer_in("c");
         assert!(!k.end("c", 3));
-        k.steer_out("c", 3);
-        assert!(k.carried.is_empty());
+        k.steer_done("c", true);
+        assert!(k.in_flight.is_empty());
         // A steer withdrawn (or that found no turn) is taken back: still reports only.
         k.report_only.insert(("c".into(), 4));
-        k.steer_in("c", 4);
-        k.steer_out("c", 4);
-        assert!(k.end("c", 4));
+        k.steer_in("c");
+        k.steer_done("c", false);
+        // (the one answered after turn 3 ended still counts once, for turn 4)
+        assert!(!k.end("c", 4));
+        k.report_only.insert(("c".into(), 5));
+        k.steer_in("c");
+        k.steer_done("c", false);
+        assert!(k.end("c", 5));
         // A turn not on reports.
-        assert!(!k.end("c", 5));
-        k.steer_in("c", 6);
+        assert!(!k.end("c", 6));
+        k.steer_in("c");
         k.forget("c");
-        assert!(k.carried.is_empty() && k.report_only.is_empty());
+        assert!(k.in_flight.is_empty() && k.carried.is_empty() && k.report_only.is_empty());
     }
 
     #[test]
@@ -797,9 +803,15 @@ mod tests {
         let mut k = TurnKinds::default();
         // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
         // 2, a report turn that started meanwhile: turn 2 did a task, so it reports.
-        k.steer_in("c", 1);
+        k.steer_in("c");
         k.report_only.insert(("c".into(), 2));
         assert!(!k.end("c", 2), "the task's turn was taken for reports only");
+        // Answered after that turn ended, it went in: the next turn reports too, as base did.
+        k.steer_done("c", true);
+        k.report_only.insert(("c".into(), 3));
+        assert!(!k.end("c", 3));
+        k.report_only.insert(("c".into(), 4));
+        assert!(k.end("c", 4));
     }
 
     #[test]

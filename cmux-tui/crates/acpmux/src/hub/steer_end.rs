@@ -131,10 +131,8 @@ impl Hub {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .waiting
             .remove(&prompt_id);
-        if let Some(turn) = carried
-            && !steer_entered_turn(&answer)
-        {
-            self.lane_steer_out(session, turn);
+        if carried {
+            self.lane_steer_done(session, steer_entered_turn(&answer));
         }
         let mut r = match answer {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
