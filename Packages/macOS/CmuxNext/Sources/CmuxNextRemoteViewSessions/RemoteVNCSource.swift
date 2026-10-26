@@ -6,7 +6,7 @@ import Foundation
 import os
 
 /// Why a VNC session ended, logged (an RFB error names a protocol step, never a secret).
-private let vncLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view.vnc")
+nonisolated private let vncLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-view.vnc")
 
 #if DEBUG
 /// An RFB (VNC) compatibility host as a `remote_view` stream source
