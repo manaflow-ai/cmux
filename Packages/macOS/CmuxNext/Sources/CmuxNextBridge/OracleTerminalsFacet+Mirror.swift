@@ -23,7 +23,7 @@ extension OracleTerminalsFacet {
     /// - Parameters:
     ///   - attach: The attach state read of the view that shows a tab (by tab id), nil when no view is made.
     ///   - screen: The `read-screen` of a surface.
-    public static func terminals(in workspaces: [WorkspaceModel], attach: (String) -> (@Sendable () -> Attach)?,
+    @MainActor public static func terminals(in workspaces: [WorkspaceModel], attach: (String) -> (@Sendable () -> Attach)?,
                                  screen: (SurfaceID) throws(OracleFacetError) -> @Sendable () async throws -> String)
         throws(OracleFacetError) -> [Terminal] {
         var terminals: [Terminal] = []
