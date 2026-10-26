@@ -5,6 +5,9 @@
 public protocol BrowserFindUpdating: AnyObject {
     /// ``BrowserTab/find(_:direction:caseSensitive:)``, with `update` called for each result of
     /// this search until the next search or ``BrowserTab/clearFind()``.
+    ///
+    /// Every final result goes to `update`, and the answer is the first one, so a caller that
+    /// shows the updates shows the answer only when no update came (an empty query, no page).
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool,
               update: @escaping (BrowserFindResult) -> Void) async -> BrowserFindResult
 }

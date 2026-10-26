@@ -13,7 +13,8 @@ final class FindBarView: NSView {
     let model: BrowserFindModel
 
     let pill: FindPillView
-    private var findTask: Task<Void, Never>?
+    /// The current search; tests await it.
+    private(set) var findTask: Task<Void, Never>?
 
     /// The pill's material: glass, or opaque under Reduce Transparency.
     var glass: OverlaySurfaceView? { pill.surface }
@@ -76,9 +77,14 @@ final class FindBarView: NSView {
         findTask = Task { [weak self] in
             let result: BrowserFindResult
             if let updating = tab as? any BrowserFindUpdating {
+                var updated = false
                 result = await updating.find(text, direction: direction, caseSensitive: caseSensitive) { [weak self] update in
+                    updated = true
                     self?.apply(update, for: text, caseSensitive: caseSensitive)
                 }
+                // The updates are the only writer once one came: the answer is the first final
+                // result, and a later one of the same search may already have corrected it.
+                guard !updated else { return }
             } else {
                 result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
             }
