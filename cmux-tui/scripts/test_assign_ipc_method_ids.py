@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("assign-ipc-method-ids.py")
@@ -65,10 +66,51 @@ class LiveSchemaTests(unittest.TestCase):
         writers = ("send", "send-key", "paste-image")
         self.assertEqual({commands[name]["priority"] for name in writers}, {"input"})
 
-    def test_bulk_commands_are_reads(self) -> None:
+    def test_bulk_commands_are_reads_or_reviewed_stream_writes(self) -> None:
         for name, command in live()["commands"].items():
-            if command["priority"] == "bulk":
+            if command["priority"] == "bulk" and name not in ASSIGN.BULK_STREAM_WRITES:
                 self.assertEqual(command["durability"], "read_only", name)
+
+    def test_loopback_bytes_and_half_close_share_bulk_and_the_abort_stays_control(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(set(ASSIGN.BULK_STREAM_WRITES), {"loopback-data", "loopback-shutdown"})
+        self.assertEqual(
+            {commands[name]["priority"] for name in ASSIGN.BULK_STREAM_WRITES}, {"bulk"}
+        )
+        # The close frees the slot the open takes, so neither is bulk.
+        self.assertEqual(ASSIGN.RELEASES_SLOT, {"loopback-close": "loopback-open"})
+        for name in ("loopback-open", "loopback-close"):
+            self.assertEqual(commands[name]["priority"], "control", name)
+        events = live()["events"]
+        for name in ("loopback-data", "loopback-eof"):
+            self.assertEqual(events[name]["priority"], "bulk", name)
+        # An error close is a stream terminal on the control FIFO
+        # (server/loopback_forward.rs ForwardStream::fail).
+        for name in ("loopback-credit", "loopback-closed"):
+            self.assertEqual(events[name]["priority"], "control", name)
+
+    def test_a_write_that_frees_a_slot_cannot_ride_bulk(self) -> None:
+        bulk = (*ASSIGN.COMMAND_PRIORITY["bulk"], "loopback-close")
+        with (
+            unittest.mock.patch.dict(ASSIGN.COMMAND_PRIORITY, {"bulk": bulk}),
+            unittest.mock.patch.dict(ASSIGN.BULK_STREAM_WRITES, {"loopback-close": "fixture"}),
+        ):
+            with self.assertRaisesRegex(ASSIGN.AssignError, "RELEASES_SLOT: 'loopback-close'"):
+                ASSIGN.Assigner(live()).check_tables()
+        document = live()
+        document["commands"]["loopback-close"]["priority"] = "bulk"
+        with self.assertRaisesRegex(ASSIGN.AssignError, "RELEASES_SLOT: 'loopback-close'"):
+            ASSIGN.Assigner(document).check_tables()
+
+    def test_raw_swift_lines_count_as_macos_commands(self) -> None:
+        names = ASSIGN.swift_line_commands()
+        self.assertTrue(
+            {"loopback-data", "loopback-credit", "loopback-shutdown", "loopback-close"} <= names,
+            names,
+        )
+        commands = live()["commands"]
+        for name in ("loopback-data", "loopback-close"):
+            self.assertIn("macos", commands[name]["clients"], name)
 
     def test_independent_commands_are_daemon_queries_or_local_probes(self) -> None:
         """A Cloud, Create or Topology command needs state its connection set before it."""
@@ -100,6 +142,59 @@ class HandlerFactTests(unittest.TestCase):
                 self.assertIn(evidence, (CORE / path).read_text())
                 self.assertNotEqual(commands[name]["durability"], "read_only")
                 self.assertNotEqual(commands[name].get("ordering"), "independent")
+
+
+class AgentMachineFilesScriptsTests(unittest.TestCase):
+    """p05-ipc-019's commands: fs reads, chat move records, CLI senders, script-log."""
+
+    def test_fs_reads_are_bulk_or_control_and_keep_call_order(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(commands["fs.read"]["priority"], "bulk")
+        self.assertEqual(commands["agent-transfer-read"]["priority"], "bulk")
+        self.assertEqual(commands["fs.stat"]["priority"], "control")
+        # A read after this connection's own write must see it.
+        for name in ("fs.read", "fs.stat", "agent-transfer-read"):
+            self.assertNotEqual(commands[name].get("ordering"), "independent", name)
+        # A later control rename or finish must not pass the bytes it names.
+        for name in ("fs.write", "agent-transfer-write"):
+            self.assertEqual(commands[name]["priority"], "control", name)
+
+    def test_best_effort_move_records_do_not_reply_after_journal(self) -> None:
+        commands = live()["commands"]
+        for name, path, evidence in (
+            ("agent-transfer-receive", "server/agent_transfer/askable.rs",
+             'eprintln!("cmux-tui: chat move receive record not written: {error}");'),
+            ("agent-transfer-finish", "server/agent_transfer/landed.rs",
+             'eprintln!("cmux-tui: landed chat record not written: {error}");'),
+        ):
+            with self.subTest(name=name):
+                self.assertIn(evidence, (CORE / path).read_text())
+                self.assertEqual(commands[name]["durability"], "memory")
+
+    def test_cli_call_helper_sends_are_cli_clients(self) -> None:
+        commands = live()["commands"]
+        self.assertEqual(ASSIGN.cli_call_helper_names(), set(ASSIGN.CLI_CALL_HELPER_SENDS))
+        for name in ("fs.read", "agent-transfer-write", "access-request-answer"):
+            self.assertIn("cli", commands[name]["clients"], name)
+        for name in ("agent-update-plan", "agent-update-apply"):
+            self.assertNotIn("cli", commands[name]["clients"], name)
+
+    def test_a_cli_call_helper_entry_its_file_no_longer_names_is_refused(self) -> None:
+        sends = dict(ASSIGN.CLI_CALL_HELPER_SENDS)
+        sends["agent-update-plan"] = "link/sync_cli/remote.rs"
+        original = ASSIGN.CLI_CALL_HELPER_SENDS
+        ASSIGN.CLI_CALL_HELPER_SENDS = sends
+        try:
+            with self.assertRaisesRegex(ASSIGN.AssignError, "no longer names 'agent-update-plan'"):
+                ASSIGN.cli_call_helper_names()
+        finally:
+            ASSIGN.CLI_CALL_HELPER_SENDS = original
+
+    def test_script_log_has_an_event_id_and_rides_control(self) -> None:
+        document = live()
+        event = document["events"]["script-log"]
+        self.assertEqual(event["event_id"] >> 8, document["families"]["script-events"]["id"])
+        self.assertEqual(event["priority"], "control")
 
 
 class AssignmentTests(unittest.TestCase):
@@ -186,6 +281,13 @@ class AssignmentTests(unittest.TestCase):
         del document["commands"]["server-stats"]
         with self.assertRaisesRegex(ASSIGN.AssignError, "matches no schema name"):
             ASSIGN.Assigner(document, NO_SOURCES).run()
+
+    def test_bulk_write_outside_the_reviewed_list_is_refused(self) -> None:
+        document = live()
+        bulk = (*ASSIGN.COMMAND_PRIORITY["bulk"], "set-ratio")
+        with unittest.mock.patch.dict(ASSIGN.COMMAND_PRIORITY, {"bulk": bulk}):
+            with self.assertRaisesRegex(ASSIGN.AssignError, "'set-ratio' is a write"):
+                ASSIGN.Assigner(document, NO_SOURCES).run()
 
     def test_clients_follow_the_census_on_every_run(self) -> None:
         document = live()

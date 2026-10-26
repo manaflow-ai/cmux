@@ -1,6 +1,8 @@
+import AppKit
 import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
+import CmuxNextCrashReporting
 import CmuxNextFeatures
 import CmuxNextSettings
 import Observation
@@ -47,6 +49,48 @@ extension AppServices {
             guard let self else { return }
             chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, warmup: chromiumWarmup))
         }
+    }
+}
+
+// The cache's Chromium engine (p08-startup-024): built at its first read, a Chromium tab or page or the warm-up
+// above, never by launch wiring, and wired as it is built.
+extension AppServices {
+    /// The slot `cache` holds.
+    func makeChromiumSlot() -> ChromiumEngineSlot {
+        let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
+        return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys] stores, deadlines, source in
+                                      CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
+                                                contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
+                                                pumpInput: pumpInput)
+                                  },
+                                  engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
+                                                                                  routes: { [weak self] in self?.routeChromiumRequests($0) }),
+                                  stop: { await $0.shutdown() })
+    }
+
+    /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
+    /// built, before CefInitialize can run: the crash log's writer, the run marker's and Sentry's signal handlers (Chromium
+    /// resets them at start), the assistive-client switch of Chromium's accessibility trees; then `routes`.
+    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter,
+                                   routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
+        { engine in
+            crashRecovery.observe(engine.crashLog)
+            AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
+            (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
+            routes(engine)
+        }
+    }
+
+    /// Chromium's requests for a window: a link with no window for its (normal) profile opens as a new browser tab
+    /// in the focused pane of a normal window, in the requesting page's browser profile; an incognito request opens
+    /// in a cmux incognito window. Chromium opens nothing itself.
+    private func routeChromiumRequests(_ engine: CEFEngine) {
+        engine.openURLWithoutWindow = { [weak self] url, disposition, profile in
+            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab,
+                                                                          profile: profile.map(BrowserProfileRecord.wireID(for:)))
+        }
+        engine.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
     }
 }
 

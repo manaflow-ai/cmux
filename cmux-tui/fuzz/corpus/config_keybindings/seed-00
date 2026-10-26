@@ -1,0 +1,8 @@
+cmd+r	toggleSidebar	
+// keybindings.json
+[
+  {
+    "key": "cmd+r",
+    "command": "toggleSidebar"
+  }
+]

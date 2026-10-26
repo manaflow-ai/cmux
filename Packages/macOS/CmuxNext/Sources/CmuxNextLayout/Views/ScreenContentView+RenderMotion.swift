@@ -263,6 +263,7 @@ extension ScreenContentView {
         // (its display draws no frames) cannot end the motion before the others start.
         renderSpringsInFlight += 1
         userMotionActive = true
+        context.renderMotionBegan()
         context.userMotionStepped()
         // The clip first: the strip's hosts then spring inside the container at its rest range.
         renderSpringsInFlight += 1

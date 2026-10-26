@@ -80,6 +80,9 @@ public final class AgentPageProvider: PageProvider {
     /// The stream of host pushes (``AgentPageEvent``) the page subscribes to once its
     /// `cmuxAcpmuxBridge` is installed.
     public static let hostEvents = "cmux.agent.host.events"
+    /// The host events are an append-only transcript (turns, tool calls, transport state) the page
+    /// cannot read again, so a frozen page loses none of them: `.ordered`.
+    public static let hostEventsFrozenDelivery: PageFrozenDelivery = .ordered
 
     private let prepare: Prepare
     private var listeners: [UInt64: @MainActor (JSONValue) -> Void] = [:]
@@ -254,7 +257,7 @@ public final class AgentPageProvider: PageProvider {
             guard let self else { return }
             self.flushPendingEvents(for: id)
         }
-        return PageSubscription { [weak self] in self?.cancel(id: id) }
+        return PageSubscription(frozenDelivery: Self.hostEventsFrozenDelivery) { [weak self] in self?.cancel(id: id) }
     }
 
     private func flushPendingEvents(for id: UInt64) {

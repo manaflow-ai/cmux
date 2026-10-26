@@ -28,7 +28,12 @@ nonisolated enum ChromiumPageWindowMain {
     /// Installs the override on `CefNSWindow` once CEF's classes exist.
     @discardableResult
     static func install() -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
+        guard let pageClass = pageClass() else { return false }
         return keepOutOfMain(pageClass)
+    }
+
+    /// `CefNSWindow`, Chromium's page window class; nil until CEF's framework has registered it.
+    static func pageClass() -> AnyClass? {
+        NSClassFromString("CefNSWindow")
     }
 }

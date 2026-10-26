@@ -2,7 +2,7 @@
 package nonisolated enum TabContentDiscard: Hashable, Sendable {
     /// The discard path of this ``ContentKind`` releases it.
     case kind(ContentKind)
-    /// The terminal warm set closes it when it falls out of the set (the App's `TabContentCache.setWarmBudget`).
+    /// The terminal warm set closes it when it falls out of the set (``WarmSetRelease`` under memory pressure, the warm set LRU otherwise).
     case warmSet
     /// Nothing releases it while its tab is open.
     case never(why: String)

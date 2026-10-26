@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97. */
+/* cmux-tui mux protocol 12, IR 4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f. */
 
 
 import type * as T from "./types.js";
@@ -406,6 +406,29 @@ export type LayoutChangedEvent = { event: "layout-changed" } & {
   "zoomed_pane"?: (T.Id) | null;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackClosedEvent = { event: "loopback-closed" } & {
+  "error"?: string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackCreditEvent = { event: "loopback-credit" } & {
+  "bytes": bigint;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackDataEvent = { event: "loopback-data" } & {
+  "data": string;
+  "stream": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type LoopbackEofEvent = { event: "loopback-eof" } & {
+  "stream": bigint;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
   /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
@@ -568,6 +591,18 @@ export type ScreenRenamedEvent = { event: "screen-renamed" } & {
   "entity": T.Screen;
   "screen": T.Id;
   "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ScriptLogEvent = { event: "script-log" } & {
+  /** The console method that wrote the line (log, info, warn, error, debug). */
+  "level": string;
+  /** The line, its arguments joined as the console prints them. */
+  "message": string;
+  /** The id of the script-run that wrote the line; absent for a REPL session's line. */
+  "request"?: T.JsonValue;
+  /** The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line. */
+  "session"?: string;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-render, attach-browser. */
@@ -866,6 +901,10 @@ export type KnownCmuxEvent =
   | HistoryChangedEvent
   | KeybindingsChangedEvent
   | LayoutChangedEvent
+  | LoopbackClosedEvent
+  | LoopbackCreditEvent
+  | LoopbackDataEvent
+  | LoopbackEofEvent
   | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
@@ -884,6 +923,7 @@ export type KnownCmuxEvent =
   | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
+  | ScriptLogEvent
   | ScrollChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent

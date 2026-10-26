@@ -28,6 +28,7 @@ cmux-tui-cdp.workspace = true
 cmux-layout-reducer.workspace = true
 cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
+cmux-panic-log.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
 cmux-flow-trace.workspace = true

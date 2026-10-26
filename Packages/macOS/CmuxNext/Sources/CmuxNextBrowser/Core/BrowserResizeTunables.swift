@@ -19,7 +19,7 @@ public nonisolated struct BrowserResizeTunables {
 
     /// Off (the default): a Chromium page draws in its own child window over
     /// the pane. On: the page's pixels live in the cmux window's layer tree
-    /// (fork API 26, `CEFHostedPageView`); the page window stays as a
+    /// (fork API 26, `ChromiumHostPageView`); the page window stays as a
     /// transparent input target. Applies to pages shown after the change.
     public static let layerHosting = Tunable<Bool>.toggle(
         "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",

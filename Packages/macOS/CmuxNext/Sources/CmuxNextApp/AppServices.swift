@@ -159,7 +159,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, waitDeadlines: mainWork.wakeUps, input: inputTap), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO); its Chromium engine at its first read
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -318,8 +318,9 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
-    /// Every window's parked workspaces held to the Mac's budget (`memoryDiscardParkedWorkspaces`; nil while off).
-    private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget? = makeParkedWorkspaceBudget()
+    /// Every window's parked workspaces: torn down one per release slice at critical memory pressure, and
+    /// held to the Mac's budget with `memoryDiscardParkedWorkspaces`.
+    private(set) lazy var parkedWorkspaceBudget: ParkedWorkspaceBudget = makeParkedWorkspaceBudget()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
     private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
@@ -335,7 +336,7 @@ final class AppServices {
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
     private(set) lazy var webUI: WebUIHost = WebUIHost(
         chromium: ChromiumPageHost(
-            cef: cache.cef,
+            chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
             preference: { [weak self] in
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
@@ -373,7 +374,7 @@ final class AppServices {
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read by its afterFirstFrame start
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -408,7 +409,7 @@ final class AppServices {
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
-    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
+    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // built by its start (`Themes.start`)
@@ -486,6 +487,8 @@ final class AppServices {
     let launchImageHold: LaunchImageHold
     /// The launch's scheduler: the right sidebar's icon build is one of its cpu-lane posts. Nil in tests with no launch.
     let launchStartup: StartupScheduler?
+    /// The app's crash keys (p10-stability-207; `AppControl` makes them): windows' focus, Chromium and the local daemon set theirs.
+    let crashKeys: CrashKeySlots?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -519,7 +522,8 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
-         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil) {
+         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
+         crashKeys: CrashKeySlots? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -530,14 +534,15 @@ final class AppServices {
         hoverCards = HoverCardCoordinator(input: inputTap, changes: overlayChanges)
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
-        self.launchStartup = launchStartup
+        (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), turnObserver: oracleTurns,
-                                           causes: mainWork.causes)
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+                                           turnObserver: oracleTurns, causes: mainWork.causes)
         #else
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), causes: mainWork.causes)
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget, crashKeys: crashKeys),
+                                           causes: mainWork.causes)
         #endif
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
@@ -545,14 +550,14 @@ final class AppServices {
                                              discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
                                              discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
-                               hangWatch: hangWatch)
+                               hangWatch: hangWatch, crashKeys: crashKeys)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
-        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
+        crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
         // After the run marker's handlers: Sentry calls them after its report.
         crashReporting = AppCrashReporting(environment: environment)
         DebugTimings.markLaunch("services.crash_reporting")
@@ -563,7 +568,6 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         DebugTimings.markLaunch("services.cache")
-        _ = terminalColors  // kept: it gives the daemons the painted colors before they connect (OSC 10/11/12)
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
@@ -582,17 +586,6 @@ final class AppServices {
         }
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
-        crashRecovery.observe(cache.cef.crashLog)
-        AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: cache.cef, reporter: crashReporting.reporter)
-        cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
-            // Chromium wanted a window and has none for that profile (a
-            // normal one; an incognito store never gets here): a new browser
-            // tab in the focused pane of a normal window (Chromium opens nothing),
-            // in the requesting page's browser profile.
-            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab,
-                                                                          profile: profile.map(BrowserProfileRecord.wireID(for:)))
-        }
-        cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)
@@ -644,7 +637,6 @@ final class AppServices {
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
-        (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
@@ -691,7 +683,6 @@ final class AppServices {
         }
         input.start(services: self)
         DebugTimings.markLaunch("services.palette_updater")
-        _ = chromiumWarmup  // built here, as before
         browserHost = AppBrowserHost(services: self)
         browserHost?.start()
         notifications.start(services: self)

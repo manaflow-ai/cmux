@@ -14,6 +14,26 @@ public abstract class GeneratedCmuxClient {
         CommandMetadata metadata, Map<String, Object> params
     ) throws CmuxException;
 
+    public final AccessRequestResult accessRequest(AccessRequestRequest request) throws CmuxException {
+        Object result = execute(Commands.ACCESS_REQUEST, request.toWire());
+        return AccessRequestResult.fromWire(result);
+    }
+
+    public final AccessRequestAnswerResult accessRequestAnswer(AccessRequestAnswerRequest request) throws CmuxException {
+        Object result = execute(Commands.ACCESS_REQUEST_ANSWER, request.toWire());
+        return AccessRequestAnswerResult.fromWire(result);
+    }
+
+    public final AccessRequestListResult accessRequestList() throws CmuxException {
+        Object result = execute(Commands.ACCESS_REQUEST_LIST, Map.of());
+        return AccessRequestListResult.fromWire(result);
+    }
+
+    public final AccessRequestStatus accessRequestStatus(AccessRequestStatusRequest request) throws CmuxException {
+        Object result = execute(Commands.ACCESS_REQUEST_STATUS, request.toWire());
+        return AccessRequestStatus.fromWire(result);
+    }
+
     public final Object ackTabNotifications(AckTabNotificationsRequest request) throws CmuxException {
         Object result = execute(Commands.ACK_TAB_NOTIFICATIONS, request.toWire());
         return Wire.immutableJson(result);
@@ -112,6 +132,61 @@ public abstract class GeneratedCmuxClient {
     public final Object agentSessionTrust(AgentSessionTrustRequest request) throws CmuxException {
         Object result = execute(Commands.AGENT_SESSION_TRUST, request.toWire());
         return Wire.immutableJson(result);
+    }
+
+    public final AgentTransferAbortResult agentTransferAbort(AgentTransferAbortRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_ABORT, request.toWire());
+        return AgentTransferAbortResult.fromWire(result);
+    }
+
+    public final AgentTransferBeginResult agentTransferBegin(AgentTransferBeginRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_BEGIN, request.toWire());
+        return AgentTransferBeginResult.fromWire(result);
+    }
+
+    public final AgentTransferCommitResult agentTransferCommit(AgentTransferCommitRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_COMMIT, request.toWire());
+        return AgentTransferCommitResult.fromWire(result);
+    }
+
+    public final AgentTransferFinishResult agentTransferFinish(AgentTransferFinishRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_FINISH, request.toWire());
+        return AgentTransferFinishResult.fromWire(result);
+    }
+
+    public final AgentTransferReadResult agentTransferRead(AgentTransferReadRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_READ, request.toWire());
+        return AgentTransferReadResult.fromWire(result);
+    }
+
+    public final AgentTransferReceiveResult agentTransferReceive(AgentTransferReceiveRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_RECEIVE, request.toWire());
+        return AgentTransferReceiveResult.fromWire(result);
+    }
+
+    public final AgentTransferReceiveAbortResult agentTransferReceiveAbort(AgentTransferReceiveAbortRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_RECEIVE_ABORT, request.toWire());
+        return AgentTransferReceiveAbortResult.fromWire(result);
+    }
+
+    public final AgentTransferSourceResult agentTransferSource(AgentTransferSourceRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_SOURCE, request.toWire());
+        return AgentTransferSourceResult.fromWire(result);
+    }
+
+    public final AgentTransferWriteResult agentTransferWrite(AgentTransferWriteRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_TRANSFER_WRITE, request.toWire());
+        return AgentTransferWriteResult.fromWire(result);
+    }
+
+    public final AgentUpdateApplyResult agentUpdateApply(AgentUpdateApplyRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_UPDATE_APPLY, request.toWire());
+        return AgentUpdateApplyResult.fromWire(result);
+    }
+
+    public final AgentUpdatePlanResult agentUpdatePlan(AgentUpdatePlanRequest request) throws CmuxException {
+        Object result = execute(Commands.AGENT_UPDATE_PLAN, request.toWire());
+        return AgentUpdatePlanResult.fromWire(result);
     }
 
     public final ApplyLayoutResult applyLayout(ApplyLayoutRequest request) throws CmuxException {
@@ -253,6 +328,21 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final BrowserRuntimeStartResult browserRuntimeStart(BrowserRuntimeStartRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_START, request.toWire());
+        return BrowserRuntimeStartResult.fromWire(result);
+    }
+
+    public final BrowserRuntimeStatusResult browserRuntimeStatus() throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_STATUS, Map.of());
+        return BrowserRuntimeStatusResult.fromWire(result);
+    }
+
+    public final BrowserRuntimeStopResult browserRuntimeStop(BrowserRuntimeStopRequest request) throws CmuxException {
+        Object result = execute(Commands.BROWSER_RUNTIME_STOP, request.toWire());
+        return BrowserRuntimeStopResult.fromWire(result);
+    }
+
     public final EmptyResult browserWheel(BrowserWheelRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_WHEEL, request.toWire());
         return EmptyResult.fromWire(result);
@@ -286,6 +376,11 @@ public abstract class GeneratedCmuxClient {
     public final ClientFocusResult clientFocus(ClientFocusRequest request) throws CmuxException {
         Object result = execute(Commands.CLIENT_FOCUS, request.toWire());
         return ClientFocusResult.fromWire(result);
+    }
+
+    public final ClientHelloResult clientHello(ClientHelloRequest request) throws CmuxException {
+        Object result = execute(Commands.CLIENT_HELLO, request.toWire());
+        return ClientHelloResult.fromWire(result);
     }
 
     public final EmptyResult closePane(ClosePaneRequest request) throws CmuxException {
@@ -738,6 +833,41 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final FsDeleteResult fsDelete(FsDeleteRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_DELETE, request.toWire());
+        return FsDeleteResult.fromWire(result);
+    }
+
+    public final FsPage fsList(FsListRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_LIST, request.toWire());
+        return FsPage.fromWire(result);
+    }
+
+    public final FsEntryResult fsMkdir(FsMkdirRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_MKDIR, request.toWire());
+        return FsEntryResult.fromWire(result);
+    }
+
+    public final FsReadResult fsRead(FsReadRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_READ, request.toWire());
+        return FsReadResult.fromWire(result);
+    }
+
+    public final FsEntryResult fsRename(FsRenameRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_RENAME, request.toWire());
+        return FsEntryResult.fromWire(result);
+    }
+
+    public final FsStatResult fsStat(FsStatRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_STAT, request.toWire());
+        return FsStatResult.fromWire(result);
+    }
+
+    public final FsEntryResult fsWrite(FsWriteRequest request) throws CmuxException {
+        Object result = execute(Commands.FS_WRITE, request.toWire());
+        return FsEntryResult.fromWire(result);
+    }
+
     public final Object getBlob(GetBlobRequest request) throws CmuxException {
         Object result = execute(Commands.GET_BLOB, request.toWire());
         return Wire.immutableJson(result);
@@ -870,6 +1000,41 @@ public abstract class GeneratedCmuxClient {
     public final Tree listWorkspaces() throws CmuxException {
         Object result = execute(Commands.LIST_WORKSPACES, Map.of());
         return Tree.fromWire(result);
+    }
+
+    public final EmptyResult loopbackClose(LoopbackCloseRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_CLOSE, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackCredit(LoopbackCreditRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_CREDIT, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackData(LoopbackDataRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_DATA, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final LoopbackOpenResult loopbackOpen(LoopbackOpenRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_OPEN, request.toWire());
+        return LoopbackOpenResult.fromWire(result);
+    }
+
+    public final EmptyResult loopbackShutdown(LoopbackShutdownRequest request) throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_SHUTDOWN, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
+    public final LoopbackStatusResult loopbackStatus() throws CmuxException {
+        Object result = execute(Commands.LOOPBACK_STATUS, Map.of());
+        return LoopbackStatusResult.fromWire(result);
+    }
+
+    public final MachineCatalogPublishResult machineCatalogPublish(MachineCatalogPublishRequest request) throws CmuxException {
+        Object result = execute(Commands.MACHINE_CATALOG_PUBLISH, request.toWire());
+        return MachineCatalogPublishResult.fromWire(result);
     }
 
     public final MachineListeningTcpResult machineListeningTcp() throws CmuxException {
@@ -1240,6 +1405,26 @@ public abstract class GeneratedCmuxClient {
     public final SaveTabGroupResult saveTabGroup(SaveTabGroupRequest request) throws CmuxException {
         Object result = execute(Commands.SAVE_TAB_GROUP, request.toWire());
         return SaveTabGroupResult.fromWire(result);
+    }
+
+    public final ScriptReplCloseResult scriptReplClose(ScriptReplCloseRequest request) throws CmuxException {
+        Object result = execute(Commands.SCRIPT_REPL_CLOSE, request.toWire());
+        return ScriptReplCloseResult.fromWire(result);
+    }
+
+    public final ScriptReplEvalResult scriptReplEval(ScriptReplEvalRequest request) throws CmuxException {
+        Object result = execute(Commands.SCRIPT_REPL_EVAL, request.toWire());
+        return ScriptReplEvalResult.fromWire(result);
+    }
+
+    public final ScriptReplOpenResult scriptReplOpen() throws CmuxException {
+        Object result = execute(Commands.SCRIPT_REPL_OPEN, Map.of());
+        return ScriptReplOpenResult.fromWire(result);
+    }
+
+    public final ScriptRunResult scriptRun(ScriptRunRequest request) throws CmuxException {
+        Object result = execute(Commands.SCRIPT_RUN, request.toWire());
+        return ScriptRunResult.fromWire(result);
     }
 
     public final EmptyResult scrollSurface(ScrollSurfaceRequest request) throws CmuxException {

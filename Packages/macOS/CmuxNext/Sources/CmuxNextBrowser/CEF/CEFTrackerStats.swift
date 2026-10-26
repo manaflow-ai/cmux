@@ -19,7 +19,7 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     public var clipSeconds: Double = 0
     /// `CmuxParentViewGeometryDidChange` posts (each makes the fork update one page).
     public var geometryPosts = 0
-    /// Hosted page views in a window now (`CEFHostedPageView`, fork API 26):
+    /// Hosted page views in a window now (`ChromiumHostPageView`, fork API 26):
     /// pages that draw in a cmux window's layer tree. Live: a hosted view
     /// leaving its window (DevTools closed, a pane closed) is no longer counted.
     public var hostedPages = 0

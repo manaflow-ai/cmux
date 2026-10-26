@@ -23,6 +23,9 @@
    path, and every bench that imports bench_launch still loads under `python3 -I`.
 9. bench_env.py names a Swift read site for every switch the bench app gets, the launch passes exactly its fixed
    switches and config keys, and no switch is one the app strips at launch.
+10. The control socket probe (p08-startup-019) times the first answer, not the first accept: a request sent into a
+   listener that answers late is timed at its answer; the verdict is the p50 of answer minus first frame against
+   the budget, and a run with no answer or no frame fails it.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts. On Linux, 8 and 9 and
@@ -34,6 +37,7 @@ the tests that need no macOS tool run; the rest are skipped.
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import resource
@@ -1071,6 +1075,94 @@ class BenchEnvTests(unittest.TestCase):
         with open(app.environment()["CMUX_NEXT_CONFIG_FILE"]) as f:
             config = json.load(f)
         self.assertEqual(config["updates"], {"checkAutomatically": True, "channel": "nightly"})
+
+
+class SocketProbeTests(unittest.TestCase):
+    """10. The control socket probe (bench_launch.first_answer, socket_probe_summary, socket-probe)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="cnp-", dir="/tmp")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.path = os.path.join(self.folder, "s.sock")
+
+    def serve_late(self, bind_after, answer_after):
+        """A listener that binds after `bind_after` s, then accepts one request and answers it `answer_after` s
+        after it arrived (the app binds in main() and reads requests once its methods are registered)."""
+        def run():
+            time.sleep(bind_after)  # test: the app's main() has not bound yet
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(self.path)
+            server.listen(8)
+            conn, _ = server.accept()
+            buf = b""
+            while not buf.endswith(b"\n"):
+                buf += conn.recv(4096)
+            time.sleep(answer_after)  # test: the method groups register after the first frame
+            request = json.loads(buf)
+            conn.sendall((json.dumps({"id": request["id"], "ok": True, "result": {"pong": True}}) + "\n").encode())
+            conn.close()
+            server.close()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+
+    def paths(self):
+        return [self.path] if os.path.exists(self.path) else []
+
+    def test_the_first_answer_is_timed_at_the_answer_not_the_accept(self):
+        self.serve_late(bind_after=0.05, answer_after=0.2)
+        start = time.monotonic()
+        took = bl.first_answer(self.paths, start, start + 5)
+        self.assertIsNotNone(took)
+        self.assertGreaterEqual(took, 0.25)
+        self.assertLess(took, 5)
+
+    def test_no_answer_when_the_app_ends_or_the_deadline_passes(self):
+        start = time.monotonic()
+        self.assertIsNone(bl.first_answer(self.paths, start, start + 5, alive=lambda: False))
+        start = time.monotonic()
+        self.assertIsNone(bl.first_answer(self.paths, start, start + 0.05))
+
+    def test_the_verdict_is_the_p50_of_answer_after_frame_against_the_budget(self):
+        runs = [{"first_answer_ms": 210, "first_frame_ms": 180}, {"first_answer_ms": 260, "first_frame_ms": 200},
+                {"first_answer_ms": 400, "first_frame_ms": 220}]
+        summary = bl.socket_probe_summary(runs, budget_ms=50)
+        self.assertEqual(summary["answer_after_frame_p50_ms"], 60)
+        self.assertFalse(summary["ok"])
+        self.assertTrue(bl.socket_probe_summary(runs, budget_ms=60)["ok"])
+        missing = runs + [{"first_answer_ms": None, "first_frame_ms": 190}]
+        self.assertFalse(bl.socket_probe_summary(missing, budget_ms=500)["ok"], "a run with no answer fails")
+        self.assertFalse(bl.socket_probe_summary([], budget_ms=500)["ok"])
+
+    def test_the_command_reads_each_launchs_first_frame_and_stops_every_app(self):
+        stopped = []
+
+        class StubApp:
+            def __init__(self, app, out=None):
+                self.first_answer_ms = None
+
+            def launch(self, timeout, probe_first_answer):
+                assert probe_first_answer
+                self.first_answer_ms = 230.0
+
+            def rpc(self, method, params=None, timeout=60):
+                assert method == "debug.timings"
+                return {"launch_ms_since_process_start": {"first_window_frame_committed": 200.0}}
+
+            def stop(self):
+                stopped.append(True)
+
+        opts = mock.Mock(app="/x/cmux DEV t.app", out=None, runs=3, timeout=10, budget_ms=50,
+                         json=os.path.join(self.folder, "out.json"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = bl.socket_probe(opts, make_app=StubApp)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(stopped), 3)
+        with open(opts.json) as f:
+            result = json.loads(f.read())
+        self.assertEqual(result["answer_after_frame_p50_ms"], 30)
+        self.assertEqual(len(result["per_run"]), 3)
 
 
 if __name__ == "__main__":

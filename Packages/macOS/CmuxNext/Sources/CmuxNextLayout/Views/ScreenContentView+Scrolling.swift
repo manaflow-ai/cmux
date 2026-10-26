@@ -24,6 +24,7 @@ extension ScreenContentView {
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
+        dropPendingScrollIfSized()
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
