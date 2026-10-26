@@ -124,10 +124,12 @@ public final class CrashReporter: Sendable {
 
     /// A crash has begun: the process ends within ``CrashDeadline/seconds``
     /// even if the crash path blocks, and within ``CrashWatcher/defaultSeconds``
-    /// even if every thread of the app is suspended. Async-signal-safe.
+    /// even if every thread of the app is suspended. Then the crash keys go into
+    /// `run.crashkeys` (``CrashKeys``). Async-signal-safe.
     public static func beginCrashDeadline() {
         CrashDeadline.arm()
         CrashWatcher.arm()
+        writeCrashKeysRecord()
     }
 
     /// A crash path that blocks while every thread is suspended, for the crash

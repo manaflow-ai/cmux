@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextCrashReporting
 import Darwin
 import Foundation
@@ -83,9 +84,12 @@ final class AppRunMarker {
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
-
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
+    private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
+    /// The previous run's `run.crashkeys`, moved aside at launch so this run's crash path gets an empty file;
+    /// read off the main thread (``readCrashKeys(_:)``).
+    var previousCrashKeysFile: URL { directory.appending(path: "run.crashkeys.previous") }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -123,6 +127,13 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
+        // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
+        // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
+        if rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unlink(previousCrashKeysFile.path) }
+        // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
+        let keysDescriptor = open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
@@ -203,6 +214,12 @@ final class AppRunMarker {
         do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
             logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The crash keys a run's crash path wrote (`url`: ``previousCrashKeysFile``); nil when that run ended with no
+    /// crash path (a normal quit, SIGKILL, power loss). Off the main thread.
+    nonisolated static func readCrashKeys(_ url: URL) -> CrashKeys? {
+        (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
     }
 
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {

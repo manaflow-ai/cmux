@@ -18,8 +18,15 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
 
     let joined = std::thread::Builder::new()
         .name("worker".into())
-        // crash-allow: the panic under test
-        .spawn(|| panic!("comparison is not a total order"))
+        .spawn(|| {
+            // The crash keys at the panic go into its line (p10-stability-207).
+            let _method = cmux_panic_log::crash_keys::scoped(
+                cmux_panic_log::crash_keys::Key::ActionId,
+                cmux_panic_log::crash_keys::stable_key("session.sort"),
+            );
+            // crash-allow: the panic under test
+            panic!("comparison is not a total order")
+        })
         .unwrap()
         .join();
     assert!(joined.is_err());
@@ -40,7 +47,13 @@ fn a_thread_panic_is_appended_with_fields_and_the_previous_hook_runs() {
     assert_eq!(lines[0]["test"], false);
     assert!(lines[0]["location"].as_str().unwrap().contains("hook.rs:"));
     assert!(lines[0]["backtrace"].is_string());
+    assert_eq!(
+        lines[0]["crash_keys"]["action_id"],
+        cmux_panic_log::crash_keys::stable_key("session.sort"),
+        "the panic line names the running method"
+    );
     assert_eq!(lines[1]["test"], true);
+    assert!(lines[1].get("crash_keys").is_none(), "the scope ended with its panic: {}", lines[1]);
     assert!(PREVIOUS_RAN.load(Ordering::SeqCst));
     let _ = std::fs::remove_dir_all(&dir);
 }

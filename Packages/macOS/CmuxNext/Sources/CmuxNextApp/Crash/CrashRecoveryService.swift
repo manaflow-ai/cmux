@@ -3,6 +3,8 @@ import CmuxNextBrowser
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextCrashReporting
+import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
 /// the run marker, the restart notice, crash reports for app and Chromium
@@ -27,17 +29,22 @@ final class CrashRecoveryService {
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
     /// `marksRun` false (tests, tools that build AppServices) leaves no
-    /// marker and installs no signal handlers.
-    init(bundleID: String?, marksRun: Bool) {
+    /// marker and installs no signal handlers. With a marker, the crash
+    /// path writes `crashKeys` into the marker folder's `run.crashkeys`.
+    init(bundleID: String?, marksRun: Bool, crashKeys: CrashKeySlots? = nil) {
         marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
+        if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
-        if let previous = marker?.recovery.previous {
+        if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            reportTask = Task { [weak self, writer] in  // task-owner: stored in reportTask, cancelled with the service
-                // The DiagnosticReports listing and the report write stay off the main thread.
-                let found = await Task.detached(priority: .utility) {
-                    CrashRecoveryService.systemCrashLog(after: previous.launched)
+            reportTask = Task { [weak self, writer, logger] in  // task-owner: stored in reportTask, cancelled with the service
+                // The DiagnosticReports listing, the crash keys' read and the report write stay off the main thread.
+                let (found, keys) = await Task.detached(priority: .utility) {
+                    (CrashRecoveryService.systemCrashLog(after: previous.launched), AppRunMarker.readCrashKeys(keysFile))
                 }.value
+                // Numbers and catalog names only (CrashKeys), so the line needs no redaction.
+                let tags = keys?.tags.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ") ?? "none"
+                logger.error("previous run crash keys: \(tags, privacy: .public)")
                 guard let self else { return }
                 previousCrashLog = found
                 let data = CrashReportWriter.encode(appReport(previous))

@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold)
+                                   launchImageHold: launchImageHold, crashKeys: control.crashKeys)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
