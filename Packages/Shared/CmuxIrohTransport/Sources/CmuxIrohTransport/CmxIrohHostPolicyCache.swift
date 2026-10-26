@@ -134,7 +134,7 @@ public actor CmxIrohHostPolicyCache {
         lifecycleEpoch &+= 1
         deactivationCount += 1
         defer { deactivationCount -= 1 }
-        await waitForStorageMutations()
+        try await waitForStorageMutations()
         try await secureStore.deleteAll()
     }
 
@@ -183,9 +183,9 @@ public actor CmxIrohHostPolicyCache {
         for waiter in waiters { waiter.resume(returning: ()) }
     }
 
-    private func waitForStorageMutations() async {
+    private func waitForStorageMutations() async throws(OnceContinuationError) {
         guard activeStorageMutationCount > 0 else { return }
-        try? await withOnceContinuation { continuation in
+        try await withOnceContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
     }

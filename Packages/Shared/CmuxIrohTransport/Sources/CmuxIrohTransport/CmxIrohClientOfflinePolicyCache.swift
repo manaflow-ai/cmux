@@ -243,7 +243,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         lifecycleEpoch &+= 1
         deactivationCount += 1
         defer { deactivationCount -= 1 }
-        await waitForStorageMutationsToDrain()
+        try await waitForStorageMutationsToDrain()
         try await secureStore.deleteAll()
     }
 
@@ -379,9 +379,9 @@ public actor CmxIrohClientOfflinePolicyCache {
         }
     }
 
-    private func waitForStorageMutationsToDrain() async {
+    private func waitForStorageMutationsToDrain() async throws(OnceContinuationError) {
         guard activeStorageMutationCount > 0 else { return }
-        try? await withOnceContinuation { continuation in
+        try await withOnceContinuation { continuation in
             storageMutationDrainWaiters.append(continuation)
         }
     }

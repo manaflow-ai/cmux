@@ -43,7 +43,7 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let existing = try await storedRecord(account: account)?.preference
         if let existing {
@@ -73,7 +73,7 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         return try await storedRecord(account: account)?.preference
     }
@@ -84,17 +84,17 @@ public actor CmxIrohRelayPreferenceStore {
             accountID,
             prefix: "relay-preference"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         try await secureStore.delete(account: account)
     }
 
-    private func acquire(_ account: String) async {
+    private func acquire(_ account: String) async throws(OnceContinuationError) {
         guard busyAccounts.contains(account) else {
             busyAccounts.insert(account)
             return
         }
-        try? await withOnceContinuation { continuation in
+        try await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }

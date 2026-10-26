@@ -63,7 +63,7 @@ public actor CmxIrohRelayPolicyCache {
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date
     ) async throws -> CmxIrohManagedRelayPolicy {
-        await acquire()
+        try await acquire()
         defer { release() }
         let policy = try verifier.verify(signedPolicy, trustRoot: trustRoot, now: now)
         let existing = try await storedRecord()
@@ -104,7 +104,7 @@ public actor CmxIrohRelayPolicyCache {
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date
     ) async throws -> CmxIrohManagedRelayPolicy? {
-        await acquire()
+        try await acquire()
         defer { release() }
         guard let record = try await storedRecord() else { return nil }
         let policy = try verifier.verify(record.signedPolicy, trustRoot: trustRoot, now: now)
@@ -117,17 +117,17 @@ public actor CmxIrohRelayPolicyCache {
 
     /// Removes every cached relay-policy record.
     public func deactivate() async throws {
-        await acquire()
+        try await acquire()
         defer { release() }
         try await secureStore.deleteAll()
     }
 
-    private func acquire() async {
+    private func acquire() async throws(OnceContinuationError) {
         guard busy else {
             busy = true
             return
         }
-        try? await withOnceContinuation { continuation in
+        try await withOnceContinuation { continuation in
             waiters.append(continuation)
         }
     }

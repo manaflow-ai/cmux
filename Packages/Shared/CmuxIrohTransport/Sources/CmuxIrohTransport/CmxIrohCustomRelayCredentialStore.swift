@@ -48,7 +48,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         var credentials = try await storedCredentials(account: account)
         credentials.updateValue(StaticCredential(token: token, relayURL: relayURL), forKey: relayID)
@@ -64,7 +64,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         var credentials = try await storedCredentials(account: account)
         credentials.removeValue(forKey: relayID)
@@ -81,7 +81,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         try await secureStore.delete(account: account)
     }
@@ -101,7 +101,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let credentials = try await storedCredentials(account: account)
         let definitions = Dictionary(uniqueKeysWithValues: relays.map { ($0.id, $0) })
@@ -129,7 +129,7 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         let credentials = try await storedCredentials(account: account)
         var tokens: [String: String] = [:]
@@ -146,17 +146,17 @@ public actor CmxIrohCustomRelayCredentialStore {
             accountID,
             prefix: "custom-relay-credentials"
         )
-        await acquire(account)
+        try await acquire(account)
         defer { release(account) }
         return Set(try await storedCredentials(account: account).keys)
     }
 
-    private func acquire(_ account: String) async {
+    private func acquire(_ account: String) async throws(OnceContinuationError) {
         guard busyAccounts.contains(account) else {
             busyAccounts.insert(account)
             return
         }
-        try? await withOnceContinuation { continuation in
+        try await withOnceContinuation { continuation in
             accountWaiters[account, default: []].append(continuation)
         }
     }
