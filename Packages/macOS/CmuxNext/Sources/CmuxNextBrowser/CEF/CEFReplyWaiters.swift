@@ -45,13 +45,30 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
                cancelledError: (@Sendable () -> any Error)? = nil) async throws -> Value {
         lastWaiter &+= 1
         let id = lastWaiter
-        guard let cancelledError else { return try await wait(key, id: id, timeout: timeout, timeoutError: timeoutError) }
+        let clock = clock
+        // The wait's deadline, and its cancellation: the caller's cancellation cancels this task (from
+        // any thread), which then fails the wait on the main actor. It first runs after the wait
+        // registers below, in this turn.
+        let deadline = Task { [weak self] in
+            // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
+            let failure: any Error
+            do {
+                try await clock.sleep(for: timeout)
+                failure = timeoutError()
+            } catch {
+                guard let cancelledError else { return }
+                failure = cancelledError()
+            }
+            self?.settle(key, waiter: id, .failure(failure))
+        }
         return try await withTaskCancellationHandler {
-            try await wait(key, id: id, timeout: timeout, timeoutError: timeoutError)
+            try await withCheckedThrowingContinuation { continuation in
+                // Keys are unique per request; a reused one fails the older waiter.
+                waiting.updateValue(Waiter(id: id, continuation: continuation, deadline: deadline), forKey: key)?
+                    .finish(.failure(superseded()))
+            }
         } onCancel: {
-            // Runs on the cancelling thread; the wait is main-actor state. A cancellation before the
-            // wait registered lands after it, in a later main-actor turn.
-            Task { @MainActor [weak self] in self?.settle(key, waiter: id, .failure(cancelledError())) }
+            if cancelledError != nil { deadline.cancel() }
         }
     }
 
@@ -68,21 +85,8 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
         for key in waiting.keys where matches(key) { resolve(key, with: .failure(error)) }
     }
 
-    private func wait(_ key: Key, id: UInt64, timeout: Duration, timeoutError: @escaping @Sendable () -> any Error) async throws -> Value {
-        try await withCheckedThrowingContinuation { continuation in
-            let clock = clock
-            let deadline = Task { [weak self] in
-                // wakeup-allow: one-shot reply deadline on the injected clock, cancelled when the reply arrives
-                do { try await clock.sleep(for: timeout) } catch { return }
-                self?.settle(key, waiter: id, .failure(timeoutError()))
-            }
-            // Keys are unique per request; a reused one fails the older waiter.
-            waiting.updateValue(Waiter(id: id, continuation: continuation, deadline: deadline), forKey: key)?
-                .finish(.failure(superseded()))
-        }
-    }
-
-    /// Resumes the wait `id` on `key` when it still waits.
+    /// Resumes the wait `id` on `key` when it still waits: a late deadline or cancellation of a wait
+    /// that was answered or taken over settles nothing.
     private func settle(_ key: Key, waiter id: UInt64, _ result: Result<Value, any Error>) {
         guard waiting[key]?.id == id else { return }
         resolve(key, with: result)

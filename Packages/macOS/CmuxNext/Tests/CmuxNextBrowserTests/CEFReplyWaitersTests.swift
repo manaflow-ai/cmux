@@ -239,21 +239,27 @@ import Testing
         #expect(clock.sleeperCount == 0)
     }
 
-    /// A second wait on a token takes it over. The first wait's cancellation, which lands after the
-    /// second registered, settles only the first wait (each wait has its own identity).
-    @Test func aSecondWaitSupersedesTheFirstAndTheFirstsCancellationLeavesItAlone() async throws {
+    /// A second wait on a token takes it over, and the first fails `.superseded`. The first wait's
+    /// deadline, already firing when the second registered, settles only the first wait (each wait
+    /// has its own identity): the second ends at its own deadline, with its own label.
+    @Test func aSupersededWaitsDeadlineLeavesTheWaitThatTookItsTokenAlone() async throws {
         let clock = ManualClock()
         let replies = CEFHostReplies(clock: clock)
         replies.expect(8)
-        let first = Self.waiting(replies, 8)
+        let first = Task { try await replies.reply(to: 8, as: Int32.self, label: "first", timeout: .seconds(1)) }
         try await clock.waitForSleeper()
-        first.cancel()  // its cancellation hop is queued on the main actor now
-        let answer = Task { replies.resolve(8, fields: Self.int32(80)) }  // queued after that hop
-        // Registers in this turn, before either queued task runs.
-        let second = try await replies.reply(to: 8, as: Int32.self, label: "try close", timeout: .seconds(30))
-        #expect(second == 80)
-        #expect(await answer.value)
+        clock.advance(by: .seconds(1))  // the first deadline fires; its settle is on its way to the main actor
+        let secondsDeadline = Task {
+            try await clock.waitForSleeper()
+            clock.advance(by: .seconds(10))
+        }
+        // Registers in this turn, before the first deadline's settle can run.
+        let second = await Self.awaitedFailure {
+            try await replies.reply(to: 8, as: Int32.self, label: "second", timeout: .seconds(10))
+        }
+        #expect(second == .timedOut("second", .seconds(10)))
         #expect(await Self.awaitedFailure { try await first.value } == .superseded)
+        try await secondsDeadline.value
         #expect(replies.count == 0)
     }
 
