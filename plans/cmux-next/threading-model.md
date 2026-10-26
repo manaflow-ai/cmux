@@ -134,6 +134,45 @@ no frame of that session reaches the presenter" hold, as Chrome's `RenderWidgetH
 (content/browser/renderer_host/render_widget_host_impl.cc) stops a hidden widget's frames before it returns;
 an atomic flag alone would let a frame that passed the check before the close be presented after it.
 
+## Process roles (p02-threads-234)
+
+Every cmux process, its launchd `ProcessType` and whether a person's input passes through it. Rule: no
+process on the input path runs as `Background`. launchd.plist(5): `Background` puts the job under darwinbg
+(low CPU priority, throttled I/O and network); `Standard` keeps launchd's daemon limits; `Interactive` gets an
+app's limits (none); `Adaptive` is `Background` except while an XPC message is in flight. cmux processes talk
+over Unix sockets and QUIC, not XPC, so `Adaptive` would leave them at `Background`: a launchd job on the
+input path is `Interactive`. This is Chrome's model: a process the person uses is never lowered, only a hidden
+renderer drops below the browser (base/process/process_mac.cc `Process::SetPriority`, from
+content/browser/renderer_host/render_process_host_impl.cc `UpdateProcessPriority`). The Rust table is
+`cmux_server_core::units::LaunchdJob`; each plist generator reads it and has a test that asserts its value.
+launchd reads a plist only at bootstrap, so each installer also upgrades a plist an older cmux wrote: the
+remote host's `service::restart` sets the role before its bootstrap, and `cmux host serve` and `cmux link
+serve` set it at start (it applies from the next bootstrap: a restart, `install-agent` or login); acpmux's
+`host update` sets it with `plutil` before its bootstrap; the server agents are rewritten by their install
+(`write_if_changed`, then bootout and bootstrap) and the app's bundled agent ships in the bundle. A chatmux
+relay plist an older relay wrote gets the role at its next `cmux-relay --autostart`.
+
+| Process | Started by | launchd ProcessType | Input path |
+|---|---|---|---|
+| App (`cmux.app`, CmuxNext) | Launch Services | none (an app; the system's app policy) | yes: every key and click |
+| Daemon `cmux host run`: `com.cmux.server` agent and daemon (cmux-server-core `launch_agent_plist`, `launch_daemon_plist`), the app's `<bundle id>.server` (`app_service_agent_plist`, stamped by scripts/cmux-next/bundle-server-helper.sh, registered by ServerLaunchAgent.swift) | launchd | `Interactive` (was `Standard`) | yes: every terminal key and frame |
+| Link `cmux link serve` (`com.cmuxterm.link`, cmux-tui link/launchd.rs) | launchd | `Interactive` (was `Background`) | yes: a paired peer's session streams |
+| Remote host `cmux host serve` (`com.cmuxterm.host-remote`, cmux-tui remote_host/service.rs) | launchd | `Interactive` (was `Background`) | yes: a remote client's keys |
+| Holder (`cmux-holder`) | the daemon | none: runs in the daemon's launchd job | yes: PTY bytes |
+| acpmux daemon `acpmux daemon run` on a host set up by `acpmux hosts` (`com.acpmux.daemon`, acpmux cli/hosts.rs `launchd_plist`) | launchd | `Interactive` (was none, launchd's default limits) | yes: agent sessions a person prompts and watches |
+| acpmux started on demand (`cmux acp`, `acpmux daemon start`) | the app, the daemon or an agent CLI | none: runs in its parent's job | agent sessions a person watches |
+| acpmux session harness (Claude, Codex) | the acpmux daemon | none: runs in the acpmux daemon's job | the agent's output a person watches |
+| chatmux relay `cmux-relay` (`com.chatmux.relay`, chatmux-relay autostart.rs `launchd_plist`) | launchd (`--autostart`) | `Interactive` (was none, launchd's default limits) | yes: a paired chat client's terminal keys |
+| Chromium helpers and the out-of-process browser host | the app | none: run in the app's job | yes: page input |
+| Other helpers (`cmux-server-helper`, CLI calls) | the app or a shell | none: run in the parent's job | short-lived |
+
+A process with no launchd job of its own runs in its parent's. Mach task roles (`TASK_CATEGORY_POLICY`,
+foreground or background per process) are task 235. On Linux the server, link and remote-host systemd units set
+no CPU or I/O class, so those processes run at the default priority. acpmux puts each session harness in its
+own `systemd-run --user --scope` with a lower `CPUWeight` (default 50, systemd's own is 100;
+`ACPMUX_SESSION_CPU_WEIGHT`, 0 turns it off) and a `MemoryMax` (acpmux session_scope.rs), so a busy agent
+session yields the CPU to the rest of the machine.
+
 ## Renderer QoS (rendering-DESIGN R5)
 
 Threads that produce frames, by state. Chrome sets the QoS of a thread from its thread type

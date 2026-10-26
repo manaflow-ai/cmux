@@ -23,6 +23,8 @@ async-trait.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-pty.workspace = true
+# The launchd process-roles table (units::LaunchdJob) for the autostart plist.
+cmux-server-core.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
 http.workspace = true
