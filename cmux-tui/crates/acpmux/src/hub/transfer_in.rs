@@ -205,8 +205,25 @@ impl Hub {
             }
         }
         let from = params.get("from").cloned().unwrap_or(Value::Null);
-        // Back where it once moved from: its closed copy gives way (below).
+        // Back where it once moved from: its closed copy gives way (below). Bind the
+        // bundle's outer identity, harness, and ACP identity before any source is killed.
         let id = manifest["sessionId"].as_str().unwrap_or("");
+        let bundle_meta: SessionMeta = serde_json::from_slice(
+            &std::fs::read(bundle.join("session.json"))
+                .map_err(|e| transfer_error("schema", format!("read session metadata: {e}")))?,
+        )
+        .map_err(|e| transfer_error("schema", format!("invalid session metadata: {e}")))?;
+        if bundle_meta.id != id
+            || manifest["session"]["harness"].as_str() != Some(bundle_meta.harness.as_str())
+            || (bundle_meta.harness == "cmux-harness"
+                && manifest["session"]["agentSessionId"].as_str()
+                    != bundle_meta.agent_session_id.as_deref())
+        {
+            return Err(transfer_error(
+                "schema",
+                "bundle identity does not match transfer manifest",
+            ));
+        }
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         let replacing_durable = old.is_some();

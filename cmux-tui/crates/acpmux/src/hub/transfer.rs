@@ -2,9 +2,12 @@
 
 use super::transfer_guard::plain_agent_session;
 use super::*;
+use std::sync::Mutex;
 
 /// True when `id` is a single plain path component, so it can name a
 /// directory under the sessions root (no separator, `.`, `..` or root).
+static HARNESS_STATE_LOCK: Mutex<()> = Mutex::new(());
+
 pub(super) fn is_plain_id(id: &str) -> bool {
     let mut parts = Path::new(id).components();
     matches!(
@@ -230,8 +233,10 @@ impl Hub {
             let bytes = std::fs::read(&path)?;
             let first = bytes.splitn(2, |b| *b == b'\n').next().unwrap_or_default();
             let Ok(header) = serde_json::from_slice::<Value>(first) else { continue };
-            let id = header.get("id").or_else(|| header.get("sessionId")).and_then(Value::as_str);
-            if id == Some(agent_id) {
+            let id = header.get("id").and_then(Value::as_str);
+            let valid = header.get("type").and_then(Value::as_str) == Some("session")
+                && header.get("cwd").and_then(Value::as_str).is_some();
+            if valid && id == Some(agent_id) {
                 if found.is_some() {
                     return Err(anyhow::anyhow!("multiple Pi sessions match ACP session id"));
                 }
@@ -246,13 +251,16 @@ impl Hub {
             return Err(anyhow::anyhow!("Pi session file has no header"));
         };
         let mut header: Value = serde_json::from_slice(&bytes[..split])?;
-        let id = header.get("id").or_else(|| header.get("sessionId")).and_then(Value::as_str);
-        if id != Some(agent_id) {
-            return Err(anyhow::anyhow!("Pi session header id mismatch"));
+        let id = header.get("id").and_then(Value::as_str);
+        if header.get("type").and_then(Value::as_str) != Some("session")
+            || header.get("cwd").and_then(Value::as_str).is_none()
+            || id != Some(agent_id)
+        {
+            return Err(anyhow::anyhow!(
+                "Pi session header is not a valid session for this ACP id"
+            ));
         }
-        if header.get("cwd").is_some() {
-            header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
-        }
+        header["cwd"] = Value::String(cwd.to_string_lossy().into_owned());
         let mut out = serde_json::to_vec(&header)?;
         out.push(b'\n');
         out.extend_from_slice(&bytes[split + 1..]);
@@ -277,7 +285,18 @@ impl Hub {
         let root =
             session_dir.parent().ok_or_else(|| anyhow::anyhow!("invalid session store root"))?;
         let journal = root.join(agent_id).join("journal.ndjson");
-        let (_pi_session_path, session_bytes) = Self::harness_pi_session(root, agent_id)?;
+        let (pi_session_path, session_bytes) = Self::harness_pi_session(root, agent_id)?;
+        let pi_filename = pi_session_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Pi session filename is not valid UTF-8"))?;
+        if pi_filename.is_empty()
+            || pi_filename.len() > 256
+            || !pi_filename.ends_with(".jsonl")
+            || Path::new(pi_filename).components().count() != 1
+        {
+            return Err(anyhow::anyhow!("Pi session filename is unsafe"));
+        }
         let read_private = |path: &Path, label: &str| -> Result<Vec<u8>> {
             let meta = std::fs::symlink_metadata(path)?;
             if !meta.file_type().is_file() {
@@ -293,7 +312,7 @@ impl Hub {
         Ok(json!({
             "sessionId": agent_id,
             "journal": {"path": "harness/journal.ndjson", "size": journal_bytes.len(), "sha256": crate::sha256::sha256_hex(&journal_bytes)},
-            "session": {"path": "harness/session.jsonl", "size": session_bytes.len(), "sha256": crate::sha256::sha256_hex(&session_bytes)},
+            "session": {"path": "harness/session.jsonl", "filename": pi_filename, "size": session_bytes.len(), "sha256": crate::sha256::sha256_hex(&session_bytes)},
         }))
     }
 
@@ -339,7 +358,22 @@ impl Hub {
         };
         let journal_bytes = checked("journal", "harness/journal.ndjson")?;
         let session_bytes = checked("session", "harness/session.jsonl")?;
+        let pi_filename = spec
+            .get("session")
+            .and_then(|v| v.get("filename"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("missing Pi session filename"))?;
+        if pi_filename.is_empty()
+            || pi_filename.len() > 256
+            || !pi_filename.ends_with(".jsonl")
+            || Path::new(pi_filename).components().count() != 1
+        {
+            return Err(anyhow::anyhow!("Pi session filename is unsafe"));
+        }
         let session_bytes = Self::rebind_harness_pi_session(&session_bytes, agent_id, &meta.cwd)?;
+        let _state_lock = HARNESS_STATE_LOCK
+            .lock()
+            .map_err(|_| anyhow::anyhow!("durable transfer lock poisoned"))?;
         let session_dir = self
             .store
             .session_dir(&meta.id)
@@ -348,6 +382,11 @@ impl Hub {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
         let journal_dir = root.join(agent_id);
+        if let Ok(meta) = std::fs::symlink_metadata(&journal_dir) {
+            if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
+                return Err(anyhow::anyhow!("target durable session is not a real directory"));
+            }
+        }
         if std::fs::symlink_metadata(&journal_dir).is_ok() && !replace_durable {
             return Err(anyhow::anyhow!("target durable session is already occupied"));
         }
@@ -356,22 +395,68 @@ impl Hub {
                 return Err(anyhow::anyhow!("target durable owner lock is symlinked"));
             }
         }
+        let pi_target = if replace_durable {
+            Self::harness_pi_session(root, agent_id)?.0
+        } else {
+            root.join(pi_filename)
+        };
+        if let Ok(meta) = std::fs::symlink_metadata(&pi_target) {
+            if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+                return Err(anyhow::anyhow!("target Pi session is not a real file"));
+            }
+            if !replace_durable {
+                return Err(anyhow::anyhow!("target Pi session filename is already occupied"));
+            }
+        }
         std::fs::create_dir_all(&journal_dir)?;
+        let journal = journal_dir.join("journal.ndjson");
         let journal_tmp = journal_dir.join("journal.ndjson.importing");
-        let session_tmp = root.join(format!("{agent_id}.jsonl.importing"));
-        {
+        let journal_backup = journal_dir.join("journal.ndjson.transfer-backup");
+        let session_tmp = root.join(format!("{pi_filename}.importing"));
+        let session_backup = root.join(format!("{pi_filename}.transfer-backup"));
+        for path in [&journal_tmp, &session_tmp, &journal_backup, &session_backup] {
+            if std::fs::symlink_metadata(path).is_ok() {
+                return Err(anyhow::anyhow!("durable transfer temporary path is occupied"));
+            }
+        }
+        let install = (|| -> Result<()> {
             use std::io::Write;
-            let mut file = std::fs::File::create(&journal_tmp)?;
+            let mut file =
+                std::fs::OpenOptions::new().write(true).create_new(true).open(&journal_tmp)?;
             file.write_all(&journal_bytes)?;
             file.sync_all()?;
-            let mut file = std::fs::File::create(&session_tmp)?;
+            let mut file =
+                std::fs::OpenOptions::new().write(true).create_new(true).open(&session_tmp)?;
             file.write_all(&session_bytes)?;
             file.sync_all()?;
+            if replace_durable {
+                if std::fs::symlink_metadata(&journal).is_ok() {
+                    std::fs::rename(&journal, &journal_backup)?;
+                }
+                if std::fs::symlink_metadata(&pi_target).is_ok() {
+                    if let Err(e) = std::fs::rename(&pi_target, &session_backup) {
+                        let _ = std::fs::rename(&journal_backup, &journal);
+                        return Err(e.into());
+                    }
+                }
+            }
+            std::fs::rename(&journal_tmp, &journal)?;
+            std::fs::rename(&session_tmp, &pi_target)?;
+            std::fs::File::open(&journal_dir)?.sync_all()?;
+            std::fs::File::open(root)?.sync_all()?;
+            let _ = std::fs::remove_file(&journal_backup);
+            let _ = std::fs::remove_file(&session_backup);
+            Ok(())
+        })();
+        if let Err(e) = install {
+            let _ = std::fs::remove_file(&journal_tmp);
+            let _ = std::fs::remove_file(&session_tmp);
+            let _ = std::fs::remove_file(&journal);
+            let _ = std::fs::remove_file(&pi_target);
+            let _ = std::fs::rename(&journal_backup, &journal);
+            let _ = std::fs::rename(&session_backup, &pi_target);
+            return Err(e);
         }
-        std::fs::rename(journal_tmp, journal_dir.join("journal.ndjson"))?;
-        std::fs::File::open(&journal_dir)?.sync_all()?;
-        std::fs::rename(session_tmp, root.join(format!("{agent_id}.jsonl")))?;
-        std::fs::File::open(root)?.sync_all()?;
         Ok(())
     }
 

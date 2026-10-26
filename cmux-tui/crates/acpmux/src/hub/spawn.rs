@@ -5,6 +5,88 @@ use super::*;
 
 use crate::config::check_preset_args;
 
+fn pi_session_for(root: &Path, agent_id: &str) -> std::io::Result<Option<PathBuf>> {
+    let Ok(entries) = std::fs::read_dir(root) else { return Ok(None) };
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        let meta = std::fs::symlink_metadata(&path)?;
+        if !meta.file_type().is_file() || path.extension().and_then(|e| e.to_str()) != Some("jsonl")
+        {
+            continue;
+        }
+        let bytes = std::fs::read(&path)?;
+        let first = bytes.splitn(2, |b| *b == 10).next().unwrap_or_default();
+        let Ok(header) = serde_json::from_slice::<Value>(first) else { continue };
+        if header.get("type").and_then(Value::as_str) == Some("session")
+            && header.get("id").and_then(Value::as_str) == Some(agent_id)
+            && header.get("cwd").and_then(Value::as_str).is_some()
+        {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(src)?;
+    if meta.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "legacy durable state is symlinked",
+        ));
+    }
+    if meta.file_type().is_dir() {
+        std::fs::create_dir_all(dst)?;
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            copy_legacy_tree(&entry.path(), &dst.join(entry.file_name()))?;
+        }
+    } else if meta.file_type().is_file() {
+        if std::fs::symlink_metadata(dst).is_ok() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "new durable state is occupied",
+            ));
+        }
+        std::fs::copy(src, dst)?;
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "legacy durable state is not a file or directory",
+        ));
+    }
+    Ok(())
+}
+
+fn migrate_legacy_harness_state(
+    new_root: &Path,
+    agent_id: &str,
+    home: &Path,
+) -> std::io::Result<()> {
+    let legacy_root = home.join(".cmux-harness").join("sessions");
+    let legacy_store = home.join(".cmux-harness").join("durable").join(agent_id);
+    if new_root == legacy_root {
+        return Ok(());
+    }
+    if pi_session_for(new_root, agent_id)?.is_none() {
+        if let Some(old_pi) = pi_session_for(&legacy_root, agent_id)? {
+            std::fs::create_dir_all(new_root)?;
+            let target = new_root.join(old_pi.file_name().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "legacy Pi filename missing")
+            })?);
+            copy_legacy_tree(&old_pi, &target)?;
+        }
+    }
+    let new_store = new_root.join(agent_id);
+    if !std::fs::symlink_metadata(&new_store).is_ok()
+        && std::fs::symlink_metadata(&legacy_store).is_ok()
+    {
+        copy_legacy_tree(&legacy_store, &new_store)?;
+    }
+    Ok(())
+}
+
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
@@ -144,6 +226,11 @@ impl Hub {
                 self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
             {
                 let root = dir.to_string_lossy().into_owned();
+                if let Some(agent_id) = meta.agent_session_id.as_deref() {
+                    migrate_legacy_harness_state(&dir, agent_id, &home).map_err(|e| {
+                        RpcError::internal(format!("cmux-harness state migration: {e}"))
+                    })?;
+                }
                 // Keep Pi's ACP JSONL and cmux-harness's durable journal in the
                 // same transferable root. The harness session id is learned from
                 // ACP and is independent of cmux's outer session id.
