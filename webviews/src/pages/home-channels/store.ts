@@ -235,6 +235,14 @@ export class HomeChannelsStore {
       if (!keep(streams)) return;
       const events = await client.subscribe<HomeEventBatch>(HomeOps.events, (batch) => this.apply(batch));
       if (!keep(events)) return;
+      // The New and Edit Chief pages cover the conversation: not viewed while one is open.
+      let covered = this.chiefPageOpen();
+      const sheetChanged = () => {
+        if (covered === this.chiefPageOpen()) return;
+        covered = !covered;
+        this.syncViewing();
+      };
+      this.stops.push(this.sheets.subscribe(sheetChanged));
       // Replies that came while the page was hidden are read once the person sees them.
       const shown = () => {
         if (document.visibilityState === "visible") this.readOpen();
@@ -774,6 +782,12 @@ export class HomeChannelsStore {
     this.syncViewing();
   }
 
+  /** Whether the New or Edit Chief page covers the conversation. */
+  private chiefPageOpen(): boolean {
+    const route = this.sheets.getSnapshot().route?.kind;
+    return route === "newChief" || route === "editChief";
+  }
+
   /** The Cloud conversation this page last said the person views (cmux.home.view). */
   private viewingSent?: string;
   /** Bumped by each change `syncViewing` sends: a late answer applies only to its own attempt. */
@@ -787,7 +801,8 @@ export class HomeChannelsStore {
     const { selected } = this.snapshot;
     const visible = typeof document === "undefined" || document.visibilityState !== "hidden";
     const cloud = selected !== undefined && this.snapshot.conversations.get(selected)?.owner === "cloud";
-    const want = active && this.running && this.shown && visible && cloud ? selected : undefined;
+    const covered = this.chiefPageOpen();
+    const want = active && this.running && this.shown && visible && cloud && !covered ? selected : undefined;
     const before = this.viewingSent;
     if (want === before || !this.client) return;
     this.viewingSent = want;

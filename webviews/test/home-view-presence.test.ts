@@ -303,6 +303,23 @@ test("an inbox reload that drops the open Cloud row, with nothing to open instea
   expect(views).toHaveLength(2);
 });
 
+test("the New and Edit Chief pages cover the conversation: not viewed while one is open", async () => {
+  const { client, views } = fakeClient([row("cloud-a", "cloud", "chief")]);
+  const { store, stop } = await started(client);
+  expect(views).toEqual([["cloud-a", true]]);
+  store.sheets.show({ kind: "newChief" });
+  expect(views.at(-1)).toEqual(["cloud-a", false]);
+  store.sheets.show({ kind: "editChief", chief: "chief_1" });
+  expect(views).toHaveLength(2);
+  store.sheets.close();
+  expect(views).toEqual([
+    ["cloud-a", true],
+    ["cloud-a", false],
+    ["cloud-a", true],
+  ]);
+  stop();
+});
+
 type Request = { cmd: string; params?: Record<string, unknown> };
 
 function fakeDaemon(
