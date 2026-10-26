@@ -13,11 +13,12 @@ extension MainThreadWatchdog {
     }
 
     /// The heartbeat's call at the sleep that ends a turn, with the wake and sleep stamps it took: the turn
-    /// counts in ``turnHistogram`` (no clock read). A start of 0 is a turn whose wake was never seen.
+    /// counts in ``turnHistogram`` and the field histograms (``MainThreadFieldMetrics``; no clock read). A start of 0 is a turn whose wake was never seen.
     // perf-hot: 1us frame-tick
     func mainTurnEnded(start: UInt64, end: UInt64) {
         guard start > 0, end > start else { return }
         turnHistogram.record(nanos: end - start)
+        fieldMetrics.turnEnded(start: start, end: end)
         guard end - start >= mainTurnMinimumNanos.load(ordering: .relaxed),
               let sink = mainTurnSink.withLock({ $0 }) else { return }
         sink(start, end)
