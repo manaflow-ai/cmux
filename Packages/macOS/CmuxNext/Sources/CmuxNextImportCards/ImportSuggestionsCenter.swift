@@ -150,12 +150,18 @@ public final class ImportSuggestionsCenter {
         let imported = await host.importedProfiles()
         // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
         let classic = await Task.detached(priority: .utility) { await ClassicWorkspaceCount().count() }.value
-        // Browser import turned off meanwhile: no other browser's data is read.
+        // Browser import turned off meanwhile: no other browser's data is read. The scan itself
+        // runs detached, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
-        return await Task.detached(priority: .utility) {
-            ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
-                          importedProfiles: imported, classicWorkspaces: { classic }).scan()
-        }.value
+        let stop = ImportScanStop()
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
+                              importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
+            }.value
+        } onCancel: {
+            stop.set()
+        }
     }
 
     // MARK: Cards

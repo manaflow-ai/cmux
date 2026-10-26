@@ -2,6 +2,7 @@ public import CmuxNextActions
 import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
+import os
 
 /// What `browser.import.enabled` asks of the App (`AppServices+BrowserImportHost`).
 @MainActor
@@ -77,4 +78,14 @@ public struct BrowserImportTurnedOff: LocalizedError {
     public init(_ reason: String) {
         errorDescription = reason
     }
+}
+
+/// Tells a detached import scan to stop: set from its task's cancellation handler, read by the scan
+/// before each source (`ImportScanner.shouldStop`).
+final class ImportScanStop: Sendable {
+    private let flag = OSAllocatedUnfairLock(initialState: false)
+
+    var isSet: Bool { flag.withLock { $0 } }
+
+    func set() { flag.withLock { $0 = true } }
 }
