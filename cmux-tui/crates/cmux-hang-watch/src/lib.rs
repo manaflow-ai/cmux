@@ -21,8 +21,9 @@
 //!   or the watcher was starved) blames nobody: every deadline up to now is ignored from then on
 //!   (Chrome's `kWaitDriftTolerance` and `deadline_ignore_threshold_`).
 //! - **Report.** One [`Hang`] per overdue scope goes to the [`HangSink`]; the process sink
-//!   ([`JsonlSink`]) appends one line to `hangs-<pid>.jsonl`. Linux and Windows record the thread
-//!   name and the deadline; the macOS stack sampler is task 072.
+//!   ([`JsonlSink`]) appends one line to `hangs-<pid>.jsonl`. On macOS the record carries a stack
+//!   of the hung thread (`sample_macos`: nothing between suspend and resume but register reads and
+//!   a frame-pointer walk); Linux and Windows record the thread name and the deadline.
 //!
 //! The watcher parks with `std::thread::park`, the parker std builds on a futex (Linux), a
 //! `ulock` (macOS) or a keyed event (Windows): the Condvar-style park of section 3E without a mutex.
@@ -41,6 +42,14 @@ use std::sync::atomic::{
 use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
+
+#[cfg(any(target_os = "macos", test))]
+mod frame_walk;
+#[cfg(target_os = "macos")]
+pub mod sample_macos;
+mod stack;
+
+pub use stack::{Stack, StackFrame, StackImage};
 
 /// A scope's deadline when the caller has no better one (Chrome's `kDefaultHangWatchTime`).
 pub const DEFAULT_DEADLINE: Duration = Duration::from_secs(10);
@@ -139,29 +148,36 @@ pub struct Hang {
     pub deadline_ms: u64,
     /// How far past the deadline the watcher saw it.
     pub overdue_ms: u64,
+    /// The hung thread's stack (macOS), None where there is no sampler or the sample failed.
+    pub stack: Option<Stack>,
 }
 
 impl Hang {
-    /// The record as one JSON line, newline included (schema 1 of hangs-<pid>.jsonl).
+    /// The record as one JSON line, newline included (schema 1 of `hangs-<pid>.jsonl`; the
+    /// `stack` member is there only when the thread was sampled).
     pub fn to_json_line(&self) -> String {
         let mut line = String::with_capacity(160);
         let _ =
             write!(line, "{{\"schema\":1,\"pid\":{},\"t_ns\":{},\"thread\":", self.pid, self.t_ns);
         push_json_string(&mut line, &self.thread);
-        let _ = writeln!(
+        let _ = write!(
             line,
-            ",\"kind\":\"{}\",\"native_thread_id\":{},\"slot\":{},\"deadline_ms\":{},\"overdue_ms\":{}}}",
+            ",\"kind\":\"{}\",\"native_thread_id\":{},\"slot\":{},\"deadline_ms\":{},\"overdue_ms\":{}",
             self.kind.as_str(),
             self.native_thread_id,
             self.slot,
             self.deadline_ms,
             self.overdue_ms,
         );
+        if let Some(stack) = &self.stack {
+            stack.push_json(&mut line);
+        }
+        line.push_str("}\n");
         line
     }
 }
 
-fn push_json_string(out: &mut String, text: &str) {
+pub(crate) fn push_json_string(out: &mut String, text: &str) {
     out.push('"');
     for ch in text.chars() {
         match ch {
@@ -259,6 +275,8 @@ pub struct Stats {
     pub overflow: u64,
     /// Hangs the sink failed to record.
     pub sink_errors: u64,
+    /// Hangs whose stack sample failed (macOS; the record goes out without a stack).
+    pub sample_errors: u64,
     /// The watcher is parked with no timer.
     pub parked: bool,
 }
@@ -437,6 +455,7 @@ struct Shared {
     registered: AtomicU64,
     overflow: AtomicU64,
     sink_errors: AtomicU64,
+    sample_errors: AtomicU64,
 }
 
 impl Shared {
@@ -574,13 +593,14 @@ impl Shared {
                     .compare_exchange(state, state | REPORTED, Ordering::AcqRel, Ordering::Relaxed)
                     .is_ok()
             });
-            let Some(hang) = reported else {
+            let Some((mut hang, generation)) = reported else {
                 // The scope closed, nested or changed owner meanwhile; the next pass sees it.
                 pass.armed += 1;
                 continue;
             };
             pass.hangs += 1;
             self.hangs.fetch_add(1, Ordering::Relaxed);
+            hang.stack = self.sample(slot, &hang, generation);
             if self.sink.record(&hang).is_err() {
                 self.sink_errors.fetch_add(1, Ordering::Relaxed);
             }
@@ -589,7 +609,27 @@ impl Shared {
         pass
     }
 
-    /// The slot's record, or None when it was unregistered or reused while the watcher read it.
+    /// The hung thread's stack, while its slot still belongs to it (same generation).
+    #[cfg(target_os = "macos")]
+    fn sample(&self, slot: &Slot, hang: &Hang, generation: u32) -> Option<Stack> {
+        let port = u32::try_from(hang.native_thread_id).ok()?;
+        let still_registered = || slot.generation.load(Ordering::Acquire) == generation;
+        match sample_macos::sample_checked(port, still_registered) {
+            Ok(stack) => Some(stack),
+            Err(_) => {
+                self.sample_errors.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn sample(&self, _slot: &Slot, _hang: &Hang, _generation: u32) -> Option<Stack> {
+        None
+    }
+
+    /// The slot's record and generation, or None when it was unregistered or reused while the
+    /// watcher read it.
     fn read_hang(
         &self,
         index: u32,
@@ -597,7 +637,7 @@ impl Shared {
         state: u64,
         now_ns: u64,
         now_ms: u64,
-    ) -> Option<Hang> {
+    ) -> Option<(Hang, u32)> {
         let generation = slot.generation.load(Ordering::Acquire);
         let kind = ThreadKind::from_raw(slot.kind.load(Ordering::Relaxed));
         let native_thread_id = slot.native.load(Ordering::Relaxed);
@@ -606,7 +646,7 @@ impl Shared {
         if slot.generation.load(Ordering::Relaxed) != generation {
             return None;
         }
-        Some(Hang {
+        let hang = Hang {
             pid: std::process::id(),
             t_ns: now_ns,
             thread,
@@ -615,7 +655,9 @@ impl Shared {
             slot: index,
             deadline_ms: budget_of(state),
             overdue_ms: now_ms - deadline_of(state),
-        })
+            stack: None,
+        };
+        Some((hang, generation))
     }
 
     fn any_armed(&self) -> bool {
@@ -687,6 +729,7 @@ impl Shared {
             registered: self.registered.load(Ordering::Relaxed),
             overflow: self.overflow.load(Ordering::Relaxed),
             sink_errors: self.sink_errors.load(Ordering::Relaxed),
+            sample_errors: self.sample_errors.load(Ordering::Relaxed),
             parked: self.watcher.load(Ordering::Relaxed) == PARKED,
         }
     }
@@ -734,6 +777,7 @@ impl HangWatch {
                 registered: AtomicU64::new(0),
                 overflow: AtomicU64::new(0),
                 sink_errors: AtomicU64::new(0),
+                sample_errors: AtomicU64::new(0),
             }),
             watcher: None,
         }
@@ -746,6 +790,9 @@ impl HangWatch {
         sink: Box<dyn HangSink>,
     ) -> io::Result<HangWatch> {
         let mut watch = HangWatch::new(config, clock, sink);
+        // The image table fills now, so a hang's stack maps without a call into dyld.
+        #[cfg(target_os = "macos")]
+        sample_macos::install_image_table();
         let shared = Arc::clone(&watch.shared);
         let handle = thread::Builder::new().name(THREAD_NAME.into()).spawn(move || shared.run())?;
         let _ = watch.shared.thread.set(handle.thread().clone());
@@ -1098,6 +1145,7 @@ mod tests {
             slot: 1,
             deadline_ms: 250,
             overdue_ms: 4,
+            stack: None,
         };
         assert_eq!(
             hang.to_json_line(),
