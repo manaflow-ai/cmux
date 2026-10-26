@@ -6,7 +6,7 @@ extension AgentPaneView {
     /// = `confirm`). The sheet is the host's, so page script can never answer it.
     func installReplyLinks() {
         // A drag the person started on an image or a file chip: the host drags the real file out.
-        let drag = AgentPaneFileDrag()
+        let drag = AgentPaneFileDrag(work: work)
         model.replyLinks.startDrag = { [weak self] file in
             guard let self, self.window != nil else { return false }
             return drag.start(file, from: self)
