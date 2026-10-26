@@ -97,8 +97,21 @@ names_awk='
   # The key a run is counted and timed under. Per RUN, not per name: the watchdog remembers when
   # it first saw each key, so if run 2 of a name were keyed the same as run 1, it would inherit
   # run 1 starting time and be killed for an age it never reached.
+  #
+  # The run number is joined with a byte a test name cannot contain, not with readable text: a
+  # display name is whatever the author wrote (`@Test("duplicate (run 2)")` is a legal name), so
+  # keying run 2 of `duplicate` as `duplicate (run 2)` let one run inherit another unrelated
+  # test first-seen time. The key is never shown; run_label turns it back into words. The log is
+  # line oriented and the watchdog seen file is tab separated, so the byte is neither.
+  function run_sep() {
+    return sprintf("%c", 1)
+  }
   function run_key(n, k) {
-    return k > 1 ? n " (run " k ")" : n
+    return k > 1 ? n run_sep() k : n
+  }
+  function run_label(key,    at) {
+    at = index(key, run_sep())
+    return at ? substr(key, 1, at - 1) " (run " substr(key, at + 1) ")" : key
   }'
 # The bookkeeping both readers do, in one place for the same reason is_finish is: the watchdog and
 # the report must never be able to disagree about what is still running.
@@ -184,12 +197,14 @@ sample_and_kill() {
     # How long each open test has run, from the poll that first saw it.
     open_tests "$log" > "$open"
     : > "$seen.next"
-    awk -F'\t' -v now="$now" -v limit="$stuck_limit" -v next_file="$seen.next" '
+    # names_awk only for run_label: the keys carried here are run keys, and what a person reads
+    # has to be the test name and its run number, not the separator byte that keeps them apart.
+    awk -F'\t' -v now="$now" -v limit="$stuck_limit" -v next_file="$seen.next" "$names_awk"'
       FILENAME == ARGV[1] { first[$2] = $1; next }
       {
         at = ($0 in first) ? first[$0] : now
         print at "\t" $0 > next_file
-        if (now - at >= limit) printf "%s (%d s)\n", $0, now - at
+        if (now - at >= limit) printf "%s (%d s)\n", run_label($0), now - at
       }
     ' "$seen" "$open" > "$stuck"
     mv "$seen.next" "$seen"
@@ -287,7 +302,7 @@ report() {
       for (i = 1; i <= name_count; i++)
         for (k = first_open_run(names[i]); k <= started[names[i]]; k++) {
           open_count++
-          open_tests[++open_list] = run_key(names[i], k)
+          open_tests[++open_list] = run_label(run_key(names[i], k))
         }
       if (start_count > 0 && !has_summary) {
         printf "::error title=cmux-next swift test ended early::no \"Test run with\" summary line (crash, kill or truncation); swift test exited %s, and SwiftPM prints no line when the test helper ends on SIGINT, SIGTERM or SIGKILL or exits by itself; %d tests started and never finished: %s\n", status, open_count, join(open_tests, open_list)

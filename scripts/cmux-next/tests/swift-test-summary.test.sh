@@ -469,4 +469,42 @@ err=$(grep '^::error' <<<"$out")
 grep -q 'duplicate()' <<<"$err" || fail "the error does not name duplicate()" "$err"
 ! grep -q 'other()' <<<"$err" || fail "the error named other(), which finished" "$err"
 
+# A run key must not be able to collide with a test's own name, because the watchdog remembers
+# when it first saw each KEY and will kill a run it believes is older than it is. A display name is
+# whatever the author wrote, and name_of truncates at " skipped", so these two legal labels
+#   A: "duplicate skipped on unsupported platform"   -> duplicate
+#   B: "duplicate (run 2) skipped on unsupported platform" -> duplicate (run 2)
+# gave A's run 2 and B's run 1 the same readable key `duplicate (run 2)`. Measured on the real
+# parser and the real timer program: A run 2 seen at t=10, B starting after A finished, and at
+# t=310 the watchdog reported B as 300 s old when it was 129 s old -- a healthy run sampled and
+# killed. The run number now joins with a byte no name can contain.
+#
+# The key is internal, so this reads it out of the script the same way the script builds it: if the
+# shared awk is ever restructured, the extraction yields nothing and this fails loudly rather than
+# passing on an empty string.
+vars_end=$(grep -n '^open_tests() {' "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" | cut -d: -f1)
+vars_start=$(grep -n '^names_awk=' "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" | cut -d: -f1)
+[[ -n "$vars_start" && -n "$vars_end" ]] || fail "cannot find the shared awk in the sampler"
+sed -n "${vars_start},$((vars_end - 1))p" "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" \
+  > "$TMP/shared-awk.sh"
+# shellcheck disable=SC1091 # written just above
+. "$TMP/shared-awk.sh"
+[[ -n "${names_awk:-}" && -n "${count_awk:-}" ]] || fail "the sampler no longer defines names_awk and count_awk"
+cat > "$TMP/collide.log" <<'EOF'
+◇ Test duplicate skipped on unsupported platform started.
+✔ Test duplicate skipped on unsupported platform passed after 0.001 seconds.
+◇ Test duplicate skipped on unsupported platform started.
+◇ Test duplicate (run 2) skipped on unsupported platform started.
+EOF
+keys=$(awk "$names_awk$count_awk"'
+  END { for (i = 1; i <= name_count; i++)
+          for (k = first_open_run(names[i]); k <= started[names[i]]; k++) print run_key(names[i], k) }
+' "$TMP/collide.log")
+[[ "$(wc -l <<<"$keys")" == 2 ]] || fail "expected two open runs, got: $(cat -v <<<"$keys")"
+[[ "$(sort -u <<<"$keys" | wc -l)" == 2 ]] \
+  || fail "two different open runs share one watchdog key: $(cat -v <<<"$keys")"
+# And the keys still read as words for a person.
+labels=$(awk "$names_awk"'{ print run_label($0) }' <<<"$keys")
+grep -qx 'duplicate (run 2)' <<<"$labels" || fail "a run key does not read back as its name" "$labels"
+
 echo "ok swift-test-summary"
