@@ -106,7 +106,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
                 group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
-                group("settings.group.columns"),
+                group("settings.group.columns"), group("settings.group.autoArchive"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
@@ -192,6 +192,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.chiefChat"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
+                // Which Chief Home opens; the Chiefs card draws it as its Engine row.
+                group("settings.group.chiefEngine"),
                 // Whether a tapback on a Chief message can start a turn, and the classifier that decides (a416).
                 group("settings.group.chiefReactions"),
             ],
@@ -236,6 +238,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
                 GroupSpec(group: "settings.group.hangReports"),
+                // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
+                GroupSpec(group: "settings.group.sshLinks"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(

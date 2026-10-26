@@ -11,6 +11,7 @@ use crate::cli::host_steps::{
 };
 use crate::cli::hosts::{self, DAEMON_BIN, Remote, SshRemote};
 use crate::client::Client;
+use crate::harness_health::channel::quote as shell_quote;
 use anyhow::Result;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -128,7 +129,15 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
     if !report.ok {
         // After the report: exit 1, with the error envelope on stderr.
         let why = format!("{} ({}) needs attention", report.name, report.host);
-        return Err(AppError::new(Code::Runtime, "unhealthy", why).into());
+        let mut error = AppError::new(Code::Runtime, "unhealthy", why);
+        if let Some(step) = report.steps.iter().find(|step| step.state == StepState::Fail) {
+            let mut data = step.data.clone().unwrap_or_else(|| json!({}));
+            if let Some(reason) = step.reason {
+                data["reason"] = json!(reason);
+            }
+            error = error.with_data(data);
+        }
+        return Err(error.into());
     }
     Ok(())
 }
@@ -182,7 +191,7 @@ fn machine_steps(
                 port = listening;
                 result
             }
-            _ => harness(r, &plan.harnesses, local, fix),
+            _ => harness(r, &plan.name, &plan.harnesses, local, fix),
         });
         emit(&result);
         done.push(result);
@@ -234,7 +243,28 @@ fn print_step(r: &StepResult, json_out: bool) {
 }
 
 fn fail(step: Step, detail: impl Into<String>, fix: impl Into<String>) -> StepResult {
-    StepResult::new(step, StepState::Fail, detail).with_fix(fix)
+    let detail = detail.into();
+    let fix = fix.into();
+    let reason = match step {
+        Step::Reach => "ssh_unreachable",
+        Step::Install => "remote_install_failed",
+        Step::Daemon => "remote_daemon_unhealthy",
+        Step::Harness => "remote_harness_unhealthy",
+        Step::Peer => "peer_unreachable",
+        Step::PeerBack => "peer_back_unreachable",
+        Step::Identity => "peer_identity_failed",
+    };
+    let mut result = StepResult::new(step, StepState::Fail, detail).with_fix(fix);
+    // A missing standalone link is an intentional handoff to the app's own
+    // installer; retain the legacy shape so callers do not treat it as a
+    // repairable remote failure.
+    if !(step == Step::Install && result.detail.ends_with(" is missing")) {
+        result = result.with_reason(reason);
+        if let Some(command) = result.fix.clone().as_deref().and_then(|fix| fix.split('`').nth(1)) {
+            result = result.with_try(command.to_owned());
+        }
+    }
+    result
 }
 
 /// Why `ssh -o BatchMode=yes HOST true` failed, from its stderr.
@@ -655,7 +685,9 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         // differs); a missing one does not.
         if found.0.is_some() && found.1.is_some() {
             return StepResult::new(Step::Install, StepState::Warn, why)
-                .with_fix(format!("Run `acpmux host update {name}`."));
+                .with_fix(format!("Run `acpmux host update {name}`."))
+                .with_reason("peer_version_skew")
+                .with_try(format!("acpmux host update {name}"));
         }
         return fail(
             Step::Install,
@@ -663,8 +695,8 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             format!("Run the check with --fix to install this build on {host}."),
         );
     }
-    // Every change below holds the host's update lock, so no other update
-    // of the host finds its binary replaced under it.
+    // Every change below holds the host's update lock, so the host's
+    // self-update timer never finds its binary replaced under it.
     let lock = match hosts::lock_to_install(r) {
         Ok(lock) => lock,
         Err(e) => {
@@ -841,7 +873,36 @@ fn harness_one(
     }
 }
 
-fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResult {
+/// A host may have a catalog harness discovered from PATH even when this
+/// client has no profile file to copy. That is a usable remote harness; the
+/// real session check belongs to `new --host`, not to profile synchronization.
+fn remote_harness_discovered(r: &dyn Remote, id: &str) -> bool {
+    let command = probe(r)
+        .ok()
+        .and_then(|p| p.in_use().map(|u| u.path))
+        .unwrap_or_else(|| DAEMON_BIN.to_owned());
+    let command = if command.rsplit('/').next() == Some("acpmux") {
+        format!("{} --json daemon harnesses", shell_quote(&command))
+    } else {
+        format!("{} acp --json daemon harnesses", shell_quote(&command))
+    };
+    let Ok(out) = hosts::run(r, &command) else {
+        return false;
+    };
+    let Ok(value) = serde_json::from_str::<Value>(&out) else { return false };
+    value
+        .get("harnesses")
+        .and_then(|harnesses| harnesses.get(id))
+        .is_some_and(|profile| profile.get("unavailable").is_none())
+}
+
+fn harness(
+    r: &dyn Remote,
+    peer_name: &str,
+    ids: &[String],
+    local: &Local,
+    fix: bool,
+) -> StepResult {
     if ids.is_empty() {
         return StepResult::new(Step::Harness, StepState::Skip, "no --harness given");
     }
@@ -858,6 +919,17 @@ fn harness(r: &dyn Remote, ids: &[String], local: &Local, fix: bool) -> StepResu
     };
     let (mut parts, mut failed, mut fixed) = (Vec::new(), false, false);
     for id in ids {
+        let local_profile = local
+            .harness_dir
+            .as_deref()
+            .map(|dir| dir.join(format!("{id}.toml")).is_file())
+            .unwrap_or(false);
+        if !local_profile && remote_harness_discovered(r, id) {
+            parts.push(format!(
+                "{id} discovered on the host (profile copy skipped; verify with `acpmux new --host {peer_name} -m {id} -d`) ",
+            ));
+            continue;
+        }
         match harness_one(r, id, local, &remote_home, fix) {
             Ok(None) => parts.push(format!("{id} ok")),
             Ok(Some(why)) => {

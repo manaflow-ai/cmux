@@ -3,6 +3,7 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::command_host::{PeerCmd, TicketCmd};
 pub use crate::cli::task::BriefsCmd;
 
 #[derive(Parser)]
@@ -101,6 +102,8 @@ pub enum Command {
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
     Continue(crate::cli::handoff::ContinueArgs),
+    /// Retry a session's failed last turn now, in the same session (a waiting retry fires).
+    Retry(crate::cli::retry::RetryArgs),
     /// One turn per turn: prompt preview, status, tools, tokens, wall time.
     History {
         session: String,
@@ -156,7 +159,7 @@ pub enum Command {
         #[arg(long, short = 'n', default_value_t = 1)]
         count: usize,
     },
-    /// List pending permission requests across sessions, with the option ids to answer them.
+    /// List pending permission requests across sessions, and how to answer them.
     Pending,
     /// Send a prompt and stream the reply until the turn ends.
     #[command(alias = "prompt", alias = "send-keys")]
@@ -312,13 +315,17 @@ pub enum Command {
         /// Only print the URL.
         #[arg(long)]
         no_open: bool,
+        /// Print the URL with its bearer token (`--json` always has it in `url`;
+        /// the browser this command opens always gets it).
+        #[arg(long)]
+        show_token: bool,
         /// Replace the dashboard token now: the old link, `ws://` peers that
         /// were given it and open dashboard connections stop working.
         #[arg(long)]
         rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "hosts")]
+    #[command(subcommand, aliases = ["hosts", "peer"])]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -372,6 +379,10 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
+    /// The agent's tools to message other sessions and read them (send, ls, last, info): an
+    /// MCP stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    AcpmuxMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -419,6 +430,9 @@ pub enum Command {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     #[command(hide = true)]
     Set { session: String, assignment: String },
@@ -461,10 +475,13 @@ pub enum Command {
     #[command(hide = true)]
     Reload,
     #[command(hide = true)]
-    Status,
+    Status {
+        #[arg(long)]
+        show_token: bool,
+    },
     /// `daemon start`: status, starting a daemon first when none runs.
     #[command(hide = true)]
-    DaemonStart { person_key_fd: Option<i32> },
+    DaemonStart { person_key_fd: Option<i32>, show_token: bool },
     #[command(hide = true, alias = "kill-server")]
     Shutdown {
         /// Accepted for callers of older builds; hosted agents keep running anyway.
@@ -475,9 +492,10 @@ pub enum Command {
         end_agents: bool,
     },
     #[command(hide = true)]
-    Config,
-    #[command(subcommand, hide = true)]
-    Peer(PeerCmd),
+    Config {
+        #[arg(long)]
+        show_token: bool,
+    },
     #[command(hide = true)]
     DaemonRun {
         /// Also serve WebSocket clients, e.g. 127.0.0.1:47811
@@ -588,8 +606,7 @@ pub enum HarnessCmd {
     /// for Claude Code). `--status` checks it; `--list` shows the methods.
     Login {
         id: String,
-        /// The sign-in method id (default: the harness's first browser or
-        /// terminal sign-in).
+        /// The sign-in method id (default: the harness's first browser or terminal sign-in).
         #[arg(long)]
         method: Option<String>,
         /// Show the sign-in methods and whether the harness is signed in.
@@ -706,6 +723,9 @@ pub enum SessionCmd {
         name: Option<String>,
         #[arg(long)]
         cwd: Option<PathBuf>,
+        /// Fork even when this host refuses new sessions (disk under its floor; max_lanes only warns).
+        #[arg(long)]
+        force_admit: bool,
     },
     /// Change mode, model, a config option, or the permission policy: key=value.
     Set { session: String, assignment: String },
@@ -834,8 +854,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         dev: bool,
     },
-    /// Daemon status, hosts, and the web URL.
-    Status,
+    /// Daemon status, hosts, and the web URL (without its token).
+    Status {
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Start the daemon unless one runs, wait until it accepts clients, and print its status.
     Start {
         /// Read this launch's person key (64 hex characters, one line) from
@@ -844,6 +868,9 @@ pub enum DaemonCmd {
         /// or VM provisioning passes it; refused while a daemon runs.
         #[arg(long)]
         person_key_fd: Option<i32>,
+        /// Print the web URL with its bearer token (`--json` always has it in `webUrl`).
+        #[arg(long)]
+        show_token: bool,
     },
     /// Stop the daemon. Hosted agents keep running for the next daemon to
     /// adopt (a restart or an update); pooled hosts end. `--end-agents` ends
@@ -859,8 +886,12 @@ pub enum DaemonCmd {
         #[arg(long)]
         end_agents: bool,
     },
-    /// Print the config path and contents.
-    Config,
+    /// Print the config path and contents (without its tokens).
+    Config {
+        /// Print the bearer tokens too (`--json` always has them).
+        #[arg(long)]
+        show_token: bool,
+    },
     /// Show configured harnesses with their family and defaults.
     Harnesses,
     /// Reload catalog configuration without stopping sessions.
@@ -872,169 +903,6 @@ pub enum DaemonCmd {
         /// Forget the reported catalogs and probe every harness again now.
         #[arg(long)]
         refresh: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum PeerCmd {
-    /// Add a peer. URL is ws://host:port, wss://…, or ssh://host (tunnel
-    /// opened by acpmux; token read from the remote config). Sessions appear
-    /// as NAME/session.
-    Add {
-        name: String,
-        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
-        url: Option<String>,
-        #[arg(long)]
-        token: Option<String>,
-    },
-    /// List peers and their connection state.
-    Ls,
-    /// Each peer's health, asked live: reachable, round trip, disk free,
-    /// load, live sessions and build, this machine first. Run it before
-    /// remote work and after a peer request fails, instead of retrying blind.
-    Status {
-        /// Only this peer.
-        name: Option<String>,
-    },
-    /// Where new work should go: this machine and each peer weighed by its
-    /// room (RAM, cores less load, disk, lane cap) and its role in
-    /// fleet-registry.json, from the readings the links already keep. The
-    /// pick `new --host auto` and `dispatch --host auto` make, with why.
-    Place {
-        /// For a build or test suite: only build hosts.
-        #[arg(long)]
-        build: bool,
-    },
-    /// Remove a peer.
-    Rm { name: String },
-    /// Pairing tickets for adding a machine with one pasted line: `new`
-    /// mints one, `ls` lists tickets and paired machines, `revoke` ends one.
-    #[command(subcommand)]
-    Ticket(TicketCmd),
-    /// Redeem a pairing ticket from another machine and pair in its role
-    /// (the install script runs this with the pasted ticket).
-    Join {
-        ticket: String,
-        /// This machine's name on the other one (default: the host name's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// The other machine's peer name here (default: its name in the ticket).
-        #[arg(long)]
-        peer_name: Option<String>,
-        /// A daemon-role ticket: the wss:// URL (or ws:// to a loopback host)
-        /// the other machine reaches this daemon at.
-        #[arg(long)]
-        advertise: Option<String>,
-    },
-    /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
-    Setup {
-        /// ssh target, e.g. cmux-lawrence or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// Port the remote daemon listens on (loopback; tunnelled over ssh).
-        #[arg(long, default_value_t = 47811)]
-        port: u16,
-    },
-    /// Copy this binary to an ssh peer (or every one with --all) and restart
-    /// its daemon. The previous binary is kept and put back when the
-    /// restarted daemon does not answer with the new build; a daemon under a
-    /// hand-written acpmux unit is moved to acpmux.service, agents kept.
-    Update {
-        name: Option<String>,
-        #[arg(long)]
-        all: bool,
-        /// Push DIR/acpmux-<target> instead, the target from the peer's
-        /// `uname -sm` (x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
-        /// aarch64-apple-darwin, x86_64-apple-darwin).
-        #[arg(long, value_name = "DIR")]
-        binary_dir: Option<PathBuf>,
-        /// Leave a peer alone while one of its sessions runs a turn or waits
-        /// on a permission (but the session this command runs in).
-        #[arg(long)]
-        if_idle: bool,
-    },
-    /// Add a machine in one go: check ssh, install this build, start the
-    /// daemon, copy harness profiles and peer to it (and, with --reverse,
-    /// back). One line per step.
-    Enroll {
-        /// ssh target, e.g. huge-blue or user@host
-        host: String,
-        /// Peer name (default: the host's first label).
-        #[arg(long)]
-        name: Option<String>,
-        /// A harness profile to copy (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        /// The remote binary to install; another than ~/.local/bin/acpmux
-        /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also register this machine as a peer on the host (peer-back). Off
-        /// by default: two daemons that list each other relay one another's
-        /// sessions both ways.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// Check a machine (a peer name or an ssh host) step by step; --fix
-    /// repairs what fails. Without --fix nothing changes.
-    Doctor {
-        target: String,
-        #[arg(long)]
-        fix: bool,
-        /// A harness profile to check (repeatable).
-        #[arg(long = "harness", value_name = "ID")]
-        harnesses: Vec<String>,
-        #[arg(long, default_value = "~/.local/bin/acpmux")]
-        remote_binary: String,
-        /// Also check (and with --fix, add) this machine as a peer on the host.
-        #[arg(long)]
-        reverse: bool,
-    },
-    /// The tailnet's machines that could be added, marking those already peers.
-    Candidates {
-        /// Also try key-only ssh to each online machine.
-        #[arg(long)]
-        probe: bool,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum TicketCmd {
-    /// Mint a single-use ticket; prints the line to run on the new machine.
-    New {
-        /// daemon (this machine drives the new one), client (the new one
-        /// drives this one) or read-only (the new one only watches).
-        #[arg(long, default_value = "client")]
-        role: String,
-        /// How long the ticket lives: 900, 15m or 2h (at most 24h).
-        #[arg(long, default_value = "15m")]
-        ttl: String,
-        /// The wss:// URL the new machine dials (default: this daemon's
-        /// listener, when it listens on loopback).
-        #[arg(long)]
-        url: Option<String>,
-        /// A note shown in `ticket ls`.
-        #[arg(long)]
-        label: Option<String>,
-    },
-    /// Tickets and paired machines (no secrets).
-    #[command(alias = "list")]
-    Ls,
-    /// Revoke a ticket, or a paired machine by id or name; its open
-    /// connections close at once.
-    Revoke { id: String },
-    /// Let a paired client machine run chats in Full access (on), or not
-    /// (off, the default): the agent edits files and runs commands on this
-    /// machine without asking. On needs the person (the cmux app's Settings);
-    /// off takes effect at once.
-    FullAccess {
-        /// The machine's id or name (`cmux host ticket ls`).
-        id: String,
-        /// on or off.
-        #[arg(value_parser = ["on", "off"])]
-        state: String,
     },
 }
 
@@ -1128,6 +996,10 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Create the session even when its host refuses new ones (disk under its
+    /// floor; the fleet registry's max_lanes only warns). The daemon logs it.
+    #[arg(long)]
+    pub force_admit: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -1140,7 +1012,9 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Resume { session } => Command::ResumeQueue { session },
-            SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
+            SessionCmd::Fork { session, name, cwd, force_admit } => {
+                Command::Fork { session, name, cwd, force_admit }
+            }
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
             SessionCmd::Deny { session } => Command::Deny { session },
@@ -1184,18 +1058,20 @@ pub fn flatten(c: Command) -> Command {
                 allow_dev_origin,
                 dev,
             },
-            DaemonCmd::Status => Command::Status,
-            DaemonCmd::Start { person_key_fd } => Command::DaemonStart { person_key_fd },
+            DaemonCmd::Status { show_token } => Command::Status { show_token },
+            DaemonCmd::Start { person_key_fd, show_token } => {
+                Command::DaemonStart { person_key_fd, show_token }
+            }
             DaemonCmd::Shutdown { keep_agents, end_agents } => {
                 Command::Shutdown { keep_agents, end_agents }
             }
-            DaemonCmd::Config => Command::Config,
+            DaemonCmd::Config { show_token } => Command::Config { show_token },
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
-        Command::Host(pc) => Command::Peer(pc),
+        Command::Host(pc) => Command::Host(pc),
         Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
@@ -1205,4 +1081,244 @@ pub fn flatten(c: Command) -> Command {
 pub enum RouterCmd {
     /// Start the phase-one local router listeners.
     Serve,
+}
+
+#[cfg(test)]
+mod help_contract_tests {
+    use super::Cli;
+    use clap::{CommandFactory, Parser};
+    use std::collections::{HashMap, HashSet};
+
+    const REMOTE_DOCS: &[(&str, &str)] = &[
+        (
+            "docs/remote-agents-and-cloud.md",
+            include_str!("../../../../../docs/remote-agents-and-cloud.md"),
+        ),
+        ("acpmux README", include_str!("../../README.md")),
+        ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
+    ];
+
+    fn shell_words(text: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quote = None;
+        let mut escaped = false;
+        for character in text.chars() {
+            if escaped {
+                word.push(character);
+                escaped = false;
+                continue;
+            }
+            if character == '\\' && quote != Some('\'') {
+                escaped = true;
+                continue;
+            }
+            if let Some(closing) = quote {
+                if character == closing {
+                    quote = None;
+                } else {
+                    word.push(character);
+                }
+                continue;
+            }
+            match character {
+                '\'' | '"' => quote = Some(character),
+                ';' | '#' => break,
+                character if character.is_whitespace() => {
+                    if !word.is_empty() {
+                        words.push(std::mem::take(&mut word));
+                    }
+                }
+                character => word.push(character),
+            }
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+        words
+            .into_iter()
+            .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
+            .collect()
+    }
+
+    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
+    fn command_shapes() -> HashMap<Vec<String>, HashSet<String>> {
+        fn visit(
+            command: &clap::Command,
+            path: &mut Vec<String>,
+            shapes: &mut HashMap<Vec<String>, HashSet<String>>,
+        ) {
+            let mut flags = HashSet::new();
+            for argument in command.get_arguments() {
+                if let Some(long) = argument.get_long() {
+                    flags.insert(format!("--{long}"));
+                }
+                if let Some(short) = argument.get_short() {
+                    flags.insert(format!("-{short}"));
+                }
+            }
+            shapes.insert(path.clone(), flags);
+            for subcommand in command.get_subcommands() {
+                for name in
+                    std::iter::once(subcommand.get_name()).chain(subcommand.get_all_aliases())
+                {
+                    path.push(name.to_owned());
+                    visit(subcommand, path, shapes);
+                    path.pop();
+                }
+            }
+        }
+
+        let mut shapes = HashMap::new();
+        visit(&Cli::command(), &mut Vec::new(), &mut shapes);
+        for flags in shapes.values_mut() {
+            flags.insert("--help".to_owned());
+            flags.insert("-h".to_owned());
+        }
+        if let Some(flags) = shapes.get_mut(&Vec::new()) {
+            flags.insert("--version".to_owned());
+            flags.insert("-V".to_owned());
+        }
+        shapes
+    }
+
+    fn documented_shape(
+        words: &[String],
+        shapes: &HashMap<Vec<String>, HashSet<String>>,
+    ) -> Option<Vec<String>> {
+        let has_subcommands = |path: &[String]| {
+            shapes.keys().any(|known| known.len() > path.len() && known.starts_with(path))
+        };
+        let mut start = 1;
+        while words.get(start).is_some_and(|word| {
+            matches!(word.as_str(), "--json" | "--suppress-reads" | "--help" | "--version")
+        }) {
+            start += 1;
+        }
+        if words.get(start).is_some_and(|word| !word.starts_with('-')) {
+            let mut candidate = vec![words[start].clone()];
+            if candidate[0] == "peer" {
+                candidate[0] = "host".to_owned();
+            }
+            if !candidate[0].split('|').any(|name| {
+                let mut path = candidate.clone();
+                path[0] = name.to_owned();
+                shapes.keys().any(|known| known == &path)
+            }) {
+                return None;
+            }
+        }
+        let command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
+        let mut path = Vec::new();
+        for word in command {
+            let Some(candidate) = word.split('|').find(|candidate| {
+                let candidate =
+                    if path.is_empty() && *candidate == "peer" { "host" } else { candidate };
+                let mut next = path.clone();
+                next.push(candidate.to_owned());
+                shapes.keys().any(|known| known == &next)
+            }) else {
+                // Once a command still has subcommands, an unknown word is a
+                // stale verb rather than a positional argument.  Positional
+                // values are allowed only after reaching a leaf command.
+                if has_subcommands(&path) {
+                    return None;
+                }
+                break;
+            };
+            let candidate = if path.is_empty() && candidate == "peer" { "host" } else { candidate };
+            let mut next = path.clone();
+            next.push(candidate.to_owned());
+            path = next;
+        }
+        // A binary invocation containing only root flags (for example
+        // `acpmux --version`) still belongs to the documented surface.
+        Some(path)
+    }
+
+    #[test]
+    fn documented_acpmux_commands_and_flags_are_in_the_clap_surface() {
+        let shapes = command_shapes();
+        let mut missing = Vec::new();
+        for (source, text) in REMOTE_DOCS {
+            for words in tokens(text, "acpmux") {
+                let Some(path) = documented_shape(&words, &shapes) else {
+                    missing.push(format!("{source}: {} (command)", words.join(" ")));
+                    continue;
+                };
+                let mut flags = HashSet::new();
+                flags.extend(
+                    shapes.get(&Vec::new()).into_iter().flat_map(|flags| flags.iter().cloned()),
+                );
+                for end in 1..=path.len() {
+                    flags.extend(
+                        shapes
+                            .get(&path[..end])
+                            .into_iter()
+                            .flat_map(|flags| flags.iter().cloned()),
+                    );
+                }
+                for word in words.iter().skip(1).filter(|word| word.starts_with('-')) {
+                    let flag = word.split('=').next().unwrap_or(word);
+                    if flag == "--" || flag == "-" || !flags.contains(flag) {
+                        missing.push(format!("{source}: {} (flag {flag})", words.join(" ")));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "documented acpmux surface drifted:\n{}", missing.join("\n"));
+    }
+
+    #[test]
+    fn peer_alias_still_parses_after_host_becomes_canonical() {
+        let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
+        assert!(parsed.is_ok(), "peer alias stopped working");
+    }
+
+    #[test]
+    fn stale_nested_command_is_rejected() {
+        let shapes = command_shapes();
+        let words = ["acpmux", "host", "statuz"].into_iter().map(str::to_owned).collect::<Vec<_>>();
+        assert!(documented_shape(&words, &shapes).is_none());
+    }
 }
