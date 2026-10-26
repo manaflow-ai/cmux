@@ -90,4 +90,19 @@ await requireBrowserLane("page-commands-palette.test.ts", async () => {
       await page.close();
     }
   });
+
+  test("the page lists its commands again after a reconnect, whose handshake forgot them", async () => {
+    const page = await pane.open({ width: 1200, height: 760 }, record);
+    try {
+      await made(page, "pane.commandAvailability", 1);
+      const before = (await calls(page, "pane.commandAvailability")).length;
+      pane.drop();
+      await made(page, "pane.commandAvailability", before + 1);
+      expect((await calls(page, "pane.commandAvailability")).at(-1)?.params).toEqual({
+        commands: ["toggleFiles", "toggleSideTabs"],
+      });
+    } finally {
+      await page.close();
+    }
+  });
 });
