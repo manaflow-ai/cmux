@@ -29,6 +29,26 @@
   ],
   "steps": [
     {
+      "id": "bind",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "keybindings.set",
+        "params": {
+          "command": "newTab",
+          "key": "ctrl+k o"
+        },
+        "idempotencyKey": "keybindings-remove-ok.bind"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,8 +58,8 @@
       "args": {
         "method": "keybindings.remove",
         "params": {
-          "command": "oracle",
-          "key": "oracle"
+          "command": "newTab",
+          "key": "ctrl+k o"
         },
         "idempotencyKey": "keybindings-remove-ok.call"
       },
@@ -51,7 +71,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "removes the binding the bind step added to keybindings.json"
     }
   ],
   "invariants": [

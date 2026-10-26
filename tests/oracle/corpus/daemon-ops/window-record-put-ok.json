@@ -38,8 +38,8 @@
       "args": {
         "method": "window_record.put",
         "params": {
-          "install_id": "oracle",
-          "window_id": "oracle",
+          "install_id": "oracle-install",
+          "window_id": "oracle-window",
           "record": {}
         },
         "idempotencyKey": "window-record-put-ok.call"
@@ -52,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "put creates the record: the install and window ids are the caller's names, not fixture objects"
     }
   ],
   "invariants": [
@@ -61,9 +61,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.install_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.window_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

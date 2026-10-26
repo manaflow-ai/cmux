@@ -303,11 +303,16 @@
           "pattern": "^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$",
           "description": "Typed receipt kind the step must produce (I1): for action.run and key the ActionEffect kind the registry reports (action.done, action.applied, action.waiting), for resource.call the reply kind of resource-operations-v2 (mutation_result)."
         },
-        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."}
+        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."},
+        "errorDetails": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "A subset of the typed error's details the step must give: each key is present with an equal value, an object compared the same way key by key, any other value exactly. $step: references resolve first. A driver that cannot read the error's details fails the step as a Crash; it never skips the check."
+        }
       },
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"required": ["error"]}}
+      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
