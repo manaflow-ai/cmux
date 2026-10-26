@@ -186,8 +186,9 @@ public final class ChromiumWarmup {
     }
 
     /// Runs `action` at the next idle moment (no input for `idleInput`, no
-    /// menu tracking), or never when the app is not idle within `maxWait`.
-    private func waitForIdle(_ action: @escaping @MainActor () -> Void) {
+    /// menu tracking), or never when the app is not idle within `maxWait`. Internal, not private:
+    /// tests start a wait without a running engine.
+    func waitForIdle(_ action: @escaping @MainActor () -> Void) {
         idleAction = action
         lastInput = now()
         waiting = true

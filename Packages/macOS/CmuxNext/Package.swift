@@ -896,7 +896,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextChromiumWarmupTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle
@@ -1453,9 +1453,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: daemonSwiftSettings
         ),
+        // The one test InputObserving of the CmuxNext test targets (FakeInputTap); test targets only.
+        .target(
+            name: "CmuxNextInputCoreTestSupport",
+            dependencies: ["CmuxNextInputCore"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .testTarget(
             name: "CmuxNextInputCoreTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
@@ -1769,7 +1775,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextControlTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat", "CmuxNextControl", "CmuxNextActions", "CmuxNextSettings", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Settings and palette agent CLI updates (moved out of CmuxNextApp/AgentHarnesses):
@@ -1825,6 +1831,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
                 "CmuxNextInput",
+                "CmuxNextInputCore",
+                "CmuxNextInputCoreTestSupport",
                 "CmuxNextLaunch",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",

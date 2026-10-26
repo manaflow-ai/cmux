@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInputCore
+import CmuxNextInputCoreTestSupport
 import CmuxNextWakeups
 import Testing
 
@@ -11,14 +12,21 @@ import Testing
         let tap = FakeInputTap()
         let events = WindowServerInputEvents(input: tap)
         let seen = DispatchedLog()
-        #expect(events.observeDispatch { seen.items.append($0) })
-        #expect(events.observeDispatch { seen.items.append($0) }, "a second call keeps the one subscription")
-        #expect(tap.liveSubscriptions == 1)
+        events.observeDispatch { seen.items.append($0) }
+        events.observeDispatch { seen.items.append($0) }
+        #expect(tap.liveSubscriptions == 1, "a second call keeps the one subscription")
         #expect(tap.classes == [.key, .flags, .button, .pointerMove, .drag, .scroll], "no trackpad gestures, as the old mask")
         tap.deliver(InputEventRecord(type: .keyDown, timestamp: 10))
         tap.deliver(InputEventRecord(type: .magnify, timestamp: 11))
         tap.deliver(InputEventRecord(type: .leftMouseDragged, timestamp: 12))
         #expect(seen.items == [.init(timestamp: 10, kind: .keyOrClick), .init(timestamp: 12, kind: .leftDrag)])
+    }
+
+    /// The pending-input check watches the tap from its init: no app or check has to come first.
+    @Test func thePendingInputCheckHearsTheTapFromItsInit() {
+        let tap = FakeInputTap()
+        let pending = SessionInputPending(events: WindowServerInputEvents(input: tap))
+        withExtendedLifetime(pending) { #expect(tap.liveSubscriptions == 1) }
     }
 
     @Test func eachTypeKeepsTheKindTheMonitorReported() {
@@ -53,32 +61,4 @@ import Testing
 /// The dispatched events one test heard.
 @MainActor final class DispatchedLog {
     var items: [SessionInputPending.Dispatched] = []
-}
-
-/// An ``InputObserving`` whose events a test delivers by hand.
-@MainActor final class FakeInputTap: InputObserving {
-    private var entries: [(classes: InputEventClasses, flag: InputSubscriptionFlag, handler: @MainActor (InputEventRecord) -> Void)] = []
-    var lastDispatched: InputEventRecord?
-    var lastPointer: InputEventRecord?
-
-    func observe(_ classes: InputEventClasses, windowNumber: Int?,
-                 _ handler: @escaping @MainActor (InputEventRecord) -> Void) -> InputSubscription {
-        let flag = InputSubscriptionFlag()
-        entries.append((classes, flag, handler))
-        return InputSubscription(flag: flag)
-    }
-
-    /// The subscriptions not cancelled or released.
-    var liveSubscriptions: Int { entries.count(where: { !$0.flag.isCancelled }) }
-
-    /// The classes of the live subscriptions.
-    var classes: InputEventClasses {
-        entries.filter { !$0.flag.isCancelled }.reduce(into: []) { $0.formUnion($1.classes) }
-    }
-
-    /// AppKit dispatched `record`: every live subscription of its class hears it.
-    func deliver(_ record: InputEventRecord) {
-        lastDispatched = record
-        for entry in entries where !entry.flag.isCancelled && entry.classes.contains(record.eventClass) { entry.handler(record) }
-    }
 }

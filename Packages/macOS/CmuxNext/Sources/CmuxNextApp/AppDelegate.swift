@@ -57,7 +57,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
     var turnMeter: MainTurnMeter { mainWork.budget.turns }
     private let control: AppControl
-    private let inputTap: InputEventTap  // the one input tap (p04-input.md 3 (A)): pending input, control and services observe it
+    /// The one input tap (p04-input.md 3 (A)): pending input, control and services observe it;
+    /// `main` installs it on the application before `run()`.
+    let inputTap: InputEventTap
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).

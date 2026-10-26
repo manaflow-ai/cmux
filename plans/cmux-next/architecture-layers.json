@@ -6,6 +6,7 @@
     "CmuxNextCompat": {"layer": "core"},
     "CmuxNextWakeups": {"layer": "core"},
     "CmuxNextWakeupsTestSupport": {"layer": "core"},
+    "CmuxNextInputCoreTestSupport": {"layer": "core", "note": "FakeInputTap, the one test InputObserving; test targets only"},
     "CmuxNextActions": {"layer": "core"},
     "CmuxNextFocus": {"layer": "core"},
     "CmuxNextTerminalGeometry": {"layer": "core"},

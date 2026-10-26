@@ -70,9 +70,11 @@ final class NewTabSparePool {
     private let parking = NewTabSpareParking()
     /// The main window the spare parks in (the key one, or the last key one).
     private(set) weak var target: NSWindow?
-    private let warmTimer = DemandTimer(owner: "NewTabSparePool.warm")
-    private let fitTimer = DemandTimer(owner: "NewTabSparePool.fit")
-    private var inputSubscription: InputSubscription?  // keys, clicks and scrolls while a warm waits for quiet input
+    private let warmTimer: DemandTimer
+    private let fitTimer: DemandTimer
+    /// The app's input tap: a warm waiting for quiet input observes its ``warmDelayingInput``.
+    private let input: any InputObserving
+    private var inputSubscription: InputSubscription?
     /// The app's memory pressure events; a warning or critical level drops the spare.
     private let memoryPressure: MemoryPressureEvents
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
@@ -86,9 +88,16 @@ final class NewTabSparePool {
 
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
-    init(services: AppServices, memoryPressure: MemoryPressureEvents) {
+    /// - Parameters:
+    ///   - input: The app's input tap.
+    ///   - clock: The warm and fit deadlines' clock (tests: a manual one).
+    init(services: AppServices, memoryPressure: MemoryPressureEvents, input: any InputObserving,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
         self.memoryPressure = memoryPressure
+        self.input = input
+        warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
+        fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
     }
 
 
@@ -290,12 +299,14 @@ final class NewTabSparePool {
         guard services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         watchMemoryPressure()
         if inputSubscription == nil {
-            inputSubscription = services.inputTap.observe(types: [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]) { [weak self] _ in
-                self?.armWarmTimer()
-            }
+            inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }
         }
         armWarmTimer()
     }
+
+    /// The input that pushes a waiting warm back by ``idleInput``: key-downs, left and right
+    /// mouse-downs and scrolls (the old local monitor's mask).
+    static let warmDelayingInput: InputEventTypes = [.keyDown, .leftMouseDown, .rightMouseDown, .scrollWheel]
 
     /// Whether this run has warmed a spare yet: the first one starts at once, before the person
     /// types (a cold launch's first Cmd-N then finds a page that is loading or loaded, cx-ec99).

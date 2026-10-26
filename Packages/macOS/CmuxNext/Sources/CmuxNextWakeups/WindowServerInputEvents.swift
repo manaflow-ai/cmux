@@ -42,12 +42,11 @@ public final class WindowServerInputEvents: SessionInputEvents {
         return number > 0 && app.window(withWindowNumber: number) != nil
     }
 
-    public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) -> Bool {
-        guard subscription == nil else { return true }
+    public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) {
+        guard subscription == nil else { return }
         subscription = input.observe(SessionInputPending.Dispatched.observedClasses) { record in
             dispatched(SessionInputPending.Dispatched(record))
         }
-        return true
     }
 }
 

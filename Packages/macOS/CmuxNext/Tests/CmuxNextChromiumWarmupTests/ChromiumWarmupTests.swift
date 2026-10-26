@@ -1,6 +1,8 @@
 import CmuxNextBrowser
 @testable import CmuxNextChromiumWarmup
 import CmuxNextInputCore
+import CmuxNextInputCoreTestSupport
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -11,12 +13,13 @@ import Testing
     final class Clock { var now: TimeInterval = 100 }
 
     let clock = Clock()
-    let input = WarmupFakeInput()
+    let input = FakeInputTap()
 
     func warmup(trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let clock = clock
+        // A manual clock nobody advances: no deadline fires, so a test's wait ends only when it says.
         return ChromiumWarmup(engine: CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), input: input,
-                              now: { clock.now }, isTrackingMenu: trackingMenu)
+                              clock: ManualClock(), now: { clock.now }, isTrackingMenu: trackingMenu)
     }
 
     @Test func anUnavailableEngineNeverWarms() {
@@ -24,19 +27,37 @@ import Testing
         warmup.start(defaultIsChromium: { true })
         warmup.chromiumLikely(.restoredTab)
         #expect(warmup.reason == nil)
-        #expect(input.subscriptions == 0, "no wait for an idle moment, no input subscription")
+        #expect(input.liveSubscriptions == 0, "no wait for an idle moment, no input subscription")
     }
 
-    /// The input tap subscription hears what the AppKit monitor's mask did (p04-input-012).
-    @Test func theQuietEndsOnTheOldMonitorMask() {
-        let types = ChromiumWarmup.quietEndingInput
-        for type: InputEventType in [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseDragged, .scrollWheel, .mouseMoved] {
-            #expect(types.contains(type), "\(type)")
+    /// A wait for an idle moment hears the input tap (p04-input-012): a key-down, click or left drag
+    /// restarts the quiet period, a key-up, button-up or modifier change does not, and the wait's end
+    /// drops the subscription.
+    @Test func aWaitHearsTheTapUntilItEnds() {
+        let warmup = warmup()
+        let policy = ChromiumWarmup.Policy()
+        warmup.waitForIdle {}
+        #expect(input.liveSubscriptions == 1)
+        #expect(input.classes == [.key, .button, .drag, .scroll, .pointerMove], "no modifier changes and no gestures")
+        clock.now += 1
+        #expect(warmup.isIdle(policy))
+        for type: InputEventType in [.keyUp, .flagsChanged, .leftMouseUp, .rightMouseDragged, .magnify] {
+            input.deliver(InputEventRecord(type: type, timestamp: 1))
         }
-        for type: InputEventType in [.keyUp, .flagsChanged, .leftMouseUp, .rightMouseDragged, .otherMouseDragged, .magnify, .swipe] {
-            #expect(!types.contains(type), "\(type)")
-        }
-        #expect(types.classes == [.key, .button, .drag, .scroll, .pointerMove])
+        #expect(warmup.isIdle(policy), "ups, right drags, modifier changes and gestures leave the quiet period")
+        input.deliver(InputEventRecord(type: .keyDown, timestamp: 1))
+        #expect(!warmup.isIdle(policy), "a key-down restarts it")
+        clock.now += 0.7
+        #expect(!warmup.isIdle(policy))
+        clock.now += 0.1
+        #expect(warmup.isIdle(policy), "one quiet period after the key")
+        input.deliver(InputEventRecord(type: .leftMouseDragged, timestamp: 2))
+        #expect(!warmup.isIdle(policy), "a left drag restarts it")
+        warmup.stop()
+        #expect(input.liveSubscriptions == 0, "the wait's end drops the subscription")
+        clock.now += 1
+        input.deliver(InputEventRecord(type: .keyDown, timestamp: 3))
+        #expect(warmup.isIdle(policy), "after the wait no input is heard")
     }
 
     @Test func idleOnceTheQuietPeriodPasses() {
@@ -72,21 +93,4 @@ import Testing
         #expect(policy.maxWait == .seconds(60))
         #expect(policy.recentUse == 7 * 24 * 60 * 60)
     }
-}
-
-/// An ``InputObserving`` that counts subscriptions (an unavailable engine never waits for input).
-@MainActor final class WarmupFakeInput: InputObserving {
-    private var flags: [InputSubscriptionFlag] = []
-    var lastDispatched: InputEventRecord?
-    var lastPointer: InputEventRecord?
-
-    func observe(_ classes: InputEventClasses, windowNumber: Int?,
-                 _ handler: @escaping @MainActor (InputEventRecord) -> Void) -> InputSubscription {
-        let flag = InputSubscriptionFlag()
-        flags.append(flag)
-        return InputSubscription(flag: flag)
-    }
-
-    /// The subscriptions not cancelled or released.
-    var subscriptions: Int { flags.count(where: { !$0.isCancelled }) }
 }

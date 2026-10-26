@@ -109,7 +109,6 @@ public final class SessionInputPending: InputPendingSource {
     private var undispatchedScrollSeen: TimeInterval?
     /// When a check first saw an undispatched left drag; nil while none is on its way.
     private var undispatchedDragSeen: TimeInterval?
-    private var observing = false
 
     /// - Parameters:
     ///   - events: The window server and AppKit (tests: a fake that reports its own event times,
@@ -118,6 +117,7 @@ public final class SessionInputPending: InputPendingSource {
     public init(events: any SessionInputEvents, latching: ScrollLatching = ScrollLatching()) {
         self.events = events
         self.latching = latching
+        events.observeDispatch { [weak self] event in self?.dispatched(event) }
     }
 
     /// How long an undispatched event counts as pending: two refresh intervals of the display the
@@ -170,9 +170,6 @@ public final class SessionInputPending: InputPendingSource {
     }
 
     private func scan(uptime: TimeInterval, firstOnly: Bool) -> Kinds {
-        if !observing {
-            observing = events.observeDispatch { [weak self] event in self?.dispatched(event) }
-        }
         guard events.isAppActive else {
             // A gesture or a drag the app lost to another app never sends its end here.
             scrollSequenceOpenUntil = -.infinity

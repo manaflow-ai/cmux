@@ -296,7 +296,7 @@ final class AppServices {
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
     /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure, input: inputTap)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -580,7 +580,6 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
-        (NSApp as? CmuxApplication)?.inputTap = inputTap
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
