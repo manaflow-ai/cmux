@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """memory-report.py (p07-memory task 014): parsing footprint -j, vmmap -summary and heap output,
-grouping, the join with debug.memory consumers, MQ-UNATTRIBUTED rows, the MQ-CACHE order, and a
-report from saved files with and without debug.memory.
+grouping, the join with debug.memory consumers (task 010's JSON keys), MQ-UNATTRIBUTED rows, the
+MQ-CACHE order, a report from saved files with and without debug.memory, and the launched run's
+virtual display and failure paths with a fake app.
 
 Run: python3 -I scripts/cmux-next/tests/test_memory_report.py
 """
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import io
 import json
 import os
+import signal
 import sys
 import tempfile
+import types
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -25,13 +29,15 @@ spec.loader.exec_module(mr)
 
 M = 1048576
 
+# `swapped` stands for a compressed count footprint reports apart from `dirty`; the key names of a real
+# `footprint -j` capture are not checked in yet (the parser adds any swap or compress key).
 FOOTPRINT_JSON = {
     "processes": [{
         "pid": 4242, "name": "cmux DEV mem", "footprint": 200 * M, "peak_footprint": 260 * M,
         "categories": {
             "MALLOC_SMALL": {"dirty": 30 * M, "clean": 0, "reclaimable": 0, "regions": 40},
             "MALLOC_LARGE": {"dirty": 10 * M, "clean": 0, "reclaimable": 0, "regions": 12},
-            "Memory Tag 253": {"dirty": 60 * M, "dirty_compressed": 1, "regions": 90},
+            "Memory Tag 253": {"dirty": 58 * M, "swapped": 2 * M, "regions": 90},
             "IOSurface": {"dirty": 40 * M, "regions": 30},
             "IOAccelerator": {"dirty": 20 * M, "regions": 10},
             "CG image": {"dirty": 8 * M, "regions": 4},
@@ -71,6 +77,7 @@ TOTAL                                      156.0M     100.0M     100.0M         
 
 HEAP = """Process:         cmux DEV mem [4242]
 Zone DefaultMallocZone_0x100d0c000: 1000 nodes - 5MB
+Zone PartitionAlloc_0x10a000000: 0 nodes - 0K
 
 All zones: 1500 nodes (20MB)
    COUNT      BYTES       AVG   CLASS_NAME                                   TYPE    BINARY
@@ -81,16 +88,48 @@ All zones: 1500 nodes (20MB)
      100      4096K      41.0   non-object
 """
 
+
+def traits(storage: str | None = None) -> dict:
+    """A consumer's `traits` object as task 010 encodes it (MemoryDiagnosticsReport.Traits), with the
+    proposed `storage` trait when given."""
+    out = {"estimated_usage": "medium", "data_access": "none", "retention": "lossless", "recreate_cost": "cheap",
+           "release_cpu_cost": "low", "is_stateful": True, "supports_memory_limit": True}
+    if storage:
+        out["storage"] = storage
+    return out
+
+
+def consumer(name: str, footprint: int | None, storage: str | None = None) -> dict:
+    return {"name": name, "traits": traits(storage), "managed": True, "limit_percent": 100,
+            "footprint_bytes": footprint, "volatile_bytes": None, "entries": 40}
+
+
+# The debug.memory reply as task 010 writes it (cp/p07-memory-010, MemoryDiagnosticsReport.swift).
 DEBUG_MEMORY = {
-    "pressure": "normal", "mode": "medium",
-    "consumers": [
-        {"name": "TabThumbnailCache", "footprint_bytes": 6 * M, "volatile_bytes": 0, "entries": 40},
-        {"name": "HibernationSnapshots", "footprint_bytes": 5 * M},
-        {"name": "Unknown size", "footprint_bytes": None},
-        {"name": "PageHostPool", "footprint_bytes": 50 * M, "storage": "heap"},
-    ],
-    "terminal": {"iosurface_bytes": 30 * M, "hidden_nonvolatile_iosurface_bytes": 4 * M},
+    "pressure": {"level": "normal", "kernel_level": "normal", "override": None, "since_ms": None},
+    "mode": "medium",
+    "budget": {"physical_bytes": 16 << 30, "image_cache_bytes": 64 * M},
+    "consumers": [consumer("tab-hover-cards", 6 * M), consumer("hibernation-snapshots", 5 * M),
+                  consumer("unknown-size", None), consumer("page-host-pool", 50 * M)],
+    "processes": [{"kind": "app", "pid": 4242, "phys_footprint_bytes": 200 * M}],
+    "tabs": [], "workspaces": [],
+    "terminal": {"warm_capacity": 8, "warm_count": 2, "gpu_resident_count": 1,
+                 "hidden_nonvolatile_iosurface_bytes": 4 * M, "last_frames": 2},
+    "spares": [], "pressure_history": [],
 }
+
+
+def with_storage(document: dict, storages: dict[str, str]) -> dict:
+    """`document` with the proposed `traits.storage` on the named consumers."""
+    out = copy.deepcopy(document)
+    for entry in out["consumers"]:
+        if entry["name"] in storages:
+            entry["traits"]["storage"] = storages[entry["name"]]
+    return out
+
+
+STORED = with_storage(DEBUG_MEMORY, {"tab-hover-cards": "image", "hibernation-snapshots": "image",
+                                     "page-host-pool": "heap"})
 
 
 class ParseTests(unittest.TestCase):
@@ -101,12 +140,14 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(mr.size_bytes("123"), 123)
         self.assertIsNone(mr.size_bytes("below"))
 
-    def test_footprint_json_takes_dirty_and_drops_total(self):
+    def test_footprint_json_adds_swapped_and_drops_total(self):
         categories, total = mr.footprint_categories(FOOTPRINT_JSON)
         self.assertEqual(total, 200 * M)  # not the peak
         self.assertNotIn("TOTAL", categories)
-        self.assertEqual(categories["Memory Tag 253"], 60 * M)  # `dirty`, not `dirty_compressed`
+        self.assertEqual(categories["Memory Tag 253"], 60 * M)  # dirty + swapped, as vmmap's DIRTY + SWAPPED
         self.assertEqual(sum(categories.values()), 185 * M)
+        compressed = {"pid": 1, "categories": {"IOSurface": {"dirty": 5, "compressed": 3}, "Stack": {"clean": 9}}}
+        self.assertEqual(mr.footprint_categories(compressed), ({"IOSurface": 8}, None))
 
     def test_footprint_json_list_shape(self):
         doc = {"pid": 1, "phys_footprint": 9, "regions": [{"category": "IOSurface", "dirty": 5}, {"name": "Stack", "dirty": 4}]}
@@ -137,6 +178,16 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(classes["CmuxNextTabs.TabThumbnailCache"], 8388608)
         self.assertEqual(classes["non-object"], 4096 * 1024)
         self.assertEqual(len(classes), 4)
+        self.assertEqual(mr.heap_zone_nodes(HEAP), {"DefaultMallocZone": 1000, "PartitionAlloc": 0})
+
+    def test_heap_walk_without_partitionalloc_nodes_is_unknown(self):
+        _, zones = mr.vmmap_tables(VMMAP)
+        walk = mr.heap_walk(HEAP, zones)  # PartitionAlloc is the malloc, and the walk saw none of it
+        self.assertFalse(walk["enumerated"])
+        self.assertIn("PartitionAlloc", walk["why"])
+        self.assertTrue(mr.heap_walk(HEAP, {"DefaultMallocZone": 30 * M})["enumerated"])
+        seen = HEAP.replace("PartitionAlloc_0x10a000000: 0 nodes", "PartitionAlloc_0x10a000000: 40 nodes")
+        self.assertTrue(mr.heap_walk(seen, zones)["enumerated"])
 
     def test_groups(self):
         self.assertEqual(mr.group_of("Memory Tag 253"), "PartitionAlloc")
@@ -155,9 +206,8 @@ class ParseTests(unittest.TestCase):
 
 class JoinTests(unittest.TestCase):
     def setUp(self):
-        categories, self.total = mr.footprint_categories(FOOTPRINT_JSON)
+        self.categories, self.total = mr.footprint_categories(FOOTPRINT_JSON)
         _, self.zones = mr.vmmap_tables(VMMAP)
-        self.categories = categories
 
     def rows(self, phase):
         return {row["group"]: row for row in phase["groups"]}
@@ -185,55 +235,97 @@ class JoinTests(unittest.TestCase):
         self.assertEqual(queued, {"PartitionAlloc", "IOSurface", "DefaultMallocZone", "IOAccelerator", "malloc zones (other)",
                                   "CG image", "VM_ALLOCATE (untagged)", "outside footprint categories"})
 
-    def test_consumers_explain_their_storage(self):
+    def test_task_010_reply_explains_only_the_terminal_surfaces(self):
+        # Task 010's consumers say nothing about where their storage lives: they explain no group.
         phase = mr.analyze("home", self.categories, self.zones, self.total, DEBUG_MEMORY)
         rows = self.rows(phase)
-        self.assertEqual(phase["debug_memory"]["consumers"], 4)  # nil bytes is unknown, not 0
-        # The largest consumer goes first; image consumers fill CG image, then spill into malloc.
-        self.assertEqual(rows["CG image"]["consumers"], [{"name": "TabThumbnailCache", "bytes": 6 * M},
-                                                         {"name": "HibernationSnapshots", "bytes": 2 * M}])
-        self.assertEqual(rows["PartitionAlloc"]["consumers"], [{"name": "PageHostPool", "bytes": 50 * M},
-                                                               {"name": "HibernationSnapshots", "bytes": 3 * M}])
-        # The terminal's IOSurface bytes (the largest of its nested counts) explain IOSurface.
-        self.assertEqual(rows["IOSurface"]["explained_bytes"], 30 * M)
+        self.assertEqual(phase["debug_memory"]["consumers"], 4)  # null bytes is unknown, not 0
+        self.assertEqual(phase["consumers_without_storage"], ["tab-hover-cards", "hibernation-snapshots", "page-host-pool"])
+        self.assertEqual(rows["CG image"]["explained_bytes"], 0)
+        self.assertEqual(rows["PartitionAlloc"]["explained_bytes"], 0)
+        # Only the hidden non-volatile IOSurfaces are reported: the visible ones stay unexplained.
+        self.assertEqual(rows["IOSurface"]["consumers"], [{"name": "terminal hidden non-volatile IOSurfaces", "bytes": 4 * M}])
         queued = {r["group"]: r for r in phase["mq_unattributed"]}
-        self.assertEqual(queued["IOSurface"]["unexplained_bytes"], 10 * M)
-        self.assertNotIn("CG image", queued)  # all 8 MB explained
+        self.assertEqual(queued["IOSurface"]["unexplained_bytes"], 36 * M)
+        self.assertEqual(phase["unattributed_bytes"], 200 * M - 10 * M - 4 * M)
+
+    def test_consumers_claim_only_their_allocator(self):
+        phase = mr.analyze("home", self.categories, self.zones, self.total, STORED)
+        rows = self.rows(phase)
+        # Image storage fills CG image only; what does not fit is listed, never spilled into malloc.
+        self.assertEqual(rows["CG image"]["consumers"], [{"name": "tab-hover-cards", "bytes": 6 * M},
+                                                         {"name": "hibernation-snapshots", "bytes": 2 * M}])
+        self.assertEqual(phase["consumer_bytes_beyond_regions"], [{"name": "hibernation-snapshots", "bytes": 3 * M}])
+        # PartitionAlloc is the malloc (its zone is in vmmap's table): heap storage is there, nowhere else.
+        self.assertEqual(rows["PartitionAlloc"]["consumers"], [{"name": "page-host-pool", "bytes": 50 * M}])
+        for group in ("DefaultMallocZone", "malloc zones (other)", "VM_ALLOCATE (untagged)"):
+            self.assertEqual(rows[group]["explained_bytes"], 0, group)
         explained = sum(r["explained_bytes"] for r in phase["groups"])
         self.assertEqual(phase["unattributed_bytes"], 200 * M - explained)
 
+    def test_heap_storage_goes_to_the_default_zone_without_partitionalloc(self):
+        zones = {"DefaultMallocZone": 30 * M}
+        phase = mr.analyze("home", {"MALLOC_SMALL": 40 * M, "untagged (VM_ALLOCATE)": 7 * M}, zones, 47 * M, STORED)
+        rows = self.rows(phase)
+        self.assertEqual(rows["DefaultMallocZone"]["consumers"], [{"name": "page-host-pool", "bytes": 40 * M}])
+        self.assertEqual(rows["VM_ALLOCATE (untagged)"]["explained_bytes"], 0)
+        self.assertIn({"name": "page-host-pool", "bytes": 10 * M}, phase["consumer_bytes_beyond_regions"])
+
     def test_consumer_larger_than_its_regions_is_noted(self):
-        doc = {"consumers": [{"name": "Huge", "footprintBytes": 500 * M, "storage": "gpu"}]}
+        doc = {"consumers": [consumer("huge", 500 * M, "gpu")]}
         phase = mr.analyze("x", {"IOAccelerator": 20 * M}, {}, 20 * M, doc)
         self.assertEqual(phase["unattributed_bytes"], 0)
-        self.assertEqual(phase["consumer_bytes_beyond_regions"], [{"name": "Huge", "bytes": 480 * M}])
+        self.assertEqual(phase["consumer_bytes_beyond_regions"], [{"name": "huge", "bytes": 480 * M}])
+
+    def test_categories_above_the_footprint_are_noted(self):
+        phase = mr.analyze("x", {"IOSurface": 30 * M}, {}, 20 * M, None)
+        self.assertEqual(len(phase["notes"]), 1)
+        self.assertIn("twice", phase["notes"][0])
 
 
 class CacheOrderTests(unittest.TestCase):
-    def test_files_sort_by_heap_bytes_of_their_types(self):
-        root = tempfile.mkdtemp()
-        files = {
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.files = {
             "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabThumbnailCache.swift": "final class TabThumbnailCache {}\nstruct TabImage {}\n",
             "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ChromeLabel.swift": "final class ChromeLabel {}\n",
             "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Quiet.swift": "struct QuietCache {}\n",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabHoverCard.swift":
+                'final class HoverThumbs {}\nstatic let memoryConsumerName = "tab-hover-cards"\n',
+            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sized.swift": 'let name = "unknown-size"\n',
         }
-        for path, text in files.items():
-            os.makedirs(os.path.join(root, os.path.dirname(path)), exist_ok=True)
-            Path(root, path).write_text(text)
-        rows = mr.mq_cache_order(list(files), mr.heap_classes(HEAP), root)
-        self.assertEqual([r["file"].rsplit("/", 1)[1] for r in rows], ["TabThumbnailCache.swift", "ChromeLabel.swift", "Quiet.swift"])
-        self.assertEqual(rows[0]["bytes"], 8388608 + 2097152)
-        self.assertEqual(rows[2]["bytes"], 0)
-        unknown = mr.mq_cache_order(list(files), None, root)
-        self.assertTrue(all(r["bytes"] is None for r in unknown))
-        self.assertEqual([r["rank"] for r in unknown], [1, 2, 3])
+        for path, text in self.files.items():
+            os.makedirs(os.path.join(self.root, os.path.dirname(path)), exist_ok=True)
+            Path(self.root, path).write_text(text)
+        self.heap = mr.heap_walk(HEAP, {"DefaultMallocZone": 30 * M})
+
+    def names(self, rows):
+        return [r["file"].rsplit("/", 1)[1] for r in rows]
+
+    def test_consumer_bytes_then_heap_bytes(self):
+        rows = mr.mq_cache_order(list(self.files), DEBUG_MEMORY, self.heap, self.root)
+        self.assertEqual(self.names(rows), ["TabThumbnailCache.swift", "TabHoverCard.swift", "ChromeLabel.swift",
+                                            "Quiet.swift", "Sized.swift"])
+        by = {name: row for name, row in zip(self.names(rows), rows)}
+        self.assertEqual((by["TabHoverCard.swift"]["bytes"], by["TabHoverCard.swift"]["source"]), (6 * M, "debug.memory"))
+        self.assertEqual((by["TabThumbnailCache.swift"]["bytes"], by["TabThumbnailCache.swift"]["source"]),
+                         (8388608 + 2097152, "heap"))
+        self.assertEqual(by["Quiet.swift"]["bytes"], 0)  # the walk saw the malloc and no object of the file's types
+        self.assertEqual((by["Sized.swift"]["bytes"], by["Sized.swift"]["source"]), (None, "debug.memory"))  # null bytes
+
+    def test_heap_bytes_are_unknown_when_the_walk_missed_the_malloc(self):
+        _, zones = mr.vmmap_tables(VMMAP)
+        rows = mr.mq_cache_order(list(self.files), None, mr.heap_walk(HEAP, zones), self.root)
+        self.assertTrue(all(r["bytes"] is None for r in rows))
+        self.assertEqual([r["rank"] for r in rows], [1, 2, 3, 4, 5])
+        self.assertTrue(all(r["bytes"] is None for r in mr.mq_cache_order(list(self.files), None, None, self.root)))
 
 
 class OfflineMainTests(unittest.TestCase):
-    def run_main(self, *extra):
+    def run_main(self, *extra, footprint=FOOTPRINT_JSON):
         folder = tempfile.mkdtemp()
         fp = Path(folder, "fp.json")
-        fp.write_text(json.dumps(FOOTPRINT_JSON))
+        fp.write_text(json.dumps(footprint))
         vm = Path(folder, "vmmap.txt")
         vm.write_text(VMMAP)
         out = Path(folder, "report.json")
@@ -241,15 +333,24 @@ class OfflineMainTests(unittest.TestCase):
         with redirect_stdout(buffer):
             code = mr.main(["--footprint-file", str(fp), "--vmmap-file", str(vm), "--label", "home",
                             "--no-cache-queue", "--out", str(out), *extra])
-        return code, buffer.getvalue(), json.loads(out.read_text()), folder
+        return code, buffer.getvalue(), json.loads(out.read_text())
 
     def test_report_without_debug_memory(self):
-        code, text, report, _ = self.run_main()
+        code, text, report = self.run_main()
         self.assertEqual(code, 0)
         self.assertIn("MEMORY-REPORT phase=home footprint_mb=200.0", text)
         self.assertIn("debug_memory=no", text)
         self.assertIn("MQ-UNATTRIBUTED phase=home group='PartitionAlloc'", text)
         self.assertEqual(report["phases"][0]["phys_footprint_bytes"], 200 * M)
+
+    def test_without_a_footprint_total_takes_vmmap_footprint_as_live(self):
+        bare = copy.deepcopy(FOOTPRINT_JSON)
+        del bare["processes"][0]["footprint"]
+        del bare["processes"][0]["peak_footprint"]
+        _, _, report = self.run_main(footprint=bare)
+        _, _, live = self.run_main()
+        self.assertEqual(report["phases"][0]["phys_footprint_bytes"], 200 * M)
+        self.assertEqual(report["phases"][0]["unattributed_pct"], live["phases"][0]["unattributed_pct"])
 
     def test_report_with_debug_memory_and_heap(self):
         folder = tempfile.mkdtemp()
@@ -257,10 +358,12 @@ class OfflineMainTests(unittest.TestCase):
         dm.write_text(json.dumps(DEBUG_MEMORY))
         heap = Path(folder, "heap.txt")
         heap.write_text(HEAP)
-        code, text, report, _ = self.run_main("--debug-memory-file", str(dm), "--heap-file", str(heap))
+        code, text, report = self.run_main("--debug-memory-file", str(dm), "--heap-file", str(heap))
         self.assertEqual(code, 0)
         self.assertIn("debug_memory=yes", text)
+        self.assertIn("report no traits.storage", text)
         self.assertTrue(report["phases"][0]["debug_memory"]["available"])
+        self.assertEqual(report["phases"][0]["heap"]["enumerated"], False)
 
     def test_no_categories_fails(self):
         folder = tempfile.mkdtemp()
@@ -270,6 +373,121 @@ class OfflineMainTests(unittest.TestCase):
         with redirect_stdout(buffer):
             code = mr.main(["--footprint-file", str(empty), "--no-cache-queue", "--out", str(Path(folder, "r.json"))])
         self.assertEqual(code, 1)
+
+
+class FakeDisplay:
+    def __init__(self):
+        self.terminated = False
+
+    def terminate(self):
+        self.terminated = True
+
+
+class FakeApp:
+    """activation-perf.App's surface: launch, stop, rpc, process.pid, socket."""
+
+    fail_launch = False
+
+    def __init__(self, bundle, out, hang_ms):
+        self.out, self.socket, self.stopped = out, None, False
+        self.process = types.SimpleNamespace(pid=4242)
+        FakeApp.last = self
+
+    def launch(self):
+        Path(self.out, "app.log").write_text("launched\n")
+        if FakeApp.fail_launch:
+            raise SystemExit("activation-perf: the app's debug socket never answered (a Debug build is required)")
+
+    def stop(self):
+        self.stopped = True
+
+    def rpc(self, method, params=None, timeout=60):
+        return {"error": "fake"}
+
+
+class FakeStress:
+    def __init__(self, rpc):
+        self.closed = False
+
+    def build(self):
+        raise KeyError("workspace_id")  # an rpc error reply the builder indexes
+
+    def close(self):
+        self.closed = True
+
+
+class LaunchedRunTests(unittest.TestCase):
+    """run_launched with a fake perf-stress-session module and app: the display, the logs and the
+    phases measured before a failure all reach the report."""
+
+    def setUp(self):
+        self.displays = []
+        module = types.ModuleType("perf_stress_session")
+        module.StressShapeError = type("StressShapeError", (RuntimeError,), {})
+
+        def start_vdisplay(hz, out, hold):
+            self.displays.append((hz, out, hold, FakeDisplay()))
+            return self.displays[-1][3]
+
+        module.start_vdisplay = start_vdisplay
+        module.load_activation_app = lambda: FakeApp
+        module.Stress = FakeStress
+        self.saved_module = sys.modules.get("perf_stress_session")
+        sys.modules["perf_stress_session"] = module
+        self.saved_measure = mr.measure
+        mr.measure = lambda label, pid, socket_path, heap, stem: (
+            dict(mr.analyze(label, {"IOSurface": 10 * M}, {}, 10 * M, None), source="fake"), None, None)
+        self.saved_signals = {n: signal.getsignal(n) for n in (signal.SIGTERM, signal.SIGHUP)}
+        FakeApp.fail_launch = False
+
+    def tearDown(self):
+        mr.measure = self.saved_measure
+        if self.saved_module is None:
+            sys.modules.pop("perf_stress_session", None)
+        else:
+            sys.modules["perf_stress_session"] = self.saved_module
+        for number, handler in self.saved_signals.items():
+            signal.signal(number, handler)
+
+    def run_main(self, *extra):
+        folder = tempfile.mkdtemp()
+        out = Path(folder, "report.json")
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            code = mr.main(["--app", "/x/cmux DEV mem.app", "--settle", "0", "--no-cache-queue", "--out", str(out), *extra])
+        return code, buffer.getvalue(), json.loads(out.read_text()), folder
+
+    def test_stress_failure_keeps_home_and_the_logs(self):
+        code, text, report, folder = self.run_main("--phases", "home,stress")
+        self.assertEqual(code, 1)
+        self.assertEqual([p["label"] for p in report["phases"]], ["home", "stress"])
+        self.assertIn("MEMORY-REPORT phase=home footprint_mb=10.0", text)
+        self.assertIn("KeyError", report["phases"][1]["skipped"])
+        # The STRESS display came up at 120 Hz in the report folder and went down with the run.
+        self.assertEqual([(hz, out) for hz, out, _, _ in self.displays], [(120.0, folder)])
+        self.assertTrue(self.displays[0][3].terminated)
+        self.assertTrue(FakeApp.last.stopped)
+        self.assertEqual(Path(folder, "app.log").read_text(), "launched\n")  # kept beside report.json
+        self.assertEqual(report["app_log"], str(Path(folder, "app.log")))
+
+    def test_home_only_starts_no_display_unless_asked(self):
+        code, _, report, _ = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.displays, [])
+        self.run_main("--vdisplay", "60")
+        self.assertEqual(self.displays[0][0], 60.0)
+        self.run_main("--phases", "home,stress", "--vdisplay", "0")
+        self.assertEqual(len(self.displays), 1)
+
+    def test_launch_failure_writes_the_report(self):
+        FakeApp.fail_launch = True
+        code, text, report, folder = self.run_main("--phases", "home,stress")
+        self.assertEqual(code, 1)
+        self.assertEqual([p["label"] for p in report["phases"]], ["home", "stress"])
+        self.assertIn("debug socket never answered", report["phases"][0]["skipped"])
+        self.assertIn("MEMORY-REPORT phase=home skipped", text)
+        self.assertTrue(Path(folder, "app.log").exists())
+        self.assertTrue(self.displays[0][3].terminated)
 
 
 if __name__ == "__main__":
