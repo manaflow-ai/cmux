@@ -11,7 +11,7 @@ import Testing
 /// only verbs the CLI offers.
 @MainActor
 struct CloudTrackedResultsTests {
-    static let trackedIDs: [ActionID] = [
+    nonisolated static let trackedIDs: [ActionID] = [
         "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace",
         "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
     ]
