@@ -542,6 +542,8 @@ pub fn ensure_checked<E>(
     ensure_checked_under(folder, name, base, &home()?, check)
 }
 
+/// Under the name lock, so another create of the name never finds a worktree
+/// this one is about to remove.
 fn ensure_checked_under<E>(
     folder: &Path,
     name: &str,
@@ -549,15 +551,19 @@ fn ensure_checked_under<E>(
     home: &Path,
     check: impl FnOnce(&Worktree) -> Result<(), E>,
 ) -> Result<Result<Ensured, E>, String> {
-    let ensured = ensure_worktree_under(folder, name, base, home)?;
-    let Err(refused) = check(&ensured.worktree) else { return Ok(Ok(ensured)) };
-    let w = &ensured.worktree;
-    match ensured.reused {
-        Some("worktree") => {}
-        Some(_) => drop(git(folder, &["worktree", "remove", "--force", &w.root.to_string_lossy()])),
-        None => remove_worktree(folder, w),
-    }
-    Ok(Err(refused))
+    let ensured = |ensured: Ensured| {
+        let Err(refused) = check(&ensured.worktree) else { return Ok(ensured) };
+        let w = &ensured.worktree;
+        match ensured.reused {
+            Some("worktree") => {}
+            Some(_) => {
+                drop(git(folder, &["worktree", "remove", "--force", &w.root.to_string_lossy()]))
+            }
+            None => remove_worktree(folder, w),
+        }
+        Err(refused)
+    };
+    ensure_locked(folder, name, base, home, ensured)
 }
 
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
@@ -578,6 +584,18 @@ fn ensure_worktree_under(
     base: Option<&str>,
     home: &Path,
 ) -> Result<Ensured, String> {
+    ensure_locked(folder, name, base, home, Ok::<_, std::convert::Infallible>)?
+        .map_err(|never| match never {})
+}
+
+/// The worktree named `name`, handed to `then` while its name lock is held.
+fn ensure_locked<T>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    home: &Path,
+    then: impl FnOnce(Ensured) -> T,
+) -> Result<T, String> {
     let chosen = slug(name);
     if chosen.is_empty() {
         return Err(format!("{name:?} has no letters or digits to name a worktree"));
@@ -603,7 +621,7 @@ fn ensure_worktree_under(
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
             let worktree = Worktree { root: root.clone(), branch, base, cwd };
-            return Ok(Ensured { worktree, reused: Some("worktree") });
+            return Ok(then(Ensured { worktree, reused: Some("worktree") }));
         }
         std::fs::create_dir_all(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
@@ -645,7 +663,7 @@ fn ensure_worktree_under(
         }
         let made = Worktree { root: root.clone(), branch: branch.clone(), base, cwd: root.clone() };
         let worktree = fill(folder, &layout, made, &commit, reused.is_some())?;
-        return Ok(Ensured { worktree, reused });
+        return Ok(then(Ensured { worktree, reused }));
     }
     Err(format!("{} was added and removed while this ran; run it again", root.display()))
 }
