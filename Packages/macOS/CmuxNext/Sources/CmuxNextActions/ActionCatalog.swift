@@ -1,3 +1,5 @@
+public import CmuxNextWakeups
+
 /// The canonical action catalog: one descriptor per row of the old app's
 /// action inventory (plans/cmux-next/inventory.md section 1) plus the tab
 /// group and workspace group families (plans/cmux-next/architecture.md
@@ -198,5 +200,14 @@ extension ActionRegistry {
     public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)?) -> ActionRegistry {
         ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
                        turnObserver: turnObserver)
+    }
+
+    /// ``standard(runTiming:turnObserver:)`` whose handler runs take their origin's cause in `causes`
+    /// (``ActionRegistry/causes``).
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)? = nil,
+                                causes: ObservationCauses) -> ActionRegistry {
+        let registry = standard(runTiming: runTiming, turnObserver: turnObserver)
+        registry.causes = causes
+        return registry
     }
 }
