@@ -115,6 +115,10 @@ final class AppRunMarker {
     }
 
     private func start() {
+        // First, before any crash handler is installed (the uncaught-exception recorder below, the crash deadline,
+        // the fatal-signal handlers) and whether or not the files below open: the crash keys' block, which those
+        // handlers read (CrashKeys).
+        CrashReporter.prepareCrashKeysBlock()
         do {
             // concurrency-allow: once at launch; a stat when the folder exists (every launch after the first).
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
