@@ -150,6 +150,9 @@ export const nextDocPages: NextDocPage[] = [
     body: [
       { p: "A cloud machine is a remote computer that cmux sets up for you. Run a workspace there, or move one over and bring it back." },
       { code: "cmux cloud new-machine\ncmux cloud new-workspace\ncmux cloud ssh\ncmux cloud exec\ncmux cloud move\ncmux cloud bring-back", lang: "bash" },
+      { h2: "Terminals" },
+      { p: "Open a terminal on a machine with ssh, or make a new workspace there. Pass --workspace with a workspace id to add a terminal tab to that workspace instead. When the terminal is open, both answer machine_id and workspace_id, plus the new terminal's surface_id when cmux knows it. A paused machine resumes first: if that takes longer than about 30 seconds the answer is pending (machine_id, resuming, pending) and the terminal still opens." },
+      { code: "cmux cloud ssh --target machine:<id>\ncmux cloud new-terminal-on-machine --target machine:<id>\ncmux cloud new-terminal-on-machine --target machine:<id> --workspace <workspace-id>", lang: "bash" },
       { h2: "Start an agent on a machine" },
       { p: "Start a Claude or Codex session on a cloud machine. Name the machine with --target, or give a name with --name to use that machine or create it. An agent that runs this asks you first in its chat." },
       { code: "cmux cloud start-session --target machine:<id> --agent claude\ncmux cloud start-session --name dev --agent codex", lang: "bash" },

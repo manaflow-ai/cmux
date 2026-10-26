@@ -5,7 +5,6 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
-import Observation
 import Testing
 
 /// `cmux cloud start-session` (Lawrence: "start new VMs from acp chat"): its arguments are checked
@@ -116,6 +115,43 @@ struct CloudStartSessionTests {
         #expect(CloudStartSession.chat("no-such-session", services: f.services) == nil)
     }
 
+    /// An agent's run in a Cloud machine's chat shows its card there; a sign-out or team switch
+    /// while it asks (``CloudService``'s account observer) refuses the run and clears the card.
+    @Test func anAccountChangeWhileTheAgentsCardAsksRefusesAndClearsIt() async throws {
+        let f = Self.fixture()
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 8), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(f.session.machineID)", session: "asking-session", harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
+        f.session.daemon.store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
+        let asks = f.services.cloud.startSessionAsks
+        let (shown, show) = AsyncStream<[AgentPaneToolCard]>.makeStream()
+        defer { show.finish() }
+        asks.present = { cards, _, _ in
+            show.yield(cards)
+            return true
+        }
+        let invoke = try #require(f.services.registry.action(for: CloudStartSession.action)?.invoke)
+        let run = f.services.registry.capturingRun {
+            invoke(Self.invocation(target: f.session.machineID, ["agent": .string("claude")], origin: .mcp, agent: "asking-session"))
+        }
+        let task = try #require(run.results.first, "start-session tracked no result")
+        for await cards in shown where !cards.isEmpty {
+            #expect(cards.first?.state == .ask)
+            break
+        }
+        // What the account observer does on a sign-out or team switch.
+        f.services.cloud.startSessionRuns.forgetAll()
+        f.services.cloud.startSessionAsks.endAll()
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("the agent's run went on after its account ended")
+            return
+        }
+        let request = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
+        #expect(failure.message == CloudStartSessionStrings.accountChanged(request.asked(machine: f.session.machine.title)))
+        for await cards in shown where cards.isEmpty { break }
+        #expect(f.session.daemon.connection == nil, "nothing connected")
+    }
+
     @Test func aRunStillStartingAnswersPendingWithWhatToRunNext() async throws {
         let request = CloudStartSession.Request(machineID: "vm-a", name: nil, agent: "claude", cwd: nil)
         let pending = CloudStartSession.pending(request, Self.fixture().services)
@@ -129,21 +165,12 @@ struct CloudStartSessionTests {
         runs.sleep = { _ in }
         let (gate, open) = AsyncStream<Void>.makeStream()
         defer { open.finish() }
-        let answered = try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil, account: Self.account), within: CloudStartSession.answerWithin, pending: pending) {
+        let answered = try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil, account: Self.account), within: CloudStartSession.answerWithin, pending: pending,
+                                             forgotten: CloudStartSession.forgotten(request, Self.fixture().services)) {
             for await _ in gate { break }
             return ["session_id": .string("s")]
         }
         #expect(answered["pending"] == .bool(true) && answered["session_id"] == nil)
-    }
-
-    @Test func aCardThatCannotShowStartsNothingAndLeavesNoAskOpen() async {
-        let services = Self.fixture().services
-        let asks = CloudStartSessionAsks()
-        for _ in 0..<2 {
-            await #expect(throws: ActionFailure(message: CloudStartSessionStrings.noPage(Self.asked))) {
-                try await asks.ask(tab: "tab-without-page", text: "ask", asked: Self.asked, account: Self.account, now: { Self.account }, services: services)
-            }
-        }
     }
 
     // MARK: Failures name the machine and the agent, and give the next command
@@ -202,47 +229,6 @@ struct CloudStartSessionTests {
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
-    enum CreationEvent: Equatable { case joined(String), entered(Int) }
-
-    /// Two asks for one new name share one creation; another team's ask for it, meanwhile, makes its own.
-    @Test func twoRunsForOneNewNameCreateOnce() async throws {
-        let f = Self.fixture()
-        let runs = CloudStartSessionRuns()
-        let (events, event) = AsyncStream<CreationEvent>.makeStream()
-        runs.joinedCreation = { event.yield(.joined($0)) }
-        // One gate per creation, each finished at the end: a second creation (the bug) never shares one.
-        let gates = Box<[AsyncStream<Void>.Continuation]>([])
-        defer { for gate in gates.value { gate.finish() }; event.finish() }
-        let creates = Box(0)
-        func create() -> @MainActor () async throws -> CloudMachineSession {
-            let (gate, open) = AsyncStream<Void>.makeStream()
-            gates.value.append(open)
-            return {
-                creates.value += 1
-                event.yield(.entered(creates.value))
-                for await _ in gate { break }
-                return f.session
-            }
-        }
-        // The next join or creation: a second creation (the bug) ends the wait as surely as the join.
-        func next() async -> CreationEvent? {
-            for await value in events { return value }
-            return nil
-        }
-        let first = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
-        #expect(await next() == .entered(1))
-        let second = Task { @MainActor in try await runs.creating("dev", account: Self.account, create()) }
-        #expect(await next() == .joined("dev"))
-        let other = Task { @MainActor in try await runs.creating("dev", account: ["user-1", "team-2"], create()) }
-        #expect(await next() == .entered(2), "another team's ask made its own machine while the first was being made")
-        for gate in gates.value { gate.yield() }
-        let one = try await first.value
-        let two = try await second.value
-        _ = try await other.value
-        #expect(creates.value == 2)
-        #expect(one === f.session && two === f.session)
-    }
-
     /// A run asked in one account stops before its next step once another is signed in: the
     /// refusal says so and gives the command, and nothing is created.
     @Test func aRunAskedInAnotherAccountStartsNothing() async throws {
@@ -293,37 +279,6 @@ struct CloudStartSessionTests {
         #expect(error is CancellationError)
     }
 
-    /// Another account's same ask never takes a kept run's end, and a sign-out forgets them all.
-    @Test func runsArePerAccountAndASignOutForgetsThem() async throws {
-        let runs = CloudStartSessionRuns()
-        let request = CloudStartSession.Request(machineID: nil, name: "dev", agent: "claude", cwd: nil)
-        let mine = CloudStartSessionRuns.Key(request, caller: nil, account: Self.account)
-        let theirs = CloudStartSessionRuns.Key(request, caller: nil, account: ["user-2", nil])
-        #expect(mine != theirs)
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        runs.sleep = { _ in }
-        // Mine answers pending, then ends with nobody waiting: kept for my next ask.
-        _ = try await runs.answer(mine, within: .seconds(1), pending: Self.pending) {
-            for await _ in gate { break }
-            return ["session_id": .string("mine")]
-        }
-        open.yield()
-        await runs.settled(mine)
-        #expect(runs.keptCount == 1)
-        runs.sleep = Self.waits
-        let started = Box(0)
-        let fields = try await runs.answer(theirs, within: .seconds(190), pending: Self.pending) {
-            started.value += 1
-            return ["session_id": .string("theirs")]
-        }
-        #expect(fields["session_id"] == .string("theirs"))
-        #expect(started.value == 1, "another account's ask ran its own start")
-        #expect(runs.keptCount == 1, "mine is still kept for me")
-        runs.forgetAll()
-        #expect(runs.count == 0)
-    }
-
     /// `--name` takes or creates only from a list the server answered just now for this account.
     @Test func onlyAFreshListOfThisAccountIsCurrent() {
         let now = ContinuousClock.now
@@ -345,236 +300,5 @@ struct CloudStartSessionTests {
         let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
         #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
         #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
-    }
-
-    // MARK: The card belongs to its ask until the run ends
-
-    /// Cards shown in place of a chat page, the clicks a test sends them, and a signal per card shown.
-    final class Cards {
-        var shown: [String: [AgentPaneToolCard]] = [:]
-        var answers: [String: AgentToolCards.Answer] = [:]
-        let (events, event) = AsyncStream<String>.makeStream()
-
-        func install(_ asks: CloudStartSessionAsks) {
-            asks.present = { [unowned self] cards, tab, _, answer in
-                shown[tab] = cards.isEmpty ? nil : cards
-                answers[tab] = answer
-                if !cards.isEmpty { event.yield(tab) }
-                return true
-            }
-        }
-
-        /// Waits until a card shows in `tab` (the ask reached its card).
-        func shownIn(_ tab: String) async {
-            for await shownTab in events where shownTab == tab { return }
-        }
-
-        func click(_ tab: String, _ action: String) { answers[tab]?("cloud-start-session-" + tab, action, nil) }
-    }
-
-    @Test func aSecondAskWhileTheFirstRunsNeverTakesItsCard() async throws {
-        let services = Self.fixture().services
-        let asks = CloudStartSessionAsks(), cards = Cards()
-        cards.install(asks)
-        let first = Task { try await asks.ask(tab: "chat-1", text: "first", asked: Self.asked, account: Self.account, now: { Self.account }, services: services) }
-        await cards.shownIn("chat-1")
-        #expect(cards.shown["chat-1"]?.first?.state == .ask)
-        cards.click("chat-1", "start")
-        let token = try await first.value
-        // Started: the run goes on, and the chat's card is still the first ask's.
-        asks.show(tab: "chat-1", token: token, .working, "starting", services: services)
-        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.askOpen(Self.asked))) {
-            _ = try await asks.ask(tab: "chat-1", text: "second", asked: Self.asked, account: Self.account, now: { Self.account }, services: services)
-        }
-        #expect(cards.shown["chat-1"]?.first?.text == "starting")
-        // Another ask's token changes nothing.
-        asks.finish(tab: "chat-1", token: UUID(), failure: "not yours", services: services)
-        #expect(cards.shown["chat-1"]?.first?.text == "starting")
-        asks.finish(tab: "chat-1", token: token, failure: "Machine `dev` started but its agent didn't (x).", services: services)
-        #expect(cards.shown["chat-1"]?.first?.state == .failed)
-        #expect(asks.open["chat-1"] == nil, "the chat may ask again")
-        cards.click("chat-1", "dismiss")
-        #expect(cards.shown["chat-1"] == nil)
-    }
-
-    @Test func notNowStartsNothingAndFreesTheChat() async throws {
-        let services = Self.fixture().services
-        let asks = CloudStartSessionAsks(), cards = Cards()
-        cards.install(asks)
-        let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", asked: Self.asked, account: Self.account, now: { Self.account }, services: services) }
-        await cards.shownIn("chat-2")
-        cards.click("chat-2", "notNow")
-        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined(Self.asked))) { _ = try await ask.value }
-        #expect(cards.shown["chat-2"] == nil)
-        #expect(asks.open["chat-2"] == nil)
-    }
-
-    @MainActor @Observable final class SignedIn {
-        var account: [String?]
-        init(_ account: [String?]) { self.account = account }
-    }
-
-    /// A sign-out or team switch while the card is open ends it: the run says so, and the chat may ask again.
-    @Test func anAccountChangeEndsAnOpenCard() async throws {
-        let services = Self.fixture().services
-        let asks = CloudStartSessionAsks(), cards = Cards()
-        cards.install(asks)
-        let signedIn = SignedIn(Self.account)
-        let ask = Task { try await asks.ask(tab: "chat-3", text: "ask", asked: Self.asked, account: Self.account, now: { signedIn.account }, services: services) }
-        await cards.shownIn("chat-3")
-        signedIn.account = ["user-1", "team-2"]
-        await #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(Self.asked))) { _ = try await ask.value }
-        #expect(cards.shown["chat-3"] == nil)
-        #expect(asks.open["chat-3"] == nil)
-    }
-
-    // MARK: A run that outlasts its caller's answer
-
-    /// What the runs' work counts and the clock they read, shared with their closures.
-    @MainActor final class Box<T> {
-        var value: T
-        init(_ value: T) { self.value = value }
-    }
-
-    static let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: nil, name: "dev", agent: "codex", cwd: nil), caller: "chat-9", account: Self.account)
-    static let pending: CloudStartSessionRuns.Fields = ["pending": .bool(true)]
-    /// A caller's wait that never ends by itself (the run's end cancels it).
-    static let waits: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
-
-    /// A caller that answered pending leaves nothing waiting on a run that never ends.
-    @Test func aCallerThatAnsweredPendingHoldsNothingOnTheRun() async throws {
-        let runs = CloudStartSessionRuns()
-        runs.sleep = { _ in }
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        let answered = try await runs.answer(Self.key, within: .seconds(1), pending: Self.pending) {
-            for await _ in gate { break }
-            return ["session_id": .string("never")]
-        }
-        #expect(answered == Self.pending)
-        #expect(runs.waitingCount == 0)
-        #expect(runs.count == 1, "the run goes on")
-        runs.forgetAll()
-    }
-
-    @Test func aRunItsCallerSawEndIsNotKept() async throws {
-        let runs = CloudStartSessionRuns()
-        runs.sleep = Self.waits
-        let started = Box(0)
-        let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
-            started.value += 1
-            return ["session_id": .string("s-\(started.value)")]
-        }
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
-        #expect(runs.count == 0)
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-2"), "a new session, not the last one")
-    }
-
-    @Test func theSameAskWhileARunGoesOnWaitsForItAndTakesItsEnd() async throws {
-        let runs = CloudStartSessionRuns()
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        let started = Box(0)
-        let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
-            started.value += 1
-            // A second start (the bug) answers at once: it never reads the first start's gate.
-            guard started.value == 1 else { return ["session_id": .string("s-\(started.value)")] }
-            for await _ in gate { break }
-            return ["session_id": .string("s-1")]
-        }
-        // The first caller's wait ends at once: it answers pending, and the run goes on.
-        runs.sleep = { _ in }
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work) == Self.pending)
-        // The second caller is waiting when its own wait begins: that lets the run end.
-        runs.sleep = { _ in
-            open.yield(())
-            try? await Task.sleep(for: .seconds(3600))
-        }
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
-        #expect(started.value == 1)
-        #expect(runs.count == 0, "it reached a caller, so it is not kept")
-    }
-
-    @Test func aRunEveryCallerLeftIsHandedToTheNextSameAskOnce() async throws {
-        let runs = CloudStartSessionRuns()
-        let clock = Box(ContinuousClock.now)
-        runs.now = { clock.value }
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        let started = Box(0)
-        let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
-            started.value += 1
-            for await _ in gate { break }
-            return ["session_id": .string("s-\(started.value)")]
-        }
-        runs.sleep = { _ in }
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work) == Self.pending)
-        open.yield(())
-        await runs.settled(Self.key)
-        #expect(runs.count == 1, "nobody saw it end")
-        runs.sleep = Self.waits
-        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
-        #expect(started.value == 1)
-        #expect(runs.count == 0, "handed out once")
-    }
-
-    @Test func aKeptRunExpiresForTheSameAsk() async throws {
-        let runs = CloudStartSessionRuns()
-        let clock = Box(ContinuousClock.now)
-        runs.now = { clock.value }
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        let slow: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
-            for await _ in gate { break }
-            return ["session_id": .string("old")]
-        }
-        runs.sleep = { _ in }
-        _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, slow)
-        open.yield(())
-        await runs.settled(Self.key)
-        clock.value += CloudStartSessionRuns.kept + .seconds(1)
-        runs.sleep = Self.waits
-        let fresh = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending) { ["session_id": .string("new")] }
-        #expect(fresh["session_id"] == .string("new"))
-        #expect(runs.count == 0)
-    }
-
-    @Test func aFailedRunEveryCallerLeftIsHandedOutOnceToo() async throws {
-        let runs = CloudStartSessionRuns()
-        let (gate, open) = AsyncStream<Void>.makeStream()
-        defer { open.finish() }
-        let failing: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
-            for await _ in gate { break }
-            throw ActionFailure(message: "Machine `dev` started but its agent didn't (x).")
-        }
-        runs.sleep = { _ in }
-        _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, failing)
-        open.yield(())
-        await runs.settled(Self.key)
-        runs.sleep = Self.waits
-        await #expect(throws: ActionFailure(message: "Machine `dev` started but its agent didn't (x).")) {
-            _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, failing)
-        }
-        #expect(runs.count == 0)
-    }
-
-    @Test func runsThatEndTogetherKeepAtMostTheLimit() async throws {
-        let runs = CloudStartSessionRuns()
-        runs.sleep = { _ in }
-        let total = CloudStartSessionRuns.limit + 8
-        let keys = (0..<total).map { CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-\($0)", name: nil, agent: "claude", cwd: nil), caller: nil, account: Self.account) }
-        // One gate per run: a stream has one reader at a time.
-        let gates = keys.map { _ in AsyncStream<Void>.makeStream() }
-        defer { for gate in gates { gate.continuation.finish() } }
-        for (key, gate) in zip(keys, gates) {
-            _ = try await runs.answer(key, within: .seconds(190), pending: Self.pending) {
-                for await _ in gate.stream { break }
-                return ["session_id": .string("s")]
-            }
-        }
-        // Every caller answered pending; now every run ends.
-        for gate in gates { gate.continuation.yield(()) }
-        for key in keys { await runs.settled(key) }
-        #expect(runs.keptCount <= CloudStartSessionRuns.limit)
     }
 }

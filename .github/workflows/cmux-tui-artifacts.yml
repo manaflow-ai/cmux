@@ -442,6 +442,11 @@ jobs:
               while IFS=$'\t' read -r candidate_id candidate_branch; do
                 [[ "$candidate_id" =~ ^[0-9]+$ && "$candidate_id" != "$RUN_ID" ]] || continue
                 [[ "$candidate_branch" == main ]] && continue
+                # A cp/, lane/ or perf/ run may be superseded (no open pull
+                # request has its head) and then builds nothing and hands off
+                # nothing, so it is never elected owner here; at worst both
+                # runs build, and publish keeps the first publication.
+                [[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue
                 if (( candidate_id < owner_run_id )); then
                   owner_run_id="$candidate_id"
                 fi
@@ -549,7 +554,10 @@ jobs:
 
   tree-owner-wait:
     name: wait for same-key tree publisher
-    if: needs.tree-preflight.result == 'success'
+    # A superseded push (tree-preflight's stale step: a moved lane branch, a
+    # moved pin, or a cp/, lane/ or perf/ head no open pull request has) builds
+    # nothing, so it has no publisher to wait for and spends no API calls here.
+    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true'
     needs: tree-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10

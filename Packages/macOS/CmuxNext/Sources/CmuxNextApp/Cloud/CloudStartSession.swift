@@ -57,7 +57,7 @@ struct CloudStartSession {
             if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
             let key = CloudStartSessionRuns.Key(request, caller: nil, account: services.cloud.account)
             CloudHandlers.result("start cloud session", context) {
-                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
+                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     try await start.run(request, invocation, context, account: key.account)
                 }
             }
@@ -90,17 +90,21 @@ struct CloudStartSession {
         // The same ask again (the agent's run answered pending) joins the one that runs.
         let key = CloudStartSessionRuns.Key(request, caller: caller, account: services.cloud.account)
         CloudHandlers.result("start cloud session", context) {
-            try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services)) {
+            try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
                     let cloud = services.cloud
-                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, account: key.account, now: { cloud.account }, services: services)
-                    asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
+                    let token = try await asks.ask(tab: tab.id, text: text, asked: asked, account: key.account, now: { cloud.account })
+                    asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named))
                     do {
                         // The account the agent asked in: a switch while the card was open refuses.
                         let fields = try await start.run(request, asPerson, context, account: key.account, askedBy: caller, revealing: false)
-                        asks.finish(tab: tab.id, token: token, failure: nil, services: services)
+                        asks.finish(tab: tab.id, token: token, failure: nil)
                         return fields
+                    } catch is CancellationError {
+                        // Only a sign-out or team switch cancels a run (``CloudStartSessionRuns/forgetAll()``).
+                        asks.finish(tab: tab.id, token: token, failure: CloudStartSessionStrings.accountChanged(asked))
+                        throw CancellationError()
                     } catch {
-                        asks.finish(tab: tab.id, token: token, failure: (error as? ActionFailure)?.message ?? Self.startFailure(error, name: named, id: request.machineID ?? named, agent: request.agent), services: services)
+                        asks.finish(tab: tab.id, token: token, failure: (error as? ActionFailure)?.message ?? Self.startFailure(error, name: named, id: request.machineID ?? named, agent: request.agent))
                         throw error
                     }
             }
@@ -110,6 +114,12 @@ struct CloudStartSession {
     /// A new machine can take longer than `action.run`'s person deadline to come up: the run then
     /// answers `pending` (the work goes on, and the session's tab opens in the machine's workspace).
     static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
+
+    /// What a caller still waiting gets when a sign-out or team switch ends the run.
+    static func forgotten(_ request: Request, _ services: AppServices) -> ActionFailure {
+        let machine = request.machineID.flatMap { services.machines.session($0)?.machine.title } ?? request.name ?? request.machineID ?? ""
+        return ActionFailure(message: CloudStartSessionStrings.accountChanged(request.asked(machine: machine)))
+    }
 
     static func pending(_ request: Request, _ services: AppServices) -> [String: ActionResultValue] {
         let machine = request.machineID.flatMap { services.machines.session($0)?.machine.title } ?? request.name ?? request.machineID ?? ""
@@ -310,4 +320,12 @@ struct CloudStartSession {
 
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
+}
+
+extension CloudStartSessionRuns.Key {
+    /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
+    init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
+        self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
+                  caller: caller, account: account)
+    }
 }

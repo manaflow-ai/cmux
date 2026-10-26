@@ -154,6 +154,7 @@ final class CloudService {
         CloudMovedChats.app = movedChats
         link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
         link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
+        startSessionAsks.toolCards = toolCards
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
@@ -244,6 +245,17 @@ final class CloudService {
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 await self?.refresh(ifOlderThan: .seconds(30))
+            }
+        })
+        // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
+        // runs: none goes on in the account signed in after.
+        observers.append(Task { [weak self] in
+            guard let self else { return }
+            var last = account
+            for await account in ObservationStream({ self.account }) where account != last {
+                last = account
+                startSessionRuns.forgetAll()
+                startSessionAsks.endAll()
             }
         })
     }
@@ -371,7 +383,8 @@ final class CloudService {
     /// client sends (``CloudAuth/teamID``).
     private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
 
-    /// The user and team signed in now (``CloudStartSessionRuns`` keeps runs per account).
+    /// The user and team signed in now (observable: ``CloudAuth``). Start-session asks and runs
+    /// belong to the one they were asked in.
     var account: [String?] { listAccount }
 
     /// Whether the store holds a list the server answered, within `age`, for the user and team
@@ -446,8 +459,6 @@ final class CloudService {
         machines.cloudLimits = nil
         hasLoadedMachines = false
         listLoadedAt = nil
-        // Start-session runs and creations of the account that ended end with it.
-        startSessionRuns.forgetAll()
     }
 
     // MARK: Mutations
