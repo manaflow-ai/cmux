@@ -21,9 +21,10 @@ enum CloudStartSessionStrings {
         String(localized: "cloud.startSession.cwdInvalid", defaultValue: "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`.", table: "CloudSessions", bundle: .module)
     }
 
-    /// The machine to create (`--name`) could not be created; `reason` says why.
-    static func createFailed(_ name: String, agent: String, reason: String) -> String {
-        String(format: String(localized: "cloud.startSession.createFailed", defaultValue: "Couldn't create Cloud machine `%1$@` (%3$@), so no agent started. Run `cmux cloud start-session --name %1$@ --agent %2$@` again, or pick a machine from `cmux cloud list-machines`.", table: "CloudSessions", bundle: .module), name, agent, reason)
+    /// The machine to create (`--name`) could not be created; `reason` says why. `quoted` is the
+    /// name as one shell word for the command.
+    static func createFailed(_ name: String, quoted: String, agent: String, reason: String) -> String {
+        String(format: String(localized: "cloud.startSession.createFailed", defaultValue: "Couldn't create Cloud machine `%1$@` (%4$@), so no agent started. Run `cmux cloud start-session --name %2$@ --agent %3$@` again, or pick a machine from `cmux cloud list-machines`.", table: "CloudSessions", bundle: .module), name, quoted, agent, reason)
     }
 
     /// A run that answered `pending`: the same command again answers its end.

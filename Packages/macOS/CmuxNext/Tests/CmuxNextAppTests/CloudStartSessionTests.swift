@@ -111,7 +111,7 @@ struct CloudStartSessionTests {
         let messages = [
             CloudStartSessionStrings.needsMachine(agent: "claude"), CloudStartSessionStrings.noSuchMachine(id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentInvalid, CloudStartSessionStrings.cwdInvalid, CloudStartSessionStrings.stillStarting,
-            CloudStartSessionStrings.createFailed("dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
+            CloudStartSessionStrings.createFailed("dev", quoted: "dev", agent: "claude", reason: "x"), CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.agentFailed("dev", id: "vm-x", agent: "claude", reason: "x"), CloudStartSessionStrings.needsFolder("dev", id: "vm-x", agent: "claude"),
             CloudStartSessionStrings.notInChat, CloudStartSessionStrings.noPage, CloudStartSessionStrings.askOpen,
             CloudStartSessionStrings.declined, CloudStartSessionStrings.expired,
@@ -138,24 +138,36 @@ struct CloudStartSessionTests {
         #expect(!failure.message.contains(".)"))
     }
 
-    // MARK: The card belongs to its ask until the run ends
-
-    /// Yields to the main actor's other tasks until `ready` (at most 50 turns; no clock).
-    static func settle(_ ready: () -> Bool) async {
-        for _ in 0..<50 where !ready() { await Task.yield() }
+    @Test func theRetryCommandKeepsTheNameOneShellWord() {
+        #expect(CloudStartSession.shellQuoted("dev-1") == "dev-1")
+        #expect(CloudStartSession.shellQuoted("my dev") == "'my dev'")
+        #expect(CloudStartSession.shellQuoted("it's") == "'it'\\''s'")
+        #expect(CloudStartSession.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
+        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
+        #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
+        #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
     }
 
-    /// Cards shown in place of a chat page, and the clicks a test sends them.
+    // MARK: The card belongs to its ask until the run ends
+
+    /// Cards shown in place of a chat page, the clicks a test sends them, and a signal per card shown.
     final class Cards {
         var shown: [String: [AgentPaneToolCard]] = [:]
         var answers: [String: AgentToolCards.Answer] = [:]
+        let (events, event) = AsyncStream<String>.makeStream()
 
         func install(_ asks: CloudStartSessionAsks) {
             asks.present = { [unowned self] cards, tab, _, answer in
                 shown[tab] = cards.isEmpty ? nil : cards
                 answers[tab] = answer
+                if !cards.isEmpty { event.yield(tab) }
                 return true
             }
+        }
+
+        /// Waits until a card shows in `tab` (the ask reached its card).
+        func shownIn(_ tab: String) async {
+            for await shownTab in events where shownTab == tab { return }
         }
 
         func click(_ tab: String, _ action: String) { answers[tab]?("cloud-start-session-" + tab, action, nil) }
@@ -166,7 +178,7 @@ struct CloudStartSessionTests {
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
         let first = Task { try await asks.ask(tab: "chat-1", text: "first", services: services) }
-        await Self.settle { cards.shown["chat-1"] != nil }
+        await cards.shownIn("chat-1")
         #expect(cards.shown["chat-1"]?.first?.state == .ask)
         cards.click("chat-1", "start")
         let token = try await first.value
@@ -191,7 +203,7 @@ struct CloudStartSessionTests {
         let asks = CloudStartSessionAsks(), cards = Cards()
         cards.install(asks)
         let ask = Task { try await asks.ask(tab: "chat-2", text: "ask", services: services) }
-        await Self.settle { cards.shown["chat-2"] != nil }
+        await cards.shownIn("chat-2")
         cards.click("chat-2", "notNow")
         await #expect(throws: ActionFailure(message: CloudStartSessionStrings.declined)) { _ = try await ask.value }
         #expect(cards.shown["chat-2"] == nil)
@@ -206,48 +218,107 @@ struct CloudStartSessionTests {
         init(_ value: T) { self.value = value }
     }
 
-    @Test func theSameAskWhileARunGoesOnJoinsIt() async throws {
+    static let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: nil, name: "dev", agent: "codex", cwd: nil), caller: "chat-9")
+    static let pending: CloudStartSessionRuns.Fields = ["pending": .bool(true)]
+    /// A caller's wait that never ends by itself (the run's end cancels it).
+    static let waits: @MainActor (Duration) async -> Void = { _ in try? await Task.sleep(for: .seconds(3600)) }
+
+    @Test func aRunItsCallerSawEndIsNotKept() async throws {
         let runs = CloudStartSessionRuns()
-        let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-a", name: nil, agent: "claude", cwd: nil), caller: nil)
+        runs.sleep = Self.waits
+        let started = Box(0)
+        let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
+            started.value += 1
+            return ["session_id": .string("s-\(started.value)")]
+        }
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
+        #expect(runs.count == 0)
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-2"), "a new session, not the last one")
+    }
+
+    @Test func theSameAskWhileARunGoesOnWaitsForItAndTakesItsEnd() async throws {
+        let runs = CloudStartSessionRuns()
         let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
         let started = Box(0)
         let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
             for await _ in gate { break }
             return ["session_id": .string("s-1")]
         }
-        let first = Task { try await runs.join(key, answeredWithin: .seconds(190), work) }
-        await Self.settle { started.value == 1 }
-        let second = Task { try await runs.join(key, answeredWithin: .seconds(190), work) }
-        await Self.settle { false } // lets the second join reach the running one
-        open.yield(())
-        #expect(try await first.value["session_id"] == .string("s-1"))
-        #expect(try await second.value["session_id"] == .string("s-1"))
+        // The first caller's wait ends at once: it answers pending, and the run goes on.
+        runs.sleep = { _ in }
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work) == Self.pending)
+        // The second caller is waiting when its own wait begins: that lets the run end.
+        runs.sleep = { _ in
+            open.yield(())
+            try? await Task.sleep(for: .seconds(3600))
+        }
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
         #expect(started.value == 1)
-        // Its caller saw it end: the next same ask starts a new run.
-        #expect(runs.count == 0)
+        #expect(runs.count == 0, "it reached a caller, so it is not kept")
     }
 
-    @Test func aRunThatOutlastedItsCallerIsHandedOutOnce() async throws {
+    @Test func aRunEveryCallerLeftIsHandedToTheNextSameAskOnce() async throws {
         let runs = CloudStartSessionRuns()
         let clock = Box(ContinuousClock.now)
         runs.now = { clock.value }
-        let key = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: nil, name: "dev", agent: "codex", cwd: nil), caller: "chat-9")
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
         let started = Box(0)
-        let slow: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
+        let work: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
             started.value += 1
-            clock.value += .seconds(300) // longer than the caller waits
+            for await _ in gate { break }
             return ["session_id": .string("s-\(started.value)")]
         }
-        #expect(try await runs.join(key, answeredWithin: .seconds(190), slow)["session_id"] == .string("s-1"))
-        #expect(runs.count == 1, "kept for the caller that got pending")
-        #expect(try await runs.join(key, answeredWithin: .seconds(190), slow)["session_id"] == .string("s-1"))
+        runs.sleep = { _ in }
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work) == Self.pending)
+        open.yield(())
+        await runs.settled(Self.key)
+        #expect(runs.count == 1, "nobody saw it end")
+        runs.sleep = Self.waits
+        #expect(try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, work)["session_id"] == .string("s-1"))
         #expect(started.value == 1)
-        #expect(try await runs.join(key, answeredWithin: .seconds(190), slow)["session_id"] == .string("s-2"), "handed out once")
-        // Kept at most ten minutes.
+        #expect(runs.count == 0, "handed out once")
+    }
+
+    @Test func aKeptRunExpiresForTheSameAsk() async throws {
+        let runs = CloudStartSessionRuns()
+        let clock = Box(ContinuousClock.now)
+        runs.now = { clock.value }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        let slow: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
+            for await _ in gate { break }
+            return ["session_id": .string("old")]
+        }
+        runs.sleep = { _ in }
+        _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, slow)
+        open.yield(())
+        await runs.settled(Self.key)
         clock.value += CloudStartSessionRuns.kept + .seconds(1)
-        let other = CloudStartSessionRuns.Key(CloudStartSession.Request(machineID: "vm-b", name: nil, agent: "codex", cwd: nil), caller: nil)
-        _ = try await runs.join(other, answeredWithin: .seconds(190)) { ["session_id": .string("b")] }
+        runs.sleep = Self.waits
+        let fresh = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending) { ["session_id": .string("new")] }
+        #expect(fresh["session_id"] == .string("new"))
+        #expect(runs.count == 0)
+    }
+
+    @Test func aFailedRunEveryCallerLeftIsHandedOutOnceToo() async throws {
+        let runs = CloudStartSessionRuns()
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        defer { open.finish() }
+        let failing: @MainActor () async throws -> CloudStartSessionRuns.Fields = {
+            for await _ in gate { break }
+            throw ActionFailure(message: "Machine `dev` started but its agent didn't (x).")
+        }
+        runs.sleep = { _ in }
+        _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, failing)
+        open.yield(())
+        await runs.settled(Self.key)
+        runs.sleep = Self.waits
+        await #expect(throws: ActionFailure(message: "Machine `dev` started but its agent didn't (x).")) {
+            _ = try await runs.answer(Self.key, within: .seconds(190), pending: Self.pending, failing)
+        }
         #expect(runs.count == 0)
     }
 }

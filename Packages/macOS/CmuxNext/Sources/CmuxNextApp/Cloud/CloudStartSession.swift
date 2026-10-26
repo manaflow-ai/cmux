@@ -42,8 +42,10 @@ struct CloudStartSession {
                     request.machineID = try CloudHandlers.machine(invocation, context).machineID
                 }
                 if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-                return CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
-                    try await runs.join(CloudStartSessionRuns.Key(request, caller: nil), answeredWithin: Self.answerWithin) { try await start.run(request, invocation, context) }
+                return CloudHandlers.result("start cloud session", context) {
+                    try await runs.answer(CloudStartSessionRuns.Key(request, caller: nil), within: Self.answerWithin, pending: Self.pending(request)) {
+                        try await start.run(request, invocation, context)
+                    }
                 }
             }
             guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
@@ -61,8 +63,8 @@ struct CloudStartSession {
             asPerson.callerAgentSession = nil
             // The same ask again (the agent's run answered pending) joins the one that runs.
             let key = CloudStartSessionRuns.Key(request, caller: caller)
-            CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
-                try await runs.join(key, answeredWithin: Self.answerWithin) {
+            CloudHandlers.result("start cloud session", context) {
+                try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request)) {
                     let token = try await asks.ask(tab: tab.id, text: text, services: services)
                     asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
                     do {
@@ -162,6 +164,13 @@ struct CloudStartSession {
         return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(reason))
     }
 
+    /// `text` as one shell word: as it is when it is a plain name, else in single quotes.
+    static func shellQuoted(_ text: String) -> String {
+        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        guard text.isEmpty || !text.unicodeScalars.allSatisfy(plain.contains) else { return text }
+        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// A refusal sentence inside the run's parentheses: no closing period.
     static func reason(_ text: String) -> String {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -184,7 +193,7 @@ struct CloudStartSession {
             throw CancellationError()
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
-            throw ActionFailure(message: CloudStartSessionStrings.createFailed(name, agent: request.agent, reason: Self.reason(detail)))
+            throw ActionFailure(message: CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
         }
     }
 

@@ -23,9 +23,7 @@ final class CloudStartSessionAsks {
         guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen) }
         let token = UUID()
         let (answers, continuation) = AsyncStream<Bool?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        let actions = [AgentPaneToolCard.Action(id: "start", title: CloudStartSessionStrings.start),
-                       AgentPaneToolCard.Action(id: "notNow", title: CloudMoveAskStrings.notNow)]
-        guard set([card(tab, .ask, text, actions)], tab: tab, services: services, answer: { _, action, _ in continuation.yield(action == "start") }) else {
+        guard set([Self.askCard(tab: tab, text: text)], tab: tab, services: services, answer: { _, action, _ in continuation.yield(action == "start") }) else {
             continuation.finish()
             _ = set([], tab: tab, services: services) { _, _, _ in }
             throw ActionFailure(message: CloudStartSessionStrings.noPage)
@@ -72,6 +70,13 @@ final class CloudStartSessionAsks {
         }
     }
 
+    /// The card that asks: the agent's ask in `text`, with Start and Not now.
+    static func askCard(tab: String, text: String) -> AgentPaneToolCard {
+        let actions = [AgentPaneToolCard.Action(id: "start", title: CloudStartSessionStrings.start),
+                       AgentPaneToolCard.Action(id: "notNow", title: CloudMoveAskStrings.notNow)]
+        return AgentPaneToolCard(id: "cloud-start-session-" + tab, state: .ask, text: text, actions: actions)
+    }
+
     private func card(_ tab: String, _ state: AgentPaneToolCard.State, _ text: String, _ actions: [AgentPaneToolCard.Action]) -> AgentPaneToolCard {
         AgentPaneToolCard(id: "cloud-start-session-" + tab, state: state, text: text, actions: actions)
     }
@@ -82,10 +87,12 @@ final class CloudStartSessionAsks {
     }
 }
 
-/// `cmux cloud start-session` runs by what they ask for: the same ask again while one runs joins
-/// it, and the next same ask after a run that outlasted its caller's answer (the caller got
-/// `pending`) gets that run's end, once. A run its caller saw end is not kept. Ended runs are kept at most ``kept`` long and at most ``limit`` of them, pruned when
-/// a run starts; no timer.
+/// `cmux cloud start-session` runs by what they ask for. Each caller waits for its run at most
+/// its answer time, then answers `pending`, and the run goes on. The same ask again while a run
+/// goes on waits for that run. A run that ends with a caller still waiting has reached it and is
+/// dropped; one that ends after every caller answered `pending` is kept for the next same ask,
+/// which gets its end once. A kept run lasts at most ``kept`` (checked on every ask) and at most
+/// ``limit`` are kept, pruned when a run starts; no timer.
 @MainActor
 final class CloudStartSessionRuns {
     struct Key: Hashable {
@@ -104,45 +111,93 @@ final class CloudStartSessionRuns {
     }
 
     typealias Fields = [String: ActionResultValue]
+    typealias Outcome = Result<Fields, any Error>
 
-    private struct Run {
-        var task: Task<Fields, any Error>
-        var ended: ContinuousClock.Instant?
+    private final class Run {
+        var task: Task<Outcome, Never>?
+        /// Callers waiting for its end now.
+        var waiting = 0
+        var outcome: Outcome?
+        /// When it ended with nobody waiting (kept for the next same ask).
+        var kept: ContinuousClock.Instant?
     }
 
     static let kept: Duration = .seconds(600)
     static let limit = 32
     private var runs: [Key: Run] = [:]
-    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
+    var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
+    /// The caller's wait: a one-shot sleep, cancelled when the run ends first.
+    var sleep: @MainActor (Duration) async -> Void = { duration in
+        // wakeup-allow: one-shot answer deadline of one caller; cancelled when its run ends first
+        try? await Task.sleep(for: duration)
+    }
 
-    /// The run of `key`: one already running or ended (an ended one is handed out once), else
-    /// `work`, started now. `answeredWithin`: how long the caller waits before it answers
-    /// `pending`; a run that ends sooner reached its caller and is not kept.
-    func join(_ key: Key, answeredWithin: Duration, _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
-        if let run = runs[key] {
-            if run.ended != nil { runs[key] = nil }
-            return try await run.task.value
+    /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
+    /// run's end (handed out once), the one going on, else `work`, started now.
+    func answer(_ key: Key, within: Duration, pending: Fields, _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
+        let run = take(key, work)
+        if let outcome = run.outcome, run.kept != nil { return try outcome.get() }
+        run.waiting += 1
+        let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
+        // task-owner: this caller's wait for the run; ends with the run, which has its own deadlines.
+        let waiter = Task { @MainActor in continuation.yield(await run.task?.value) }
+        // task-owner: this caller's answer deadline; cancelled below once the run ends first.
+        let deadline = Task { @MainActor [sleep] in
+            await sleep(within)
+            continuation.yield(nil)
         }
-        prune()
-        // task-owner: the start itself; it runs to its end even after its caller answered pending.
-        let task = Task<Fields, any Error> { @MainActor in try await work() }
-        runs[key] = Run(task: task)
-        let started = now()
         defer {
-            if runs[key]?.task == task {
-                // A margin under the caller's own wait: an end that close may have lost the race.
-                if now() - started < answeredWithin - .seconds(2) { runs[key] = nil } else { runs[key]?.ended = now() }
+            deadline.cancel()
+            waiter.cancel()
+            continuation.finish()
+        }
+        var ended: Outcome?
+        for await value in ends {
+            ended = value
+            break
+        }
+        run.waiting -= 1
+        // An end that came as the deadline did still reaches this caller.
+        if let outcome = ended ?? run.outcome { return try outcome.get() }
+        return pending
+    }
+
+    /// The run of `key` to answer: a kept one (taken out, its end handed out once), the one going
+    /// on, else a new one.
+    private func take(_ key: Key, _ work: @escaping @MainActor () async throws -> Fields) -> Run {
+        if let run = runs[key] {
+            if let kept = run.kept {
+                runs[key] = nil
+                if now() - kept <= Self.kept { return run }
+            } else {
+                return run
             }
         }
-        return try await task.value
+        prune()
+        let run = Run()
+        runs[key] = run
+        // task-owner: the start itself; it runs to its end even after its callers answered pending.
+        run.task = Task { @MainActor [weak self] in
+            let outcome: Outcome
+            do { outcome = .success(try await work()) } catch { outcome = .failure(error) }
+            run.outcome = outcome
+            if let self, runs[key] === run {
+                if run.waiting > 0 { runs[key] = nil } else { run.kept = now() }
+            }
+            return outcome
+        }
+        return run
     }
+
+    /// Waits for `key`'s run to end (tests).
+    func settled(_ key: Key) async { _ = await runs[key]?.task?.value }
 
     var count: Int { runs.count }
 
     private func prune() {
         let cutoff = now() - Self.kept
-        runs = runs.filter { $0.value.ended.map { $0 > cutoff } ?? true }
-        let ended = runs.filter { $0.value.ended != nil }.sorted { $0.value.ended! < $1.value.ended! }
-        for (key, _) in ended.prefix(max(0, runs.count - Self.limit + 1)) { runs[key] = nil }
+        runs = runs.filter { $0.value.kept.map { $0 > cutoff } ?? true }
+        let kept = runs.compactMap { key, run in run.kept.map { (key, $0) } }.sorted { $0.1 < $1.1 }
+        for (key, _) in kept.prefix(max(0, kept.count - Self.limit + 1)) { runs[key] = nil }
     }
 }
