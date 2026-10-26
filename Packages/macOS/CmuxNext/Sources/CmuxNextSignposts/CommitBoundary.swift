@@ -23,6 +23,9 @@ public import CoreFoundation
 /// common modes fires when a common mode runs again (Core Animation's observer is in the common
 /// modes too, so nothing committed in between either).
 ///
+/// A boundary writes no trace record of the commit: `frame.commit` is written once per turn's commit
+/// by one repeating observer, however many boundaries wait on it (``FramePresentEstimate/observeCommits()``).
+///
 /// ```swift
 /// let interval = Signposter.action.begin(.actionCommit, "id=tab.new")
 /// CommitBoundary().after { Signposter.action.end(.actionCommit, interval, $0) }
