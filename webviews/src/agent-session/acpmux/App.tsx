@@ -39,7 +39,14 @@ import {
   nextDrawnRow,
   isBeforeFooter,
   isLastFooter,
+  QUEUED_MESSAGE,
 } from "./model";
+import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import {
+  QueuedMessageCard,
+  SteerWaitingActions,
+  type QueuedMessageActionsValue,
+} from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -894,7 +901,12 @@ const MessageRow = memo(
             images={row.images}
             onOpen={openSenderChat}
             onReply={replyToMessage}
-            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
+            actions={
+              <>
+                <ReceivedActions row={row} text={row.incoming.message.text} />
+                {row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
+              </>
+            }
             githubRepository={githubRepository}
           />
         </div>
@@ -1273,6 +1285,23 @@ const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", 
 /// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
 const openSenderChat = (sessionId: string) =>
   void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
+/// Send now on a steer the agent has not read (`_acpmux/queue_edit` send_now with its promptId).
+const sendSteerNow = (promptId: string) => void editQueued(promptId, { op: "send_now" }).catch(() => false);
+/// Another agent's message waiting in the queue: its received card after the running turn
+/// (conversation/QueuedMessageCard.tsx).
+const QueuedMessageRow = memo(
+  function QueuedMessageRow({ row, githubRepository }: RowProps) {
+    return (
+      <QueuedMessageCard
+        row={row}
+        onOpen={openSenderChat}
+        onReply={replyToMessage}
+        githubRepository={githubRepository}
+      />
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
@@ -1306,6 +1335,7 @@ const OfferResultRow = memo(
 );
 
 const NO_STARTED: readonly StartedSession[] = [];
+const NO_ROWS: readonly AcpmuxRow[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_COMMANDS: readonly BackgroundCommand[] = [];
@@ -1344,6 +1374,7 @@ const defaultRegistry: NativeRegistry = {
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
+  [QUEUED_MESSAGE]: QueuedMessageRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -1937,6 +1968,7 @@ export function VirtualTranscript({
   dock,
   queueWithdrawn,
   queueIds,
+  queuedTail,
   focusComposer,
   openAt,
   onAnchor,
@@ -1974,6 +2006,9 @@ export function VirtualTranscript({
   /// IDs from the queue snapshot: a folded prompt has no card in the DOM, but remains queued and
   /// must not be recorded as withdrawn when the fold changes.
   queueIds?: readonly string[];
+  /// The waiting agent messages at the rows' end (conversation/queuedMessages.ts), one array while
+  /// the queue holds them.
+  queuedTail?: readonly AcpmuxRow[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -2405,13 +2440,29 @@ export function VirtualTranscript({
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
   const previousRowList = useRef<AcpmuxRow[] | undefined>(undefined);
+  const previousTail = useRef<readonly AcpmuxRow[]>(NO_ROWS);
   useEffect(() => {
     const previous = previousRowList.current;
     previousRowList.current = rows;
+    // The tail these rows end with, against the one the previous rows ended with (kept with them,
+    // whatever happened since: another view's rows in between are not this tail).
+    const tail = queuedTail ?? NO_ROWS;
+    const lastTail = previousTail.current;
+    previousTail.current = tail;
     // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
     // running turn's line stays last under them (`below`, conversation/turns.ts).
     if (previous && previous.length <= rows.length) {
-      const line = previous.at(-1)?.below === true && rows.at(-1)?.id === previous.at(-1)!.id ? 1 : 0;
+      // So do the waiting agent messages after it (conversation/queuedMessages.ts), the same tail
+      // array while the queue holds: checked by identity, not row by row. A changed tail scans.
+      const keptTail = lastTail === tail ? tail.length : 0;
+      const before = previous.length - 1 - keptTail;
+      const line =
+        keptTail +
+        (before >= 0 &&
+        previous[before]!.below === true &&
+        rows[rows.length - 1 - keptTail]?.id === previous[before]!.id
+          ? 1
+          : 0);
       // `rowsChange` already found the first changed object while this render was prepared. Reuse
       // that boundary instead of copying the unchanged prefix and walking it a second time for
       // every streamed snapshot. Only the changed suffix can have lost a row id.
@@ -2433,7 +2484,7 @@ export function VirtualTranscript({
       if ([...current.keys()].every((id) => ids.has(id))) return current;
       return new Map([...current].filter(([id]) => ids.has(id)));
     });
-  }, [rows]);
+  }, [rows, queuedTail]);
   useLayoutEffect(flushDrawn);
   // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
   // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
@@ -4295,7 +4346,8 @@ function AcpmuxPane() {
     [clientSnapshot, switchView, catalog],
   );
   useEffect(() => setMinimapVisible(true), [snapshot.sessionId]);
-  const queueIds = useMemo(() => snapshot.queue.map((entry) => entry.id), [snapshot.queue]);
+  // The person's own queued prompts: another agent's message never draws in the composer's queue.
+  const queueIds = useMemo(() => ownQueue(snapshot.queue).map((entry) => entry.id), [snapshot.queue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
@@ -4819,7 +4871,7 @@ function AcpmuxPane() {
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
-  const transcriptRows = useMemo(() => {
+  const turnRowsShown = useMemo(() => {
     if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
@@ -4858,6 +4910,18 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
+  // Another agent's messages waiting in the queue: their received cards after the running turn, in
+  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat with none
+  // keeps its rows as they are; one with some copies the row list once per change.
+  const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const queuedRows = useMemo(
+    () => (childRows ? NO_ROWS : (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current))),
+    [childRows, snapshot.queue],
+  );
+  const transcriptRows = useMemo(
+    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
+    [turnRowsShown, queuedRows],
+  );
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -5111,7 +5175,7 @@ function AcpmuxPane() {
   // chat sends no `_acpmux/process/list`.
   const transcriptRunning = useMemo(() => runningBackgroundTasks(snapshot.rows), [snapshot.rows]);
   const inspectorOn = useHeaderState().inspector;
-  const inspectorOpened = useInspectorOpen();
+  const inspectorOpened = useInspectorOpen(shownSessionId);
   const processRegistry = useProcessRegistry(
     processSource,
     shownSessionId,
@@ -5286,8 +5350,12 @@ function AcpmuxPane() {
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
   });
+  // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
+  // below where the side chat is known; the cards read them as they draw.
+  const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   const turnActions = useMemo<TurnActions>(
     () => ({
+      queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
           of: stableBranches,
@@ -6137,6 +6205,41 @@ function AcpmuxPane() {
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
   );
+  const queueSideChatRef = useRef<((promptId: string, prompt: string) => Promise<boolean>) | undefined>(undefined);
+  // The queue as acpmux has it now, which a waiting message's Move up/Move down places it in.
+  const queueRef = useRef(snapshot.queue);
+  queueRef.current = snapshot.queue;
+  // Another agent's waiting message, from its card's ⋯ menu (conversation/QueuedMessageCard.tsx):
+  // the queue row's Steer, Edit message (into the composer, its images too), Open in side chat and
+  // Delete, Move up/down. Offered while disconnected too, as the queue row's were: a call then fails
+  // and the card stays. The menu reads them as it opens.
+  const sideChatOffered = Boolean(opensSideSessions && !isSideSession && snapshot.sessionId);
+  const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
+    () => ({
+      steer: (promptId) => editQueued(promptId, { op: "send_now" }),
+      remove: removeQueued,
+      edit: async (promptId, text, images) => {
+        const attachments = await queuedAttachments(images, readQueuedImage);
+        const removed = await removeQueued(promptId);
+        if (removed) composerHandle.current?.restore(text, attachments);
+        return removed;
+      },
+      // The queue row's Move up and Move down: acpmux's `move` to a place in the whole queue.
+      position: (promptId) => {
+        const queue = queueRef.current;
+        const index = queue.findIndex((entry) => entry.id === promptId);
+        return index < 0 ? undefined : { index, count: queue.length };
+      },
+      move: (promptId, index) => editQueued(promptId, { op: "move", index }),
+      ...(sideChatOffered && {
+        sideChat: (promptId: string, text: string) =>
+          queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
+      }),
+    }),
+    [sideChatOffered, readQueuedImage],
+  );
+  // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
+  queuedMessageActionsRef.current = queuedMessageActions;
   /// Prompts on their way through this page before the client holds them (a chat starting, a
   /// harness switch's row), and chats starting for a prompt (`chat.new`).
   const untakenSends = useRef(0);
@@ -8237,6 +8340,7 @@ function AcpmuxPane() {
                                                   dock={quick ? undefined : dock}
                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                   queueIds={quick ? undefined : queueIds}
+                                                  queuedTail={queuedRows}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
@@ -8843,34 +8947,35 @@ function AcpmuxPane() {
             // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the
             // queue first, so it never also runs here; one that already started stays with the turn.
             // A side chat that could not start gives its text back to the prompt.
+            // The waiting agent messages' cards offer it too (queueSideChatRef).
             onQueueSideChat={
-              opensSideSessions && !isSideSession && snapshot.sessionId
-                ? async (promptId, prompt) => {
-                    const sessionId = snapshot.sessionId!;
-                    // A row still waiting for the chat to take it leaves here; one with images stays,
-                    // as a side chat asks the text alone.
-                    const local = startingSends.rows.find((row) => row.id === promptId);
-                    if (
-                      local
-                        ? local.attachments.length > 0 || !startingSends.remove(promptId)
-                        : !(await removeQueued(promptId))
-                    )
-                      return false;
-                    setBtwFailure(undefined);
-                    const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
-                    callNative<string>("chat.btw", { question: prompt }).then(
-                      (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
-                      (error: unknown) => {
-                        fail(error);
-                        composerHandle.current?.restore(prompt, []);
-                      },
-                    );
-                    return true;
-                  }
-                : undefined
+              (queueSideChatRef.current =
+                opensSideSessions && !isSideSession && snapshot.sessionId
+                  ? async (promptId, prompt) => {
+                      const sessionId = snapshot.sessionId!;
+                      // A row still waiting for the chat to take it leaves here; one with images stays,
+                      // as a side chat asks the text alone.
+                      const local = startingSends.rows.find((row) => row.id === promptId);
+                      if (
+                        local
+                          ? local.attachments.length > 0 || !startingSends.remove(promptId)
+                          : !(await removeQueued(promptId))
+                      )
+                        return false;
+                      setBtwFailure(undefined);
+                      const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+                      callNative<string>("chat.btw", { question: prompt }).then(
+                        (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
+                        (error: unknown) => {
+                          fail(error);
+                          composerHandle.current?.restore(prompt, []);
+                        },
+                      );
+                      return true;
+                    }
+                  : undefined)
             }
             queueImage={readQueuedImage}
-            queueSubsessions={subsessions}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
@@ -9006,12 +9111,13 @@ function AcpmuxPane() {
     ? {
         sessions: composerSnapshot.sessions,
         currentId: snapshot.sessionId,
+        // The person's own queued prompts, as the composer's queue counts them.
         queueCounts:
-          snapshot.sessionId && snapshot.queue.length > 0
-            ? new Map([[snapshot.sessionId, snapshot.queue.length]])
+          snapshot.sessionId && ownQueue(snapshot.queue).length > 0
+            ? new Map([[snapshot.sessionId, ownQueue(snapshot.queue).length]])
             : undefined,
         steeringIds:
-          snapshot.summary?.steering && snapshot.sessionId && snapshot.queue.length > 0
+          snapshot.summary?.steering && snapshot.sessionId && ownQueue(snapshot.queue).length > 0
             ? new Set([snapshot.sessionId])
             : undefined,
         onSelect: selectSession,
@@ -9029,7 +9135,9 @@ function AcpmuxPane() {
       <ShortcutsContext.Provider value={shortcuts}>
         <section className="acpmux-shell" data-surface="quick">
           <QuickSurface
-            transcript={snapshot.rows.length > 0 || chatShellRuns.length > 0 ? transcript : undefined}
+            transcript={
+              snapshot.rows.length > 0 || chatShellRuns.length > 0 || queuedRows.length > 0 ? transcript : undefined
+            }
             asks={
               <>
                 {asks}

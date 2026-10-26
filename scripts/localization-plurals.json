@@ -646,18 +646,6 @@
       1
     ]
   },
-  "home.turn.steps": {
-    "source": "%lld steps",
-    "arguments": [
-      1
-    ]
-  },
-  "home.turn.moreSteps": {
-    "source": "%lld more steps",
-    "arguments": [
-      1
-    ]
-  },
   "importSuggestions.facts.profiles": {
     "source": "%lld profiles",
     "arguments": [

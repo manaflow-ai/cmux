@@ -2152,6 +2152,15 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/process/background", params, 10_000);
   }
 
+  /// Reconnects MCP server `server` (its `mcpServers` name) of the selected Claude Code chat: acpmux
+  /// sends Claude Code's mcp_reconnect and answers `{}`, or Claude Code's error; another harness's
+  /// chat is refused. Once it reconnected, the server reads connected in the chat's `mcpServers`.
+  /// The app's pane relay must allow `_acpmux/mcp/reconnect` (cmux-agent-pane-policy) first.
+  reconnectMcp(server: string): Promise<unknown> {
+    if (!this.selectedSessionId) return Promise.reject(new Error());
+    return this.request("_acpmux/mcp/reconnect", { sessionId: this.selectedSessionId, server }, 35_000);
+  }
+
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.
@@ -3097,6 +3106,8 @@ export class AcpmuxDirectClient {
         if (typeof msg.from === "string" && typeof msg.to === "string") {
           this.endAssistantSegment();
           this.streamingActivity = undefined;
+          // The last harness's /context is not the fallback's: acpmux drops it there too.
+          if (this.summary?.contextBreakdown) this.summary = { ...this.summary, contextBreakdown: undefined };
           const id = `failover-${event.seq}`;
           this.rows.set(id, {
             id,
@@ -4491,11 +4502,17 @@ export class AcpmuxDirectClient {
     return true;
   }
   /// The queue the composer shows: a task's result waiting there draws as its received line instead.
+  /// One array per queue, so a snapshot that leaves the queue as it was gives the same queue (the
+  /// transcript reads another agent's waiting messages from it: conversation/queuedMessages.ts).
   private shownQueue(): { id: string; prompt: string }[] {
     if (!offersShown()) return this.queue;
+    if (this.shownQueueOf?.queue === this.queue) return this.shownQueueOf.shown;
     const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
-    return shown.length === this.queue.length ? this.queue : shown;
+    const kept = shown.length === this.queue.length ? this.queue : shown;
+    this.shownQueueOf = { queue: this.queue, shown: kept };
+    return kept;
   }
+  private shownQueueOf?: { queue: QueuedPrompt[]; shown: { id: string; prompt: string }[] };
   /// Suggested tasks turned on or off (`sessions.promptSuggestions` or the Debug tunable): offers draw or go at once.
   suggestedTasksChanged(): void {
     if (!this.selectedSessionId || this.events.length === 0) return;

@@ -9,6 +9,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
+import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -26,6 +27,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapLayout,
   newTabHeadline,
   threadMinimapLit,
+  threadMinimapMark,
   turnErrorCard,
   codeRouterOffer,
   chromiumGlassUnderlay,
