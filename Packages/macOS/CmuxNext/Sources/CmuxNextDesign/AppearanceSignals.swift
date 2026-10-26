@@ -229,6 +229,14 @@ public final class AppearanceSignals {
         subscribe(signals, node: nil, delivery: .always, owner: owner) { _ in handler() }
     }
 
+    /// A view's subscription: on `node` with ``EventDelivery/whenVisible`` (a hidden view gets one
+    /// ``EventCall/missed`` call when it shows), or on every change while the view has no node yet
+    /// (it is not in a pane's visibility tree).
+    public func subscribe(_ signals: Set<Signal>, viewNode node: VisibilityNode?, owner: String,
+                          _ handler: @escaping @MainActor () -> Void) -> Subscription {
+        subscribe(signals, node: node, delivery: node == nil ? .always : .whenVisible, owner: owner) { _ in handler() }
+    }
+
     /// How many subscriptions to `signal` are live.
     package func subscriberCount(_ signal: Signal) -> Int {
         subscribers.count(where: { entry in entry.subscription.map { !$0.isCancelled && $0.signals.contains(signal) } ?? false })

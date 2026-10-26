@@ -445,6 +445,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
         DebugTabSwitch.mark(self, "content")
         if let content { DebugTabSwitch.kind(self, content.switchKind) }
+        // The tab's node is the one `selectTabNode` made visible; a no-op when the content follows it already.
+        if let content, let key { content.followAppearance(services.appearance, node: services.cache.node(for: key)) }
         currentTabKey = key
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }

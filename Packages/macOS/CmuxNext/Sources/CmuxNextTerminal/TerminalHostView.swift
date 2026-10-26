@@ -1,7 +1,8 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextTerminalFind
 import Observation
+public import CmuxNextWakeups
 
 /// Container the App embeds. Holds the current surface view (swapped on
 /// replay) and paints the terminal's background (its theme's, else the
@@ -84,7 +85,14 @@ public final class TerminalHostView: NSView {
     }
 
     private var configObserver: (any NSObjectProtocol)?
+    /// Display option changes (``followAppearance(_:node:)``).
     private var transparencyWatch: AppearanceSignals.Subscription?
+    /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the terminal).
+    private var appearanceSignals = DesignSettings.shared.signals
+    /// The terminal's tab in the visibility tree, held while it follows it.
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this terminal (tests: a hidden terminal gets none).
+    package private(set) var appearanceCalls = 0
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
@@ -107,9 +115,25 @@ public final class TerminalHostView: NSView {
             // main-proof: observer registered with queue: .main (OperationQueue.main runs on the main thread)
             MainActor.assumeIsolated { self?.needsLayout = true }
         }
-        // Reduce Transparency turns the window opaque or see-through without a theme change.
-        transparencyWatch = DesignSettings.shared.signals.subscribe([.displayOptions], owner: "TerminalHostView") { [weak self] in
-            self?.paintBackground()
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden terminal repaints once
+    /// when it shows, not on each change. The pane that shows the terminal calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+    }
+
+    /// Reduce Transparency turns the window opaque or see-through without a theme change.
+    private func observeAppearance() {
+        transparencyWatch = appearanceSignals.subscribe([.displayOptions], viewNode: visibilityNode, owner: "TerminalHostView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            paintBackground()
         }
     }
 
