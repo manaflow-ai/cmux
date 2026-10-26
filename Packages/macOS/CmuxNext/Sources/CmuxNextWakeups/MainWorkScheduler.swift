@@ -128,6 +128,12 @@ public final class MainWorkScheduler {
         budget.noteDiscreteInput(expectsFrame: expectsFrame)
     }
 
+    /// A discrete input's dispatch began or ended (``MainFrameBudget/noteDiscreteDispatch(began:)``);
+    /// the App's `InputDispatchContext` calls it around each one.
+    public func noteDiscreteDispatch(began: Bool) {
+        budget.noteDiscreteDispatch(began: began)
+    }
+
     /// One render pass of the main run loop ended (the app's meter does the same; tests call it after
     /// ``frameDidFire(timestamp:refreshInterval:targetTimestamp:)``). It is charged to the next frame and
     /// ends the input response when a link tick began after the latest frame-expecting input

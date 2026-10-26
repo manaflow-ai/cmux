@@ -6,23 +6,28 @@ public import CoreFoundation
 /// A key or a click whose turn expects a frame opens an input response on the ``MainFrameBudget``
 /// (Chrome `third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.h`:
 /// `UseCase::kDiscreteInputResponse`, entered only when `is_frame_expected_after_discrete_input`,
-/// so the frame after the input runs at input priority). While one is open, this pass runs where
-/// Core Animation commits (before waiting, and on exit), ahead of AppKit's display cycle and the
-/// commit, and applies, unbudgeted:
-/// - every dirty observation whose flush is the person's now, through its
-///   ``InputResponseSource`` (VisibleObservation's scheduler, p06-scheduler-025): one that an automation change
-///   dirtied first and the person's change then hit is the person's; one that only automation
-///   dirtied waits for its own class;
+/// so the frame after the input runs at input priority). In the person's turn (while a discrete
+/// input's dispatch is in progress, or a response is open) this pass runs where Core Animation
+/// commits (before waiting, and on exit), ahead of AppKit's display cycle and the commit, and
+/// applies, unbudgeted:
+/// - every dirty observation whose flush class is person now, through its
+///   ``InputResponseSource`` (``DirtyObservations``): one that an automation change dirtied first
+///   and the person's change then hit is the person's (``ObservationCauses``); one that only
+///   automation dirtied waits for its own class;
 /// - then every batch item the person caused (``enqueue(owner:_:)``), in order, those the
 ///   applies queued included.
 ///
-/// The observer is on the run loop only while a response is open, and after it closes only until
-/// the items accepted while it was open have run: a turn outside a response pays nothing.
+/// The observer goes on the run loop when a discrete dispatch begins
+/// (``MainFrameBudget/noteDiscreteDispatch(began:)``), so it is already there at the first wait
+/// of a run loop nested in the dispatch (a menu, a drag, a button's tracking loop), where the
+/// response opens from an earlier observer of the same stage: CFRunLoop collects a stage's
+/// observers before it calls them. It stays while the response is open, and after that only until
+/// the items accepted in the person's turn have run: a turn outside one pays nothing.
 ///
 /// ```swift
 /// let pass = InputResponsePass(budget: mainWork.budget)
-/// pass.addSource(causes)
-/// // A person-caused sidebar patch (FrameBatchQueue): false outside a response.
+/// pass.addSource(dirtyObservations)
+/// // A person-caused sidebar patch (FrameBatchQueue): false outside the person's turn.
 /// if !pass.enqueue(owner: owner, patch) { runAsUserBlocking(patch) }
 /// ```
 @MainActor
@@ -53,6 +58,10 @@ public final class InputResponsePass {
     private var observer: (any InputResponseObservation)?
     private var sources: [WeakSource] = []
     private var items: [Item] = []
+    /// A drain is running: an item it accepts runs in it.
+    private var draining = false
+    /// A drain is queued on the run loop for items accepted outside a drain.
+    private var drainQueued = false
 
     /// - Parameters:
     ///   - budget: The budget whose input response the pass follows (it tells the pass when one
@@ -76,23 +85,37 @@ public final class InputResponsePass {
         sources.append(WeakSource(value: source))
     }
 
-    /// Queues a person-caused batch item for this turn's pass. Returns false and queues nothing
-    /// when no input response is open: the caller runs it as user-blocking work.
+    /// Queues a person-caused batch item for the person's turn: it runs before that turn's
+    /// commit, or, accepted after this turn's pass ran (from AppKit's display cycle or a later
+    /// observer), before the next turn's, which the pass makes sure comes. Returns false and
+    /// queues nothing outside the person's turn (no discrete dispatch in progress and no response
+    /// open): the caller runs it as user-blocking work.
     @discardableResult
     public func enqueue(owner: MainTaskOwner? = nil, _ work: @escaping @MainActor () -> Void) -> Bool {
-        guard budget.isInputResponseOpen else { return false }
+        guard isPersonsTurn else { return false }
         items.append(Item(owner: owner ?? itemOwner, work: work))
         updateObserver()
+        if !draining, !drainQueued {
+            drainQueued = true
+            runLoop.perform { [weak self] in
+                guard let self else { return }
+                drainQueued = false
+                drain()
+            }
+        }
         return true
     }
 
-    /// The budget's input response opened or closed.
+    /// The budget's input response opened or closed, or a discrete dispatch began or ended.
     func inputResponseChanged() {
         updateObserver()
     }
 
+    /// A discrete input's dispatch is in progress, or its response is open.
+    private var isPersonsTurn: Bool { budget.isDiscreteDispatchOpen || budget.isInputResponseOpen }
+
     private func updateObserver() {
-        let wanted = budget.isInputResponseOpen || !items.isEmpty
+        let wanted = isPersonsTurn || !items.isEmpty
         if wanted, observer == nil {
             stats.installs += 1
             observer = runLoop.observeBeforeCommit(order: Self.order) { [weak self] in self?.drain() }
@@ -105,7 +128,9 @@ public final class InputResponsePass {
     /// One pass: the sources' person-caused observations, then the person's batch items.
     private func drain() {
         stats.passes += 1
-        if budget.isInputResponseOpen {
+        draining = true
+        defer { draining = false }
+        if isPersonsTurn {
             for source in sources {
                 guard let source = source.value else { continue }
                 // Published on the board, so a stall in an apply names the pass.
@@ -135,9 +160,8 @@ public final class InputResponsePass {
     }
 }
 
-/// What holds the dirty observations an ``InputResponsePass`` drains: VisibleObservation's
-/// scheduler (p06-scheduler-025), which knows each one's recorded cause and the
-/// `personCauseEpoch`.
+/// What holds the dirty observations an ``InputResponsePass`` drains: ``DirtyObservations``,
+/// which knows each one's recorded cause and the person-cause epoch (``ObservationCauses``).
 @MainActor
 public protocol InputResponseSource: AnyObject {
     /// Applies now, unbudgeted, every dirty observation whose flush class is person (its recorded
