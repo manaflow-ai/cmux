@@ -21,7 +21,7 @@ import Foundation
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
-//   CmuxNextWakeups -> Compat, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
+//   CmuxNextWakeups -> Compat, CmuxSafeConcurrency, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
 //     per-frame budget MainFrameBudget, and TracedTask; plans/cmux-next/idle-wakeups.md,
 //     main-thread-budget.md). Every target that calls Task.detached depends on it, except Compat.
@@ -676,6 +676,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextIcons", "CmuxNextIPC", "CmuxNextWakeups",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                // OnceContinuation (p10-stability-083/088).
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 "CmuxNextTrace",
             ],
             resources: [
@@ -1468,8 +1470,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
             // the typing probe's key-press flow hops (`key.flow`). swift-atomics: JobDelegate's inlinable shouldYield
             // names its `Bool: AtomicValue` conformance.
+            // CmuxSafeConcurrency: OnceContinuation, the continuation that resumes exactly once (p10-stability-083/088).
             dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics",
-                           .product(name: "Atomics", package: "swift-atomics")],
+                           .product(name: "Atomics", package: "swift-atomics"),
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
         ),
         // The one test clock of the CmuxNext test targets (ManualClock); test targets only.
@@ -1954,7 +1958,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowser",
             // SharedRegionC: the Chromium host control channel's sealed shm regions (ChromiumHostSharedRegion).
-            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextSharedRegionC"],
+            // CmuxSafeConcurrency: OnceContinuation (p10-stability-083/088).
+            dependencies: ["CmuxNextBrowserCore", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts", "CmuxNextSharedRegionC",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
@@ -1977,7 +1983,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
         .target(
             name: "CmuxNextBrowserAutomation",
-            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace"],
+            // CmuxSafeConcurrency: OnceContinuation (p10-stability-083/088).
+            dependencies: ["CmuxNextCompat", "CmuxNextBrowser", "CmuxNextWakeups", "CmuxNextTrace", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

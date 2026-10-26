@@ -3,6 +3,9 @@
 import CmuxNextCompat
 import Darwin
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A started host: its pid and cmux's ends of the wire (frames from the host
 /// on `readFD`, to it on `writeFD`).
@@ -141,7 +144,8 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
 
     func exit(of pid: pid_t) async -> ChromiumHostExit {
         if let ended = Self.exited(pid, blocking: false) { return ended }
-        return await withCheckedContinuation { continuation in
+        // A source dropped before its event (abandoned) is an exit with no status, as for a pid not ours.
+        let exit = try? await withOnceContinuation { (continuation: OnceContinuation<ChromiumHostExit, OnceContinuationError>) in
             // DispatchSource process source: the carve-out for a child's exit (no Foundation async
             // API for a posix_spawn'ed pid); it never reaps, so the zombie stays until reap(_:).
             let queue = exitQueue
@@ -162,6 +166,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
             // A host that ended before the source was armed posts no event: it is a zombie now.
             queue.async { if let ended = Self.exited(pid, blocking: false) { finish(ended) } }
         }
+        return exit ?? ChromiumHostExit(signal: nil, status: nil)
     }
 
     /// The exit of `pid` without reaping it (`WNOWAIT`): nil while it runs
