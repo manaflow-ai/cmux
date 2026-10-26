@@ -1,17 +1,19 @@
 @testable import CmuxNextDaemon
 import CmuxNextCompat
+import CmuxNextWakeups
 import Observation
 import Testing
 
 /// The store's intent totals (p15-oracle-040, the oracle's `intents` facet): each intent counts once when it
 /// leaves the log, as applied or rolled back; a refused command names its intent's case in `lastRolledBack`;
-/// the totals only grow; an observer of them hears a rollback; the pending list carries each transaction.
+/// the totals only grow; an observer of them hears a rollback, with the cause of the intent that left; the
+/// pending list carries each transaction.
 /// Run: `swift test --filter IntentTotalsTests`.
 @MainActor @Suite struct IntentTotalsTests {
     nonisolated private static let pane = PaneID(rawValue: 10)
 
-    private static func store() -> DaemonStore {
-        let store = DaemonStore()
+    private static func store(causes: ObservationCauses? = nil) -> DaemonStore {
+        let store = DaemonStore(causes: causes)
         store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [
             WorkspaceSnapshot(id: 1, key: nil, name: "workspace-1", screens: [
                 ScreenSnapshot(id: 100, name: "first", active: true, activePane: pane, layout: .leaf(pane),
@@ -79,6 +81,21 @@ import Testing
         store.rejectIntent(transaction)
         #expect(heard.value)
     }
+
+    /// The totals change with the cause of the intents that left (p06-scheduler-032, StoreCauses), not with the
+    /// cause current where they left: a person's rename refused outside any scope (program) publishes as person.
+    @Test func theTotalsChangeWithTheCauseOfTheIntentsThatLeft() {
+        let causes = MainWorkScheduler(budget: MainFrameBudget()).causes
+        let store = Self.store(causes: causes)
+        let transaction = ClientTransactionID.generate()
+        causes.withCause(.person) { store.intend(.renamePane(pane: Self.pane, name: "logs"), transaction: transaction) }
+        let heard = HeardCause()
+        withObservationTracking { _ = store.intentTotals } onChange: { heard.set(MainActor.assumeIsolated { causes.currentCause }) }
+        #expect(causes.currentCause == .program)
+        store.rejectIntent(transaction)
+        #expect(store.intentTotals.rolledBack == 1)
+        #expect(heard.value == .person)
+    }
 }
 
 /// An observer's onChange ran (it may run on any thread).
@@ -87,4 +104,12 @@ private final class Heard: Sendable {
     nonisolated deinit {}
     var value: Bool { heard.withLock { $0 } }
     func set() { heard.withLock { $0 = true } }
+}
+
+/// The cause current when an observer's onChange ran (it runs in the writer's willSet, on the main actor here).
+private final class HeardCause: Sendable {
+    private let heard = Mutex<ObservationCause?>(nil)
+    nonisolated deinit {}
+    var value: ObservationCause? { heard.withLock { $0 } }
+    func set(_ cause: ObservationCause) { heard.withLock { $0 = cause } }
 }

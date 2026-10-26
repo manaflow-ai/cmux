@@ -22,7 +22,9 @@ import Testing
         let facets: OracleFacets
     }
 
-    /// The store, turn observer and registry wired as the App wires them (AppActionContext.observeRefusals).
+    /// The store, turn observer and registry, with a copy of the App's wiring (AppActionContext.observeRefusals):
+    /// these tests cover OracleActionTurns and the facet; AppOracleHostTests'
+    /// `aHandlerRefusalCountsThroughTheAppRefusalWiring` covers the App's own wiring.
     private func fixture() -> Fixture {
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaceRevision: 1, workspaces: [
