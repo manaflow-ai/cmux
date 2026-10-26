@@ -183,6 +183,23 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
     let _ = std::fs::remove_dir_all(&outside);
 }
 
+#[tokio::test]
+async fn creation_tags_are_recorded_before_new_returns() {
+    let root = scratch("tags");
+    let hub = hub(&root);
+    let mut peer = C::open(&hub, Origin::Peer);
+    let r = peer
+        .call(
+            method::SESSION_NEW,
+            new(json!({"name": "tagged", "tags": {"a": "b", "owner": "leo"}}), Some(&root)),
+        )
+        .await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    assert_eq!(hub.resolve(id).unwrap().meta().tags["a"].value, "b");
+    assert_eq!(hub.resolve(id).unwrap().meta().tags["owner"].value, "leo");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 // The forwarding daemon's side: the refusal carries the command that works.
 
 /// B's WebSocket listener, with a peer token when `peer` (A is then served as a peer,

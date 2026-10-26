@@ -75,8 +75,11 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     // `missing` (mkdir -p makes it) or `unusable`; an older peer does not say.
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
     let found = Found { served, try_cwd, cause };
-    let (command, why) = match suggest(&Start::of(params), reason, found) {
-        Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
+    let (command, why) = match suggest(&Start::of(params), &reason, found) {
+        Hint::Here(start) => (
+            command(params, &start, Some(&peer.name), try_cwd, cause, &reason, false),
+            String::new(),
+        ),
         Hint::OnHost(start) => {
             let then = start
                 .name
@@ -92,7 +95,10 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
                 run_on = Some(peer.name.clone());
             }
             (
-                on_host(ssh.as_deref(), &start.on_host_command()),
+                on_host(
+                    ssh.as_deref(),
+                    &command(params, &start, None, try_cwd, cause, &reason, true),
+                ),
                 format!("{served}: run it on {} itself{then}", peer.name),
             )
         }
@@ -121,24 +127,108 @@ fn on_host(dest: Option<&str>, inner: &str) -> String {
 }
 
 /// The refusal's reason, from its data or, from a peer on an older build, its message.
-fn reason_of(e: &RpcError) -> Option<&'static str> {
+fn reason_of(e: &RpcError) -> Option<String> {
     let named = e.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str);
-    let known = [POLICY_REFUSED, MODE_REFUSED, CWD_MISSING, CWD_OUTSIDE_ROOTS];
-    if let Some(r) = named {
-        return known.into_iter().find(|k| *k == r);
+    if let Some(r) = named
+        && r.starts_with("remote.")
+    {
+        return Some(r.to_owned());
     }
     let m = e.message.as_str();
     if m.starts_with("a permission policy other than ask or deny-all is accepted only") {
-        Some(POLICY_REFUSED)
+        Some(POLICY_REFUSED.to_owned())
     } else if m.starts_with("a mode at session start is accepted only") {
-        Some(MODE_REFUSED)
+        Some(MODE_REFUSED.to_owned())
     } else if m.starts_with("cwd is refused: from a WebSocket connection it must be") {
-        Some(CWD_MISSING)
+        Some(CWD_MISSING.to_owned())
     } else if m.starts_with("cwd is refused: a remote WebSocket connection may use only") {
-        Some(CWD_OUTSIDE_ROOTS)
+        Some(CWD_OUTSIDE_ROOTS.to_owned())
     } else {
         None
     }
+}
+
+/// Build a refusal's runnable command from the original CLI argv when available. The daemon
+/// adds this metadata before forwarding a request, so prompts and launcher flags survive intact.
+fn command(
+    params: &Value,
+    start: &Start,
+    host: Option<&str>,
+    try_cwd: Option<&str>,
+    cause: Option<&str>,
+    reason: &str,
+    on_host: bool,
+) -> String {
+    let Some(mut words) = params
+        .pointer("/_meta/acpmux/argv")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>())
+    else {
+        return if on_host { start.on_host_command() } else { start.command(host) };
+    };
+    if on_host {
+        remove_option(&mut words, "--host");
+        // A mode supplied by a remote launcher is intentionally not reproduced on the host.
+        remove_option(&mut words, "--mode");
+    } else if reason == MODE_REFUSED {
+        remove_option(&mut words, "--mode");
+    }
+    if reason == CWD_MISSING && (!on_host || cause != Some("missing")) {
+        remove_option(&mut words, "--cwd");
+    }
+    if reason == CWD_OUTSIDE_ROOTS
+        && let Some(cwd) = try_cwd
+    {
+        replace_option(&mut words, "--cwd", cwd);
+    }
+    let mut rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
+    let prompt_file = params.pointer("/_meta/acpmux/promptFileText").and_then(Value::as_str);
+    let prefix = if let Some(text) = prompt_file
+        && replace_option(&mut rendered, "--prompt-file", "/dev/stdin")
+    {
+        format!("printf %s {} | ", quote(text))
+    } else {
+        String::new()
+    };
+    let inner = format!("{prefix}acpmux {}", rendered.join(" "));
+    if on_host
+        && reason == CWD_MISSING
+        && let Some(cwd) = start.cwd.as_deref()
+    {
+        format!("mkdir -p {} && {inner}", quote(cwd))
+    } else {
+        inner
+    }
+}
+
+fn remove_option(words: &mut Vec<String>, option: &str) {
+    let mut i = 0;
+    while i < words.len() {
+        if words[i] == option {
+            words.drain(i..=(i + 1).min(words.len() - 1));
+        } else if words[i].starts_with(&format!("{option}=")) {
+            words.remove(i);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+fn replace_option(words: &mut [String], option: &str, value: &str) -> bool {
+    let mut i = 0;
+    while i < words.len() {
+        if words[i] == option {
+            if let Some(next) = words.get_mut(i + 1) {
+                *next = value.to_owned();
+                return true;
+            }
+        } else if words[i].starts_with(&format!("{option}=")) {
+            words[i] = format!("{option}={value}");
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// What the caller asked to start, as `acpmux new` flags.
@@ -336,19 +426,39 @@ mod tests {
     }
 
     #[test]
+    fn original_argv_keeps_prompts_launcher_flags_and_quotes_shell_input() {
+        let params = json!({
+            "_meta": {"acpmux": {
+                "argv": ["new", "--host", "b", "-m", "codex", "--prompt-file", "brief.md",
+                         "--tag", "a=$()", "a prompt with 'quotes' and\nnewlines"],
+                "promptFileText": "line 1; $(touch nope)\nline 'two'"
+            }},
+            "cwd": "/remote/project"
+        });
+        let start = Start { cwd: Some("/remote/project".into()), ..Start::default() };
+        let got = command(&params, &start, Some("b"), None, None, MODE_REFUSED, false);
+        assert_eq!(
+            got,
+            r#"printf %s 'line 1; $(touch nope)
+line '\''two'\''' | acpmux new --host b -m codex --prompt-file /dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+newlines'"#
+        );
+    }
+
+    #[test]
     fn an_older_peers_refusal_is_known_by_its_message() {
         let e = |m: &str| RpcError::invalid_params(m);
         assert_eq!(
             reason_of(&e(
                 "a mode at session start is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
             )),
-            Some(MODE_REFUSED)
+            Some(MODE_REFUSED.to_owned())
         );
         assert_eq!(
             reason_of(&e(
                 "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
             )),
-            Some(CWD_OUTSIDE_ROOTS)
+            Some(CWD_OUTSIDE_ROOTS.to_owned())
         );
         assert_eq!(reason_of(&e("no peer \"x\"")), None);
         let other = e("x").with_data(json!({"reason": "trust.remote"}));

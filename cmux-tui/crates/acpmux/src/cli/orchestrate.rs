@@ -328,6 +328,21 @@ pub(crate) fn split_target(spec: &str) -> (String, Option<String>) {
     }
 }
 
+/// Parse repeatable creation tags once, before a session is made.
+pub(crate) fn parse_tags(assignments: &[String]) -> Result<Value> {
+    let mut tags = serde_json::Map::new();
+    for a in assignments {
+        let (key, value) = a
+            .split_once('=')
+            .ok_or_else(|| AppError::usage(format!("tag must be key=value, got {a:?}")))?;
+        if key.is_empty() {
+            return Err(AppError::usage(format!("tag key cannot be empty, got {a:?}")).into());
+        }
+        tags.insert(key.to_owned(), json!(value));
+    }
+    Ok(Value::Object(tags))
+}
+
 pub(crate) async fn ensure(
     client: Arc<Client>,
     name: &str,
@@ -337,6 +352,7 @@ pub(crate) async fn ensure(
     cwd: Option<std::path::PathBuf>,
     policy: Option<String>,
     effort: Option<String>,
+    tags: Vec<String>,
     json_out: bool,
 ) -> Result<()> {
     let (agent, model) = match &target {
@@ -347,6 +363,7 @@ pub(crate) async fn ensure(
         None => (None, None),
     };
     crate::session_name::validate(name).map_err(AppError::usage)?;
+    let tags = parse_tags(&tags)?;
     let existing = client.request(method::MUX_SESSIONS, json!({})).await?;
     let full = match &host {
         Some(h) => format!("{h}/{name}"),
@@ -377,6 +394,10 @@ pub(crate) async fn ensure(
             if let Some(e) = &effort {
                 meta["effort"] = json!(e);
             }
+            if !tags.as_object().is_none_or(|m| m.is_empty()) {
+                meta["tags"] = tags;
+            }
+            meta["argv"] = json!(std::env::args().skip(1).collect::<Vec<_>>());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
                 (Some(_), Some(c)) => p["cwd"] = json!(c),

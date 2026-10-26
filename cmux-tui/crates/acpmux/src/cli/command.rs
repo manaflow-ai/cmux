@@ -94,6 +94,9 @@ pub enum Command {
         policy: Option<String>,
         #[arg(long, short)]
         effort: Option<String>,
+        /// Label the session when it is created (repeatable `key=value`).
+        #[arg(long = "tag", value_name = "K=V")]
+        tags: Vec<String>,
     },
     /// Continue a session's work on another harness: prepare a reviewed
     /// first message for a new session there, then start or discard it.
@@ -1068,6 +1071,9 @@ pub struct NewArgs {
     pub effort: Option<String>,
     /// Optional first prompt.
     pub prompt: Vec<String>,
+    /// Label the new session (repeatable `key=value`).
+    #[arg(long = "tag", value_name = "K=V")]
+    pub tags: Vec<String>,
     /// Do not open the TUI after creating.
     #[arg(long, short)]
     pub detach: bool,

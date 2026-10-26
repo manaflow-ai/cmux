@@ -68,7 +68,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -78,6 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 cwd,
                 policy,
                 effort,
+                tags,
                 json_out,
             )
             .await
@@ -335,6 +336,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
+            }
+            meta["argv"] = json!(std::env::args().skip(1).collect::<Vec<_>>());
+            if let Some(prompt) = &launch.file_prompt {
+                meta["promptFileText"] = json!(prompt);
+            }
+            if !args.tags.is_empty() {
+                meta["tags"] = orchestrate::parse_tags(&args.tags)?;
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).

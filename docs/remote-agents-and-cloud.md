@@ -75,12 +75,19 @@ daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
 
 ```sh
-acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project -d
+acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
 acpmux ls
 acpmux session info my-linux/api-work
 acpmux send my-linux/api-work "Summarize this project's structure."
 acpmux attach my-linux/api-work
 ```
+
+Creation labels are repeatable and are applied before the session is listed:
+`acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
+If a remote policy, mode or folder check refuses a start, the JSON error's
+`error.data.try` is a complete shell-quoted command. Copy it verbatim; it keeps
+the prompt and launcher options. A `--prompt-file` is piped through stdin so
+the file does not need to exist on the remote host.
 
 Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
