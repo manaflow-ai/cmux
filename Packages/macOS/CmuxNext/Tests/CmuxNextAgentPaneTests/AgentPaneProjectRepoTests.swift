@@ -229,6 +229,7 @@ struct AgentPaneProjectRepoTests {
         try fixture.write(#"{"dependencies":{"vue":"3"},"devDependencies":{"vite":"7"}}"#, "code/vue/package.json")
         try fixture.write(#"{"devDependencies":{"@sveltejs/kit":"2"}}"#, "code/svelte/package.json")
         try fixture.write(#"{"dependencies":{"expo":"54","react-native":"0.81","react":"19"}}"#, "code/expo/package.json")
+        try fixture.write(#"{"dependencies":{"react-native":"0.81","react":"19"}}"#, "code/react-native/package.json")
         try fixture.write(#"{"name":"x","description":"\"react\" in prose is no dependency"}"#, "code/prose/package.json")
         try fixture.write(#"{"name":"x"}"#, "code/tauri/package.json")
         try fixture.write("[package]\n", "code/tauri/src-tauri/Cargo.toml")
@@ -243,7 +244,7 @@ struct AgentPaneProjectRepoTests {
         try fixture.write("const std = @import(\"std\");\n", "code/zig/build.zig")
         let reader = fixture.icons
         for (folder, glyph) in [("next", "next"), ("react-vite", "react"), ("vite", "vite"), ("vue", "vue"),
-                                ("svelte", "svelte"), ("expo", "expo"), ("prose", "node"), ("tauri", "tauri"),
+                                ("svelte", "svelte"), ("expo", "expo"), ("react-native", "react"), ("prose", "node"), ("tauri", "tauri"),
                                 ("bun", "bun"), ("broken", "node"), ("mac", "swift"), ("flutter", "flutter"),
                                 ("zig", "zig"), ("desktop", "electron"), ("large", "react")] {
             #expect(reader.glyph(in: fixture.home + "/code/" + folder) == glyph, "\(folder)")
