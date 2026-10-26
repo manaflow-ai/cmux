@@ -209,7 +209,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// Whether the key window is one of this window's Chromium page windows (the key rule's own,
     /// never another cmux window's page or a popup's) other than `page`'s own.
     private func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
-        guard let key = NSApp.keyWindow, key !== window, Self.isChromiumPageWindow(key),
+        guard let key = NSApp.keyWindow, key !== window, key.isChromiumPageWindow,
               paneShowingDevTools(window: key) == nil,
               ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return false }
         return (page as? CEFTab)?.isPageWindow(key) != true
