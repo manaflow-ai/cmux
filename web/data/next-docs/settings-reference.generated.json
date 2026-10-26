@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 497,
+  "count": 499,
   "sections": [
     {
       "id": "general",
@@ -1220,10 +1220,10 @@
         },
         {
           "key": "updates.downloadAutomatically",
-          "title": "Download Updates Automatically",
-          "help": "Off: a found update waits, and one click downloads and installs it.",
+          "title": "Download and Install Updates Automatically",
+          "help": "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
@@ -1231,7 +1231,7 @@
           "title": "Install Within",
           "help": "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart.",
           "kind": "number",
-          "default": 900,
+          "default": 600,
           "group": "Updates",
           "range": {
             "min": 60,
@@ -1490,6 +1490,19 @@
           "values": [
             "push",
             "overlay"
+          ]
+        },
+        {
+          "key": "agentPane.display.minimap",
+          "title": "Chat Minimap",
+          "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Agent Chat",
+          "values": [
+            "compact",
+            "full",
+            "off"
           ]
         },
         {
@@ -4925,6 +4938,19 @@
           ]
         },
         {
+          "key": "home.chiefEngine",
+          "title": "Engine",
+          "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Engine",
+          "values": [
+            "auto",
+            "local",
+            "hosted"
+          ]
+        },
+        {
           "key": "home.chiefPetEnabled",
           "title": "Show Chief Pet",
           "help": "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
@@ -4948,7 +4974,8 @@
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox"
+            "fox",
+            "mochi"
           ]
         },
         {

@@ -1,5 +1,6 @@
 import { isProviderId, SecretBytes, type ProviderCredential, type ProviderId } from "./drivers/types";
 import { jsonResponse, vmErrorResponse } from "./routeHelpers";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX } from "../runs/model";
 
 export type ParsedOptionalObjectBody =
   | { readonly ok: true; readonly body: Record<string, unknown> }
@@ -109,6 +110,15 @@ export function idempotencyKeyFromRequest(request: Request): IdempotencyKeyResul
       }, 400),
     };
   }
+  // A sandboxed Run's VM is created under `sandbox-run:…` (services/runs/model.ts); the VM
+  // workflows refuse pause, snapshot and fork on that key, and the Run reaper adopts a VM by it,
+  // so no request may name a key in that namespace.
+  if (raw.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)) {
+    return {
+      ok: false,
+      response: jsonResponse({ error: "vm_idempotency_key_reserved", details: { field: "idempotencyKey" } }, 400),
+    };
+  }
   return { ok: true, key: raw || undefined };
 }
 
@@ -144,18 +154,55 @@ export function gcpCredentialFromRequest(request: Request, provider: ProviderId 
   if (token.length > 16_384) return undefined;
   const expiryHeader = request.headers.get("x-cmux-gcp-access-token-expires-at");
   const expiresAt = expiryHeader ? Number(expiryHeader) : Number.NaN;
-  const sshPrivateKey = request.headers.get("x-cmux-gcp-ssh-private-key") ?? undefined;
-  const sshPublicKey = request.headers.get("x-cmux-gcp-ssh-public-key")?.trim() || undefined;
-  if (sshPrivateKey && sshPrivateKey.length > 32_768) return undefined;
-  if (sshPublicKey && (sshPublicKey.length > 16_384 || /[\r\n]/.test(sshPublicKey))) return undefined;
+  const ssh = gcpSshFromRequest(request);
+  if (!ssh) return undefined;
+  const { sshPrivateKeyPem, sshPublicKey, sshUsername } = ssh;
   return {
     provider: "gcp",
     accessToken: new SecretBytes(new TextEncoder().encode(token)),
     expiresAtUnix: Number.isFinite(expiresAt) ? expiresAt : Math.floor(Date.now() / 1000) + 300,
     lifetime: new AbortController(),
     ...(sshPublicKey ? { sshPublicKey } : {}),
-    ...(sshPrivateKey ? { sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode(sshPrivateKey)) } : {}),
+    ...(sshPrivateKeyPem ? { sshPrivateKeyPem } : {}),
+    ...(sshUsername ? { sshUsername } : {}),
   };
+}
+
+/**
+ * The optional SSH key pair and login name; null when any of them is malformed.
+ * A key file has newlines, which a header cannot carry, so
+ * `x-cmux-gcp-ssh-private-key` is the key file in standard base64.
+ */
+function gcpSshFromRequest(request: Request) {
+  const encodedPrivateKey = request.headers.get("x-cmux-gcp-ssh-private-key")?.trim() || undefined;
+  const sshPublicKey = request.headers.get("x-cmux-gcp-ssh-public-key")?.trim() || undefined;
+  const sshUsername = request.headers.get("x-cmux-gcp-ssh-username")?.trim() || undefined;
+  if (sshPublicKey && (sshPublicKey.length > 16_384 || /[\r\n]/.test(sshPublicKey))) return null;
+  if (sshUsername && (sshUsername.length > 128 || !/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(sshUsername))) return null;
+  if (!encodedPrivateKey) return { sshPrivateKeyPem: undefined, sshPublicKey, sshUsername };
+  const sshPrivateKeyPem = privateKeyFromHeader(encodedPrivateKey);
+  return sshPrivateKeyPem ? { sshPrivateKeyPem, sshPublicKey, sshUsername } : null;
+}
+
+const SSH_PRIVATE_KEY_MAX_BYTES = 32_768;
+
+/**
+ * Decodes a base64 key file into one unpooled allocation the SecretBytes owns,
+ * so its wipe clears the only decoded copy; null unless it is a PEM or
+ * OpenSSH private key no larger than 32 KiB.
+ */
+function privateKeyFromHeader(encoded: string): SecretBytes | null {
+  if (encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return null;
+  const decodedLength = (encoded.length / 4) * 3 - (encoded.match(/=+$/)?.[0].length ?? 0);
+  if (decodedLength > SSH_PRIVATE_KEY_MAX_BYTES) return null;
+  const bytes = Buffer.alloc(decodedLength);
+  const written = bytes.write(encoded, "base64");
+  const head = bytes.subarray(0, 64).toString("latin1");
+  if (written !== decodedLength || !/^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\r?\n/.test(head)) {
+    bytes.fill(0);
+    return null;
+  }
+  return new SecretBytes(bytes);
 }
 
 export { wipeProviderCredential } from "./drivers/types";
@@ -168,7 +215,6 @@ export function gcpProviderMetadataFromRequest(request: Request, provider: Provi
     ["zone", "x-cmux-gcp-zone"],
     ["machineType", "x-cmux-gcp-machine-type"],
     ["network", "x-cmux-gcp-network"],
-    ["subnetwork", "x-cmux-gcp-subnetwork"],
     ["sshUsername", "x-cmux-gcp-ssh-username"],
   ];
   const metadata: Record<string, unknown> = {};

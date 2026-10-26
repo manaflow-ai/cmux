@@ -1,22 +1,263 @@
+import AppKit
+import CmuxNextDesign
+import Foundation
 public import Observation
 
 /// The latest update state of each ``DaemonUpdateTarget``, as ``DaemonUpdatePolicy`` reports it:
-/// the surfaces that show a machine (its sidebar tooltip, a notice of a failed update) read it.
+/// an ssh machine's sidebar tooltip shows its line (``detail(sshHost:)``), another surface looks a
+/// target up by id (``detail(id:)``). Failed or rolled-back updates share one toast that stays
+/// until closed (``noticeToast(_:)``): one machine's reason, or the machines' names with each
+/// reason in its tooltip. Closed, it stays closed for that build, also across launches.
 @MainActor @Observable
 public final class DaemonUpdateBoard {
     // lint:allow one board per app process: the policy writes it, the sidebar of every window reads it
-    public static let shared = DaemonUpdateBoard()
+    public static let shared = DaemonUpdateBoard(closedNoticeFile: DaemonUpdatePolicy.defaultDirectory.appendingPathComponent("notice-closed"))
 
     /// The latest event per target id.
     public private(set) var targets: [String: DaemonUpdateEvent] = [:]
 
-    public init() {}
+    /// The one toast of the failures and what closing it does.
+    struct Notice {
+        var toast: CmuxToast
+        /// The person closed it: it stays closed for its build.
+        var closed: @MainActor () -> Void
+    }
+
+    /// Shows the notice's toast in the front window, unless replaced (tests); returns its handle. A
+    /// process with no application (a test of the policy with a real board) shows nothing.
+    @ObservationIgnored var showNotice: @MainActor (Notice) -> CmuxToastHandle? = { notice in
+        guard let app = NSApp as NSApplication?,
+              let window = DaemonUpdateBoard.noticeWindow(key: app.keyWindow, main: app.mainWindow, ordered: app.orderedWindows)
+        else { return nil }
+        let handle = CmuxToastCenter.shared.show(notice.toast, in: window)
+        handle.onDismiss = { [weak window] reason in
+            guard reason == .closed else {
+                if DaemonUpdateBoard.closedByPerson(reason, windowShown: true) { notice.closed() }
+                return
+            }
+            // `closed` is also the toast's window closing (the toast center ends its toasts so):
+            // only a close button in a window still shown is the person's. Read once the close
+            // has settled, when a closing window is no longer visible.
+            let closing = window
+            // task-owner: one read after this turn; ends at once
+            Task { @MainActor in
+                if DaemonUpdateBoard.closedByPerson(reason, windowShown: closing?.isVisible == true) { notice.closed() }
+            }
+        }
+        return handle
+    }
+
+    /// Whether a toast that ended for `reason` was closed by the person: its close button in a
+    /// window still shown, or its action. Its window closing, a newer notice in its place, or a
+    /// timeout is not.
+    nonisolated static func closedByPerson(_ reason: CmuxToastDismissReason, windowShown: Bool) -> Bool {
+        switch reason {
+        case .action: true
+        case .closed: windowShown
+        case .replaced, .timeout: false
+        }
+    }
+
+    /// Where the build whose notice the person closed is kept, so it stays closed after a relaunch;
+    /// nil keeps it in memory only. Only ``shared`` keeps the app's file: a board a test makes
+    /// never reads or writes it.
+    let closedNoticeFile: URL?
+    @ObservationIgnored private var closedBuild: String?
+    /// The read of ``closedNoticeFile`` (off the main actor); until it ends, failures are kept but
+    /// shown only once it says whether their build was closed.
+    @ObservationIgnored private var closedRead: Task<Void, Never>?
+    /// The last write of ``closedNoticeFile``; each waits for the one before, so the newest close wins.
+    @ObservationIgnored private var closedWrite: Task<Void, Never>?
+    /// The failures the notice shows: of one build (the newest that failed), by target id.
+    @ObservationIgnored private var failures: [String: DaemonUpdateEvent] = [:]
+    @ObservationIgnored private var failureBuild: String?
+    /// The notice showing now, so a new one replaces it wherever it is: one at a time.
+    @ObservationIgnored private var shown: CmuxToastHandle?
+
+    public init() {
+        closedNoticeFile = nil
+    }
+
+    init(closedNoticeFile: URL?) {
+        self.closedNoticeFile = closedNoticeFile
+        guard let closedNoticeFile else { return }
+        // task-owner: the board; one read of a few bytes, then it ends
+        closedRead = Task { [weak self] in
+            let build = await Self.readClosed(closedNoticeFile)
+            self?.didReadClosed(build)
+        }
+    }
+
+    /// Returns once ``closedNoticeFile`` is read and every close so far is written (tests).
+    func settled() async {
+        await closedRead?.value
+        await closedWrite?.value
+    }
+
+    @concurrent nonisolated private static func readClosed(_ file: URL) async -> String? {
+        try? String(contentsOf: file, encoding: .utf8)
+    }
+
+    @concurrent nonisolated private static func writeClosed(_ build: String, to file: URL) async {
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        try? Data(build.utf8).write(to: file, options: .atomic)
+    }
+
+    private func didReadClosed(_ build: String?) {
+        closedRead = nil
+        // A close in this run since wins over the file.
+        if closedBuild == nil { closedBuild = build }
+        if let failureBuild, failureBuild == closedBuild { failures = [:] }
+        showFailures()
+    }
+
+    /// What ``noticeWindow(key:main:ordered:rules:)`` asks of a window; ``live`` reads AppKit and
+    /// the window kit, tests replace it.
+    struct NoticeWindowRules {
+        /// The window a window acts for: a sheet, palette or panel stands for the window it is over.
+        var root: (NSWindow) -> NSWindow = { $0.windowKindRoot }
+        /// A workspace window (``WindowKind/main``): never settings, debug settings, a page's window.
+        var isWorkspace: (NSWindow) -> Bool = { $0.windowKind == .main }
+        /// On screen where the person is: shown, not minimized, on the active Space.
+        var inView: (NSWindow) -> Bool = { $0.isVisible && !$0.isMiniaturized && $0.isOnActiveSpace }
+        /// Shown at all: on another Space, or minimized.
+        var shown: (NSWindow) -> Bool = { $0.isVisible || $0.isMiniaturized }
+
+        static let live = NoticeWindowRules()
+    }
+
+    /// The window a notice goes to: a workspace window, the one the key window, else the main
+    /// window, else the frontmost window acts for. One in view on the active Space comes before one
+    /// on another Space or minimized, which still gets the notice, since it stays until closed.
+    /// An update fails in the background, often while the app is not active, and AppKit then has no
+    /// key or main window: the frontmost workspace window takes it.
+    static func noticeWindow(key: NSWindow?, main: NSWindow?, ordered: [NSWindow], rules: NoticeWindowRules = .live) -> NSWindow? {
+        var seen = Set<ObjectIdentifier>()
+        let workspaces = ([key, main] + ordered.map(Optional.some)).compactMap { $0.map(rules.root) }
+            .filter { rules.isWorkspace($0) && seen.insert(ObjectIdentifier($0)).inserted }
+        return workspaces.first(where: rules.inView) ?? workspaces.first(where: rules.shown)
+    }
 
     public func apply(_ event: DaemonUpdateEvent) {
         guard event.state != .cleared else {
             targets[event.id] = nil
+            failures[event.id] = nil
             return
         }
         targets[event.id] = event
+        guard case .failed = event.state else {
+            failures[event.id] = nil
+            return
+        }
+        let build = event.build ?? ""
+        guard event.notify, closedBuild != build else { return }
+        if failureBuild != build {
+            failures = [:]
+            failureBuild = build
+        }
+        failures[event.id] = event
+        showFailures()
+    }
+
+    /// Shows (or replaces) the one notice of ``failures``, unless the closed build is still being read.
+    private func showFailures() {
+        guard closedRead == nil, let build = failureBuild, let toast = Self.noticeToast(Array(failures.values)) else { return }
+        let previous = shown
+        // The same window replaces the previous toast in place (its handle ends `replaced`, which
+        // is no close).
+        guard let handle = showNotice(Notice(toast: toast, closed: { [weak self] in self?.close(build) })) else { return }
+        shown = handle
+        // One shown in another window goes: one notice at a time. Replaced, not closed by the person.
+        if let previous, previous !== handle, !previous.isDismissed {
+            previous.onDismiss = nil
+            previous.dismiss()
+        }
+    }
+
+    /// The person closed the notice of `build`: no notice for it again, also after a relaunch. A
+    /// notice of that build shown since (a failure that came while the close settled) goes too.
+    func close(_ build: String) {
+        closedBuild = build
+        if failureBuild == build {
+            failures = [:]
+            if let shown, !shown.isDismissed {
+                shown.onDismiss = nil
+                shown.dismiss()
+            }
+            shown = nil
+        }
+        guard let file = closedNoticeFile else { return }
+        let before = closedWrite
+        // task-owner: the board (`closedWrite`); one small write off the main actor after the one before, then it ends
+        closedWrite = Task {
+            await before?.value
+            await Self.writeClosed(build, to: file)
+        }
+    }
+
+    /// The tooltip line of target `id`, nil when it has no update state.
+    public func detail(id: String) -> String? {
+        targets[id].map { Self.line($0.state) }
+    }
+
+    /// The tooltip line of the ssh machine `host` (`SSHDestination.host`), nil when no target of
+    /// that host has an update state. O(targets): a handful of machines.
+    public func detail(sshHost host: String) -> String? {
+        let host = host.lowercased()
+        // One pass; of several targets on one host, the lowest id, so the line never flips between them.
+        var match: DaemonUpdateEvent?
+        for event in targets.values where event.sshHost?.lowercased() == host {
+            if match.map({ event.id < $0.id }) ?? true { match = event }
+        }
+        return match.map { Self.line($0.state) }
+    }
+
+    public nonisolated static func line(_ state: DaemonUpdateEvent.State) -> String {
+        switch state {
+        case .updating:
+            String(localized: "agentPane.daemonUpdate.updating", defaultValue: "Updating to this Mac's build…", bundle: .module)
+        case .retrying:
+            String(localized: "agentPane.daemonUpdate.retrying", defaultValue: "Update will try again soon", bundle: .module)
+        case .updated(let build):
+            String(format: String(localized: "agentPane.daemonUpdate.updated", defaultValue: "Updated to %@", bundle: .module), build)
+        case .failed(let reason, false):
+            String(format: String(localized: "agentPane.daemonUpdate.failed", defaultValue: "Update failed: %@", bundle: .module), reason)
+        case .failed(let reason, true):
+            String(format: String(localized: "agentPane.daemonUpdate.rolledBack", defaultValue: "Update rolled back: %@", bundle: .module), reason)
+        case .cleared:
+            // Never on the board: `apply` drops the target.
+            ""
+        }
+    }
+
+    /// The id of the one failure toast: each new failure replaces it in place.
+    nonisolated static let noticeID = "daemon-update.failures"
+
+    /// The one toast of `failures` (failed or rolled-back updates; other states are left out), nil
+    /// when none: one machine's notice, or "Couldn't update A and B" with each machine's notice in
+    /// its tooltip.
+    nonisolated static func noticeToast(_ failures: [DaemonUpdateEvent]) -> CmuxToast? {
+        let shown = failures.compactMap { event in notice(event).map { (event.displayName, $0) } }
+            .sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
+        guard let first = shown.first else { return nil }
+        guard shown.count > 1 else { return CmuxToast(id: noticeID, message: first.1, duration: CmuxToast.untilClosed) }
+        let names = ListFormatter.localizedString(byJoining: shown.map(\.0))
+        let message = String(format: String(localized: "agentPane.daemonUpdate.notice.several", defaultValue: "Couldn't update %@",
+                                            bundle: .module), names)
+        return CmuxToast(id: noticeID, message: message, detail: shown.map(\.1).joined(separator: "\n"), duration: CmuxToast.untilClosed)
+    }
+
+    /// The text of a failed or rolled-back update's toast; nil for any other state.
+    nonisolated static func notice(_ event: DaemonUpdateEvent) -> String? {
+        switch event.state {
+        case .failed(let reason, false):
+            String(format: String(localized: "agentPane.daemonUpdate.notice.failed", defaultValue: "Couldn't update %1$@: %2$@",
+                                  bundle: .module), event.displayName, reason)
+        case .failed(let reason, true):
+            String(format: String(localized: "agentPane.daemonUpdate.notice.rolledBack",
+                                  defaultValue: "%1$@ kept its previous build: %2$@", bundle: .module), event.displayName, reason)
+        default: nil
+        }
     }
 }

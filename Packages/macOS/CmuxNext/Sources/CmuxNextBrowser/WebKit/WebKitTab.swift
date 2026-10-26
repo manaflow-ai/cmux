@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextWakeups
 public import Foundation
 public import Observation
@@ -287,7 +288,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.removeFromSuperview()
+        WebViewRetirement.retire(webView)
         container.removeFromSuperview()
     }
 

@@ -1,5 +1,6 @@
+public import CmuxNextCompat
 import CmuxNextWakeups
-import Foundation
+public import Foundation
 import os
 
 /// An acpmux ssh peer of this app's daemon (`acpmux host add NAME ssh://host`) as a
@@ -44,7 +45,7 @@ nonisolated struct AcpmuxPeerUpdateTarget: DaemonUpdateTarget {
         case .busy: return .busy
         case .needsBinary(let triple): return .needsBinary(target: triple)
         case .rolledBack: return .rolledBack(reason: reply.error ?? "the new acpmux did not start")
-        case .cloudMachine: return .handledElsewhere
+        case .cloudMachine, .held: return .handledElsewhere
         // Not reachable now: the policy asks again with backoff, and drops it while the local
         // daemon reports it disconnected (``currentBuild()``) until it connects again.
         case .unreachable: return .busy
@@ -85,6 +86,13 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
             Self.logger.info("acpmux peers skipped: \(blocked, privacy: .public)")
             return []
         }
+        return status.updatablePeers.map { AcpmuxPeerUpdateTarget(name: $0.name, url: $0.url, source: self) }
+    }
+
+    /// The connected ssh peers now, without waiting for others to connect, while the local daemon
+    /// may push its build (``AcpmuxPeerReconnects/sweep(_:every:clock:)``).
+    func targetsNow() async -> [any DaemonUpdateTarget] {
+        guard let status = await status(), status.blocked(bundledBuild: await bundledBuild()) == nil else { return [] }
         return status.updatablePeers.map { AcpmuxPeerUpdateTarget(name: $0.name, url: $0.url, source: self) }
     }
 
@@ -142,5 +150,74 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staging.path)
         try? FileManager.default.removeItem(at: file)
         try FileManager.default.moveItem(at: staging, to: file)
+    }
+
+    /// The app's: its daemon's status, its bundled acpmux (its `--version` bounded by
+    /// `versionBound`), the policy's directory.
+    static func live(_ acpmux: AcpmuxEnvironment, directory: URL, versionBound: Duration = .seconds(10),
+                     download: @escaping @Sendable (_ artifact: String, _ executable: URL) async throws -> (file: URL, commit: String))
+        -> AcpmuxPeerUpdateSource {
+        var environment = ProcessInfo.processInfo.environment
+        environment.merge(acpmux.childEnvironment) { $1 }
+        return AcpmuxPeerUpdateSource(
+            status: {
+                guard let result = try? await AcpmuxStatusClient.call(socketPath: acpmux.socketPath, method: "_acpmux/status",
+                                                                     deadline: .seconds(5)) else { return nil }
+                let status = AcpmuxPeerUpdateStatus(result)
+                return status.daemon.serves(home: acpmux.home) ? status : nil
+            },
+            // Bounded: the launch offer, a reconnect check and the sweep each wait on it.
+            bundledBuild: { await DaemonUpdatePolicy.bundledBuild(of: acpmux.executable, within: versionBound) },
+            command: AcpmuxPeerUpdateCommand(executable: acpmux.executable, environment: environment),
+            download: { artifact in try await download(artifact, acpmux.executable) },
+            directory: directory,
+            clock: ContinuousClock()
+        )
+    }
+}
+
+extension DaemonUpdatePolicy {
+    /// carve-out: a once flag for the synchronous ``startOnce(build:environment:download:)``; no await under the lock.
+    private nonisolated static let started = OSAllocatedUnfairLock(initialState: false)
+
+    /// Whether this app updates its daemon's ssh peers: not a DEV build attached to another app's
+    /// daemon (`CMUX_NEXT_ACPMUX_ATTACH`, ``AcpmuxEnvironment/attachHome(build:environment:userHome:)``),
+    /// whose peers are that daemon's owner's to update.
+    nonisolated static func updatesPeers(build: BuildIdentity?, environment: [String: String]) -> Bool {
+        AcpmuxEnvironment.attachHome(build: build, environment: environment) == nil
+    }
+
+    /// Once per launch, in the background, after the app's acpmux is up (``AcpmuxHost/prewarm()``):
+    /// offers the acpmux ssh peers of the app's daemon to ``shared``, and arms
+    /// ``AcpmuxPeerReconnects`` and its sweep for the peers that connect later. `download` fetches a published
+    /// artifact of the bundled build next to `executable` (the app wires
+    /// `RemoteInstaller.download(artifact:nextTo:)`).
+    public nonisolated static func startOnce(
+        build: BuildIdentity?, environment: [String: String],
+        download: @escaping @Sendable (_ artifact: String, _ executable: URL) async throws -> (file: URL, commit: String)
+    ) {
+        let first = started.withLock { done -> Bool in
+            defer { done = true }
+            return !done
+        }
+        guard first, AgentPaneTunables.updatePeersAutomatically.value else { return }
+        guard updatesPeers(build: build, environment: environment) else {
+            DaemonUpdatePolicy.logger.info("daemon update skipped: attached to another app's acpmux")
+            return
+        }
+        // task-owner: once per launch; ends when the peers are offered (the shared policy updates them)
+        Task.detached(priority: .utility) {
+            let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+            guard let acpmux = AcpmuxEnvironment.resolve(build: build, bundledBinDirectory: bin, environment: environment) else {
+                DaemonUpdatePolicy.logger.info("daemon update skipped: no acpmux")
+                return
+            }
+            let peers = AcpmuxPeerUpdateSource.live(acpmux, directory: DaemonUpdatePolicy.defaultDirectory, download: download)
+            await MainActor.run { AcpmuxPeerReconnects.shared.source = peers }
+            for target in await peers.targets() {
+                await DaemonUpdatePolicy.shared.offer(target)
+            }
+            await MainActor.run { _ = AcpmuxPeerReconnects.shared.sweep(peers, every: .seconds(600), clock: ContinuousClock()) }
+        }
     }
 }

@@ -21,6 +21,12 @@
   min-width: 0;
   height: 24px;
 }
+/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
+.cv-agent-avatar {
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+}
 .cv-agent-card__icon {
   display: inline-flex;
   flex: none;

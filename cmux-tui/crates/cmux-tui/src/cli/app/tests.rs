@@ -41,6 +41,35 @@ fn screenshot_out_is_made_absolute_except_stdout() {
     assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
+/// `cmux cloud new-machine --bootstrap-script FILE` uploads a file of the
+/// caller's working directory, so the app gets it absolute; `--persistent`
+/// alone is a true flag and `--size` keeps its value.
+#[test]
+fn new_machine_bootstrap_script_is_made_absolute() {
+    let (method, params) = call(
+        run_action(
+            "cloud new-machine",
+            &args(&[
+                "--persistent",
+                "--size",
+                "medium",
+                "--bootstrap",
+                "lane",
+                "--bootstrap-script",
+                "boot.sh",
+            ]),
+            ActionName::Cli,
+        )
+        .unwrap(),
+    );
+    assert_eq!(method, "action.run");
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(params["args"]["bootstrapScript"], json!(cwd.join("boot.sh").to_string_lossy()));
+    assert_eq!(params["args"]["persistent"], json!(true));
+    assert_eq!(params["args"]["size"], json!("medium"));
+    assert_eq!(params["args"]["bootstrap"], json!("lane"));
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);

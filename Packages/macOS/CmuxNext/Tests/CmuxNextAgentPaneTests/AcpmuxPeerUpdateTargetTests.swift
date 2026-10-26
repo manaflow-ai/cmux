@@ -74,6 +74,8 @@ import Testing
         #expect(outcome(#"{"outcome":"failed","reason":"updateRunning","error":"another update of h is running"}"#) == .busy)
         // --keep-newer left a later or own build alone.
         #expect(outcome(#"{"outcome":"current","reason":"newer","error":"h runs fedcba987 2026-10-25"}"#) == .current)
+        // Held off updates (`acpmux host hold`): never reached.
+        #expect(outcome(#"{"outcome":"held","ok":true,"reason":"held","error":"h is held"}"#) == .held)
         #expect(outcome(#"{"outcome":"somethingNew"}"#) == .failed)
         // A target names a file in the binary directory: anything but a plain triple fails.
         #expect(outcome(#"{"outcome":"needsBinary","target":"../../etc/passwd"}"#) == .failed)
@@ -242,6 +244,115 @@ import Testing
         #expect(ledger.targets == ["acpmux-peer:huge-blue": "updated"])
     }
 
+    /// A peer offline when the launch looked is updated once it connects: its sessions change on
+    /// the app's watch (``AcpmuxPeerReconnects``), one status read finds it connected and the shared
+    /// queue updates it. Later changes read nothing; a drop and a reconnect offer it again, and the
+    /// ledger keeps that to one update per build.
+    @Test @MainActor func aPeerThatConnectsLaterIsUpdated() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", nil, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let connected = Mutex(false)
+        let reads = Mutex(0)
+        let source = fixture.source(peers: [], status: {
+            reads.withLock { $0 += 1 }
+            return AcpmuxPeerUpdateStatus(build: Self.local, peers: [Self.peer("huge-blue", connected: connected.withLock { $0 }),
+                                                                     Self.peer("websocket", url: "ws://10.0.0.2:47811")])
+        })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()))
+        let reconnects = AcpmuxPeerReconnects(offer: { await policy.offer($0) }, enabled: { true })
+        #expect(reconnects.note(peer: "huge-blue", stale: false) == nil, "nothing before the launch's discovery arms it")
+        reconnects.source = source
+        await policy.run()
+        #expect(fixture.calls.isEmpty, "offline at launch")
+
+        // Its cached rows change while it is still down: one read, nothing offered.
+        let before = reads.withLock { $0 }
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        #expect(reads.withLock { $0 } == before + 1)
+        #expect(fixture.calls.isEmpty)
+
+        connected.withLock { $0 = true }
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        await policy.drained()
+        #expect(fixture.calls.count == 1, "updated once it connected")
+        #expect(reconnects.note(peer: "huge-blue", stale: false) == nil, "more changes while connected read nothing")
+        await reconnects.note(peer: "websocket", stale: false)?.value
+        #expect(reconnects.note(peer: "websocket", stale: false) == nil, "not an ssh peer: read once, never offered")
+
+        #expect(reconnects.note(peer: "huge-blue", stale: true) == nil)
+        await reconnects.note(peer: "huge-blue", stale: false)?.value
+        await policy.drained()
+        #expect(fixture.calls.count == 1, "offered again after a reconnect; the ledger has it updated on this build")
+    }
+
+    /// Review of #24070: a peer that connects with no session sends no change on the app's watch,
+    /// so only the next launch updated it. The sweep offers it at its next read; turning
+    /// `agent.updatePeers` off ends the sweep.
+    /// Review of #25389: a DEV build attached to another app's daemon (`CMUX_NEXT_ACPMUX_ATTACH`)
+    /// updates no peers; that daemon's owner does. Builds that ignore the variable still update.
+    @Test func anAppAttachedToAnotherDaemonUpdatesNoPeers() {
+        let dev = BuildIdentity(bundleID: "com.cmuxterm.app.debug.peers", bundledTag: nil)
+        let attached = [AcpmuxEnvironment.attachKey: "/tmp/another-app/.acpmux"]
+        #expect(!DaemonUpdatePolicy.updatesPeers(build: dev, environment: attached))
+        #expect(DaemonUpdatePolicy.updatesPeers(build: dev, environment: [:]))
+        let nightly = BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil)
+        #expect(DaemonUpdatePolicy.updatesPeers(build: nightly, environment: attached), "only DEV builds attach")
+    }
+
+    /// Review of #25389: the live source's bundled `--version` probe is bounded, so the launch
+    /// offer, a reconnect check and the sweep never wait on a CLI that does not answer.
+    @Test(.timeLimit(.minutes(1))) func theLiveSourcesBundledVersionEndsAtItsBound() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("acpmux-peer-live-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let script = root.appendingPathComponent("acpmux")
+        try "#!/bin/sh\nexec sleep 30\n".write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        let acpmux = try #require(AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: nil, environment: ["ACPMUX_HOME": root.path],
+                                                            executableOverride: script, teamIdentifier: nil))
+        let source = AcpmuxPeerUpdateSource.live(acpmux, directory: root, versionBound: .milliseconds(500)) { _, _ in
+            throw CancellationError()
+        }
+
+        let started = ContinuousClock.now
+        #expect(await source.bundledBuild() == nil)
+        #expect(ContinuousClock.now - started < .seconds(20), "the probe ended at its bound")
+    }
+
+    @Test @MainActor func aPeerThatConnectsWithNoSessionIsUpdatedByTheSweep() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("huge-blue", nil, #"{"updated":[{"peer":"huge-blue","outcome":"updated","ok":true,"build":"abc123def 2026-10-20"}],"peers":[]}"#)
+        let connected = Mutex(false)
+        let source = fixture.source(peers: [], status: {
+            AcpmuxPeerUpdateStatus(build: Self.local, peers: [Self.peer("huge-blue", connected: connected.withLock { $0 })])
+        })
+        let policy = DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true }, report: { _ in },
+            directory: fixture.root.appendingPathComponent("state"), clock: PolicyTestClock()))
+        // On for three sweeps; the peer connects after the first.
+        let sweeps = Mutex(0)
+        let reconnects = AcpmuxPeerReconnects(offer: { target in
+            await policy.offer(target)
+            await policy.drained()
+        }, enabled: {
+            sweeps.withLock { count in
+                defer { count += 1 }
+                if count == 1 { connected.withLock { $0 = true } }
+                return count < 3
+            }
+        })
+        await policy.run()
+        #expect(fixture.calls.isEmpty, "offline at launch")
+
+        await reconnects.sweep(source, every: .seconds(600), clock: PolicyTestClock()).value
+        #expect(fixture.calls.count == 1, "updated at the sweep after it connected, once")
+        #expect(sweeps.withLock { $0 } == 4, "the sweep ended when the toggle read off")
+    }
+
     /// Every run carries `--keep-newer` (#25425): the CLI, under the host's update lock, leaves a
     /// peer alone that a self-update moved past the pushed build after the app read it (review of
     /// #25388). `--if-idle` only when the queue asks idle.
@@ -250,6 +361,28 @@ import Testing
         let base = ["--json", "host", "update", "cmux16", "--binary-dir", "/tmp/binaries/abc123def", "--keep-newer"]
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: false) == base + ["--if-idle"])
         #expect(AcpmuxPeerUpdateCommand.updateArguments(peer: "cmux16", binaryDirectory: binaries, whileBusy: true) == base)
+    }
+
+    /// A machine held off updates (`acpmux host hold`, such as one reserved for someone else): the
+    /// CLI answers `held` without reaching it. Nothing is recorded, no failure shows, and the
+    /// queue does not ask again in this run.
+    @Test func aHeldPeerShowsNoFailureAndIsNotRecorded() async throws {
+        let fixture = try StandInAcpmux()
+        defer { fixture.remove() }
+        try fixture.reply("mini-a", nil, #"{"updated":[{"peer":"mini-a","host":"mini-a","outcome":"held","ok":true,"build":null,"reason":"held","error":"mini-a is held (reserved for a teammate)"}],"peers":[]}"#)
+        let source = fixture.source(peers: ["mini-a"])
+        let events = Mutex<[DaemonUpdateEvent]>([])
+        let state = fixture.root.appendingPathComponent("state")
+        await DaemonUpdatePolicy(DaemonUpdatePolicy.Dependencies(
+            bundledBuild: { Self.local }, targets: { await source.targets() }, enabled: { true },
+            report: { event in events.withLock { $0.append(event) } }, directory: state, clock: PolicyTestClock()
+        )).run()
+
+        #expect(fixture.calls.count == 1)
+        #expect(events.withLock { $0.map(\.state) } == [.updating, .cleared])
+        #expect(!events.withLock { $0.contains { $0.notify } })
+        let ledger = DaemonUpdateLedger.read(state, build: try #require(DaemonBuildCommit(Self.local)).hash)
+        #expect(ledger.targets.isEmpty)
     }
 
     /// Review of #25388: another update holds the host's lock (`failed`, reason `updateRunning`).

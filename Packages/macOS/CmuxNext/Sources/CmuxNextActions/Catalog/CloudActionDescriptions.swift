@@ -16,11 +16,11 @@ nonisolated enum CloudActionDescriptions {
             `cmux cloud new-terminal-on-machine --target machine:<id>` returns a workspace_id.
             """,
         "newCloudMachine": """
-            Creates a Cloud machine and returns machine_id, title, status and target (machine:<id>) once the \
-            server has it; its first workspace opens when it is ready. After 30 s it answers pending: true \
-            with a creation_id and the create goes on, so check `cmux cloud list-machines` before creating \
-            another. A create an agent or script starts may ask the person first, and a plan without Cloud \
-            machines shows an upgrade card instead.
+            Creates a Cloud machine; returns machine_id, title, status and target once the server has it. \
+            After 30 s it answers pending: true and the create goes on: check `cmux cloud list-machines` \
+            before another. Options: --size small|medium|large|xlarge, --name, --persistent (no idle \
+            pause), --bootstrap-script FILE (--bootstrap lane for a lane host), answering bootstrap and \
+            enrollment. An agent's create may ask the person first.
             """,
         "palette.cloud.fork": """
             Forks the machine (--target machine:<id>) into a new machine. Answers at once with no id; the \
