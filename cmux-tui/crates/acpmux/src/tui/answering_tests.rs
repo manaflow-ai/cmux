@@ -69,6 +69,17 @@ async fn an_optional_number_takes_typed_1_not_its_first_option() {
     assert_eq!(sent(&mut requests).await, Some(json!({"Replicas": "12"})), "{}", app.status);
 }
 
+/// An item with no options (an MCP form's string field) takes typed text
+/// from its first key: a leading digit is text, not an option shortcut.
+#[tokio::test]
+async fn a_free_text_item_takes_leading_digits() {
+    let question = json!({"harness": "claude", "agent": "deployer", "items": [{
+        "id": "q0", "prompt": "Note", "options": [], "multiSelect": false, "allowsOther": true}]});
+    let (mut app, mut requests) = asking(question).await;
+    press(&mut app, "123abc");
+    assert_eq!(sent(&mut requests).await, Some(json!({"Note": "123abc"})), "{}", app.status);
+}
+
 /// Any other item keeps the digit shortcut.
 #[tokio::test]
 async fn a_digit_still_picks_an_option_elsewhere() {

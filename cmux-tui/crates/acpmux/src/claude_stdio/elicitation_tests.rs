@@ -277,8 +277,10 @@ async fn ambiguous_forms_keep_the_unsupported_reply() {
                 "properties": {"a": property, "b": {"type": "string"}}}}))
     };
     let forms = [
-        // A multi-select label holding the join.
+        // A multi-select label holding the join, or any comma (`acpmux
+        // answer` splits a multi-select answer on commas).
         field(json!({"type": "array", "items": {"enum": ["x", "x, y", "y"]}}), json!(["a", "b"])),
+        field(json!({"type": "array", "items": {"enum": ["x,y", "x", "y"]}}), json!(["a", "b"])),
         // An optional choice that is the "No answer" option.
         field(json!({"type": "string", "enum": ["No answer", "Yes"]}), json!(["a", "b"])),
         // An order that names a field twice, or holds a non-string.
