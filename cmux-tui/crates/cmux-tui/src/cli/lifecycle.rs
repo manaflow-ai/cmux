@@ -288,12 +288,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             global.output,
         ),
         ServerAction::Stats => {
-            let supports_stats = identity
-                .get("capabilities")
-                .and_then(Value::as_array)
-                .is_some_and(|capabilities| {
-                    capabilities.iter().any(|capability| capability == "server-stats-v1")
-                });
+            let supports_stats = ServerStatsRequest::CAPABILITY
+                .is_none_or(|capability| advertises(&identity, capability));
             match exchange(&mut connection, ServerStatsRequest::default().line(2), deadline) {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
@@ -358,9 +354,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
         ServerAction::Stop { force, end_terminals, .. } => {
             if end_terminals
-                && !identity["capabilities"]
-                    .as_array()
-                    .is_some_and(|values| values.iter().any(|value| value == "terminal-reap-v1"))
+                && !advertises(&identity, ShutdownDaemonRequest::END_TERMINALS_CAPABILITY)
             {
                 return local_error(
                     "server.end_terminals_unsupported",
@@ -376,11 +370,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             // Ending hosts waits for each one to exit, so allow more time.
             let deadline =
                 if end_terminals { Instant::now() + Duration::from_secs(120) } else { deadline };
-            if force
-                && !identity["capabilities"].as_array().is_some_and(|values| {
-                    values.iter().any(|value| value == "daemon-handoff-force-v1")
-                })
-            {
+            if force && !advertises(&identity, ShutdownDaemonRequest::FORCE_CAPABILITY) {
                 return local_error(
                     "server.force_unsupported",
                     &refused_with_fix(
@@ -856,6 +846,14 @@ enum ExchangeError {
     Closed,
     InvalidResponse,
     Rejected(String),
+}
+
+/// Whether the daemon's `identify` reply lists `capability`.
+fn advertises(identity: &Value, capability: &str) -> bool {
+    identity
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .is_some_and(|capabilities| capabilities.iter().any(|value| value == capability))
 }
 
 fn exchange(

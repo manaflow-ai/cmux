@@ -10,18 +10,27 @@
 //! the struct and never spells a method name. These types do the same for the
 //! JSON-line wire: `ClientRequest::line` writes `{"id", "cmd", fields...}`.
 //!
-//! A field's Rust type follows its presence and nullability, as the Rust SDK
-//! (bindings/rust) does:
-//! - required, not nullable: `T`;
-//! - required, nullable: `Option<T>`, `None` is `null`;
-//! - optional with a default, or optional and not nullable: `Option<T>`,
-//!   `None` leaves the field out;
-//! - optional, nullable, no default: `Option<Option<T>>`, so a caller can
-//!   leave it out (`None`) or send `null` (`Some(None)`).
+//! A field's Rust type follows its presence and nullability with the same
+//! four shapes as the Rust SDK (bindings/codegen/emit_rust.py), spelled with
+//! `Option` because cmux-ipc stays std-only and does not depend on the SDK:
+//! - required, not nullable: `T` (SDK `T`);
+//! - required, nullable: `Option<T>`, `None` is `null` (SDK `Nullable<T>`);
+//! - optional, not nullable: `Option<T>`, `None` leaves the field out (SDK
+//!   `Option<T>`);
+//! - optional, nullable: `Option<Option<T>>`, `None` leaves the field out and
+//!   `Some(None)` sends `null` (SDK `presence::Optional<T>`).
+//!
+//! A `default` does not change the shape: the daemon applies it to an absent
+//! field, and a nullable field can still be sent as `null`. The test
+//! `cli_wire_request_shapes_agree_with_the_sdk` checks every `cli` request
+//! against the SDK's generated struct, field by field.
 //!
 //! A `literal` field is a constant the encoder writes; it has no Rust field.
+//! A field with a `capability` gets `<FIELD>_CAPABILITY` on its struct.
 //! `opaque_json` and `untagged_union` types are `Value`. Anything else the
-//! emitter cannot type fails the build with its JSON path.
+//! emitter cannot type fails the build with its JSON path, and so does a
+//! tagged-union variant that does not carry its tag as a required literal
+//! equal to the variant name.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Write as _};
@@ -221,6 +230,10 @@ impl<'a> Emitter<'a> {
             "ref" => self.named(text(node, "name", path)?, path),
             "opaque_json" | "untagged_union" => Ok("Value".to_owned()),
             "object" | "enum" | "tagged_union" => {
+                // An alias target is resolved on every reference; declare it once.
+                if self.claimed.get(owner).is_some_and(|claimed| claimed == path) {
+                    return Ok(owner.to_owned());
+                }
                 self.claim(owner, path)?;
                 self.queue.push_back((owner.to_owned(), node, path.to_owned()));
                 Ok(owner.to_owned())
@@ -285,11 +298,11 @@ impl<'a> Emitter<'a> {
             &format!("{owner}{}", pascal(name, path)?),
             &format!("{path}.type"),
         )?;
-        Ok(match (required, nullable, field.get("default").is_some()) {
-            (true, false, _) => Shape::Always(inner),
-            (true, true, _) => Shape::Always(format!("Option<{inner}>")),
-            (false, true, false) => Shape::Omittable(format!("Option<Option<{inner}>>")),
-            (false, _, _) => Shape::Omittable(format!("Option<{inner}>")),
+        Ok(match (required, nullable) {
+            (true, false) => Shape::Always(inner),
+            (true, true) => Shape::Always(format!("Option<{inner}>")),
+            (false, true) => Shape::Omittable(format!("Option<Option<{inner}>>")),
+            (false, false) => Shape::Omittable(format!("Option<{inner}>")),
         })
     }
 
@@ -338,6 +351,20 @@ impl<'a> Emitter<'a> {
             let _ = writeln!(code, "    pub {ident}: {ty},");
         }
         let _ = writeln!(code, "}}\n");
+        let gated: Vec<_> = members
+            .iter()
+            .filter_map(|(name, _, _, capability)| capability.map(|capability| (name, capability)))
+            .collect();
+        if !gated.is_empty() {
+            let _ = writeln!(code, "impl {rust} {{");
+            for (name, capability) in gated {
+                let constant = format!("{}_CAPABILITY", name.to_ascii_uppercase());
+                let doc = format!("The capability the daemon advertises for `{name}`.");
+                let _ = writeln!(code, "    #[doc = {doc:?}]");
+                let _ = writeln!(code, "    pub const {constant}: &'static str = {capability:?};");
+            }
+            let _ = writeln!(code, "}}\n");
+        }
         let fields_arg = if members.is_empty() { "_fields" } else { "fields" };
         let _ = writeln!(code, "impl WireObject for {rust} {{");
         let _ =
@@ -424,8 +451,9 @@ impl<'a> Emitter<'a> {
     }
 
     /// An enum of one struct per variant; each variant struct writes its tag
-    /// as a literal field.
+    /// as a required literal field whose value is the variant name.
     fn tagged_union(&mut self, rust: &str, node: &'a Value, path: &str) -> Result<(), ClientError> {
+        let tag = text(node, "tag", path)?;
         let variants = object(node.get("variants"), &format!("{path}.variants"))?;
         let mut arms = Vec::new();
         for (wire, variant) in variants {
@@ -434,6 +462,19 @@ impl<'a> Emitter<'a> {
             let payload = format!("{rust}{name}");
             if text(variant, "kind", &variant_path)? != "object" {
                 return Err(error(&variant_path, "a tagged-union variant must be an object"));
+            }
+            let carries_tag =
+                variant.get("fields").and_then(|fields| fields.get(tag)).is_some_and(|field| {
+                    field.get("presence").and_then(Value::as_str) == Some("required")
+                        && field.pointer("/type/kind").and_then(Value::as_str) == Some("literal")
+                        && field.pointer("/type/value").and_then(Value::as_str)
+                            == Some(wire.as_str())
+                });
+            if !carries_tag {
+                return Err(error(
+                    format!("{variant_path}.fields.{tag}"),
+                    format!("a variant must carry its tag as a required literal {wire:?}"),
+                ));
             }
             self.claim(&payload, &variant_path)?;
             self.queue.push_back((payload.clone(), variant, variant_path));

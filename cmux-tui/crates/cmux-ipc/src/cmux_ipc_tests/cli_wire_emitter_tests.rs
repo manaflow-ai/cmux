@@ -65,7 +65,7 @@ fn cli_wire_emitter_types_each_presence_shape() {
         "pub required: String,",
         "pub required_null: Option<String>,",
         "pub optional: Option<String>,",
-        "pub optional_null: Option<String>,",
+        "pub optional_null: Option<Option<String>>,",
         "pub tri_state: Option<Option<String>>,",
         "pub type_: bool,",
         "fields.insert(\"type\".to_owned(), self.type_.wire_value());",
@@ -103,11 +103,11 @@ fn cli_wire_emitter_names_inline_and_referenced_types() {
         "pub enum ProbeThingRequestMode {",
         "PageDown,",
         "ProbeThingRequestMode::PageDown => \"page-down\",",
-        "pub size: Option<Size>,",
+        "pub size: Option<Option<Size>>,",
         "pub struct Size {",
         "pub cols: u16,",
-        "pub pane: Option<u64>,",
-        "pub extra: Option<Value>,",
+        "pub pane: Option<Option<u64>>,",
+        "pub extra: Option<Option<Value>>,",
     ] {
         assert!(code.contains(line), "missing {line:?} in\n{code}");
     }
@@ -161,6 +161,34 @@ fn cli_wire_emitter_refuses_what_it_cannot_type() {
             "$.types.ProbeThingRequest",
             "is also",
         ),
+        (
+            union_schema(json!({"kind": "object", "fields": {
+                "n": field(json!({"kind": "scalar", "name": "uint32"}), "required", false, None),
+            }})),
+            "$.types.Event.variants.focus.fields.kind",
+            "required literal \"focus\"",
+        ),
+        (
+            union_schema(json!({"kind": "object", "fields": {
+                "type": field(json!({"kind": "literal", "value": "focus"}), "required", false, None),
+            }})),
+            "$.types.Event.variants.focus.fields.kind",
+            "required literal \"focus\"",
+        ),
+        (
+            union_schema(json!({"kind": "object", "fields": {
+                "kind": field(json!({"kind": "literal", "value": "focused"}), "required", false, None),
+            }})),
+            "$.types.Event.variants.focus.fields.kind",
+            "required literal \"focus\"",
+        ),
+        (
+            union_schema(json!({"kind": "object", "fields": {
+                "kind": field(json!({"kind": "scalar", "name": "string"}), "required", false, None),
+            }})),
+            "$.types.Event.variants.focus.fields.kind",
+            "required literal \"focus\"",
+        ),
     ];
     for (doc, path, message) in cases {
         let error = refusal(&doc);
@@ -171,6 +199,58 @@ fn cli_wire_emitter_refuses_what_it_cannot_type() {
     no_id["commands"]["probe-thing"].as_object_mut().unwrap().remove("method_id");
     let error = refusal(&no_id);
     assert_eq!(error.path, "$.commands.probe-thing.method_id");
+    let mut no_tag = union_schema(json!({"kind": "object", "fields": {}}));
+    no_tag["types"]["Event"].as_object_mut().unwrap().remove("tag");
+    let error = refusal(&no_tag);
+    assert_eq!(error.path, "$.types.Event.tag", "{error}");
+}
+
+/// A command whose `event` field is the union `Event` (tag `kind`) with the
+/// one variant `focus`.
+fn union_schema(focus: Value) -> Value {
+    schema(
+        json!({"event": field(json!({"kind": "ref", "name": "Event"}), "required", false, None)}),
+        json!({"Event": {"kind": "tagged_union", "tag": "kind", "variants": {"focus": focus}}}),
+    )
+}
+
+#[test]
+fn cli_wire_emitter_declares_an_alias_target_once() {
+    let doc = schema(
+        json!({
+            "first": field(json!({"kind": "ref", "name": "Mode"}), "required", false, None),
+            "second": field(json!({"kind": "ref", "name": "Mode"}), "optional", false, None),
+            "size": field(json!({"kind": "ref", "name": "Size"}), "required", false, None),
+            "other_size": field(json!({"kind": "ref", "name": "Size"}), "optional", true, None),
+        }),
+        json!({
+            "Mode": {"kind": "alias", "target": {"kind": "enum", "values": ["on", "off"]}},
+            "Size": {"kind": "alias", "target": {"kind": "object", "fields": {
+                "cols": field(json!({"kind": "scalar", "name": "uint16"}), "required", false, None),
+            }}},
+        }),
+    );
+    let code = emit(&doc);
+    for line in [
+        "pub first: Mode,",
+        "pub second: Option<Mode>,",
+        "pub size: Size,",
+        "pub other_size: Option<Option<Size>>,",
+    ] {
+        assert!(code.contains(line), "missing {line:?} in\n{code}");
+    }
+    assert_eq!(code.matches("pub enum Mode {").count(), 1, "{code}");
+    assert_eq!(code.matches("pub struct Size {").count(), 1, "{code}");
+}
+
+#[test]
+fn cli_wire_emitter_names_field_capabilities() {
+    let mut gated = field(json!({"kind": "scalar", "name": "boolean"}), "optional", false, None);
+    gated["capability"] = json!("probe-force-v1");
+    let doc = schema(json!({"force": gated}), json!({}));
+    let code = emit(&doc);
+    let line = "pub const FORCE_CAPABILITY: &'static str = \"probe-force-v1\";";
+    assert!(code.contains(line), "missing {line:?} in\n{code}");
 }
 
 #[test]
