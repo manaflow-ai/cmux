@@ -1920,20 +1920,24 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
     # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
     + "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    # Only a reading from this attempt: a re-run of failed jobs carries an earlier one (run 40398277457).
+    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') "
     "&& 'blacksmith-12vcpu-macos-26' || "
     "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
     # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
     "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) "
     "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
     "&& needs.macos-placement.outputs.hosted_runner || "
     "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
-    "needs.macos-placement.outputs.retry_runner || "
+    "needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.retry_runner || "
     # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
@@ -1994,6 +1998,7 @@ class ReservedLaneLabels(unittest.TestCase):
                 "vars.CI_SIDE_LANE_RUNNER": side,
                 "needs.macos-placement.outputs.fast_runner": fast,
                 "needs.macos-placement.outputs.runner": side,
+                "needs.macos-placement.outputs.placed_attempt": str(attempt),
             }
             values.update({f"needs.macos-placement.outputs.{key}": value for key, value in outputs.items()})
             return values

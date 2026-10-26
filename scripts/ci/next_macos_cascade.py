@@ -98,6 +98,17 @@ queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
 macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
+The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
+placed afresh, from what is free when it starts, instead of reading nothing:
+until 2026-10-26 the placement skipped every attempt after 1, so the re-run's
+outputs were empty and its cascade jobs went back to the end of the owned side
+queue they had just waited in (rerun-failed-jobs carries attempt 1's outputs,
+read while that queue was already full). Only the cascade's outputs are written
+then; side_lane_placement.py leaves the owned routes (runner, gui_runner,
+fast_runner, gateway_runner) empty, as a re-run had them. An idle mini still
+comes first: a re-run job the idle minis would take gets no Blacksmith slot and
+no overflow label, so it takes the owned side label, where that mini is.
+
 `retry_runner` is the Blacksmith label the bot's overflow attempt (2 or
 later: the rescue's re-runs) takes for these jobs: among moving (not stalled)
 labels with a free slot, the lowest (in flight + queued) / capacity, the
@@ -150,6 +161,8 @@ MAX_PER_RUN = 2
 # label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
 # 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
 # 2026-10-24: a feed is never more than 30 minutes behind its branch).
+# The rescue's re-runs (owned_pool_rescue.py RESCUE_ACTOR) use GITHUB_TOKEN, so this actor triggers them.
+RESCUE_ACTOR = "github-actions[bot]"
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
@@ -341,12 +354,16 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequ
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
+def bot_rerun(env: Mapping[str, str]) -> bool:
+    """The rescue's full re-run: attempt 2 that RESCUE_ACTOR triggered, placed afresh like attempt 1."""
+    return ((env.get("GITHUB_RUN_ATTEMPT") or "").strip() == "2"
+            and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() == RESCUE_ACTOR)
+
+
 def skipped(env: Mapping[str, str]) -> str:
     """Why this run places nothing on Blacksmith before reading anything, or ""."""
     label = (env.get("SIDE_LABEL") or "").strip()
-    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
-    actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
-    if attempt not in ("", "1") and actor != "github-actions[bot]":
+    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1") and not bot_rerun(env):
         return "a person re-run keeps its own route"
     if not label.startswith("glaeda-side-"):
         return f"`{label or 'no label'}` is not an owned side label"
@@ -405,6 +422,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # the pool's vCPUs as jobs in flight do.
     retry = retry_label({**live, **{label: live.get(label, 0) + len(placed.get(label, ())) for label in LABELS}},
                         waiting, stall)
+    # A re-run's jobs that no Blacksmith label listed take the overflow label before the owned side label
+    # (cmux-next.yml's runs-on), so while an idle mini would take one of them the overflow stays owned.
+    rerun_owned = bot_rerun(env) and len(owned) > 0
+    if rerun_owned:
+        retry = ""
     load = ", ".join(f"`{label}` {live.get(label, 0)} in flight + {waiting.get(label, 0)} queued of {CAPACITY[label]}"
                      + (f" (stalled: oldest queued {seen.waits[label]:.0f} min)" if label in stall and seen else "")
                      for label in LABELS)
@@ -421,7 +443,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
+    if bot_rerun(env):
+        why = f"the rescue's re-run (attempt 2) is placed afresh. {why}"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
+                                           else "; an idle mini takes the re-run, so overflow stays on the owned label"
+                                           if rerun_owned
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
 
 
