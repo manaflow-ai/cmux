@@ -524,6 +524,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
+    public static let memoryScrollbackPressure = Feature(
+        index: 29,
+        name: "memoryScrollbackPressure",
+        owner: "PL-memory",
+        description: "Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.",
+        kind: .perfPath,
+        process: .daemon,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Evicted terminals' saved last frames join the memory coordinator: at critical memory pressure every saved frame is dropped in short background slices, so a terminal shown again after that shows its replay without a saved picture first.
     public static let memoryTerminalLastFrames = Feature(
         index: 30,
@@ -990,6 +1007,7 @@ nonisolated extension Feature {
         .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
+        .memoryScrollbackPressure,
         .memoryTerminalLastFrames,
         .newTabParksHidden,
         .occludedWindowDiscard,
@@ -1049,6 +1067,7 @@ nonisolated extension Feature {
         .memoryHiddenFrameLRU,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
+        .memoryScrollbackPressure,
         .memoryTerminalLastFrames,
         .newTabParksHidden,
         .occludedWindowDiscard,

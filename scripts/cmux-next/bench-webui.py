@@ -21,7 +21,9 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
   pages10   D3. Opens settings, history, cloud, apps, keybindings, files, diff, markdown, editor and chief-usage (the
             last one shown), then: renderers that hold no browser tab, DevTools on page renderers (`unscored` on
             fork < 29: clicks use DevTools there), frozen pages --hide-settle s after hiding, the delivery window
-            (below), discarded pages and footprint at --discard-settle s against the one-page footprint.
+            (below), discarded pages and footprint at --discard-settle s against the one-page footprint, then
+            each discarded page shown again by its action (up to --runs): key to the turn that drew its hide-time
+            snapshot and to its restored document's first frame (`debug.page` `restore`, D4's discarded rows).
             With --every-page-hidden (task 037, MQ5): the ten pages open, a terminal tab hides the last one too, and
             after --hide-settle s a --measure s window reads the interrupt wakeups/s of each page renderer (its
             pages and their states in the note) and of the GPU process. The app runs with browser.freezeHiddenTabs
@@ -490,6 +492,39 @@ class Bench:
                      ("==", len(keepless) if keepless is not None else 9), tier="train"),
                  row("one_page_footprint_mb", one_page, unit="MB", note=f"after {first} only"),
                  row("footprint_at_discard_mb", footprint, ("<=", round((one_page or 0) + 5, 1)), "MB", tier="train"))
+        self.discarded_show_rows(census)
+
+    def restore_times(self, page_id, since):
+        """The page's last restore after a discard (`debug.page` `restore`: host uptime `started`, `covered`,
+        `painted`) once it started at or after `since` and painted, else None."""
+        state = self.rpc("debug.page", {"page": page_id})
+        times = state.get("restore") if isinstance(state, dict) and not state.get("error") else None
+        if not isinstance(times, dict) or not isinstance(times.get("started"), (int, float)) or times["started"] < since:
+            return None
+        return times if isinstance(times.get("painted"), (int, float)) else None
+
+    def discarded_show_rows(self, census):
+        """D4's discarded rows: each discarded page shown again by its action, timed on the app's uptime clock from
+        the action's `debug.action_budget` start (else just before it) to the turn the hide-time snapshot went over
+        the page (`covered`) and to the restored document's first painted frame (`painted`). A page with no kept
+        snapshot gives no snapshot sample."""
+        discarded = set() if census is None else {p.get("page") for p in census.pages("discarded")}
+        snapshot, live = [], []
+        for page_id, name, args in [entry for entry in PAGES10 if entry[0] in discarded][:self.opts.runs]:
+            sequence = self.budget_sequence()
+            sent = self.uptime()
+            self.action(name, {k: self.files.get(v, v) for k, v in args.items()})
+            times = self.until(lambda: self.restore_times(page_id, sent), self.opts.open_timeout, step=LATENCY_STEP)
+            run = self.budget_run(name, sequence) or {}
+            start = run["start_uptime_ns"] / 1e9 if isinstance(run.get("start_uptime_ns"), (int, float)) else sent
+            covered = (times or {}).get("covered")
+            snapshot.append(round((covered - start) * 1000, 1) if isinstance(covered, (int, float)) else None)
+            live.append(round((times["painted"] - start) * 1000, 1) if times else None)
+        note = "" if discarded else "no discarded page to show" if census is not None else "no debug.webui in this build"
+        self.add(series("discarded_page.snapshot_frame_ms", snapshot, ("p99", "<=", 16.7),
+                        note=note or "key to the turn that drew the hide-time snapshot (debug.page restore.covered)"),
+                 series("discarded_page.live_ms", live, ("p95", "<=", 150),
+                        note=note or "key to the restored document's first frame (debug.page restore.painted)"))
 
     def hidden_wakeups(self):
         """MQ5 (task 037): wakeups of each page renderer and of the GPU process while all ten pages are hidden and
@@ -658,9 +693,6 @@ class Bench:
         self.add(row("cef.window_built_on_key_turn", built if isinstance(built, (int, float)) else None, ("==", 0),
                      note="" if isinstance(built, (int, float)) else "debug.cef reports no window_built_on_key_turn"),
                  row("second_page_same_pane_windows", None, ("==", 0), note="no per-open window count in debug.cef or debug.webui"),
-                 row("discarded_page.snapshot_frame_ms", None, ("p99", "<=", 16.7), "ms",
-                     note="no snapshot-frame timestamp for a discarded page yet"),
-                 row("discarded_page.live_ms", None, ("p95", "<=", 150), "ms", note="no live-frame timestamp for a discarded page yet"),
                  row("settings.cmd_w_engine_close_calls", None, ("==", 0),
                      note="no count of engine close calls in the key's turn yet"))
         if self.opts.chat_turns > 0:

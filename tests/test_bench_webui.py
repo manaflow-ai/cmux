@@ -112,6 +112,11 @@ class FakeApp:
             page_id = self.page_for(action, params.get("args"))
             if page_id:
                 self.pages.setdefault(page_id, {"pid": self.renderer(page_id), "deliveries": 0})
+                if self.pages[page_id].get("state") == "discarded":
+                    # Shown again: the snapshot in this turn, the restored document's frame later.
+                    now = self.clock.now
+                    self.pages[page_id]["restore"] = {"started": now, "covered": now + 0.004, "painted": now + 0.09}
+                    self.record(action)
                 self.order.append(page_id)
                 self.show(page_id)
             elif action == "newSurface":
@@ -158,7 +163,8 @@ class FakeApp:
                 return {"pages": [{"page": params["page"], "parked": False}] if page and page["state"] != "discarded" else []}
             if not page:
                 return {"error": "no live page"}
-            return {"painted": True, "controls": 3, **({"painted_uptime": page["painted_uptime"]} if "painted_uptime" in page else {})}
+            return {"painted": True, "controls": 3, **({"painted_uptime": page["painted_uptime"]} if "painted_uptime" in page else {}),
+                    **({"restore": page["restore"]} if "restore" in page else {})}
         if method == "debug.cef":
             return self.cef
         if method == "debug.hibernation.pressure":
@@ -428,6 +434,21 @@ class PagesTests(unittest.TestCase):
         self.assertEqual(got["discarded_pages"]["value"], 9)
         self.assertEqual(got["devtools_on_page_renderers"]["value"], 0)
 
+    def test_discarded_pages_shown_again_are_timed_from_the_key(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock), clock, runs=3).run("pages10"))
+        snapshot, live = got["discarded_page.snapshot_frame_ms"], got["discarded_page.live_ms"]
+        self.assertEqual(snapshot["value"]["n"], 3)
+        self.assertEqual(snapshot["value"]["max"], 4.0)  # restore.covered - the action's start_uptime_ns
+        self.assertEqual(snapshot["status"], "met")
+        self.assertEqual(live["value"]["max"], 90.0)
+        self.assertEqual(live["status"], "met")
+
+    def test_no_discarded_page_leaves_the_discarded_rows_unscored(self):
+        clock = FakeClock()
+        got = rows(bench(FakeApp(clock, census=False), clock, discard_settle=0).run("pages10"))
+        self.assertEqual(got["discarded_page.live_ms"]["status"], "unscored")
+
     def test_delivery_to_frozen_pages_is_counted(self):
         clock = FakeClock()
         got = rows(bench(FakeApp(clock, leak=True), clock).run("delivery"))
@@ -617,8 +638,8 @@ class OpenTests(unittest.TestCase):
         self.assertEqual(cold["target"], ["p95", "<=", 150])
         self.assertEqual(got["settings.key_turn_ms"]["value"]["n"], 7)
         self.assertEqual(got["settings.cmd_w_key_turn_ms"]["value"]["n"], 7)
-        for name in ("cef.window_built_on_key_turn", "second_page_same_pane_windows", "discarded_page.snapshot_frame_ms",
-                     "discarded_page.live_ms", "settings.cmd_w_engine_close_calls", "settings.cover_frame_ms"):
+        for name in ("cef.window_built_on_key_turn", "second_page_same_pane_windows",
+                     "settings.cmd_w_engine_close_calls", "settings.cover_frame_ms"):
             self.assertEqual(got[name]["status"], "unscored", name)
 
     def test_a_renderer_that_is_not_killed_gives_no_cold_sample(self):
