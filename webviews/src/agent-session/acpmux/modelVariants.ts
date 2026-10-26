@@ -93,11 +93,13 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const offer = { model, provider: provider ?? "" };
     const id = identity(row);
     const joined = id === undefined ? undefined : byIdentity.get(id);
-    const group = joined?.offers.some((each) => each.provider === provider) ? undefined : joined;
-    if (group) {
-      group.offers.push(offer);
-      if (model.id === current) group.model = model;
-      group.tag ??= tag;
+    if (joined) {
+      const duplicate = joined.offers.some(
+        (each) => each.provider.trim().toLowerCase() === (provider ?? "").trim().toLowerCase(),
+      );
+      if (!duplicate) joined.offers.push(offer);
+      if (model.id === current) joined.model = model;
+      joined.tag ??= tag;
       continue;
     }
     const next: ModelGroup<T> = {
