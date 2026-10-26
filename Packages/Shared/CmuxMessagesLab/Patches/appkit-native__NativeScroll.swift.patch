@@ -34,6 +34,15 @@
          if PacingLog.shared.isOn { logClip() }
          pinContent()
          guard applyingModel == 0, let demo, let cv = collection else { return }
+@@ -417,7 +417,7 @@
+     /// The next page in the direction of the move gets its row bitmaps off main now: the rows a
+     /// following click (or a scroll) shows first are ready when it comes.
+     private func prerenderPage(beyond dir: Int) {
+-        guard RowBitmaps.prerenderEnabled, let r = collection as? RowRecycler else { return }
++        guard let r = collection as? RowRecycler else { return } // cmux: no RowBitmaps.prerenderEnabled (p10-stability-041)
+         let b = r.bounds, h = b.height
+         let rect = dir > 0 ? CGRect(x: b.minX, y: b.maxY, width: b.width, height: h) : CGRect(x: b.minX, y: b.minY - h, width: b.width, height: h)
+         let n = r.layout.model.count
 @@ -601,7 +601,7 @@
      /// Pointer in the scroller strip while the thumb shows (wide thumb and track).
      private(set) var expanded = false
