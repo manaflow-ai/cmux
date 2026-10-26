@@ -78,7 +78,10 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
     }
     let p = provenance?;
     let kind = p.get("kind").and_then(Value::as_str);
-    if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
+    if !matches!(
+        kind,
+        Some("agent_message" | super::subsessions::PROVENANCE_KIND | super::lane_reports::KIND)
+    ) {
         return None;
     }
     let field = |k: &str| p.get(k).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
@@ -392,11 +395,13 @@ mod tests {
     fn run(text: &str, agent: Option<&str>, provenance: Option<Value>) -> Arc<PromptRun> {
         Arc::new(PromptRun {
             blocks: vec![json!({"type": "text", "text": text})],
+            display_parts: None,
             control: Control::default(),
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
             supersede: None,
+            full_access_device: None,
         })
     }
 

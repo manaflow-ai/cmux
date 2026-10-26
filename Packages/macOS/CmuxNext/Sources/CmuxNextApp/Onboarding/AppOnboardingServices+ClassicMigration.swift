@@ -298,7 +298,7 @@ extension AppOnboardingServices {
     /// keeps running: its shell prints the scrollback at its first prompt.
     private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.tabPark), local.supports(DaemonCapabilities.shared.tabRestartKeptLayout),
+        guard local.supports(DaemonCapability.tabPark.rawValue), local.supports(DaemonCapability.tabRestartKeptLayout.rawValue),
               saved.remote == nil, !saved.layout.tabs.contains(where: { $0.scrollback != nil || $0.agent != nil }),
               let connection = local.connection else { return }
         let store = local.store
@@ -403,8 +403,8 @@ extension AppOnboardingServices {
                 let id = try await connection.state.createWorkspaceGroup(name: name, room: nil, color: group.classic.color).id
                 ledger.groups[group.classic.id] = id
                 made[group.classic.id] = WorkspaceGroupID(rawValue: id)
-                let icon = local.supports(DaemonCapabilities.shared.workspaceGroupIcon) ? group.classic.icon : nil
-                let pinned: Bool? = local.supports(DaemonCapabilities.shared.workspaceGroupPin) && group.classic.pinned ? true : nil
+                let icon = local.supports(DaemonCapability.workspaceGroupIcon.rawValue) ? group.classic.icon : nil
+                let pinned: Bool? = local.supports(DaemonCapability.workspaceGroupPin.rawValue) && group.classic.pinned ? true : nil
                 if group.classic.collapsed || icon != nil || pinned != nil {
                     try await connection.state.updateWorkspaceGroup(id, collapsed: group.classic.collapsed ? true : nil,
                                                                     icon: icon.map { .set($0) } ?? .unchanged, pinned: pinned)
@@ -430,7 +430,7 @@ extension AppOnboardingServices {
             if let color = saved.color {
                 try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color))
             }
-            if saved.pinned, local.supports(DaemonCapabilities.shared.workspacePin) {
+            if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
             if let classic = saved.groupID, let group = groups[classic], let session = store.registryID {

@@ -3,6 +3,7 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { useState, type ReactNode } from "react";
 import { useRowState, useSettingsState, useStore } from "../context";
+import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
@@ -93,48 +94,50 @@ export function MachinesSection({ title }: { title: string }) {
   const picks = stringMap(colors.value);
   return (
     <>
-    <section className="group" data-card="machines">
-      <h3 className="group-title">{title}</h3>
-      <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
-        <ListRows
-          rows={host.machines}
-          empty={t("settingsWindow.machinesEmpty")}
-          marks
-          trailing={(row) => (
-            <MachineColor
-              row={row}
-              picks={picks}
-              disabled={!colors.connected || !colors.readable || colors.managed !== null}
-              write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
-            />
-          )}
-        />
-      </div>
-      <div className="host-footer">
-        {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
+      <section className="group" data-card="machines">
+        <h3 className="group-title">{title}</h3>
+        <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
+          <ListRows
+            rows={host.machines}
+            empty={t("settingsWindow.machinesEmpty")}
+            marks
+            trailing={(row) => (
+              <MachineColor
+                row={row}
+                picks={picks}
+                disabled={!colors.connected || !colors.readable || colors.managed !== null}
+                write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
+              />
+            )}
+          />
+        </div>
+        <div className="host-footer">
+          {/* One entry for every new device (add-device-DESIGN.md): Add Device opens the card; it hands
             off to Add Machine or Add Server, and the page passes nothing, so it never approves. */}
-        <button
-          type="button"
-          className="button"
-          data-add-device=""
-          onClick={() => void store.runAction("device.add")}
-        >
-          {host.devices?.add_title ?? t("action.device.add")}
-        </button>
-      </div>
-    </section>
-    {host.devices && <DevicesSection devices={host.devices} />}
+          <button
+            type="button"
+            className="button"
+            data-add-device=""
+            onClick={() => void store.runAction("device.add")}
+          >
+            {host.devices?.add_title ?? t("action.device.add")}
+          </button>
+        </div>
+      </section>
+      {host.devices && <DevicesSection devices={host.devices} />}
     </>
   );
 }
 
 /**
  * Settings > Devices (add-device-DESIGN.md 2.4-2.6): every device that can reach this computer, in
- * words a person reads, each with Remove (a second click confirms), and the recent activity.
+ * words a person reads, each with Remove (a second click confirms), and the recent activity. A
+ * paired client machine also has its Full access switch (off unless turned on here), with what it allows.
  */
 function DevicesSection({ devices }: { devices: DevicesHostState }) {
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [setting, setSetting] = useState<string | null>(null);
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -172,6 +175,27 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   </button>
                 )}
               </div>
+              {typeof row.full_access === "boolean" && (
+                <div className="row-main device-full-access" data-device-full-access={row.id}>
+                  <div className="row-label">
+                    <div className="row-title" id={`device-full-access-${row.id}`}>
+                      {devices.full_access_title}
+                    </div>
+                    {row.full_access_help && <div className="row-help">{row.full_access_help}</div>}
+                  </div>
+                  <div className="row-control">
+                    <Switch
+                      checked={row.full_access}
+                      disabled={setting === row.id}
+                      labelId={`device-full-access-${row.id}`}
+                      onToggle={(on) => {
+                        setSetting(row.id);
+                        void store.setDeviceFullAccess(row.id, on).finally(() => setSetting(null));
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           ))
         )}

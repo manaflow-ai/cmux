@@ -366,6 +366,7 @@
       "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
+      "get-host-size-policy",
       "get-size-state",
       "identify",
       "ids",
@@ -459,6 +460,7 @@
       "set-column-dock",
       "set-default-colors",
       "set-frontend-browser-history",
+      "set-host-size-policy",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -589,6 +591,7 @@
       "cloud-conversation-unsubscribe",
       "cloud-conversation-live",
       "cloud-conversation-typing",
+      "cloud-conversation-presence",
       "cloud-mux-subscribe",
       "cloud-mux-unsubscribe",
       "cloud-mux-ack",
@@ -731,6 +734,12 @@
     },
     {
       "name": "cloud-conversation-typing",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-presence",
       "streams": [
         "subscribe"
       ]

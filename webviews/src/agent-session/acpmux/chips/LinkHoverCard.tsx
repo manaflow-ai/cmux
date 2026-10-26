@@ -15,6 +15,8 @@ import { callChipHost } from "./host";
 import { redactUrlText } from "./linkDisplay";
 import { PullRequestCardBody, type KnownPullRequest } from "./PullRequestCard";
 import type { HoverCard } from "./useHoverCard";
+// The card's rules, for every page that shows it (the agent pane, the changelog).
+import "./linkCard.css";
 
 /// `href`'s host, or `href` when it doesn't parse.
 export function linkHost(href: string): string {
@@ -89,6 +91,9 @@ export function LinkHoverCard({
       }
       side={side}
       interactive
+      hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
+      onPointerEnter={hover.card.onPointerEnter}
+      onPointerLeave={hover.card.onPointerLeave}
       // A pull request's page title only repeats its own title: the card is named by its reference.
       ariaLabel={pullRequest ? `${pullRequest.repo}#${pullRequest.number}` : (siteTitle ?? host)}
     >
