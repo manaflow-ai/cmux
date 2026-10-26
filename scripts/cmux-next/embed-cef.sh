@@ -7,6 +7,8 @@
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
 #   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug builds only, prototype;
 #                                                                build-chromium-host.sh)
+#   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
+#                                                                cmux loads in host mode)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -58,7 +60,7 @@ rm -f "$phase_stamp"
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
-  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -166,7 +168,7 @@ build_chromium_host() {
   for i in "${!arch_shims[@]}"; do
     dir="$(CMUX_CEF_ARCH="${shim_archs[$i]}" "$SCRIPT_DIR/build-chromium-host.sh" \
       "${arch_dists[$i]}" "${arch_shims[$i]}" "$cache_root/chromium-host" | tail -n 1)" || return 1
-    [[ -x "$dir/cmux-chromium-host" && -f "$dir/.build-key" ]] || return 1
+    [[ -x "$dir/cmux-chromium-host" && -f "$dir/libcmux_cef_shim_remote.dylib" && -f "$dir/.build-key" ]] || return 1
     dirs+=("$dir")
   done
   if (( ${#dirs[@]} == 2 )); then
@@ -175,11 +177,13 @@ build_chromium_host() {
     if [[ ! -f "$dir/.build-key" ]]; then
       tmp="$(mktemp -d "$cache_root/chromium-host/.universal.XXXXXX")" || return 1
       lipo -create "${dirs[0]}/cmux-chromium-host" "${dirs[1]}/cmux-chromium-host" -output "$tmp/cmux-chromium-host" || { rm -rf "$tmp"; return 1; }
+      lipo -create "${dirs[0]}/libcmux_cef_shim_remote.dylib" "${dirs[1]}/libcmux_cef_shim_remote.dylib" \
+        -output "$tmp/libcmux_cef_shim_remote.dylib" || { rm -rf "$tmp"; return 1; }
       chmod +x "$tmp/cmux-chromium-host"
       printf '%s' "$key" > "$tmp/.build-key"
       /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$tmp" "$dir" 2>/dev/null || rm -rf "$tmp"
     fi
-    [[ -x "$dir/cmux-chromium-host" ]] || return 1
+    [[ -x "$dir/cmux-chromium-host" && -f "$dir/libcmux_cef_shim_remote.dylib" ]] || return 1
   else
     dir="${dirs[0]}"
     key="$(cat "$dir/.build-key")" || return 1
@@ -335,18 +339,23 @@ done
 # (2026-10-24). Debug builds only, so Release, RC and NIGHTLY bundles do not
 # change.
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
+# The remote shim goes with it: the shim ABI cmux loads instead of
+# libcmux_cef_shim.dylib in host mode (p01-process.md 3.2), from the same build.
 host_binary="$app/Contents/MacOS/$product Chromium Host"
+remote_shim="$frameworks/libcmux_cef_shim_remote.dylib"
 if [[ -n "$host_out" ]]; then
   host_stamp="$stamp_dir/chromium-host"
   mkdir -p "$app/Contents/MacOS"
-  # Signing rewrites the binary: compare the host build key, not the bytes.
-  if [[ ! -f "$host_binary" || ! -f "$host_stamp" || "$(cat "$host_stamp")" != "$host_key $product" ]]; then
-    rm -f "$host_binary"  # never overwrite a signed Mach-O in place
+  # Signing rewrites the binaries: compare the host build key, not the bytes.
+  if [[ ! -f "$host_binary" || ! -f "$remote_shim" || ! -f "$host_stamp" ||
+    "$(cat "$host_stamp")" != "$host_key $product" ]]; then
+    rm -f "$host_binary" "$remote_shim"  # never overwrite a signed Mach-O in place
     cp "$host_out/cmux-chromium-host" "$host_binary"
+    cp "$host_out/libcmux_cef_shim_remote.dylib" "$remote_shim"
     printf '%s' "$host_key $product" > "$host_stamp"
   fi
 else
-  rm -f "$host_binary"
+  rm -f "$host_binary" "$remote_shim"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
