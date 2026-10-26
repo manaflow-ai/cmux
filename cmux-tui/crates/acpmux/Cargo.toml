@@ -113,3 +113,7 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # `log` crate events in tests/trace_layer.rs, forwarded by tracing-log's LogTracer.
 log = "0.4"
 tracing-log = "0.2"
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"

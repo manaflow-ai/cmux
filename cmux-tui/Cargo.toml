@@ -195,6 +195,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)", "cfg(tokio_unstabl
 uninlined_format_args = "warn"
 semicolon_if_nothing_returned = "warn"
 redundant_clone = "warn"
+# clippy.toml lists the std thread spawns and sleep; a crate denies them on its roots
+# once its sites use cmux_threads (plans/cmux-next/chrome-parity/p02-threads.md, 202).
+disallowed_methods = "allow"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
