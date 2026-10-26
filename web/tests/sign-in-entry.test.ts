@@ -285,16 +285,32 @@ describe("which remembered accounts go straight to a provider", () => {
   const google = [{ type: "google", allowSignIn: true }];
 
   test("a Google-only account goes to Google", () => {
-    expect(rememberedMethodFor({ hasPassword: false, linked: google, preference })).toBe("google");
+    expect(rememberedMethodFor({ linked: google, preference })).toBe("google");
   });
 
-  test("a password account gets the form, even with a provider linked", () => {
-    expect(rememberedMethodFor({ hasPassword: true, linked: [], preference })).toBeNull();
-    expect(rememberedMethodFor({ hasPassword: true, linked: google, preference })).toBeNull();
+  // A Google account that later set a password used to open the password form.
+  test("a Google account that also has a password still goes to Google", () => {
+    const signedUpWithGoogle = { linked: google, preference, hasPassword: true };
+    expect(rememberedMethodFor(signedUpWithGoogle)).toBe("google");
+    expect(rememberedMethodFor({ ...signedUpWithGoogle, usedProvider: "google" })).toBe("google");
   });
 
-  test("an email-code account with no provider gets the form", () => {
-    expect(rememberedMethodFor({ hasPassword: false, linked: [], preference })).toBeNull();
+  test("the provider this sign-in came back from wins over the preference order", () => {
+    const both = [{ type: "google", allowSignIn: true }, { type: "github", allowSignIn: true }];
+    expect(rememberedMethodFor({ linked: both, preference, usedProvider: "github" })).toBe("github");
+    expect(rememberedMethodFor({ linked: both, preference })).toBe("google");
+  });
+
+  test("a provider that can't sign the account in is never picked", () => {
+    const connectedOnly = [{ type: "google", allowSignIn: false }];
+    expect(rememberedMethodFor({ linked: connectedOnly, preference })).toBeNull();
+    expect(rememberedMethodFor({ linked: connectedOnly, preference, usedProvider: "google" })).toBeNull();
+    // A stale "last used" from another account doesn't count either.
+    expect(rememberedMethodFor({ linked: google, preference, usedProvider: "github" })).toBe("google");
+  });
+
+  test("an email account with no provider gets the form", () => {
+    expect(rememberedMethodFor({ linked: [], preference })).toBeNull();
   });
 
   test("a failed direct sign-in sends only that account to the form next time", () => {

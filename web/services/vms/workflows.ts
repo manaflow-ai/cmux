@@ -163,6 +163,7 @@ import { measureVmEffect, type VmTimingSink } from "./timings";
 import { guestPromptInstallCommand, vmPromptIdentity } from "./guestPrompt";
 import { vmAgentUpdatesFromRow, type VmAgentUpdatesSetting } from "./agentUpdates";
 import { guestAgentUpdatesCommand } from "./guestAgentUpdates";
+import type { VmIdlePauseMinutes } from "./idlePause";
 
 export {
   homeVolumeNameForUser,
@@ -1607,6 +1608,25 @@ export function setVmAgentUpdates(input: ExistingVmAccessInput & {
       yield* scheduleGuestAgentUpdates(providers, updated, input.agentUpdates, input.deferAfterResponse);
     }
     return vmEntryFromRow(updated);
+  });
+}
+
+/**
+ * Set a machine's idle auto-pause (services/vms/idlePause.ts). The route lets
+ * only a choice this server honours reach here. Anyone with access to the
+ * machine may set it, as with agent updates.
+ */
+export function setVmIdlePause(input: ExistingVmAccessInput & {
+  readonly minutes: VmIdlePauseMinutes;
+}): VmWorkflowProgram<{ readonly providerVmId: string; readonly idlePauseMinutes: VmIdlePauseMinutes }> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!repo.setIdlePauseMinutes) {
+      return yield* Effect.fail(new VmDatabaseError({ operation: "setIdlePauseMinutes", cause: new Error("repository cannot store the idle pause") }));
+    }
+    yield* repo.setIdlePauseMinutes({ id: vm.id, minutes: input.minutes });
+    return { providerVmId: vm.providerVmId ?? input.providerVmId, idlePauseMinutes: input.minutes };
   });
 }
 
