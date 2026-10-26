@@ -37,7 +37,14 @@ perf-stress-session.py's shape and not STRESS plus the light workspace), and run
   hover-card         the pointer over the base pane's last tab: the tab hover card fades in; undo: the pointer
                      moves away (the card fades out)
   sidebar-reorder    moveWorkspaceUp on the measured workspace; undo: moveWorkspaceDown
+  canvas-zoom        with the screen shown as a canvas (toggleCanvasLayout, untimed; off again after the row):
+                     canvasZoomIn; undo: canvasZoomOut (the camera as it was)
+  canvas-reset       the same canvas, one canvasZoomIn untimed first: canvasZoomReset (zoom 1 about the same center)
+  canvas-overview    the same canvas: canvasOverview (center and zoom move); undo: canvasOverview (the camera before)
   scroll-to-row      stress only: goToWorkspace to the first workspace (the sidebar scrolls to its row); undo: back
+
+The canvas rows count the camera's moves (p03-rendering-031: with `motion.renderServer` on, Core Animation runs
+them and frames 2..n do no camera step); like strip-pan they are counting-only rows, not motion_scenarios.py's.
 
 "Away" is `debug.mouse move` to the base pane's content centre, off every hover target, so DebugHover sends the
 band's probe and the tab strip their mouseExited as a real pointer would (`leave` only clears the layout's
@@ -524,6 +531,27 @@ class Session:
             self.away()
         return prepare, perform, cleanup
 
+    def canvas(self, zoomed=False):
+        """The measured screen shown as a canvas for the row (toggleCanvasLayout, untimed; with `zoomed`, one
+        canvasZoomIn after it, untimed), and as its daemon layout again after it. Returns (prepare, cleanup)."""
+        state = {}
+
+        def prepare():
+            state["on"] = False
+            error = self.act("toggleCanvasLayout")
+            if error:
+                return f"toggleCanvasLayout: {error}"
+            state["on"] = True
+            error = self.act("canvasZoomIn") if zoomed else None
+            self.sleep(self.opts.settle)  # test harness: the untimed change lands before the counted step
+            return f"canvasZoomIn: {error}" if error else None
+
+        def cleanup():
+            if state.pop("on", False):
+                self.act("toggleCanvasLayout")
+                self.sleep(self.opts.settle)  # test harness: the daemon layout lands
+        return prepare, cleanup
+
     def band(self):
         """The collapsed toolbar band: sidebar hidden (untimed), the pointer over the top-left corner, then away."""
         x, y = self.opts.band_point
@@ -592,6 +620,9 @@ class Session:
         pan_prepare, pan, pan_cleanup = self.strip_pan()
         band_prepare, band_open, band_opened, band_away, band_closed, band_cleanup = self.band()
         hover_prepare, hover_in, hover_shown, hover_away, hover_hidden = self.hover()
+        zoom_prepare, zoom_cleanup = self.canvas()
+        reset_prepare, reset_cleanup = self.canvas(zoomed=True)
+        overview_prepare, overview_cleanup = self.canvas()
         rows = [
             ("cmd-d", *split_right[:2], None, None, None, split_right[2], s),
             ("cmd-shift-d", *split_down[:2], None, None, None, split_down[2], s),
@@ -608,6 +639,9 @@ class Session:
             ("window-zoom", None, run("zoomWindow"), None, run("zoomWindow"), None, None, s + 0.4),
             ("hover-card", hover_prepare, hover_in, hover_shown, hover_away, hover_hidden, None, None),
             ("sidebar-reorder", None, run("moveWorkspaceUp"), None, run("moveWorkspaceDown"), None, None, s),
+            ("canvas-zoom", zoom_prepare, run("canvasZoomIn"), None, run("canvasZoomOut"), None, zoom_cleanup, s),
+            ("canvas-reset", reset_prepare, run("canvasZoomReset"), None, None, None, reset_cleanup, s),
+            ("canvas-overview", overview_prepare, run("canvasOverview"), None, run("canvasOverview"), None, overview_cleanup, s),
         ]
         if self.name == "stress":
             rows.append(("scroll-to-row", None, go(self.order[0]), None, go(self.workspace), None, None, s))
@@ -839,7 +873,7 @@ class FakeApp:
         self.frames = None
         self.render = False
         self.layout_passes = self.visibility = 0
-        self.sidebar_hidden = self.band_inside = self.card = self.running = False
+        self.sidebar_hidden = self.band_inside = self.card = self.running = self.canvas = False
         self.tunables = {RENDER_SERVER: False}
         self.mouse_actions = []
         first = self.new_workspace()
@@ -952,6 +986,13 @@ class FakeApp:
             other = index - 1 if name == "moveWorkspaceUp" else index + 1
             self.spaces[index], self.spaces[other] = self.spaces[other], self.spaces[index]
             self.work(layouts=1)
+        elif name == "toggleCanvasLayout":
+            self.canvas = not self.canvas
+            self.work(frame_sets=2, layouts=1)
+        elif name in ("canvasZoomIn", "canvasZoomOut", "canvasZoomReset", "canvasOverview"):
+            if not self.canvas:
+                return {"error": f"{name}: the screen is not a canvas"}
+            self.work(layouts=1)  # the camera rests in the action's turn; Core Animation shows the move
         else:
             return {"error": f"unknown action {name}"}
         return {}
@@ -1197,11 +1238,15 @@ def self_test():
     check("one launch per session", (len(launcher.apps), sorted(report["launches"])), (2, ["light", "stress"]))
     check("render server read back", report["launches"]["light"]["tunables"], {RENDER_SERVER: False})
     rows = {(r["session"], r["scenario"], r["phase"]): r for r in report["summary"]}
-    check("every scenario ran", len({k[1] for k in rows}), 15)
+    check("every scenario ran", len({k[1] for k in rows}), 18)
     timed = load("motion_scenarios", "motion_scenarios.py")
     check("every timed step (motion-hitches.py) is a row", sorted(set(timed.rows()) - {k[1:] for k in rows}), [])
     check("the timed scenarios are the DC2 rows", sorted(timed.names()),
-          sorted({k[1] for k in rows} - {"strip-pan", "scroll-to-row"}))
+          sorted({k[1] for k in rows} - {"strip-pan", "scroll-to-row", "canvas-zoom", "canvas-reset", "canvas-overview"}))
+    check("canvas rows counted", [rows.get(("light", n, p), {}).get("counted") for n, p in
+                                  (("canvas-zoom", "do"), ("canvas-zoom", "undo"), ("canvas-reset", "do"),
+                                   ("canvas-overview", "do"), ("canvas-overview", "undo"))], [1, 1, 1, 1, 1])
+    check("the canvas rows leave the daemon layout", [app.canvas for app in launcher.apps], [False, False])
     check("the timed strip has as many columns", timed.STRIP_COLUMNS, STRIP_COLUMNS)
     check("hover-card undo counted", rows.get(("light", "hover-card", "undo"), {}).get("counted"), 1)
     check("band-reveal undo counted", rows.get(("light", "band-reveal", "undo"), {}).get("counted"), 1)
