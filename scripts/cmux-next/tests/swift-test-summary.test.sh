@@ -5,9 +5,11 @@
 # without the "Test run with" summary line, it fails and names the tests that
 # started and never finished (a crashed or killed test process). A summary line
 # is not proof the run was whole either: it counts the tests that reported, so
-# a run that ends mid-flight still prints one. The job fails when the summary
-# counts fewer tests than the log shows starting, or when any started test
-# never finished, so a truncated run can never read as a pass.
+# a run that ends mid-flight still prints one. The job fails when the summaries
+# count fewer tests than the log shows starting, or when any started test never
+# finished. Names are counted across the whole log, so a truncation that only
+# loses tests another target already ran and summarized still reads as a pass;
+# that one needs per-summary-block bookkeeping and is not covered here.
 # A test still running after CMUX_NEXT_TEST_STUCK_SECONDS is named while the run is going.
 # No Swift: a stub `swift` prints canned Swift Testing output.
 set -euo pipefail
@@ -242,6 +244,34 @@ run twotargetscut 0
 grep '^::error' <<<"$out" | grep -q 'count 2 tests in total but 3 started and 1 of those never finished' \
   || fail "the error does not total the summaries" "$out"
 grep '^::error' <<<"$out" | grep -q 'cStillGoing()' || fail "the error does not name cStillGoing()" "$out"
+
+# A ✘ finish is not only a failure: a test that passes with a known issue reports
+# "✘ Test f() passed after ... with 1 known issue." and HAS finished. Reading it as
+# unfinished would fail a whole run.
+cat > "$TMP/knownissue.out" <<'EOF'
+◇ Test knownIssue() started.
+✘ Test knownIssue() passed after 0.001 seconds with 1 known issue.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+EOF
+run knownissue 0
+[[ "$status" == 0 ]] || fail "a test that passed with a known issue exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "a test that passed with a known issue printed an error" "$out"
+
+# A test that writes to stderr without a trailing newline runs its own output into
+# the next reporter line. The markers are read wherever they are on the line, so the
+# finish still counts and the whole run stays green. The summary line too.
+cat > "$TMP/runon.out" <<'EOF'
+◇ Test aPasses() started.
+progress: ✔ Test aPasses() passed after 0.001 seconds.
+◇ Test bPasses() started.
+✔ Test bPasses() passed after 0.001 seconds.
+still writing... ✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+EOF
+run runon 0
+[[ "$status" == 0 ]] || fail "a log whose output ran into the reporter lines exited $status" "$out"
+[[ "$out" != *"::error"* ]] || fail "a log whose output ran into the reporter lines printed an error" "$out"
 
 # One test hangs while the others finish: past CMUX_NEXT_TEST_STUCK_SECONDS the
 # run fails within seconds, not at the whole-run limit, and one ::error names

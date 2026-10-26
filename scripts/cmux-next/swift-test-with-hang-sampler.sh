@@ -178,24 +178,47 @@ report() {
       if (count > max) out = out "; and " (count - max) " more"
       return out
     }
-    /^✘ Test .* recorded an issue at / {
-      name = name_of($0)
+    # A test writing to stderr without a trailing newline runs its own output into the next
+    # reporter line ("progress: ✔ Test a() passed after ..."), so a marker is looked for anywhere
+    # on the line, not only at its start. Starts, finishes and the summary are all read from this
+    # one normalized form: catching the start of a test and missing its finish is exactly what
+    # makes a whole run look truncated. A line with no marker is left alone, so nothing matches
+    # less than it did before.
+    # The markers are spelled as whole alternatives, never as a bracket expression: an awk in a
+    # byte locale reads [◇✔✘➜] as the SET OF BYTES those four characters are made of, and every
+    # one of them ends in a byte that is also in that set, so the match landed mid-character and
+    # the normalized line began with half a marker.
+    {
+      marked = $0
+      marker_at = match($0, /(◇|✔|✘|➜) Test /)
+      if (marker_at > 1) marked = substr($0, marker_at)
+    }
+    marked ~ /^✘ Test .* recorded an issue at / {
+      name = name_of(marked)
       if (!(name in red)) {
-        at = $0; sub(/.* recorded an issue at /, "", at); sub(/:[0-9]+: .*$/, "", at)
+        at = marked; sub(/.* recorded an issue at /, "", at); sub(/:[0-9]+: .*$/, "", at)
         red[name] = 1; reds[++red_count] = name " " at
       }
     }
-    /^◇ Test .* started\.$/ && !/^◇ Test case passing / && !/^◇ Test run started\.$/ {
-      name = name_of($0)
+    marked ~ /^◇ Test .* started\.$/ && marked !~ /^◇ Test case passing / && marked !~ /^◇ Test run started\.$/ {
+      name = name_of(marked)
       if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
     }
-    /^✔ Test / || /^✘ Test .* failed after / || /^➜ Test / { finished[name_of($0)] = 1 }
-    /^[^ ]+ Test run with [0-9]+ tests? / {
+    # "✘ Test f() passed after 0.001 seconds with 1 known issue." is a test that FINISHED and
+    # passed: a ✘ finish is not only a failure, so both verbs are accepted here. Reading it as
+    # unfinished would fail a whole run.
+    marked ~ /^✔ Test / || marked ~ /^✘ Test .* (passed|failed) after / || marked ~ /^➜ Test / {
+      finished[name_of(marked)] = 1
+    }
+    marked ~ /^[^ ]+ Test run with [0-9]+ tests? / {
       has_summary = 1
-      # "✔ Test run with 399 tests in 80 suites passed after ...": the count is the 5th field.
+      # "✔ Test run with 399 tests in 80 suites passed after ...". Taken out of the text rather
+      # than as a field, so a line the normalization had to shift still reads right.
       # Summed, not assigned: one log can hold a summary per test target, and the starts are
       # counted across all of them, so only the total is comparable with start_count.
-      summary_tests += $5 + 0
+      counted = marked
+      sub(/^[^ ]+ Test run with /, "", counted); sub(/ .*$/, "", counted)
+      summary_tests += counted + 0
     }
     END {
       if (red_count > 0) {
@@ -222,6 +245,11 @@ report() {
       # started. Not equality: a skipped test prints no "started." line (so the summary runs
       # ahead of the starts -- 2 starts against "3 tests" on the green fixture, and a healthy
       # CmuxNextAppTests run measured 399 started, 399 finished, "399 tests in 80 suites").
+      #
+      # What it does NOT catch, so nobody reads it as more than it is: names are counted across
+      # the whole log, so a truncation in one target that only loses tests whose names another
+      # target already ran and summarized leaves all three counts intact and reads as a pass.
+      # Catching that needs the bookkeeping scoped per summary block, which this is not.
       if (has_summary && start_count > 0) {
         for (i = 1; i <= start_count; i++) if (!(starts[i] in finished)) open_tests[++open_count] = starts[i]
         if (open_count > 0 || summary_tests < start_count) {
