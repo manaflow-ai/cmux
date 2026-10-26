@@ -87,7 +87,7 @@ extension WebKitTab: PageInfoProviding {
     /// has none (`SitePermissionRequest`).
     func decidePermission(_ kind: BrowserPermissionKind, origin: String, granted: @escaping @MainActor (Bool) -> Void) {
         pageInfoActivity.recordRequest(kind.siteKinds)
-        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt) { granted($0 == .grant) }
+        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt, confirm: { $0 }) { granted($0 == .grant) }
     }
 
     /// JavaScript on or off for the document a navigation loads.
