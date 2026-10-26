@@ -142,9 +142,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsRead.whenRead(hop: .userVisible, startup: order.startup, take: { [logger] read in
             DebugTimings.markLaunch("dfl.settings_wait")  // the read in hand: at once warm, after the disk cold
             if let failure = read.bootstrapFailure { logger.error("cmux-next config bootstrap failed: \(failure, privacy: .public)") }
-            // cmux.json's appearance goes on the Ghostty overrides before the runtime's first config load, so the first frame needs no reload.
+            // cmux.json's appearance goes on the Ghostty overrides; the first config builds with them on a files lane and the launch goes on when it lands (p02-threads-129).
             TerminalThemeSetting.prime(read.snapshot)
-        }, then: { [self] read in finishLaunching(settings: read, launchStart: launchStart) })
+        }, then: { [self] read in GhosttyRuntime.shared.start(loadingOn: GhosttyLaneConfigLoader(work: launchReads.work, mainWork: mainWork)) { [self] in finishLaunching(settings: read, launchStart: launchStart) } })
     }
 
     /// The launch steps that need the settings, run after the settings launch read's take (`applicationDidFinishLaunching`).

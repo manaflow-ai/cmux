@@ -90,11 +90,14 @@ descriptors (`blockingRead/Recv/Write/Send`), sync waits (`blockingWait` on sema
 items; `DispatchQueue.blockingSync`), processes (`blockingPosixSpawn`, `Process.blockingRun`,
 `Process.blockingWaitUntilExit`), IPC replies (`blockingXPCSendWithReply`), system calls and queries (Security,
 LocalAuthentication, AX, window lists, Launch Services and `NSWorkspace`, ServiceManagement, host resolution,
-`sysctl`/`proc`), SQLite, ImageIO and image decodes, and size-gated CPU work. The kinds are `BlockingKind`:
+`sysctl`/`proc`), SQLite, ImageIO and image decodes, size-gated CPU work, and C library calls that read files
+inside (`blockingFFI`: libghostty's config build, which runs on the files lane through `GhosttyConfigLoading`
+and is applied on main once, p02-threads-129). The kinds are `BlockingKind`:
 file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, process-spawn, process-wait,
-process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive, wrong-lane and
+process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive, wrong-lane, ffi and
 priority-inversion (the main thread awaits a BackgroundWork item stated below `.userBlocking` while input work runs
-on the main task board; record only).
+on the main task board; record only). The GPU wait inside Ghostty's `drawFrame` on main is not a config load: it
+belongs to PL-ghostty G1.
 
 Rust checked forms live in `cmux-tui/crates/cmux-threads`: `checked::fs`, `checked::process`, `checked::sync`
 (`recv`, `recv_timeout`, `join`, condvar waits, `sleep`), `checked::block_on`, `checked::ipc_reply`,
