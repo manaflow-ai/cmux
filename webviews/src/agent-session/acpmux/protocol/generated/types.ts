@@ -663,6 +663,13 @@ export type SessionDetail = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -827,6 +834,13 @@ export type SessionSummary = {
    * when none waits.
    */
   retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
