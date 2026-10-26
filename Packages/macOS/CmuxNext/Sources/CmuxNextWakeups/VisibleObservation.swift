@@ -35,9 +35,8 @@ import Observation
 /// A change must happen on the main actor: a will-set from another thread reaches the main actor
 /// one hop later (``MainDelivery``), and its cause is then the cause current at that hop.
 ///
-/// Release the token or call ``cancel()`` when the view goes away: a tracking armed at that moment
-/// stays registered until the next change of a value it read, which then does nothing
-/// (Observation has no way to remove one, and a deinit cannot fire the signal on the main actor).
+/// Release the token or call ``cancel()`` when the view goes away: either fires the cancel signal,
+/// so the registrar drops an armed tracking at once (Observation has no other way to remove one).
 @MainActor
 public final class VisibleObservation<Value> {
     /// The observation's name in the wakeup ledger, the watchdog's records and `debug.main_budget`.
@@ -102,10 +101,14 @@ public final class VisibleObservation<Value> {
         }
     }
 
-    // Nothing to clean up here: the node holds the subscription and the clients hold this
-    // observation weakly; a generic main-actor class needs a nonisolated deinit (the Release
-    // optimizer crashes on its isolated one, #23050).
-    nonisolated deinit {}
+    // The node holds the subscription and the clients hold this observation weakly; only an armed
+    // tracking outlives it. A generic main-actor class needs a nonisolated deinit (the Release
+    // optimizer crashes on its isolated one, #23050), so the signal write hops when released off main.
+    nonisolated deinit {
+        guard armed else { return }
+        let signal = self.signal
+        MainDelivery().run { signal.epoch &+= 1 }
+    }
 
     /// Stops the observation: no later read or apply. Idempotent.
     public func cancel() {

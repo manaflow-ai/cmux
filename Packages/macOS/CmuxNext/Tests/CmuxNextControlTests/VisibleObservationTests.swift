@@ -162,6 +162,22 @@ import Testing
         #expect(watch.isCancelled)
     }
 
+    @Test func aReleasedTokenAppliesNothingAndLeavesNothingDirty() {
+        let harness = Harness(own: .visible)
+        var watch: VisibleObservation<Int>? = harness.watch()
+        harness.model.value = 1
+        #expect(harness.causes.dirtyCount == 1)
+        watch = nil
+        #expect(watch == nil)
+        #expect(harness.causes.dirtyCount == 0, "a released observation stayed dirty")
+        for value in 2...10 { harness.model.value = value }
+        harness.frame()
+        harness.node.set(.hidden)
+        harness.node.set(.visible)
+        #expect(harness.reads == 1)
+        #expect(harness.applied == [0])
+    }
+
     @Test func causeScopesNestAndRestore() {
         let causes = ObservationCauses()
         #expect(causes.currentCause == .program)
