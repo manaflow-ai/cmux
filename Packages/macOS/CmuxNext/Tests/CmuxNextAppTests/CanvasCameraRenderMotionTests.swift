@@ -164,7 +164,7 @@ struct CanvasCameraRenderMotionTests {
         init(renderServer: Bool) {
             let tree = SplitNode.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s", focusedPane: "a")
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer }, mainWork: linklessMainWork())
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

@@ -37,7 +37,7 @@ import WebKit
         let window = VisibilityNode(root: "window", own: .visible)
         let tabs = Self.tabs(60, under: window)
         let hosts = tabs.map { node in
-            let host = TerminalHostView()
+            let host = TerminalHostView(mainWork: linklessMainWork())
             host.followAppearance(signals, node: node)
             return host
         }
