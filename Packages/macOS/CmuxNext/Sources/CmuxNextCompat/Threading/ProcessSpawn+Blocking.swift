@@ -2,8 +2,8 @@ public import Darwin
 
 /// Spawns a process, like `posix_spawn`, as a checked blocking call
 /// (``blockingCall(_:fileID:line:_:)``): a spawn on the main thread stalls it. Spawn from an actor
-/// or a `@concurrent` function. App code states the child's QoS with
-/// ``blockingPosixSpawn(_:_:_:_:_:_:qos:fileID:line:)``; this form leaves it to the spawning thread.
+/// or a `@concurrent` function. App code spawns through ``ChildProcessLauncher`` and the
+/// ``blockingPosixSpawn(_:_:_:_:_:_:priority:fileID:line:)`` form, which states the child's priority.
 ///
 /// - Parameters:
 ///   - pid: Receives the child's process id.
@@ -25,21 +25,25 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
     return blockingCall(.processSpawn, fileID: fileID, line: line) { posix_spawn(pid, path, fileActions, attributes, argv, envp) }
 }
 
-/// Spawns a process at `qos`, like `posix_spawn`, as a checked blocking call
-/// (``blockingCall(_:fileID:line:_:)``). Call it inside ``ChildSpawnQueue/run(_:)`` with the queue's QoS:
-/// the queue's thread runs at `qos`, which the child takes, and for ``ChildProcessQoS/utility`` and
-/// ``ChildProcessQoS/background`` this seam also sets `posix_spawnattr_set_qos_class_np`, a ceiling the
-/// child and its descendants keep.
+/// Spawns a process, like `posix_spawn`, as a checked blocking call (``blockingCall(_:fileID:line:_:)``),
+/// clamped to `priority` when that is ``MayBlockPriority/bestEffort`` or ``MayBlockPriority/idle``. Call it
+/// inside ``ChildProcessLauncher/run(_:)`` with the launcher's priority.
+///
+/// The clamp is `posix_spawnattr_set_qos_class_np` (``MayBlockPriority/spawnClamp``): a QoS ceiling the child
+/// and its descendants keep. For ``MayBlockPriority/userVisible`` and ``MayBlockPriority/userBlocking`` the
+/// seam sets nothing on the child. Darwin does not document that a child takes the spawning thread's QoS, so
+/// nothing here relies on it (ChildProcessLauncherTests compare what a child reports when it is spawned from a
+/// launcher and from the main thread).
 ///
 /// - Parameters:
 ///   - pid: Receives the child's process id.
 ///   - path: The executable.
 ///   - fileActions: `posix_spawn` file actions.
-///   - attributes: `posix_spawn` attributes, which receive the QoS ceiling; nil spawns with attributes of
-///     the seam's own that carry only the ceiling.
+///   - attributes: `posix_spawn` attributes, which receive the clamp; nil spawns with attributes of the
+///     seam's own that carry only the clamp.
 ///   - argv: The arguments, ending with nil.
 ///   - envp: The environment, ending with nil.
-///   - qos: The child's QoS.
+///   - priority: How much a person waits for the child.
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: What `posix_spawn` returns (0, or an error number), or the error number of the attributes'
@@ -50,18 +54,32 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
                                _ attributes: UnsafeMutablePointer<posix_spawnattr_t?>?,
                                _ argv: UnsafePointer<UnsafeMutablePointer<CChar>?>,
                                _ envp: UnsafePointer<UnsafeMutablePointer<CChar>?>?,
-                               qos: ChildProcessQoS,
+                               priority: MayBlockPriority,
                                fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
     guard let attributes else {
         var own: posix_spawnattr_t?
         let initialized = posix_spawnattr_init(&own)
         guard initialized == 0 else { return initialized }
         defer { posix_spawnattr_destroy(&own) }
-        return blockingPosixSpawn(pid, path, fileActions, &own, argv, envp, qos: qos, fileID: fileID, line: line)
+        return blockingPosixSpawn(pid, path, fileActions, &own, argv, envp, priority: priority, fileID: fileID, line: line)
     }
-    if let ceiling = qos.spawnClamp {
+    if let ceiling = priority.spawnClamp {
         let clamped = posix_spawnattr_set_qos_class_np(attributes, ceiling)
         guard clamped == 0 else { return clamped }
     }
     return blockingCall(.processSpawn, fileID: fileID, line: line) { posix_spawn(pid, path, fileActions, attributes, argv, envp) }
+}
+
+extension MayBlockPriority {
+    /// The QoS ceiling ``blockingPosixSpawn(_:_:_:_:_:_:priority:fileID:line:)`` sets on a child of this
+    /// priority: utility for ``bestEffort``, background for ``idle``, nil above. `posix_spawnattr_set_qos_class_np`
+    /// accepts only utility, background and maintenance (libpthread's qos.c maps them to a task QoS clamp and
+    /// refuses the rest with `EINVAL`).
+    public var spawnClamp: qos_class_t? {
+        switch self {
+        case .userBlocking, .userVisible: nil
+        case .bestEffort: QOS_CLASS_UTILITY
+        case .idle: QOS_CLASS_BACKGROUND
+        }
+    }
 }

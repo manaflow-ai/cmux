@@ -74,13 +74,15 @@ nonisolated enum AcpmuxDaemonLauncher {
     }
 
     /// Starts the daemon and waits for its ready line. `deadline` is a stall time: the wait ends
-    /// with an error only after that long with no write to the daemon's log, or at its exit.
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20)) async throws -> AcpmuxWebEndpoint {
-        try await launch(environment, deadline: deadline, onSpawn: { _ in })
+    /// with an error only after that long with no write to the daemon's log, or at its exit. The launch
+    /// shell starts on `launcher` (the host's, user-blocking: the agent pane waits for its daemon).
+    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(20),
+                                   launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
+        try await launch(environment, deadline: deadline, launcher: launcher, onSpawn: { _ in })
     }
 
     /// `onSpawn` gets the launch shell's pid (tests check that it was reaped).
-    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration,
+    @concurrent static func launch(_ environment: AcpmuxEnvironment, deadline: Duration, launcher: ChildProcessLauncher,
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
@@ -131,11 +133,10 @@ nonisolated enum AcpmuxDaemonLauncher {
         let spawnVariables = variables.map { "\($0.key)=\($0.value)" }
         let descriptors = SpawnDescriptors(outputRead: outputPipe[0], outputWrite: outputPipe[1],
                                            keyRead: environment.passesPersonKeyAtSpawn ? keyPipe[0] : nil)
-        // On a queue of its own at default QoS (an agent's daemon: its work shows soon), never on the
-        // cooperative pool this function runs on.
-        let spawns = ChildSpawnQueue(label: "cmux.next.agent-pane.acpmux-launch-spawn", qos: .default)
-        let (spawnStatus, processIdentifier) = try await spawns.run { () throws -> (status: Int32, pid: pid_t) in
-            try Self.spawnShell(arguments: spawnArguments, variables: spawnVariables, descriptors: descriptors, qos: spawns.qos)
+        // On the launcher, never on the cooperative pool this function runs on.
+        let (spawnStatus, processIdentifier) = try await launcher.run { () throws -> (status: Int32, pid: pid_t) in
+            try Self.spawnShell(arguments: spawnArguments, variables: spawnVariables, descriptors: descriptors,
+                                priority: launcher.priority)
         }
         // The shell holds its own copy of the DEV key's read end now (or the spawn failed).
         if keyPipe[0] >= 0 {
@@ -169,12 +170,12 @@ nonisolated enum AcpmuxDaemonLauncher {
         let keyRead: Int32?
     }
 
-    /// Spawns `/bin/sh` with `arguments` (argv[0] first) and `variables` (`KEY=value`) at `qos`: stdin and
+    /// Spawns `/bin/sh` with `arguments` (argv[0] first) and `variables` (`KEY=value`) at `priority`: stdin and
     /// stderr /dev/null, its own session, and no descriptor of the app but `descriptors`. Blocking:
-    /// ``launch(_:deadline:onSpawn:)`` runs it on a ``ChildSpawnQueue``.
+    /// ``launch(_:deadline:launcher:onSpawn:)`` runs it on a ``ChildProcessLauncher``.
     /// - Returns: `posix_spawn`'s status and the shell's pid.
     private static func spawnShell(arguments: [String], variables: [String], descriptors: SpawnDescriptors,
-                                   qos: ChildProcessQoS) throws -> (status: Int32, pid: pid_t) {
+                                   priority: MayBlockPriority) throws -> (status: Int32, pid: pid_t) {
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         guard posix_spawn_file_actions_init(&actions) == 0,
@@ -208,7 +209,7 @@ nonisolated enum AcpmuxDaemonLauncher {
         let status = try withCStringArray(arguments) { argv in
             try withCStringArray(variables) { envp in
                 "/bin/sh".withCString { executable in
-                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp, qos: qos)
+                    blockingPosixSpawn(&processIdentifier, executable, &actions, &attributes, argv, envp, priority: priority)
                 }
             }
         }

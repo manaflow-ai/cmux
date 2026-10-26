@@ -74,9 +74,9 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
 
     /// Resolved once from libsystem; tests inject their own.
     let disclaim: DisclaimFunction?
-    /// Spawns the helper off the main thread at default QoS: agent work that shows soon, not a
-    /// frame's (Chrome's process launcher thread, content/browser/child_process_launcher_helper.cc).
-    private let spawns = ChildSpawnQueue(label: "cua-helper-v2-spawn", qos: .default)
+    /// Spawns the helper off the main thread on the user-blocking launcher (Chrome's process launcher,
+    /// content/browser/child_process_launcher_helper.cc): Computer Use waits for it to start.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.computer-use-helper", priority: .userBlocking)
 
     init(disclaim: DisclaimFunction? = DisclaimedHelperSpawner.systemDisclaim) {
         self.disclaim = disclaim
@@ -90,15 +90,16 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
 
     func spawn(executable: URL, environment: [String: String], logPath: String) async throws -> ComputerUseHelperV2Child {
         guard let disclaim else { throw Failure.disclaimUnavailable }
-        let qos = spawns.qos
-        return try await spawns.run { () throws(Failure) -> ComputerUseHelperV2Child in
-            try Self.spawn(executable: executable, environment: environment, logPath: logPath, disclaim: disclaim, qos: qos)
+        let priority = launcher.priority
+        return try await launcher.run { () throws(Failure) -> ComputerUseHelperV2Child in
+            try Self.spawn(executable: executable, environment: environment, logPath: logPath, disclaim: disclaim,
+                           priority: priority)
         }
     }
 
-    /// ``spawn(executable:environment:logPath:)``'s work, on the spawn queue.
+    /// ``spawn(executable:environment:logPath:)``'s work, on the launcher.
     private static func spawn(executable: URL, environment: [String: String], logPath: String, disclaim: DisclaimFunction,
-                              qos: ChildProcessQoS) throws(Failure) -> ComputerUseHelperV2Child {
+                              priority: MayBlockPriority) throws(Failure) -> ComputerUseHelperV2Child {
         var toHelper: [Int32] = [-1, -1]
         var toHost: [Int32] = [-1, -1]
         guard pipe(&toHelper) == 0 else { throw Failure.spawn(errno) }
@@ -136,7 +137,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             envp.forEach { free($0) }
         }
         var pid: pid_t = 0
-        let status = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, envp, qos: qos)
+        let status = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, envp, priority: priority)
         guard status == 0 else {
             close(toHelper[1]); close(toHost[0])
             throw Failure.spawn(status)

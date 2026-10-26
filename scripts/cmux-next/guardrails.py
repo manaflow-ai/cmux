@@ -2708,9 +2708,10 @@ ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<
 # A new thread or queue. `extension Thread {` and a type annotation are not one.
 # `Thread {` counts only where a value starts (after `=`, `(`, `,`, `return`, or as a statement), so a superclass,
 # a return type or a type annotation (`class W: Thread {`, `-> Thread {`, `var t: Thread {`) is not one.
+# `ChildProcessLauncher(label:` is a queue too: the wrapper's own `DispatchQueue(label: label` is not judged.
 THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|(?:^\s*|[=(,]\s*|\breturn\s+)Thread\s*(\{|\(block:|\(target:)"
                            r"|\bThread\.detachNewThread\b|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\("
-                           r"|\bDispatchWorkloop\(")
+                           r"|\bDispatchWorkloop\(|\bChildProcessLauncher\(\s*label:")
 THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*(?P<literal>"((?:\\.|[^"\\])*)")?')
 ALLOWANCE_DECL = re.compile(r"\bstatic\s+let\s+(\w+)\s*=\s*BlockingAllowance\(")
 THREAD_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*\w+\s*)?=\s*(?:Thread\b|OperationQueue\(\))")
@@ -2762,7 +2763,7 @@ RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
 ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
 THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
-                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance"))
+                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance", "ChildProcessLauncher"))
 
 
 def blocking_match(scan: Prefiltered, code: str) -> bool:

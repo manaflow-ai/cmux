@@ -14,10 +14,22 @@ public struct DaemonBridge: Hashable, Sendable {
     /// An absolute path inside the app bundle (never looked up on PATH).
     public var executable: String
     public var arguments: [String]
+    /// Where this bridge's children start and their dial lines are read; every copy shares it, and it is
+    /// not part of the bridge's identity.
+    private let queues = BridgeQueues()
 
     public init(executable: String, arguments: [String]) {
         self.executable = executable
         self.arguments = arguments
+    }
+
+    public static func == (lhs: DaemonBridge, rhs: DaemonBridge) -> Bool {
+        lhs.executable == rhs.executable && lhs.arguments == rhs.arguments
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(executable)
+        hasher.combine(arguments)
     }
 
     static let replyTimeoutMs: Int32 = 10_000
@@ -29,18 +41,36 @@ public struct DaemonBridge: Hashable, Sendable {
         let child: BridgeChild
     }
 
-    /// Spawns the bridge and waits for its dial line on a queue of its own, never on the caller's
-    /// thread (the spawn, and the wait of up to ``replyTimeoutMs``): the connected stream and the
-    /// child, or why it failed (the child is then killed and reaped). The child runs at
-    /// user-initiated QoS: a person waits for what comes over the link.
-    func open() async throws(DaemonError) -> Opened {
-        let bridge = self
-        let spawns = ChildSpawnQueue(label: "com.cmuxterm.next.daemon.bridge-open", qos: .userInitiated)
-        return try await spawns.run { () throws(DaemonError) -> Opened in try bridge.openNow(qos: spawns.qos) }
+    /// A spawned bridge whose dial line is not read yet.
+    private struct Spawned: Sendable {
+        let opened: Opened
+        /// The read end of the child's stderr (``BridgeChild`` closes it).
+        let stderr: Int32
     }
 
-    /// ``open()``'s work, on its spawn queue.
-    private func openNow(qos: ChildProcessQoS) throws(DaemonError) -> Opened {
+    /// Spawns the bridge on its user-blocking launcher (a person waits for what comes over the link), then
+    /// waits for its dial line on its dial queue; never on the caller's thread. Returns the connected stream
+    /// and the child, or why it failed (the child is then killed and reaped).
+    func open() async throws(DaemonError) -> Opened {
+        let (bridge, launcher, dial) = (self, queues.launcher, queues.dial)
+        let spawned = try await launcher.run { () throws(DaemonError) -> Spawned in try bridge.spawn(priority: launcher.priority) }
+        let dialed = await withCheckedContinuation { (continuation: CheckedContinuation<Result<Opened, DaemonError>, Never>) in
+            dial.async {
+                do throws(DaemonError) {
+                    try DaemonBridge.check(try Self.readLine(spawned.stderr))
+                    continuation.resume(returning: .success(spawned.opened))
+                } catch {
+                    spawned.opened.child.terminate()
+                    Darwin.close(spawned.opened.fd)
+                    continuation.resume(returning: .failure(error))
+                }
+            }
+        }
+        return try dialed.get()
+    }
+
+    /// ``open()``'s spawn, on the launcher.
+    private func spawn(priority: MayBlockPriority) throws(DaemonError) -> Spawned {
         guard executable.hasPrefix("/") else { throw .launchFailed("the bridge executable is not an absolute path") }
         var pair: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0 else { throw .launchFailed("socketpair: \(String(cString: strerror(errno)))") }
@@ -68,22 +98,14 @@ public struct DaemonBridge: Hashable, Sendable {
         let argv = ([executable] + arguments).map { strdup($0) } + [nil]
         defer { for pointer in argv { free(pointer) } }
         var pid: pid_t = 0
-        let spawned = blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, qos: qos)
+        let spawned = blockingPosixSpawn(&pid, executable, &actions, &attributes, argv, environ, priority: priority)
         Darwin.close(theirs)
         Darwin.close(errWrite)
         guard spawned == 0 else {
             Darwin.close(mine); Darwin.close(errRead)
             throw .launchFailed("spawn \(executable): \(String(cString: strerror(spawned)))")
         }
-        let child = BridgeChild(pid: pid, stderr: errRead)
-        do {
-            try DaemonBridge.check(try Self.readLine(errRead))
-        } catch {
-            child.terminate()
-            Darwin.close(mine)
-            throw error
-        }
-        return Opened(fd: mine, child: child)
+        return Spawned(opened: Opened(fd: mine, child: BridgeChild(pid: pid, stderr: errRead)), stderr: errRead)
     }
 
     /// One line from the child's stderr within the deadline.
@@ -116,7 +138,7 @@ public struct DaemonBridge: Hashable, Sendable {
 
 extension LineTransport {
     /// A connection to `path`, or through `bridge`'s child when there is one: ``DaemonBridge/open()``
-    /// spawns the child and reads its dial line on a queue of its own, never on the caller's thread.
+    /// spawns the child and reads its dial line off the caller's thread.
     ///
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
     /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing.
@@ -125,6 +147,15 @@ extension LineTransport {
         let opened = try await bridge?.open()
         return try LineTransport(path: path, opened: opened, role: role, stats: stats, hangs: hangs, trace: trace)
     }
+}
+
+/// The queues of one ``DaemonBridge``, made with it (one per machine session), never per connection.
+final class BridgeQueues: Sendable {
+    /// Spawns the bridge children, user-blocking: a person waits for what comes over the link.
+    let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.daemon-bridge", priority: .userBlocking)
+    /// Waits for the dial line of each opening connection, one `poll` of up to ``DaemonBridge/replyTimeoutMs``
+    /// per byte. Concurrent: one slow dial never holds another, nor a spawn (the launcher's items only spawn).
+    let dial = DispatchQueue(label: "com.cmuxterm.next.daemon.bridge-dial", qos: .userInitiated, attributes: .concurrent)
 }
 
 /// The bridge process of one connection: killed and reaped exactly once,

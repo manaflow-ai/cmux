@@ -96,24 +96,23 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     /// collectable, which follows the event at once), so hosts never wait on each other for long.
     /// userInitiated: the exit restarts the page a person is looking at.
     private let exitQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.exit", qos: .userInitiated)
-    /// Spawns this launcher's hosts in order, off the main thread: Chrome's process launcher thread
-    /// (content/browser/child_process_launcher_helper.cc). userInitiated: the host draws the page a
-    /// person is looking at.
-    private let spawns = ChildSpawnQueue(label: "com.cmuxterm.chromium-host.spawn", qos: .userInitiated)
+    /// Spawns hosts off the main thread, on the user-blocking launcher (Chrome's process launcher,
+    /// content/browser/child_process_launcher_helper.cc): the host draws the page a person is looking at.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.chromium-host", priority: .userBlocking)
 
     init() {}
 
     func launch(executable: URL, arguments: [String]) async throws -> ChromiumHostProcessHandle {
-        let qos = spawns.qos
-        return try await spawns.run { () throws(LaunchError) -> ChromiumHostProcessHandle in
-            try Self.spawn(executable: executable, arguments: arguments, qos: qos)
+        let priority = launcher.priority
+        return try await launcher.run { () throws(LaunchError) -> ChromiumHostProcessHandle in
+            try Self.spawn(executable: executable, arguments: arguments, priority: priority)
         }
     }
 
-    /// ``launch(executable:arguments:)``'s work, on the spawn queue (a test calls it on its own thread to
+    /// ``launch(executable:arguments:)``'s work, on the launcher (a test calls it on its own thread to
     /// set the spawning thread's signal mask).
     static func spawn(executable: URL, arguments: [String],
-                      qos: ChildProcessQoS) throws(LaunchError) -> ChromiumHostProcessHandle {
+                      priority: MayBlockPriority) throws(LaunchError) -> ChromiumHostProcessHandle {
         var toHost: [Int32] = [-1, -1]
         var fromHost: [Int32] = [-1, -1]
         guard socketpair(AF_UNIX, SOCK_STREAM, 0, &toHost) == 0 else { throw .socketPair(errno) }
@@ -150,7 +149,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
         let argv = ([executable.path] + arguments).map { strdup($0) } + [nil]
         defer { argv.forEach { free($0) } }
         var pid: pid_t = 0
-        let result = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, qos: qos)
+        let result = blockingPosixSpawn(&pid, executable.path, &actions, &attributes, argv, environ, priority: priority)
         Darwin.close(toHost[1])
         Darwin.close(fromHost[1])
         guard result == 0 else {

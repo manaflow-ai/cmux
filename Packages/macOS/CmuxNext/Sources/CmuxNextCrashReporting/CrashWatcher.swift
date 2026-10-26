@@ -84,13 +84,13 @@ struct CrashWatcher: Sendable {
         case spawn(Int32)
     }
 
-    /// The watcher's QoS: nobody waits on it until a crash, and its `sample` and SIGKILL then need no
-    /// more than utility. A ceiling: what it runs (`sample`) stays at utility too.
-    static let qos = ChildProcessQoS.utility
+    /// The watcher's priority: nobody waits on it until a crash, and its `sample` and SIGKILL then need no
+    /// more than utility. Best effort clamps it at utility, with what it runs (`sample`).
+    static let priority = MayBlockPriority.bestEffort
 
-    /// Spawns the watcher for `pid` at ``qos``. The returned write end is close-on-exec and never
+    /// Spawns the watcher for `pid` at ``priority``. The returned write end is close-on-exec and never
     /// raises SIGPIPE (a write after the watcher ended returns EPIPE). Blocking (`posix_spawn`):
-    /// ``install(sampleFile:)`` calls it on a ``ChildSpawnQueue``.
+    /// ``install(sampleFile:)`` calls it on a ``ChildProcessLauncher``.
     func spawn(watching pid: pid_t) throws(SpawnError) -> Spawned {
         var ends: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else { throw .pipe(errno) }
@@ -136,7 +136,7 @@ struct CrashWatcher: Sendable {
         var child: pid_t = 0
         let status = withCStrings(arguments) { argv in
             withCStrings(environment) { envp in
-                blockingPosixSpawn(&child, "/bin/zsh", &actions, &attributes, argv, envp, qos: Self.qos)
+                blockingPosixSpawn(&child, "/bin/zsh", &actions, &attributes, argv, envp, priority: Self.priority)
             }
         }
         guard status == 0 else {
@@ -152,7 +152,7 @@ struct CrashWatcher: Sendable {
     static func install(sampleFile: String) {
         let watcher = CrashWatcher(sampleFile: sampleFile)
         let app = getpid()
-        ChildSpawnQueue(label: "com.cmuxterm.app.next.crash-watcher.spawn", qos: qos).post {
+        ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.crash-watcher", priority: priority).post {
             guard watcherDescriptor < 0, let spawned = try? watcher.spawn(watching: app) else { return }
             watcherDescriptor = spawned.writeEnd
         }

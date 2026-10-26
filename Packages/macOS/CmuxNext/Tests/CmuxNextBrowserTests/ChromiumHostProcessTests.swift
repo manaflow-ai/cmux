@@ -72,7 +72,7 @@ import Testing
         pthread_sigmask(SIG_BLOCK, &blocked, &previous)
         // The spawn queue's seam, called on this thread, so the mask under test is the spawning thread's.
         let launched = Result { () throws(ChromiumHostLauncher.LaunchError) in
-            try ChromiumHostLauncher.spawn(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"], qos: .userInitiated)
+            try ChromiumHostLauncher.spawn(executable: Self.echo, arguments: ["-c", "kill -USR1 $$; echo alive >&4"], priority: .userBlocking)
         }
         pthread_sigmask(SIG_SETMASK, &previous, nil)
         let handle = try launched.get()
