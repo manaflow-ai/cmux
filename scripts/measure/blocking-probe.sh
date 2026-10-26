@@ -6,8 +6,11 @@
 # STRESS, every catalog action and interaction), and ranks every file, socket, process, lock and sleep wait by its
 # first cmux frame, worst first by total time, in four sections: app_main, app_chromium (the main thread's waits
 # that Chromium's code makes), daemon_request and daemon_input_wait (a daemon thread's wait for its next input,
-# listed apart) (artifacts/blocking-probe/blocking-probe.md and .json). A measurement only: the probe is
-# never linked into or shipped with cmux, and it runs only on the fleet (a logged-in console host).
+# listed apart) (artifacts/blocking-probe/blocking-probe.md and .json). Then it files them (task 301):
+# blocking-probe-filing.json holds the MQ-11 tasks (app_main), the MQ-13 tasks (daemon_request), the app_chromium
+# total for the CEF helper-app program (an open number) and RUN-2's verdict; perf-lead-rows.md the RUN-2 and RUN-5
+# daemon rows for perf-lead.md section 5. A measurement only: the probe is never linked into or shipped with cmux,
+# and it runs only on the fleet (a logged-in console host).
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/blocking-probe.sh \
 #     --ref <sha> --key <key> --artifact artifacts/blocking-probe.tar.gz [--arg=--config=bench] [--arg=--sessions=light]
 #   nx-remote --needs gui -- scripts/measure/blocking-probe.sh [--config=bench] [--until-mark NAME] [sweep arguments]
@@ -327,6 +330,13 @@ if [[ -n "$until_mark" ]]; then
     if [[ -e "$window" ]]; then dumps+=("$window"); fi
   done
 fi
+# The filing (p02-threads.md task 301): MQ-11 and MQ-13 tasks, the app_chromium hand-off and RUN-2, with the
+# sweep's host, macOS and sha; an MQ-13 task at a location p02-threads-303's daemon sweep listed is marked, not new.
+filing_args=(--sweep-json "$out/sweep/every-action.json" --config "${reload_config[1]:-debug}")
+known_sites="plans/cmux-next/chrome-parity/results/p02-threads-303/mq13-record-sites.json"
+if [[ -f "$known_sites" ]]; then filing_args+=(--known-sites "$known_sites"); fi
 python3 "$report" --app "$app" --launches "$launches" ${report_window[@]+"${report_window[@]}"} --out "$out" \
-  "${dumps[@]}"
-echo "blocking-probe: sweep exited $status; report $out/blocking-probe.md"
+  "${filing_args[@]}" "${dumps[@]}" | tee "$out/report.log"
+echo "blocking-probe: sweep exited $status; report $out/blocking-probe.md, tasks $out/blocking-probe-filing.json," \
+  "perf-lead.md section 5 rows $out/perf-lead-rows.md"
+grep '^RUN-2 ' "$out/report.log" || true

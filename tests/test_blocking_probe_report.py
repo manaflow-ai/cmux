@@ -7,6 +7,7 @@ compiled with the host's C compiler and run on the daemon's real thread names an
 (dyld interposing) runs only in the fleet preflight of scripts/measure/blocking-probe.sh. No app, no build, no
 atos needed (the frames stay unresolved off macOS). Run: python3 -I tests/test_blocking_probe_report.py
 """
+import importlib.util
 import json
 import os
 import re
@@ -389,8 +390,9 @@ class ProbeSelection(unittest.TestCase):
 
     def test_every_pattern_names_a_thread_the_daemon_spawns(self):
         # A renamed thread would leave a pattern that watches nothing: each one is a thread name in cmux-tui (a
-        # `.name("...")`, or a `format!("...")` handed to a spawn helper such as HostFrames::spawn).
-        names = subprocess.run(["git", "-C", ROOT, "grep", "-h", "-o", "-E", r'(name\(|format!\()"[^"]+"',
+        # `.name("...")`, a `format!("...")` handed to a spawn helper such as HostFrames::spawn, or the name a
+        # spawn helper takes first: echo_thread::spawn, cmux_threads::spawn, spawn_connection_reader).
+        names = subprocess.run(["git", "-C", ROOT, "grep", "-h", "-o", "-E", r'(name\(|format!\(|spawn\w*\()"[^"]+"',
                                 "--", "cmux-tui/crates"], capture_output=True, text=True).stdout
         spawned = {re.sub(r"\{[^}]*\}", "*", m) for m in re.findall(r'"([^"]+)"', names)}
         for pattern in self.patterns:
@@ -414,6 +416,190 @@ class ProbeWiring(unittest.TestCase):
                                   ":!tests/test_blocking_probe_report.py"],
                                  capture_output=True, text=True).stdout.split()
         self.assertEqual(tracked, [])
+
+
+def load_report_module():
+    spec = importlib.util.spec_from_file_location("blocking_probe_report", REPORT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# The sweep's every-action.json as the filing reads it: host, macOS and sha, and the measured actions (repeats).
+SWEEP_JSON = {"env": {"host": "cmux20", "macos": "27.0.1", "machine": "arm64", "sha": "0123456789ab"},
+              "sessions": [{"name": "light", "rows": [{"commit_ms": {"n": 3}}, {"skipped": "destructive"}],
+                            "interactions": [{"commit_ms": {"n": 2}}]},
+                           {"name": "stress", "rows": [{"commit_ms": {"n": 3}}, {"errors": ["harness"]}]}]}
+# A Debug run with no cmux wait near 1 ms: 40 calls of 5 us; Chromium's pump waits 2 ms in total.
+QUIET_APP = "\n".join([
+    "#final\t1", "#threads\tmain",
+    "file-io:stat\tmain\t40\t200000\t5000\tlibsystem_kernel.dylib|0x10|stat;"
+    "cmux DEV.debug.dylib|0x100|$s13CmuxNextStore4loadyyF;",
+    "sync-wait:pthread_cond_wait\tmain\t4\t2000000\t600000\tlibsystem_pthread.dylib|0x1|cond_wait;"
+    "Chromium Embedded Framework|0x7000|cef_run_loop;cmux DEV.debug.dylib|0x400|$s15CmuxNextBrowser4pumpyyF;",
+]) + "\n"
+QUIET_DAEMON = "#final\t1\n#threads\tmux-conn\n"
+# Many short cmux waits that add up to 2 ms: no single one reaches 1 ms, but the per-action bound is not shown.
+BUSY_APP = "#final\t1\n#threads\tmain\nfile-io:stat\tmain\t400\t2000000\t5000\tlibsystem_kernel.dylib|0x10|stat;" \
+           "cmux DEV.debug.dylib|0x100|$s13CmuxNextStore4loadyyF;\n"
+# A worse site than APP_DUMP's, so CmuxNextStore.load moves from first to second.
+WORSE_APP = "#final\t1\n#threads\tmain\nfile-io:fsync\tmain\t1\t9000000\t9000000\tlibsystem_kernel.dylib|0x11|fsync;" \
+            "cmux DEV.debug.dylib|0x110|$s14CmuxNextTheme4saveyyF;\n"
+
+
+class Filing(unittest.TestCase):
+    """Task 301: MQ-11 and MQ-13 tasks, the app_chromium hand-off and RUN-2, from the report's own rows."""
+
+    def run_filing(self, dumps, sweep=SWEEP_JSON, known=None):
+        work = tempfile.mkdtemp(prefix="blocking-probe-filing-")
+        self.addCleanup(shutil.rmtree, work, True)
+        app = os.path.join(work, "cmux DEV.app")
+        for relative in ("Contents/MacOS/cmux DEV", "Contents/MacOS/cmux DEV.debug.dylib",
+                         "Contents/Resources/bin/cmux-tui"):
+            path = os.path.join(app, relative)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "w").close()
+        args = ["--app", app, "--launches", "2", "--out", os.path.join(work, "out"), "--config", "bench"]
+        if sweep is not None:
+            with open(os.path.join(work, "every-action.json"), "w") as f:
+                json.dump(sweep, f)
+            args += ["--sweep-json", os.path.join(work, "every-action.json")]
+        if known is not None:
+            with open(os.path.join(work, "known.json"), "w") as f:
+                json.dump(known, f)
+            args += ["--known-sites", os.path.join(work, "known.json")]
+        run = report_cli(*args, *write_dumps(work, dumps))
+        self.assertEqual(run.returncode, 0, run.stderr)
+        out = os.path.join(work, "out")
+        with open(os.path.join(out, "blocking-probe-filing.json")) as f:
+            filed = json.load(f)
+        with open(os.path.join(out, "perf-lead-rows.md")) as f:
+            rows = f.read().splitlines()
+        with open(os.path.join(out, "blocking-probe.md")) as f:
+            markdown = f.read()
+        return filed, rows, markdown, run.stdout
+
+    def test_a_cmux_wait_of_1_ms_fails_run2_and_files_one_task_per_queue_entry(self):
+        filed, rows, markdown, stdout = self.run_filing([APP_DUMP, DAEMON_DUMP])
+        run2 = filed["run2"]
+        self.assertEqual(run2["verdict"], "fail")
+        self.assertEqual(run2["waits_ge_1ms_sites"], 1)
+        self.assertEqual(run2["cmux_main_ms"], 5.0)
+        self.assertEqual(run2["actions"], 9)  # 3 + 2 + 3 repeats and the harness row (1); the skipped row is none
+        self.assertFalse(run2["target_met"])
+        (task,) = filed["mq11"]
+        self.assertEqual(task["machine_queue"], "MQ-11")
+        self.assertEqual(task["module"], "CmuxNextStore")
+        self.assertEqual((task["total_ms"], task["max_ms"]), (5.0, 3.0))
+        self.assertIn("file-io:open 2", task["change"])
+        self.assertTrue(task["id"].startswith("p02-threads-B11-"))
+        # MQ-13: one task per (site, kind, thread); the idle recv at listen::serve is an input wait, not a task.
+        self.assertEqual(sorted((t["kind"], t["thread"]) for t in filed["mq13"]),
+                         [("file-io:fsync", "surface-*-host"), ("file-io:open", "mux-conn")])
+        self.assertEqual(filed["mq13"][0]["total_ms"], 8.0)  # worst first
+        self.assertEqual(filed["daemon"]["input_wait_ms"], 150000.0)
+        # Chromium's 2 ms go to the CEF helper-app program as an open number.
+        chromium = filed["app_chromium"]
+        self.assertEqual((chromium["status"], chromium["total_ms"], chromium["program"]), ("open", 2.0, "p01-process"))
+        self.assertIn("RUN-2 fail waits_ge_1ms_sites=1", stdout)
+        self.assertIn("chromium=open", stdout)
+        self.assertIn("## Filing (p02-threads-301)", markdown)
+        # perf-lead.md section 5 rows: six cells each, with sha, host, macOS and config.
+        self.assertEqual(len(rows), 2)
+        for row in rows:
+            self.assertEqual(row.count(" | "), 5, row)
+            for fact in ("0123456789ab", "cmux20", "macOS 27.0.1", "config bench", "light+stress"):
+                self.assertIn(fact, row)
+        self.assertIn("RUN-2", rows[0])
+        self.assertIn("app_chromium OPEN: 2.0 ms", rows[0])
+        self.assertIn("1 dumps periodic only", rows[0])  # the daemon dump had no final write
+        self.assertIn("RUN-5 daemon half", rows[1])
+        self.assertIn("2 MQ-13 tasks", rows[1])
+
+    def test_a_quiet_complete_run_passes_but_the_chromium_number_keeps_the_target_open(self):
+        filed, rows, _, _ = self.run_filing([QUIET_APP, QUIET_DAEMON])
+        run2 = filed["run2"]
+        self.assertEqual((run2["verdict"], run2["incomplete"]), ("pass", []))
+        self.assertEqual(filed["mq11"], [])  # 0.2 ms in total is under the 1 ms filing line
+        self.assertFalse(run2["target_met"])
+        self.assertEqual(filed["app_chromium"]["total_ms"], 2.0)
+        self.assertIn("pass:", rows[0])
+        filed, _, _, _ = self.run_filing([QUIET_APP.split("sync-wait")[0], QUIET_DAEMON])
+        self.assertEqual(filed["app_chromium"]["status"], "zero")
+        self.assertTrue(filed["run2"]["target_met"])
+
+    def test_short_waits_that_add_up_or_a_missing_sweep_never_pass(self):
+        filed, _, _, _ = self.run_filing([BUSY_APP, QUIET_DAEMON])
+        self.assertEqual(filed["run2"]["verdict"], "unproved")
+        self.assertEqual(filed["run2"]["waits_ge_1ms_sites"], 0)
+        self.assertEqual(len(filed["mq11"]), 1)  # 2 ms in total: filed, though no single wait reached 1 ms
+        filed, rows, _, _ = self.run_filing([QUIET_APP, QUIET_DAEMON], sweep=None)
+        self.assertEqual(filed["run2"]["verdict"], "unproved")
+        self.assertIn("no sweep actions read", filed["run2"]["incomplete"])
+        self.assertIn("sha not recorded", rows[0])
+        filed, _, _, _ = self.run_filing([QUIET_APP])
+        self.assertIn("no daemon dump", filed["run2"]["incomplete"])
+
+    def test_task_ids_follow_the_site_not_its_rank(self):
+        before, _, _, _ = self.run_filing([APP_DUMP, DAEMON_DUMP])
+        after, _, _, _ = self.run_filing([APP_DUMP, WORSE_APP, DAEMON_DUMP])
+        self.assertEqual(after["mq11"][1]["id"], before["mq11"][0]["id"])
+        self.assertNotEqual(after["mq11"][0]["id"], before["mq11"][0]["id"])
+        self.assertEqual(sorted(t["id"] for t in after["mq13"]), sorted(t["id"] for t in before["mq13"]))
+        self.assertEqual(len({t["id"] for t in after["mq13"]}), 2)
+
+    def test_a_frame_with_no_cmux_image_is_not_filed(self):
+        stray = "#final\t1\n#threads\tmain\nfile-io:open\tmain\t1\t4000000\t4000000\tlibsystem_kernel.dylib|0x1|open;\n"
+        filed, _, _, _ = self.run_filing([stray, QUIET_DAEMON])
+        self.assertEqual(filed["mq11"], [])
+        self.assertEqual(filed["run2"]["no_cmux_frame_ms"], 4.0)
+        self.assertEqual(filed["run2"]["waits_ge_1ms_sites"], 0)
+
+
+class FilingSources(unittest.TestCase):
+    """The file a site's atos line names, against the repo's own files, and the known MQ-13 list."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = load_report_module()
+        cls.index = cls.report.source_index(ROOT)
+
+    def row(self, site, module, **extra):
+        return {"site": site, "module": module, "owner": "o", "count": 1, "total_ms": 2.0, "max_ms": 2.0,
+                "kinds": {"file-io:open": 1}, "stack": "", "cmux_frame": True,
+                "pairs": [{"kind": "file-io:open", "thread": "mux-line-out", "count": 1, "total_ms": 2.0,
+                           "max_ms": 2.0}], **extra}
+
+    def test_an_atos_line_resolves_to_the_repo_file(self):
+        row = self.row("serve (in cmux-tui) (bounded_outbound.rs:469)", "cmux_tui_core")
+        source, candidates = self.report.source_of(row, self.index)
+        self.assertEqual(source, "bounded_outbound.rs:469")
+        self.assertEqual(candidates, ["cmux-tui/crates/cmux-tui-core/src/server/bounded_outbound.rs"])
+        (task,) = self.report.mq11_tasks([row], self.index)
+        self.assertEqual(task["files"], candidates)
+        self.assertEqual(task["unresolved"], [])
+
+    def test_a_file_name_with_no_single_file_is_unresolved_never_guessed(self):
+        row = self.row("f (in cmux DEV.debug.dylib) (NoSuchFile.swift:3)", "CmuxNextStore")
+        (task,) = self.report.mq11_tasks([row], self.index)
+        self.assertEqual(task["files"], [])
+        self.assertEqual(task["unresolved"], [{"source": "NoSuchFile.swift:3", "candidates": []}])
+
+    def test_a_site_on_the_known_mq13_list_is_marked(self):
+        known = {("bounded_outbound.rs", "469"): "mq13-record-sites.json"}
+        hit = self.row("serve (in cmux-tui) (bounded_outbound.rs:469)", "cmux_tui_core")
+        miss = self.row("serve (in cmux-tui) (bounded_outbound.rs:470)", "cmux_tui_core")
+        tasks = self.report.mq13_tasks([hit, miss], self.index, known)
+        self.assertEqual(sorted(str(t["known_from"]) for t in tasks), ["None", "mq13-record-sites.json"])
+
+    def test_the_harness_hands_the_303_list_and_the_sweep_json_to_the_report(self):
+        with open(HARNESS) as f:
+            harness = f.read()
+        path = re.search(r'known_sites="([^"]+)"', harness).group(1)
+        self.assertTrue(os.path.isfile(os.path.join(ROOT, path)), path)
+        known = self.report.known_locations(os.path.join(ROOT, path))
+        self.assertIn(("bounded_outbound.rs", "469"), known)
+        self.assertIn('--sweep-json "$out/sweep/every-action.json"', harness)
 
 
 if __name__ == "__main__":

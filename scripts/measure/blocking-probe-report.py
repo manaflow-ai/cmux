@@ -28,14 +28,24 @@ With --until-mark NAME, a fifth section, listed first:
                      launches it was hit in: Q5's raw list (plans/cmux-next/chrome-parity/p08-startup.md). A
                      launch whose app never sent the mark has no window and is counted as missing, never as clean
 
+Then the filing (p02-threads.md task 301), in blocking-probe-filing.json, perf-lead-rows.md and at the end of the
+Markdown: one MQ-11 task per cmux function on the main thread with 1 ms or more in total, one MQ-13 task per daemon
+(site, kind, thread), the app_chromium total handed to the CEF helper-app program as an open number, and RUN-2's
+verdict (fail: a single cmux wait of 1 ms or more; pass: the run's whole cmux main off-CPU time under the 0.5 ms
+per-action bound, with every dump complete; otherwise unproved). perf-lead-rows.md holds perf-lead.md section 5's
+RUN-2 and RUN-5 daemon rows with sha, host and macOS from the sweep's every-action.json.
+
   scripts/measure/blocking-probe-report.py --app APP.app [--launches N] [--until-mark NAME] --out DIR \
+      [--sweep-json every-action.json] [--known-sites mq13-record-sites.json] [--config NAME] \
       dump1.tsv [dump2.tsv ...] [dump1.tsv.window ...]
   scripts/measure/blocking-probe-report.py --select main|daemon dump1.tsv ...   prints the app's or daemon's dumps
   scripts/measure/blocking-probe-report.py --preflight [--until-mark NAME] dump1.tsv ...   the harness's preflight
 """
 import argparse
 import collections
+import datetime
 import glob
+import hashlib
 import json
 import os
 import re
@@ -366,7 +376,8 @@ def build(entries, images, dsyms, owned, sections=SECTIONS):
     resolved = atos(images, dsyms, wanted)
     sites = {section: collections.defaultdict(lambda: {
         "count": 0, "total_ns": 0, "max_ns": 0, "kinds": collections.Counter(), "threads": collections.Counter(),
-        "stack": "", "symbol": "", "vias": collections.Counter(), "by": "cmux", "origins": set()})
+        "stack": "", "symbol": "", "vias": collections.Counter(), "by": "cmux", "origins": set(),
+        "pairs": collections.defaultdict(lambda: [0, 0, 0]), "cmux_frame": False})
         for section in sections}
     for scope, kind, thread, count, total, longest, frames, origin in entries:
         section, frame, via = classify(scope == "daemon", kind, frames, images, resolved)
@@ -385,6 +396,12 @@ def build(entries, images, dsyms, owned, sections=SECTIONS):
         site["kinds"][kind] += count
         site["threads"][thread] += count
         site["symbol"] = split_frame(frame)[2]
+        # MQ-13 files each (site, kind, thread); RUN-2 counts single waits of 1 ms or more in cmux code.
+        pair = site["pairs"][(kind, thread)]
+        pair[0] += count
+        pair[1] += total
+        pair[2] = max(pair[2], longest)
+        site["cmux_frame"] = site["cmux_frame"] or is_cmux(split_frame(frame)[0], images)
         if via:
             site["vias"][frame_name(via, resolved)] += total
         if longest >= site["max_ns"]:
@@ -408,7 +425,11 @@ def build(entries, images, dsyms, owned, sections=SECTIONS):
                    "owner": owned.get(module, "unowned"), "count": site["count"],
                    "total_ms": round(site["total_ns"] / 1e6, 3), "max_ms": round(site["max_ns"] / 1e6, 3),
                    "kinds": dict(site["kinds"]), "threads": dict(site["threads"]),
-                   "via": demangled.get(site["via"]) or site["via"], "stack": site["stack"]}
+                   "via": demangled.get(site["via"]) or site["via"], "stack": site["stack"],
+                   "cmux_frame": site["cmux_frame"],
+                   "pairs": [{"kind": kind, "thread": thread, "count": c, "total_ms": round(t / 1e6, 3),
+                              "max_ms": round(m / 1e6, 3)}
+                             for (kind, thread), (c, t, m) in sorted(site["pairs"].items(), key=lambda kv: -kv[1][1])]}
             if section == LAUNCH:
                 # Who makes the call, and in how many launches (one window each): any launch counts.
                 row.update({"by": site["by"], "launches": len(site["origins"])})
@@ -447,6 +468,280 @@ def write_launch(md, launch, rows, info):
         via = f"`{r['via'][:80]}`" if r["via"] else ""
         md.write(f"| {index} | {r['total_ms']} | {r['max_ms']} | {r['count']} | {r['launches']} | {r['by']} | "
                  f"{kinds} | `{r['site'][:120]}` | {via} | {r['module']} | {r['owner']} |\n")
+
+
+# The filing (p02-threads.md task 301): each app_main function with 1 ms or more in total is one MQ-11 task, each
+# daemon_request (site, kind, thread) one MQ-13 task, and the app_chromium total goes to the CEF helper-app program
+# as an open number. RUN-2 is judged from the same rows. Chrome keeps the same split: a ScopedBlockingCall on the
+# UI thread is a bug in the code that makes it (base/threading/thread_restrictions.h).
+WAIT_MS = 1.0  # RUN-2: no single main-thread wait of 1 ms or more in cmux code; MQ-11: a site's total of 1 ms or more
+PER_ACTION_MS = 0.5  # RUN-2: main off-CPU time in cmux frames per action, p99
+CEF_PROGRAM = "p01-process"
+CEF_DESIGN = "plans/cmux-next/cef-helper-app-DESIGN.md"
+# The ` (File.swift:123)` tail of an atos line; atos names the file without its folders.
+SOURCE = re.compile(r"\(([\w.+-]+\.(?:swift|rs|mm|m|cc|cpp|c|h)):(\d+)\)\s*$")
+# A location in a fixed MQ-13 list, such as p02-threads-303's mq13-record-sites.json ("crates/x/src/y.rs:469:21").
+KNOWN_LOCATION = re.compile(r"([^/]+\.rs):(\d+)(?::\d+)?$")
+
+
+def source_index(repo_root):
+    """{file name: [repo paths]} of the source atos can name: Packages/ and cmux-tui/crates/."""
+    try:
+        listed = subprocess.run(["git", "-C", repo_root, "ls-files", "-z", "--", "Packages", "cmux-tui/crates"],
+                                capture_output=True, text=True).stdout.split("\0")
+    except OSError:
+        listed = []
+    index = collections.defaultdict(list)
+    for path in listed:
+        if path:
+            index[os.path.basename(path)].append(path)
+    return index
+
+
+def source_of(row, index):
+    """("File.swift:123" or "", the repo paths that file can be): exactly one path is a resolved file."""
+    match = SOURCE.search(row["site"])
+    if not match:
+        return "", []
+    candidates = index.get(match.group(1), [])
+    module = row["module"]
+    if module and len(candidates) > 1:
+        narrowed = [path for path in candidates
+                    if f"/Sources/{module}/" in path or f"/crates/{module.replace('_', '-')}/" in path]
+        candidates = narrowed or candidates
+    return f"{match.group(1)}:{match.group(2)}", sorted(candidates)
+
+
+def task_id(queue, *parts):
+    """An id from what the site is (its function, and for MQ-13 kind and thread), never its rank in this run: a
+    rerun after one site is fixed keeps every other id."""
+    return f"p02-threads-{queue}-{hashlib.sha1(chr(31).join(parts).encode()).hexdigest()[:8]}"
+
+
+def where(rows, index):
+    """(resolved files, each row's source as text, the sources with no single file)."""
+    files, sources, unresolved = set(), [], []
+    for row in rows:
+        source, candidates = source_of(row, index)
+        if len(candidates) == 1:
+            files.add(candidates[0])
+        elif source:
+            unresolved.append({"source": source, "candidates": candidates[:8]})
+        sources.append(source or row["site"][:120])
+    return sorted(files), sources, unresolved
+
+
+def kinds_text(kinds):
+    return ", ".join(f"{kind} {count}" for kind, count in sorted(kinds.items(), key=lambda kv: -kv[1]))
+
+
+def mq11_tasks(rows, index):
+    """One task per cmux function on the main thread with 1 ms or more in total, worst first."""
+    groups = {}
+    for row in rows:
+        if row["cmux_frame"] and row["total_ms"] >= WAIT_MS:
+            groups.setdefault(symbol_part(row["site"]), []).append(row)
+    tasks = []
+    for function, members in groups.items():
+        files, sources, unresolved = where(members, index)
+        kinds = sum((collections.Counter(r["kinds"]) for r in members), collections.Counter())
+        total = round(sum(r["total_ms"] for r in members), 3)
+        longest = max(r["max_ms"] for r in members)
+        tasks.append({
+            "id": task_id("B11", function), "title": f"MQ-11 main-thread wait: {function[:100]}",
+            "files": files,
+            "change": f"Take {kinds_text(kinds)} off the main thread (threading-model.md: the main thread never "
+                      f"blocks; use the async or background API, or move the work to its lane): {total} ms in "
+                      f"total, longest {longest} ms, at {', '.join(sources)}.",
+            "acceptance": f"blocking-probe.sh --config=bench lists no app_main site in {function[:100]} with "
+                          f"{WAIT_MS:g} ms or more in total",
+            "test_phase": "T3 fleet: blocking-probe.sh --config=bench", "size": "S",
+            "depends_on": ["p02-threads-301"], "machine_queue": "MQ-11",
+            "module": members[0]["module"], "owner": members[0]["owner"], "total_ms": total, "max_ms": longest,
+            "unresolved": unresolved,
+            "sites": [{key: r[key] for key in ("site", "count", "total_ms", "max_ms", "kinds", "stack")}
+                      for r in members]})
+    return sorted(tasks, key=lambda t: -t["total_ms"])
+
+
+def known_locations(path):
+    """{("file.rs", "line"): the list's file name} of a fixed MQ-13 list, so a site it holds is marked, not filed
+    as new work."""
+    if not path:
+        return {}
+    with open(path) as f:
+        rows = json.load(f)
+    known = {}
+    for row in rows if isinstance(rows, list) else rows.get("sites", []):
+        match = KNOWN_LOCATION.search(str(row.get("location", "")))
+        if match:
+            known[(match.group(1), match.group(2))] = os.path.basename(path)
+    return known
+
+
+def mq13_tasks(rows, index, known):
+    """One task per daemon (site, kind, thread pattern), worst first; a site on a known list says which."""
+    tasks = []
+    for row in rows:
+        function = symbol_part(row["site"])
+        source, _ = source_of(row, index)
+        files, sources, unresolved = where([row], index)
+        known_from = known.get(tuple(source.split(":"))) if source else None
+        for pair in row["pairs"]:
+            tasks.append({
+                "id": task_id("B13", function, pair["kind"], pair["thread"]),
+                "title": f"MQ-13 {pair['kind']} on {pair['thread']}: {function[:100]}",
+                "files": files,
+                "change": f"Take the {pair['kind']} off {pair['thread']}, a request or echo thread (p02-threads.md "
+                          f"section C; a cmux_threads checked primitive on a worker): {pair['count']} calls, "
+                          f"{pair['total_ms']} ms in total, longest {pair['max_ms']} ms, at {sources[0]}.",
+                "acceptance": f"blocking-probe.sh lists no daemon_request {pair['kind']} on {pair['thread']} in "
+                              f"{function[:100]}, and the daemon's server.blocking has no site there",
+                "test_phase": "T1r daemon-blocking-sweep.py suites; T3 fleet: blocking-probe.sh --config=bench",
+                "size": "S", "depends_on": ["p02-threads-301"], "machine_queue": "MQ-13",
+                "module": row["module"], "owner": row["owner"], "kind": pair["kind"], "thread": pair["thread"],
+                "count": pair["count"], "total_ms": pair["total_ms"], "max_ms": pair["max_ms"],
+                "known_from": known_from, "unresolved": unresolved, "stack": row["stack"]})
+    return sorted(tasks, key=lambda t: -t["total_ms"])
+
+
+def chromium_handoff(rows):
+    """The app_chromium total for the CEF helper-app program: an open number while it is above 0."""
+    total = round(sum(r["total_ms"] for r in rows), 3)
+    return {"program": CEF_PROGRAM, "design": CEF_DESIGN, "status": "open" if total > 0 else "zero",
+            "total_ms": total, "sites": len(rows), "calls": sum(r["count"] for r in rows),
+            "max_ms": max((r["max_ms"] for r in rows), default=0),
+            "target": "RUN-2: 0 main-thread blocking; not met while total_ms is above 0 (the in-process pump, F2)",
+            "top": [{key: r[key] for key in ("site", "via", "total_ms", "max_ms", "kinds")} for r in rows[:15]]}
+
+
+def sweep_facts(path):
+    """Host, macOS, sha, sessions and the measured actions (each row's repeats), from the sweep's every-action.json;
+    empty when the sweep wrote none."""
+    if not path or not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        data = json.load(f)
+    env = data.get("env") or {}
+    sessions = data.get("sessions") or []
+    actions = 0
+    for session in sessions:
+        for row in (session.get("rows") or []) + (session.get("interactions") or []):
+            if not row.get("skipped"):
+                actions += max(1, int((row.get("commit_ms") or {}).get("n") or 1))
+    return {"host": env.get("host", ""), "macos": env.get("macos", ""), "machine": env.get("machine", ""),
+            "sha": env.get("sha", ""), "sessions": [s.get("name", "") for s in sessions], "actions": actions}
+
+
+def run2_verdict(rows, chromium, summary, facts):
+    """RUN-2 for cmux's code. Any single wait of 1 ms or more fails. The probe sums each stack over the whole run,
+    so the per-action p99 bound is proved only when the run's whole cmux main off-CPU time is under it (then every
+    action is); a larger total is unproved, never a pass, and so is a run with missing dumps or dropped entries."""
+    cmux = [r for r in rows if r["cmux_frame"]]
+    long_sites = sorted((r for r in cmux if r["max_ms"] >= WAIT_MS), key=lambda r: -r["max_ms"])
+    cmux_ms = round(sum(r["total_ms"] for r in cmux), 3)
+    actions = facts.get("actions") or 0
+    incomplete = []
+    if summary["dumps"]["periodic only"]:
+        incomplete.append(f"{summary['dumps']['periodic only']} dumps periodic only")
+    if summary["dropped"]:
+        incomplete.append(f"{summary['dropped']} entries dropped")
+    if not summary["dumps"]["daemon"]:
+        incomplete.append("no daemon dump")
+    if not actions:
+        incomplete.append("no sweep actions read")
+    if long_sites:
+        verdict = "fail"
+    elif cmux_ms < PER_ACTION_MS and not incomplete:
+        verdict = "pass"
+    else:
+        verdict = "unproved"
+    return {"verdict": verdict, "waits_ge_1ms_sites": len(long_sites),
+            "worst": [{key: r[key] for key in ("site", "max_ms", "total_ms")} for r in long_sites[:5]],
+            "cmux_main_ms": cmux_ms, "actions": actions,
+            "per_action_mean_ms": round(cmux_ms / actions, 3) if actions else None,
+            "no_cmux_frame_ms": round(sum(r["total_ms"] for r in rows if not r["cmux_frame"]), 3),
+            "incomplete": incomplete, "app_chromium_ms": chromium["total_ms"],
+            "target_met": verdict == "pass" and chromium["total_ms"] == 0}
+
+
+def filing(report, summary, facts, index, known, config):
+    """The run's tasks, RUN-2 and the Chromium hand-off (blocking-probe-filing.json)."""
+    chromium = chromium_handoff(report["app_chromium"])
+    mq13 = mq13_tasks(report["daemon_request"], index, known)
+    return {"date": datetime.date.today().isoformat(), "config": config, "facts": facts,
+            "run2": run2_verdict(report["app_main"], chromium, summary, facts),
+            "mq11": mq11_tasks(report["app_main"], index), "mq13": mq13, "app_chromium": chromium,
+            "daemon": {"sites": len(report["daemon_request"]),
+                       "blocked_ms": summary["sections"]["daemon_request"]["blocked_ms"],
+                       "input_wait_ms": summary["sections"]["daemon_input_wait"]["blocked_ms"],
+                       "known": sorted({t["known_from"] for t in mq13 if t["known_from"]}),
+                       "known_tasks": sum(1 for t in mq13 if t["known_from"])}}
+
+
+def run2_line(filed):
+    run2 = filed["run2"]
+    return (f"RUN-2 {run2['verdict']} waits_ge_1ms_sites={run2['waits_ge_1ms_sites']} "
+            f"cmux_main_ms={run2['cmux_main_ms']} actions={run2['actions']} mq11_tasks={len(filed['mq11'])} "
+            f"mq13_tasks={len(filed['mq13'])} app_chromium_ms={run2['app_chromium_ms']} "
+            f"chromium={filed['app_chromium']['status']} target_met={str(run2['target_met']).lower()}")
+
+
+def perf_lead_rows(filed):
+    """perf-lead.md section 5 rows (Date | Workstream | sha | Row | Before | After), host, macOS and sha in each."""
+    facts, run2, chromium, daemon = filed["facts"], filed["run2"], filed["app_chromium"], filed["daemon"]
+    where_run = (f"{facts.get('host') or 'host not recorded'}, macOS {facts.get('macos') or 'not recorded'}, "
+                 f"{facts.get('machine') or 'arch not recorded'}, config {filed['config']}, sessions "
+                 f"{'+'.join(facts.get('sessions') or []) or 'not recorded'}")
+    sha = facts.get("sha") or "sha not recorded"
+    worst = "; ".join(f"`{w['site'][:80]}` {w['max_ms']} ms" for w in run2["worst"][:3]) or "none"
+    mean = f"{run2['per_action_mean_ms']} ms mean" if run2["per_action_mean_ms"] is not None else "no action count"
+    incomplete = f" Incomplete: {', '.join(run2['incomplete'])}." if run2["incomplete"] else ""
+    app = (f"| {filed['date']} | p02-threads-301 RUN-2 (blocking probe, MQ-11) | {sha} | RUN-2: main-thread waits "
+           f"in cmux code, every action light + STRESS | - | {run2['verdict']}: {run2['waits_ge_1ms_sites']} cmux "
+           f"sites with a single wait of {WAIT_MS:g} ms or more (worst: {worst}); cmux main off-CPU "
+           f"{run2['cmux_main_ms']} ms over {run2['actions']} actions ({mean}; the per-action p99 < "
+           f"{PER_ACTION_MS:g} ms bound is proved only when the run's total is under it); {len(filed['mq11'])} "
+           f"MQ-11 tasks; no cmux frame {run2['no_cmux_frame_ms']} ms. app_chromium OPEN: {chromium['total_ms']} "
+           f"ms over {chromium['sites']} sites, longest {chromium['max_ms']} ms, to {CEF_PROGRAM} ({CEF_DESIGN}); "
+           f"the 0-blocking target is not met while it is above 0.{incomplete} {where_run} |")
+    known = (f", {daemon['known_tasks']} at a location already on {', '.join(daemon['known'])}"
+             if daemon["known_tasks"] else "")
+    daemon_row = (f"| {filed['date']} | p02-threads-301 RUN-5 daemon half (blocking probe, MQ-13) | {sha} | RUN-5: "
+                  f"the app session owner's request and echo threads under the same sweep | - | daemon_request "
+                  f"{daemon['sites']} sites, {daemon['blocked_ms']} ms; {len(filed['mq13'])} MQ-13 tasks (site, "
+                  f"kind, thread){known}; daemon_input_wait {daemon['input_wait_ms']} ms (a wait for the next "
+                  f"input, not blocking work). {where_run} |")
+    return [app, daemon_row]
+
+
+def write_filing(out, filed):
+    with open(os.path.join(out, "blocking-probe-filing.json"), "w") as f:
+        json.dump(filed, f, indent=1)
+    with open(os.path.join(out, "perf-lead-rows.md"), "w") as f:
+        f.write("\n".join(perf_lead_rows(filed)) + "\n")
+
+
+def write_filing_markdown(path, filed):
+    """The filing after the sections: the RUN-2 line, the Chromium hand-off and both task lists."""
+    chromium = filed["app_chromium"]
+    with open(path, "a") as md:
+        md.write(f"\n## Filing (p02-threads-301)\n\n`{run2_line(filed)}`\n\napp_chromium, {chromium['status']}: "
+                 f"{chromium['total_ms']} ms over {chromium['sites']} sites goes to {chromium['program']} "
+                 f"({chromium['design']}); {chromium['target']}.\n")
+        for queue, title in (("mq11", "MQ-11: app main thread"), ("mq13", "MQ-13: daemon request and echo threads")):
+            tasks = filed[queue]
+            md.write(f"\n### {title}, {len(tasks)} tasks\n\n")
+            if not tasks:
+                md.write("None.\n")
+                continue
+            md.write("| id | total ms | max ms | title | files | owner |\n|---|---|---|---|---|---|\n")
+            for task in tasks:
+                files = ", ".join(task["files"]) or ("unresolved: " + ", ".join(u["source"] for u in task["unresolved"])
+                                                     if task["unresolved"] else "no source line")
+                known = f" (on {task['known_from']})" if task.get("known_from") else ""
+                md.write(f"| {task['id']} | {task['total_ms']} | {task['max_ms']} | `{task['title'][:110]}`{known} | "
+                         f"{files} | {task['owner']} |\n")
 
 
 def write_markdown(path, summary, report, overhead_ms):
@@ -495,6 +790,12 @@ def main():
     parser.add_argument("--until-mark", metavar="NAME",
                         help="add the launch section: the app's main-thread calls before the launch mark NAME, from "
                              "the launch window dumps (<dump>.window) among the dumps")
+    parser.add_argument("--sweep-json", metavar="PATH",
+                        help="the sweep's every-action.json: host, macOS, sha and the action count for RUN-2")
+    parser.add_argument("--known-sites", metavar="PATH",
+                        help="a fixed MQ-13 list (location rows, p02-threads-303's mq13-record-sites.json): a "
+                             "daemon task at one of its locations is marked known_from")
+    parser.add_argument("--config", default="debug", help="the build configuration, for the perf-lead.md rows")
     opts = parser.parse_args()
     if opts.select:
         for path in select(opts.dumps, opts.select):
@@ -534,6 +835,12 @@ def main():
         json.dump({"summary": summary, "sections": report}, f, indent=1)
     write_markdown(os.path.join(opts.out, "blocking-probe.md"), summary, report, overhead_ms)
     print(json.dumps(summary))
+    repo_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../..")
+    filed = filing(report, summary, sweep_facts(opts.sweep_json), source_index(repo_root),
+                   known_locations(opts.known_sites), opts.config)
+    write_filing(opts.out, filed)
+    write_filing_markdown(os.path.join(opts.out, "blocking-probe.md"), filed)
+    print(run2_line(filed))
     if launch is not None and launch["windows"] == 0:
         print(f"blocking-probe: no launch window ends at {opts.until_mark}: no app sent that mark (check the name "
               "against the app's launch marks); the launch section proves nothing", file=sys.stderr)
