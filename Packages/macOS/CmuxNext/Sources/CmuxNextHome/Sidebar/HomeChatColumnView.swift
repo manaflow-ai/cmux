@@ -56,6 +56,12 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
         updateWindowControlsAvoidance()
     }
 
+    /// A hidden workspace skipped window updates; re-read its position when shown.
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateWindowControlsAvoidance()
+    }
+
     override func layout() {
         super.layout()
         let side = HomeChatComposeButton.side

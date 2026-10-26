@@ -483,6 +483,12 @@ public final class HomeSidebarView: NSView, WindowControlsAvoiding {
         updateWindowControlsAvoidance()
     }
 
+    /// A hidden workspace skipped window updates; re-read its position when shown.
+    public override func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateWindowControlsAvoidance()
+    }
+
     public override func layout() {
         super.layout()
         // The note's and the requests button's strips at the bottom; the list ends above them.
