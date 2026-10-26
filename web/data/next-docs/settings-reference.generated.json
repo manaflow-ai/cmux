@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 498,
+  "count": 499,
   "sections": [
     {
       "id": "general",
@@ -1490,6 +1490,19 @@
           "values": [
             "push",
             "overlay"
+          ]
+        },
+        {
+          "key": "agentPane.display.minimap",
+          "title": "Chat Minimap",
+          "help": "What runs down the chat's edge: the rail, one tick per prompt; the full map, every message at its place with a box for what is on screen; or nothing.",
+          "kind": "choice",
+          "default": "compact",
+          "group": "Agent Chat",
+          "values": [
+            "compact",
+            "full",
+            "off"
           ]
         },
         {
@@ -4961,7 +4974,8 @@
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox"
+            "fox",
+            "mochi"
           ]
         },
         {

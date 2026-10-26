@@ -1299,6 +1299,13 @@ def main():
             if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
                 update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
                                              "kind": "execute", "status": "in_progress"})
+            # FAKE_LOAD_REPLAY_REPLY=<text>: the history replayed on load holds an earlier turn's
+            # reply, as codex-acp replays every turn's agent messages on session/load.
+            # FAKE_LOAD_REPLAY_CHUNKS=<n>: in that many chunks (a long history), default 1.
+            if os.environ.get("FAKE_LOAD_REPLAY_REPLY"):
+                for _ in range(int(os.environ.get("FAKE_LOAD_REPLAY_CHUNKS", "1"))):
+                    update(params["sessionId"], {"sessionUpdate": "agent_message_chunk",
+                                                 "content": {"type": "text", "text": os.environ["FAKE_LOAD_REPLAY_REPLY"]}})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")
