@@ -81,7 +81,7 @@ extension InternalPageDiscardPolicyCoverageTests {
 
         #if DEBUG || CMUX_BENCH_HOOKS
         @MainActor @Test func theHomeFixtureIsNeverDiscarded() {
-            let fixture = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel())
+            let fixture = DebugHomeNativeFixture(openPanel: MadeAheadOpenPanel(), mainWork: linklessMainWork())
             #expect(fixture.discardPolicy(for: LocalPageTab.makeKey(.homeNativeFixture)) == .never)
         }
         #endif
