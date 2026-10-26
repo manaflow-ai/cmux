@@ -14,15 +14,34 @@ struct CloudErrorTextTests {
     }
 
     @Test func theServerActionAndTraceIDFollowTheMessage() {
-        let error = CloudAPIError.from(status: 404, data: Self.body([
-            "error": "vm_not_found", "message": "raw", "action": "Run `cmux cloud list-machines`.", "traceId": "abc123",
-            "ui": ["message": "Cloud VM vm-1 was not found.", "traceId": "abc123"],
+        let error = CloudAPIError.from(status: 409, data: Self.body([
+            "error": "vm_resize_in_progress", "message": "raw", "action": "Wait for the current resize to finish, then retry.",
+            "traceId": "abc123", "ui": ["message": "Cloud VM vm-1 is already resizing.", "traceId": "abc123"],
         ]), headerCode: nil)
-        #expect(error == .http(status: 404, code: "vm_not_found", message: "Cloud VM vm-1 was not found.",
-                               action: "Run `cmux cloud list-machines`.", traceId: "abc123"))
-        #expect(error.description == "Cloud VM vm-1 was not found. Run `cmux cloud list-machines`. (trace abc123)")
+        #expect(error == .http(status: 409, code: "vm_resize_in_progress", message: "Cloud VM vm-1 is already resizing.",
+                               action: "Wait for the current resize to finish, then retry.", traceId: "abc123"))
+        #expect(error.description == "Cloud VM vm-1 is already resizing. Wait for the current resize to finish, then retry. (trace abc123)")
         #expect(CloudStrings.errorText(error)
-            == "Cloud VM vm-1 was not found. Run `cmux cloud list-machines`. \(CloudStrings.trace("abc123"))")
+            == "Cloud VM vm-1 is already resizing. Wait for the current resize to finish, then retry. \(CloudStrings.trace("abc123"))")
+    }
+
+    /// The server's own payloads (`routeHelpers.ts`) whose action is written
+    /// for an API caller or the classic CLI: the app shows the message and
+    /// trace id without it; the log (`description`) keeps it.
+    @Test(arguments: [
+        ("vm_firewall_rule_not_found", "This firewall rule is not in your Cloud VM network.",
+         "List your rules with GET /api/vm/firewall; a retried delete of a removed rule is already done."),
+        ("vm_tunnel_not_found", "This computer is not enrolled on your Cloud VM network.",
+         "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up."),
+        ("vm_not_found", "Cloud VM vm-1 was not found.",
+         "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`."),
+    ])
+    func anActionForAnAPICallerIsNotShown(code: String, message: String, action: String) {
+        let error = CloudAPIError.from(status: 404, data: Self.body(["error": code, "message": message, "action": action, "traceId": "t-1"]),
+                                       headerCode: code)
+        #expect(error.description == "\(message) \(action) (trace t-1)")
+        #expect(CloudStrings.errorText(error) == "\(message) \(CloudStrings.trace("t-1"))")
+        #expect(CloudStrings.callerOnlyActions.contains(code))
     }
 
     @Test func aBodyWithoutActionOrTraceReadsAsBefore() {

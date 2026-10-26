@@ -28,9 +28,21 @@ extension CloudStrings {
         case .timedOut: apiTimedOut
         case .transport(let detail): apiUnreachable(detail)
         case .decoding: apiUnreadable
-        case .http: error.text(trace: trace)
+        case let .http(status, code, message, action, traceId):
+            CloudAPIError.http(status: status, code: code, message: message,
+                               action: code.map { callerOnlyActions.contains($0) } == true ? nil : action, traceId: traceId)
+                .text(trace: trace)
         }
     }
+
+    /// Server codes whose `action` addresses an API caller or the classic
+    /// `cmux vm` CLI ("List your rules with GET /api/vm/firewall", "Enroll
+    /// it with POST /api/vm/tunnel", "Run `cmux vm ls`"), not a person in
+    /// this app: their message and trace id still show, the action does not.
+    nonisolated static let callerOnlyActions: Set<String> = [
+        "vm_not_found", "vm_access_requires_pro", "vm_firewall_rule_not_found",
+        "vm_tunnel_not_found", "vm_attach_transport_unsupported",
+    ]
 
     /// The support reference after a Cloud server message.
     nonisolated static func trace(_ id: String) -> String {
