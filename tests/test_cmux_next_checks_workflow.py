@@ -705,6 +705,21 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
         self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
 
+    def test_owned_pool_guard_accepts_an_added_guarded_job(self):
+        """A new correctly routed job cannot break the rescue guard's coverage check."""
+        import textwrap
+        from unittest.mock import patch
+
+        text = WORKFLOW.read_text(encoding="utf-8")
+        job = yaml.safe_load(text)["jobs"]["swift-test"]
+        added = text + "\n" + textwrap.indent(yaml.safe_dump({"added-guarded-job": job}, width=100000), "  ")
+        self.assertIn("added-guarded-job", yaml.safe_load(added)["jobs"])
+        with tempfile.TemporaryDirectory() as directory:
+            workflow = Path(directory) / "cmux-next.yml"
+            workflow.write_text(added, encoding="utf-8")
+            with patch.object(sys.modules[__name__], "WORKFLOW", workflow):
+                self.test_bot_attempt_three_drops_stale_owned_pool_placement()
+
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         nightly = jobs["request-nightly-next"]
