@@ -93,21 +93,25 @@ struct OracleWindowsFacetTests {
             == ["count": 0, "order": [], "key": nil, "main": nil, "list": []])
     }
 
-    /// A window AppKit puts on no screen is measured on the screen that holds most of it, else the first screen.
+    /// A window AppKit puts on no screen is measured on the screen that holds most of it; one that overlaps no
+    /// screen has none (never screen 0 by default).
     @Test func aWindowWithNoScreenUsesTheScreenThatHoldsMostOfIt() {
         let reading = Facet.Reading(screens: [laptop, external], windows: [], key: nil, main: nil)
         #expect(reading.screenIndex(of: window("w", Facet.Rect(x: 1300, y: 0, width: 600, height: 400), screen: nil)) == 1)
-        #expect(reading.screenIndex(of: window("w", Facet.Rect(x: -5000, y: -5000, width: 10, height: 10), screen: nil)) == 0)
+        #expect(reading.screenIndex(of: window("w", Facet.Rect(x: -5000, y: -5000, width: 10, height: 10), screen: nil)) == nil)
         #expect(reading.screenIndex(of: window("w", Facet.Rect(x: 0, y: 0, width: 10, height: 10), screen: 7)) == 0)
     }
 
-    /// A window with no screen to measure against fails the snapshot instead of recording a made-up frame.
-    @Test func aWindowWithNoScreenAtAllFails() {
-        let reading = Facet.Reading(screens: [], windows: [window("win_a", Facet.Rect(x: 0, y: 0, width: 10, height: 10), screen: nil)],
-                                    key: nil, main: nil)
-        let facets = OracleFacets([Facet { reading }])
-        #expect(throws: OracleSnapshotError.self) {
-            try facets.beginCapture([.windows])
+    /// A window with no screen to measure against fails the snapshot instead of recording a made-up frame:
+    /// with no screen at all, and off every screen while there are screens.
+    @Test func aWindowOnNoScreenFails() {
+        let offEveryScreen = window("win_a", Facet.Rect(x: -5000, y: -5000, width: 10, height: 10), screen: nil)
+        for screens in [[], [laptop, external]] as [[Facet.Screen]] {
+            let reading = Facet.Reading(screens: screens, windows: [offEveryScreen], key: nil, main: nil)
+            let facets = OracleFacets([Facet { reading }])
+            #expect(throws: OracleSnapshotError.self) {
+                try facets.beginCapture([.windows])
+            }
         }
     }
 

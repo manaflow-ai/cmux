@@ -82,12 +82,13 @@ public struct OracleWindowsFacet: OracleFacetProvider {
             self.main = main
         }
 
-        /// The facet's object. Throws when a window has no screen to measure against.
+        /// The facet's object. Throws when a window is on no screen (AppKit names none and it overlaps none):
+        /// the snapshot fails naming it rather than recording a screen and a frame nobody measured.
         public func value() throws(OracleFacetError) -> OracleValue {
             var list: [OracleValue] = []
             for window in windows {
                 guard let index = screenIndex(of: window) else {
-                    throw OracleFacetError("window \(window.id) has no screen to measure its frame against")
+                    throw OracleFacetError("window \(window.id) is on no screen to measure its frame against")
                 }
                 let frame = try OracleWindowsFacet.fractions(of: window, on: screens[index])
                 list.append([
@@ -108,7 +109,8 @@ public struct OracleWindowsFacet: OracleFacetProvider {
             ]
         }
 
-        /// AppKit's screen for the window, else the screen that holds most of its frame, else the first screen.
+        /// AppKit's screen for the window, else the screen that holds most of its frame; nil when it overlaps
+        /// no screen.
         public func screenIndex(of window: Window) -> Int? {
             if let index = window.screen, screens.indices.contains(index) { return index }
             var best: (index: Int, area: Double)?
@@ -116,7 +118,7 @@ public struct OracleWindowsFacet: OracleFacetProvider {
                 let area = screen.frame.overlap(window.frame)
                 if area > (best?.area ?? 0) { best = (index, area) }
             }
-            return best?.index ?? (screens.isEmpty ? nil : 0)
+            return best?.index
         }
     }
 
@@ -124,8 +126,10 @@ public struct OracleWindowsFacet: OracleFacetProvider {
     public let capture: OracleFacetCapture
 
     /// - Parameter read: Reads the windows now, in the snapshot's main-actor turn. A `debug.oracle.wait_for` on
-    ///   the facet wakes on what that read observes and on each control snapshot publish (a window opens,
-    ///   closes or changes key).
+    ///   the facet wakes on each change of what `read` observes and on each control snapshot publish, so `read`
+    ///   must also observe a value that changes with each AppKit window change (frame, full screen, miniaturize,
+    ///   key and main, screens): AppKit's state is not observable, and a wait on a frame or on full screen would
+    ///   otherwise read once and end as a false Timeout.
     public init(read: @escaping @MainActor @Sendable () throws(OracleFacetError) -> Reading) {
         capture = .mainActor { () throws(OracleFacetError) -> OracleValue in
             try read().value()

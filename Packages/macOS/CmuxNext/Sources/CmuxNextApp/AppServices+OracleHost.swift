@@ -24,7 +24,7 @@ extension AppServices: OracleHost {
                 }
             },
             // The windows front to back, key and main, and each window's state and frame as screen fractions.
-            windows.oracleWindowsFacet(),
+            windows.oracleWindowsFacet(events: appEvents),
         ])
     }
 

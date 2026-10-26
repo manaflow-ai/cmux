@@ -4,6 +4,8 @@ import os
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextControl
 import CmuxNextOracle
+import CmuxNextWakeups
+import Observation
 #endif
 
 /// Window invariants checked after every membership transition and
@@ -75,17 +77,23 @@ enum WindowInvariants {
 #if DEBUG || CMUX_BENCH_HOOKS
 /// The oracle's `windows` facet (p15-oracle-041, ``OracleWindowsFacet``) over this manager's windows.
 extension WindowManager {
-    /// The app's provider: the windows, the services' key window, and AppKit's main window and screens.
-    func oracleWindowsFacet() -> OracleWindowsFacet {
-        OracleWindowsFacet { [weak self] () throws(OracleFacetError) -> OracleWindowsFacet.Reading in
+    /// The app's provider: the windows, the services' key window, and AppKit's main window and screens. Each
+    /// read also observes a count of `WindowEvents.stateChanges` posts through `events` (subscribed on the
+    /// first read), so a `debug.oracle.wait_for` on a frame or on full screen wakes when AppKit changes them.
+    func oracleWindowsFacet(events: AppEvents) -> OracleWindowsFacet {
+        let changes = OracleWindowChangeCount(events: events)
+        return OracleWindowsFacet { [weak self] () throws(OracleFacetError) -> OracleWindowsFacet.Reading in
             guard let self else { throw OracleFacetError("the window manager is gone") }
+            _ = changes.observe()
             return oracleWindows(key: services.keyWindowSource(), main: NSApp.mainWindow, screens: NSScreen.screens)
         }
     }
 
     /// Every controller's window in the registry's recency (front to back: the app's own order, which each
     /// order and key change updates in ``windowDidOrder(_:inFront:)``); a window the registry does not list
-    /// yet (the launch window) comes first.
+    /// yet (the launch window) comes first. Key and main name the controller that owns AppKit's key or main
+    /// window (``owner(of:)``): a Chromium page window, a sheet or a panel over a cmux window counts as that
+    /// window, as Chrome reports the focused browser window and not the focused child widget.
     func oracleWindows(key: NSWindow?, main: NSWindow?, screens: [NSScreen]) -> OracleWindowsFacet.Reading {
         let rank = Dictionary(registry.value.recency.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
         let ordered = controllers.enumerated().sorted { lhs, rhs in
@@ -93,14 +101,16 @@ extension WindowManager {
             let right = rank[rhs.element.state.id] ?? -1
             return left != right ? left < right : lhs.offset < rhs.offset
         }.map(\.element)
+        let keyOwner = key.flatMap(owner(of:))
+        let mainOwner = main.flatMap(owner(of:))
         var reading = OracleWindowsFacet.Reading(screens: screens.map { screen in
             OracleWindowsFacet.Screen(frame: Self.oracleRect(screen.frame), visibleFrame: Self.oracleRect(screen.visibleFrame))
         }, windows: [], key: nil, main: nil)
         for controller in ordered {
             guard let window = controller.window else { continue }
             let id = ControlWindowInfo.publicID(forKey: controller.state.id)
-            if window === key { reading.key = id }
-            if window === main { reading.main = id }
+            if controller === keyOwner { reading.key = id }
+            if controller === mainOwner { reading.main = id }
             let screenFrame = window.screen?.frame
             reading.windows.append(OracleWindowsFacet.Window(
                 id: id, frame: Self.oracleRect(window.frame),
@@ -113,6 +123,24 @@ extension WindowManager {
 
     private static func oracleRect(_ rect: CGRect) -> OracleWindowsFacet.Rect {
         OracleWindowsFacet.Rect(x: Double(rect.minX), y: Double(rect.minY), width: Double(rect.width), height: Double(rect.height))
+    }
+}
+
+/// How many `WindowEvents.stateChanges` posts the app's events delivered, observable: the windows facet's
+/// read touches it, so the Observation a wait reads under fires on AppKit's next window change.
+@Observable private final class OracleWindowChangeCount {
+    private(set) var count = 0
+    @ObservationIgnored private let events: AppEvents
+    @ObservationIgnored private var subscriptions: [EventSubscription] = []
+
+    init(events: AppEvents) { self.events = events }
+
+    /// The count now, subscribing on the first call (before any wait reads, so no change after a read is missed).
+    func observe() -> Int {
+        if subscriptions.isEmpty {
+            subscriptions = WindowEvents.stateChanges.map { events.subscribe($0, owner: "oracle.windows") { [weak self] in self?.count += 1 } }
+        }
+        return count
     }
 }
 #endif
