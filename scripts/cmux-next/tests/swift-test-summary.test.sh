@@ -24,6 +24,14 @@ if [[ "${1:-}" == test && "${2:-}" == list ]]; then
   # with neither it set nor STUB_DISCOVERED, it prints as many as the canned run
   # output says reported, so a case that is not about under-reporting sees a
   # complete run.
+  selected=0
+  for a in "$@"; do [[ "$a" == --filter || "$a" == --skip ]] && selected=1; done
+  # STUB_UNSELECTED_COUNT answers the no-selection list the guard uses to prove
+  # a selection reached `list`.
+  if (( ! selected )) && [[ -n "${STUB_UNSELECTED_COUNT:-}" ]]; then
+    for ((i = 1; i <= STUB_UNSELECTED_COUNT; i++)); do echo "APackageTests.ASuite/all$i()"; done
+    exit "${STUB_UNSELECTED_STATUS:-0}"
+  fi
   if [[ -n "${STUB_DISCOVERED:-}" ]]; then
     printf '%s\n' "$STUB_DISCOVERED"
   else
@@ -43,15 +51,16 @@ chmod +x "$TMP/bin/swift"
 # run <name> <status>: runs the wrapper on $TMP/<name>.out; sets out, summary, status.
 # STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
 run() {
+  RUN_ARGS=(${RUN_ARGS_STR:-})
   export STUB_OUTPUT="$TMP/$1.out" STUB_STATUS="$2" GITHUB_STEP_SUMMARY="$TMP/$1.summary"
-  export STUB_DISCOVERED="${STUB_DISCOVERED:-}" STUB_DISCOVERED_STATUS="${STUB_DISCOVERED_STATUS:-0}" STUB_DISCOVERED_COUNT="${STUB_DISCOVERED_COUNT:-}"
+  export STUB_DISCOVERED="${STUB_DISCOVERED:-}" STUB_DISCOVERED_STATUS="${STUB_DISCOVERED_STATUS:-0}" STUB_DISCOVERED_COUNT="${STUB_DISCOVERED_COUNT:-}" STUB_UNSELECTED_COUNT="${STUB_UNSELECTED_COUNT:-}" STUB_UNSELECTED_STATUS="${STUB_UNSELECTED_STATUS:-0}"
   : > "$GITHUB_STEP_SUMMARY"
   status=0
   # The sampler's log lives in this test's own TMPDIR: on CI the check runs beside
   # many others, and its /tmp/swift-test-log.* was once gone before it was read.
   mkdir -p "$TMP/tmp"
   out=$(PATH="${STUB_PATH:+$STUB_PATH:}$TMP/bin:$PATH" TMPDIR="$TMP/tmp" CMUX_NEXT_TEST_HANG_SECONDS=60 \
-    bash "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" --skip-build 2>&1) || status=$?
+    bash "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" --skip-build ${RUN_ARGS[@]+"${RUN_ARGS[@]}"} 2>&1) || status=$?
   summary=$(cat "$GITHUB_STEP_SUMMARY")
 }
 
@@ -304,5 +313,43 @@ grep '^::error' <<<"$out" | grep -q 'named no test' || fail "the error does not 
 run cut 0
 [[ "$status" != 0 ]] || fail "a run without its summary line exited 0" "$out"
 [[ "$out" != *"under-reported"* ]] || fail "a run with no summary got a count error too" "$out"
+
+# A shortfall on a run that narrowed its tests is only failed once the
+# selection is proven to have reached `swift test list`. `list` is a different
+# code path from `test`; this repository already lists with no selection and
+# derives its filters afterwards. If an ignored `--filter` were taken at face
+# value, every filtered job would go red -- the opposite of the point -- so when
+# the list is the same size with and without the selection, the run is not
+# failed and the step says why.
+cat > "$TMP/selected.out" <<'EOF'
+◇ Test run started.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+RUN_ARGS_STR='--filter ASuite --skip BSuite' STUB_DISCOVERED_COUNT=9 STUB_UNSELECTED_COUNT=9 run selected 0
+RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT=
+[[ "$status" == 0 ]] || fail "a filtered run was failed on a list that ignores its filter" "$out"
+grep '^::warning' <<<"$out" | grep -q 'coverage unchecked' || fail "no warning that the count could not be checked" "$out"
+[[ "$out" != *"::error title=cmux-next swift test under-reported"* ]] || fail "an unverifiable count was reported as under-reporting" "$out"
+
+# The same shortfall IS failed when the selection demonstrably narrows the list:
+# fewer tests with it than without, so `list` honoured it and the count stands.
+RUN_ARGS_STR='--filter ASuite' STUB_DISCOVERED_COUNT=3 STUB_UNSELECTED_COUNT=40 run selected 0
+RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT=
+[[ "$status" != 0 ]] || fail "a filtered run with a real shortfall exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'only 1 of 3 discovered tests reported' || fail "the error does not count 1 of 3" "$out"
+
+# An unselected run needs no such proof: the list is the whole bundle.
+RUN_ARGS_STR= STUB_DISCOVERED_COUNT=3 run short 0
+STUB_DISCOVERED_COUNT=
+[[ "$status" != 0 ]] || fail "an unfiltered run with a shortfall exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'under-reported' || fail "the unfiltered shortfall was not reported" "$out"
+
+# The confirming list failing is not a reason to fail the run either.
+RUN_ARGS_STR='--filter ASuite' STUB_DISCOVERED_COUNT=3 STUB_UNSELECTED_COUNT=40 STUB_UNSELECTED_STATUS=1 run selected 0
+RUN_ARGS_STR= STUB_DISCOVERED_COUNT= STUB_UNSELECTED_COUNT= STUB_UNSELECTED_STATUS=0
+[[ "$status" == 0 ]] || fail "a run was failed on a shortfall its confirming list could not confirm" "$out"
+grep '^::warning' <<<"$out" | grep -q 'coverage unchecked' || fail "no warning when the confirming list failed" "$out"
 
 echo "ok swift-test-summary"
