@@ -205,4 +205,28 @@ private var appHostIsolationRequiredByBuild: Bool {
             ).shouldStart == true
         )
     }
+
+    @Test func macOS26KeepsUncaughtExceptionReportingEnabled() {
+        #expect(
+            MacSentryStartupPolicy.shouldEnableUncaughtNSExceptionReporting(
+                for: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+            ) == true
+        )
+    }
+
+    @Test func macOS27DisablesUncaughtExceptionReporting() {
+        #expect(
+            MacSentryStartupPolicy.shouldEnableUncaughtNSExceptionReporting(
+                for: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+            ) == false
+        )
+    }
+
+    @Test func futureMacOSVersionsKeepUncaughtExceptionReportingDisabled() {
+        #expect(
+            MacSentryStartupPolicy.shouldEnableUncaughtNSExceptionReporting(
+                for: OperatingSystemVersion(majorVersion: 28, minorVersion: 0, patchVersion: 0)
+            ) == false
+        )
+    }
 }
