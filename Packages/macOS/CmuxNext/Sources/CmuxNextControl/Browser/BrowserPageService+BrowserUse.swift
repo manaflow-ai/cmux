@@ -110,8 +110,8 @@ extension BrowserPageService {
     }
 
     /// Copies a finished download to `target` (a folder takes the file's name) and answers the copy's path.
-    /// The download itself is never removed: a target that is the download answers its path, and an existing
-    /// folder at the target is refused, not replaced.
+    /// Nothing is removed or replaced: a target that is the download answers its path, and any other existing
+    /// file or folder there is refused.
     static func copyDownload(from source: String, to target: String) throws -> String {
         let manager = FileManager.checked
         let from = URL(fileURLWithPath: source)
@@ -124,18 +124,17 @@ extension BrowserPageService {
             ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
                                                                           "Could not save the download to %1$@: %2$@", to.path, reason))
         }
-        isFolder = false
-        let exists = manager.fileExists(atPath: to.path, isDirectory: &isFolder)
-        if exists && isFolder.boolValue { throw failed(to.path) }
-        // The same file by identity, not by spelling (a case-insensitive volume, a symlink, a hard link).
-        if exists, let source = try? from.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
-           let existing = try? to.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
-           source.isEqual(existing) {
-            return from.path
+        if manager.fileExists(atPath: to.path) {
+            // The same file by identity, not by spelling (a case-insensitive volume, a hard link).
+            if let source = try? from.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+               let existing = try? to.blockingResourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+               source.isEqual(existing) {
+                return from.path
+            }
+            throw failed(ControlStrings.text("control.error.downloadTargetExists", "a file is already there"))
         }
         do {
             try manager.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if exists { try manager.removeItem(at: to) }
             try manager.copyItem(at: from, to: to)
         } catch {
             throw failed(error.localizedDescription)

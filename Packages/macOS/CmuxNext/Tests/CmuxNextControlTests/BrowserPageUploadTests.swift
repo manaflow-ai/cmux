@@ -186,6 +186,19 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: paths[0]), "the wait deleted the download it was asked to copy")
     }
 
+    /// Another file already at the target is never replaced: the wait refuses and both files stay.
+    @Test func anExistingFileAtThePathIsRefusedAndKept() async throws {
+        let (folder, paths) = try scratch(["report.pdf", "keep.pdf"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = ChooserEngine(chooser: "chosen", download: BrowserPageDownload(id: "AB12", filename: "report.pdf", status: "finished", path: paths[0]))
+        let router = install(engine)
+
+        let answer = await call(router, "browser.page.download.wait", ["path": .string(paths[1])])
+
+        #expect(answer.controlError?.code == "io_error")
+        #expect(FileManager.default.fileExists(atPath: paths[0]) && FileManager.default.fileExists(atPath: paths[1]))
+    }
+
     @Test func aDownloadThatDidNotFinishFailsTheWaitWithItsRow() async throws {
         let failed = BrowserPageDownload(id: "AB12", filename: "big.iso", status: "failed", reason: "Network error")
         let router = install(ChooserEngine(chooser: "chosen", download: failed))
