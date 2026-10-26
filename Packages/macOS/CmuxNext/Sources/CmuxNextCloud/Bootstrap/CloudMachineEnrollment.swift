@@ -91,6 +91,8 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             "Host \(name)",
             "  HostName \(address)",
             "  User cmux",
+            "  Port 22",
+            "  HostKeyAlias \(hostKeyAlias)",
             "  ProxyCommand '\(cli)' wg dial --hub '\(hubLink)' %h %p",
             "  UserKnownHostsFile \(Self.configQuoted(knownHosts))",
             "  StrictHostKeyChecking yes",
@@ -123,14 +125,19 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         return text + block
     }
 
-    /// `known_hosts` with this address's lines replaced by `hostKey` (`ssh-ed25519 <base64>`).
+    /// The name ssh checks this machine's host key under: its own id, so no other `Host` entry's
+    /// alias or address can stand in for it.
+    public var hostKeyAlias: String { "cmux-\(machineID)" }
+
+    /// `known_hosts` with this machine's lines replaced by `hostKey` (`ssh-ed25519 <base64>`),
+    /// under ``hostKeyAlias``.
     public func pinning(_ hostKey: String, into knownHosts: String) -> String {
-        let kept = knownHosts.split(separator: "\n").filter { $0.split(separator: " ").first.map(String.init) != address }
-        return (kept.map(String.init) + ["\(address) \(hostKey)"]).joined(separator: "\n") + "\n"
+        let kept = knownHosts.split(separator: "\n").filter { $0.split(separator: " ").first.map(String.init) != hostKeyAlias }
+        return (kept.map(String.init) + ["\(hostKeyAlias) \(hostKey)"]).joined(separator: "\n") + "\n"
     }
 
     /// A new `~/.ssh/config` holding only the include of cmux's file.
-    static func newConfig(including include: String) -> String {
+    public static func newConfig(including include: String) -> String {
         "# cmux Cloud machines (cmux cloud enroll-machine)\nInclude \(configQuoted(include))\n"
     }
 
@@ -200,7 +207,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             let key = String(line[..<space]), value = String(line[line.index(after: space)...])
             if seen[key] == nil { seen[key] = value }
         }
-        return seen["hostname"] == address && seen["user"] == "cmux"
+        return seen["hostname"] == address && seen["user"] == "cmux" && seen["port"] == "22" && seen["hostkeyalias"] == hostKeyAlias
             && seen["proxycommand"] == "'\(cli)' wg dial --hub '\(hubLink)' %h %p"
             && seen["userknownhostsfile"] == knownHosts
             && seen["stricthostkeychecking"] == "true"

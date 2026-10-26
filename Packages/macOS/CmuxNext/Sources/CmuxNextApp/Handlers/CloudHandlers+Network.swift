@@ -75,8 +75,9 @@ extension CloudHandlers {
         guard let binary = cloud.binary, let hub = cloud.hub else { throw ActionFailure(message: CloudStrings.noClient) }
         let keyPath = (invocation["sshKey"]?.stringValue ?? "~/.ssh/id_ed25519.pub").replacingOccurrences(of: "^~(?=/)", with: NSHomeDirectory(), options: .regularExpression)
         // Every path lands in ssh_config, and the cli path in ProxyCommand's shell line.
-        let identity = keyPath.hasSuffix(".pub") ? String(keyPath.dropLast(4)) : nil, hubLink = cloud.paths.hubLink
-        guard [keyPath, identity ?? "/", hubLink].allSatisfy(CloudMachineEnrollment.isPlainPath) else {
+        // The private key beside it is the block's IdentityFile: a key file not named `*.pub` is refused.
+        let identity = String(keyPath.dropLast(4)), hubLink = cloud.paths.hubLink
+        guard keyPath.hasSuffix(".pub"), [keyPath, identity, hubLink].allSatisfy(CloudMachineEnrollment.isPlainPath) else {
             throw ActionFailure(message: CloudStrings.enrollKeyUnreadable(keyPath))
         }
         guard CloudMachineEnrollment.isPlainPath(binary.path) else { throw ActionFailure(message: CloudStrings.noClient) }
