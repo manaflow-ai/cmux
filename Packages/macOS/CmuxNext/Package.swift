@@ -820,15 +820,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
         // `host_pressure`, else the same formula locally) as a level that does not flicker.
-        // The memory pressure dispatch source, plus one 15 s timer for load and swap.
+        // Memory pressure from the app's one MemoryPressureEvents (Compat, injected as a subscription),
+        // plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
-            dependencies: ["CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHostPressureTests",
-            dependencies: ["CmuxNextHostPressure", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextHostPressure", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: daemonSwiftSettings
         ),
         // The memory coordinator (plans/cmux-next/chrome-parity/p07-memory.md section 3.A): one per
