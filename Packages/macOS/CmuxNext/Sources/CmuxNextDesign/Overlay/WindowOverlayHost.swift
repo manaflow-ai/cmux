@@ -35,8 +35,10 @@ public final class WindowOverlayHost {
     /// The window's layout planes need the panel (pages show) even with no overlay presented.
     var planesWantPanel = false
     var observers: [any NSObjectProtocol] = []
-    /// Window notification observers held while the panel is attached.
-    var windowObservers: [any NSObjectProtocol] = []
+    /// Window notice subscriptions held while the panel is attached.
+    var windowObservers: [EventSubscription] = []
+    /// Order checks run on a window notice (tests).
+    private(set) var orderChecks = 0
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
     /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
     var mouseRouting: InputSubscription? {
@@ -321,25 +323,35 @@ public final class WindowOverlayHost {
     /// AppKit's private child window classes (`isAppKitChrome`).
     public nonisolated static let appKitChromeClassNames = ["NSToolbarFullScreenWindow"]
 
+    /// The window's own notices while the panel is attached, through its ``WindowEvents``. The
+    /// order is checked when it can break: a child window was added (``childWindowsDidChange(of:)``),
+    /// the window shows again, takes key or enters or leaves full screen; never per event cycle.
     private func observeWindow(_ window: NSWindow) {
         stopObservingWindow()
-        let center = NotificationCenter.default
-        windowObservers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated { self?.reassertOrder() }
-        })
+        let events = WindowEvents.of(window)
         for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEnterFullScreenNotification,
                      NSWindow.didExitFullScreenNotification, NSWindow.didChangeScreenNotification] {
-            windowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                // main-proof: observer on queue: .main
-                MainActor.assumeIsolated { self?.windowGeometryDidChange() }
+            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.geometry") { [weak self] in
+                self?.windowGeometryDidChange()
+            })
+        }
+        for name in [NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification, NSWindow.didBecomeKeyNotification,
+                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification] {
+            windowObservers.append(events.subscribe(name, owner: "WindowOverlayHost.order") { [weak self] in
+                self?.checkOrder()
             })
         }
     }
 
     private func stopObservingWindow() {
-        windowObservers.forEach(NotificationCenter.default.removeObserver)
+        windowObservers.forEach { $0.cancel() }
         windowObservers.removeAll()
+    }
+
+    /// One order check (``reassertOrder()``) from a window notice.
+    private func checkOrder() {
+        orderChecks += 1
+        reassertOrder()
     }
 
     private func windowGeometryDidChange() {
