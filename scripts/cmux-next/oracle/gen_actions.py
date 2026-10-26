@@ -27,7 +27,10 @@ Per action that every-action-gaps.json does not exclude, from a live catalog, on
               (the settled checkpoint is debug.oracle.settle then the snapshot). The turn checkpoint fails the
               case when no perform turn ran (a key the terminal or no handler took). The sweep's checked
               expectation (pane+, tab+, focus...) is the step's waitFor (EXPECT_WAITS): a no-op is a Timeout.
-  restore-N   the sweep's restore of what no reset sees: a toggle runs again, a fit is undone (UNDO)
+              A step whose tuning names a typed error checks before and settled only: the bridge gives some
+              refusals before perform (person-only, an unavailable reason), so no turn runs.
+  restore-N   the sweep's restore of what no reset sees: a toggle runs again, a fit is undone (UNDO); none
+              after a step whose tuning names a typed error (the refusal changed nothing)
 
 Every case requires `gui` (it acts on the launch's window), and `chromium` when its context is a Chromium page.
 
@@ -461,7 +464,10 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
         main["expect"] = {"outcome": "ok", "receipt": spec["receipt"]}
     else:
         main["expect"] = {"outcome": "ok", "noReceiptReason": NO_RECEIPT}
-    main["checkpoint"] = ["before", "turn", "settled"]
+    # A refusal applies nothing, and RegistryControlBridge.performAction gives some before the registry's perform
+    # (person-only, an unavailable reason, the context, disabled, a confirmation), so no turn runs: an error step
+    # checks the typed reply and the settled snapshot, never a turn.
+    main["checkpoint"] = ["before", "settled"] if "error" in spec else ["before", "turn", "settled"]
     expected = (row.get("expect") or {}).get("key" if entry == "key" else "action")
     if expected and expected not in EXPECT_WAITS:
         raise GenError(f"{ident}: the sweep's expectation {expected!r} has no EXPECT_WAITS check")
@@ -472,10 +478,12 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
             main[key] = copy.deepcopy(spec[key])
     steps.append(main)
 
+    # A refused action changed nothing to put back (and a refused toggle run again is refused again).
     restore: List[Tuple[str, Dict[str, Any]]] = []
-    if row.get("toggled"):
+    refused = "error" in spec
+    if row.get("toggled") and not refused:
         restore.append((ident, params if entry == "action" else {}))
-    if row.get("undo"):
+    if row.get("undo") and not refused:
         name, undo_params = row["undo"]
         restore.append((name, dict(undo_params)))
     for number, (name, restore_params) in enumerate(restore, 1):
@@ -919,6 +927,23 @@ class GenActionsSelfTest(unittest.TestCase):
             if ident not in self.gaps.gaps:
                 self.assertEqual(files[COVERAGE]["actions"][ident]["blocked_by"], "flag", ident)
         self.assertIn("close-tab.json", files)
+
+    def test_a_refused_action_has_no_turn_checkpoint_and_no_restore(self) -> None:
+        """A tuned typed error: RegistryControlBridge.performAction refuses a person-only action or one with an
+        unavailable reason before the registry's perform, so no turn runs and the step asks for none; the refusal
+        changed nothing, so a toggle is not run again and a fit is not undone (a refused toggle run again is refused,
+        and its restore would expect ok)."""
+        refused = {"workspace.toggleAudioMute": "workspace-toggle-audio-mute.json", "browserFit": "browser-fit.json"}
+        for ident, name in refused.items():
+            self.assertTrue(any(s["id"] == "restore-1" for s in self.files[name]["steps"]), ident)
+        files = generate(self.catalog, self.gaps, {ident: {"error": "control.unavailable"} for ident in refused})
+        for ident, name in refused.items():
+            steps = files[name]["steps"]
+            main = next(s for s in steps if s["id"] == "action")
+            self.assertEqual(main["checkpoint"], ["before", "settled"], ident)
+            self.assertEqual(main["expect"], {"outcome": "error", "error": "control.unavailable"}, ident)
+            self.assertEqual([s["id"] for s in steps if s["id"].startswith("restore-")], [], ident)
+            self.assertNotIn("the restore steps put back what the action toggled or fit", files[name]["teardown"])
 
     def test_each_case_runs_its_action_through_its_real_entrypoint(self) -> None:
         module = sweep_module()
