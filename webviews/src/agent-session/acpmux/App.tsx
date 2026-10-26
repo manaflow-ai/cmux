@@ -205,7 +205,8 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerAttachmentViewHost, registerComposerHost } from "./composerSettings";
+import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
+import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -2005,6 +2006,7 @@ export function VirtualTranscript({
   anchorNow,
   onLoadOlder,
   sends = 0,
+  onFollowingChange,
   coldOpen,
   onColdOpenShown,
   afterLatest,
@@ -2052,6 +2054,8 @@ export function VirtualTranscript({
   onLoadOlder?: () => Promise<void>;
   /// How many prompts this pane has sent: each new one puts the view at the latest message.
   sends?: number;
+  /// Keeps the parent send path in sync with the reader's current follow state.
+  onFollowingChange?: (following: boolean) => void;
   githubRepository?: string;
   /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
   /// none before it (the header pull request's).
@@ -2116,6 +2120,7 @@ export function VirtualTranscript({
   const followingRef = useRef(true);
   const follow = (next: boolean) => {
     followingRef.current = next;
+    onFollowingChange?.(next);
     setFollowing(next);
   };
   const transcriptMounted = useRef(true);
@@ -2134,6 +2139,7 @@ export function VirtualTranscript({
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
     // reader's latest state; React work itself is coalesced by scrollPacer.
     followingRef.current = atLatest;
+    onFollowingChange?.(atLatest);
     scrollRef.current = { top, delta: top - scrollRef.current.top };
     scrollPacer.current!.enqueue({ top, atLatest });
   };
@@ -4268,6 +4274,9 @@ function AcpmuxPane() {
   // Debug measurement (acpmuxPerf): the pane's own render, before its children.
   const paneRenderStart = acpmuxPerf.enabled ? performance.now() : 0;
   const t = useT();
+  const { scrollToBottomOnSend } = useComposerSettings();
+  const scrollToBottomOnSendRef = useRef(scrollToBottomOnSend);
+  scrollToBottomOnSendRef.current = scrollToBottomOnSend;
   /// Labs preview features are off until the host explicitly enables them.
   const [preview, setPreview] = useState(false);
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
@@ -6319,6 +6328,12 @@ function AcpmuxPane() {
   const transcriptAnchor = useRef<(() => ScrollAnchor | null | undefined) | undefined>(undefined);
   /// Prompts sent from this pane (every `chat.send`): each puts the transcript at its latest message.
   const [sends, setSends] = useState(0);
+  /// VirtualTranscript updates this synchronously on reader scrolls, so a disabled send-to-bottom
+  /// preference can preserve the exact visible row while the new prompt arrives below it.
+  const followingTranscript = useRef(true);
+  const onTranscriptFollowingChange = useCallback((following: boolean) => {
+    followingTranscript.current = following;
+  }, []);
   const composerRef = useCallback((handle: ComposerHandle | null) => {
     composerHandle.current = handle;
     // A composer that goes takes its shell mode with it.
@@ -7049,8 +7064,12 @@ function AcpmuxPane() {
           steer = false,
           promptId?: string,
         ) => {
-          // The reader sent it: the transcript goes to its latest message now, even scrolled up.
-          setSends((count) => count + 1);
+          // The reader sent it: by default the transcript goes to its latest message now, even
+          // scrolled up. With the preference off, only a reader already at the latest row follows;
+          // an up-scroll keeps its row and offset while this prompt and its reply arrive below.
+          if (shouldScrollToBottomAfterSend(scrollToBottomOnSendRef.current, followingTranscript.current)) {
+            setSends((count) => count + 1);
+          }
           // WEB-SWAP: until the client holds the prompt (its own `swapHold`), only this call does.
           untakenSends.current += 1;
           let counted = true;
@@ -8458,6 +8477,9 @@ function AcpmuxPane() {
                                                   anchorNow={quick || childRows ? undefined : transcriptAnchor}
                                                   // A prompt goes to the chat, not to the subagent shown in its place.
                                                   sends={childRows ? undefined : sends}
+                                                  onFollowingChange={
+                                                    childRows ? undefined : onTranscriptFollowingChange
+                                                  }
                                                   onAnchor={
                                                     quick || childRows || !shownSessionId
                                                       ? undefined

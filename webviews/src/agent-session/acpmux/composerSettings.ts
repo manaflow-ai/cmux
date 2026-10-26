@@ -8,6 +8,9 @@
 // in every composer and in sent messages, "inline" (in the text where each was added, the default)
 // or "strip" (in a row). It is only a look: a draft's text, its attachment marks and their order
 // are the same in both, so switching never changes what is sent. Anything else reads as "inline".
+// `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
+// behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
+// the bottom continues following streaming output.
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
 // slider instead of its list of levels. Only Debug Settings changes it. The model chip always opens
@@ -31,6 +34,7 @@ export type ComposerSettings = {
   showDictation: boolean;
   spellChecking: boolean;
   attachmentView: AttachmentView;
+  scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
@@ -43,6 +47,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showDictation: true,
   spellChecking: false,
   attachmentView: "inline",
+  scrollToBottomOnSend: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
@@ -57,6 +62,7 @@ type ComposerFlag =
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
+  | "scrollToBottomOnSend"
   | "escapeDoublePress";
 
 /// The host's value; anything it does not know keeps the default.
@@ -70,6 +76,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showDictation: flag("showDictation"),
     spellChecking: flag("spellChecking"),
     attachmentView,
+    scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
