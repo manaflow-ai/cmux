@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
+import CmuxNextWakeups
 import Foundation
 
 /// Debug builds only: plays a recorded clip into the SpeechAnalyzer engine in
@@ -33,12 +34,13 @@ enum RecordedDictationInput {
         // task-owner: stored by the engine as its audio source; cancelled when capture stops
         return Task {
             var position: AVAudioFramePosition = 0
-            while !Task.isCancelled, let buffer = reader.next(frames) { // wakeup-allow: debug-only clip playback, ends with the clip or the session
+            let tolerance = WakeLeeway.window(delay: pace).tolerance
+            while !Task.isCancelled, let buffer = reader.next(frames) { // wakeup-allow: debug clip playback, ends with the clip or the session
                 meter?.record(buffer)
                 ingest(buffer, AVAudioTime(sampleTime: position, atRate: sampleRate))
                 position += AVAudioFramePosition(buffer.frameLength)
-                // wakeup-allow: debug-only clip playback paced like a microphone tap (about 12 per second while dictating)
-                try? await Task.sleep(for: pace)
+                // wakeup-allow: debug clip playback paced like a microphone tap (about 12 per second while dictating)
+                try? await Task.sleep(for: pace, tolerance: tolerance)
             }
         }
     }
