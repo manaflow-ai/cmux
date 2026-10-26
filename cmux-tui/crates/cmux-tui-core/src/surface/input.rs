@@ -1,6 +1,7 @@
 //! Input delivery on `Surface`: raw and receipted writes and bounded paste.
 
 use super::*;
+use std::sync::PoisonError;
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
@@ -32,7 +33,7 @@ fn flow_holder(pty: &PtySurface, flow: u64) -> Option<Arc<crate::holder_runtime:
     if flow == 0 {
         return None;
     }
-    match &*pty.runtime.lock().unwrap() {
+    match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
         PtyRuntime::Local { holder, .. } => holder.clone(),
         _ => None,
     }
@@ -80,7 +81,7 @@ impl Surface {
         // Armed before the write: the echo can be read before the write returns.
         slot.arm(flow);
         let reached_pty = {
-            let mut runtime = pty.runtime.lock().unwrap();
+            let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
             match &mut *runtime {
                 PtyRuntime::Local { writer, master, .. } => {
                     let master = master.as_deref().map(|master| master as &dyn MasterPty);
@@ -128,7 +129,7 @@ impl Surface {
             // Read the revision before the send: an install after it wakes
             // the wait below, so no reconnect is missed.
             let observed = pty.stream_progress.revision();
-            let sent = match &*pty.runtime.lock().unwrap() {
+            let sent = match &*pty.runtime.lock().unwrap_or_else(PoisonError::into_inner) {
                 PtyRuntime::Hosted(host) => host.send_flow(kind, bytes, flow),
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
@@ -174,7 +175,7 @@ impl Surface {
                 "browser surface does not accept PTY bytes",
             )));
         };
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         match &mut *runtime {
             PtyRuntime::Local { writer, .. } => writer
                 .write_all(bytes)
@@ -236,10 +237,10 @@ impl Surface {
             return result;
         }
         let bracketed = {
-            let term = pty.term.lock().unwrap();
+            let term = pty.term.lock().unwrap_or_else(PoisonError::into_inner);
             term.mode(2004, false)
         };
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         let PtyRuntime::Local { writer, master, .. } = &mut *runtime else {
             unreachable!("hosted paste returned above")
         };
@@ -272,7 +273,7 @@ impl Surface {
     #[cfg(test)]
     pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
         let pty = self.as_pty().expect("input test requires a terminal");
-        let mut runtime = pty.runtime.lock().unwrap();
+        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         let PtyRuntime::Local { writer, .. } = &mut *runtime else {
             panic!("input test requires the in-process test runtime");
         };

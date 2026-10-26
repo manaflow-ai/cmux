@@ -28,7 +28,8 @@ public nonisolated struct BrowserResizeTunables {
 
     /// While a page is layer hosted (`layerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
-    /// size (fork API 27), so the page resizes in the same frame as the pane.
+    /// size (fork API 27 to 31; from API 32 it has no effect), so the page
+    /// resizes in the same frame as the pane.
     /// An upper bound: the wait never passes half the shortest frame of all
     /// displays (`CEFResizeSyncDeadline`: 8 ms at 60 Hz, 4 ms once a display
     /// runs at 120 Hz). A change applies at the page's next show or display change.
@@ -40,8 +41,9 @@ public nonisolated struct BrowserResizeTunables {
 
     /// During the window's live resize, how long each Chromium page (hosted or
     /// not) may hold the window's frame for its frame at the new size (fork
-    /// API 27; Chromium itself waited up to 500 ms), under the same cap as
-    /// `syncDeadline` (half the shortest display frame). 0 never waits.
+    /// API 27 to 31, no effect from API 32; Chromium itself waited up to
+    /// 500 ms), under the same cap as `syncDeadline` (half the shortest
+    /// display frame). 0 never waits.
     public static let liveResizeDeadline = Tunable<Double>.number(
         "browserResize.liveResizeDeadline", section, "Page wait during window resize",
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",

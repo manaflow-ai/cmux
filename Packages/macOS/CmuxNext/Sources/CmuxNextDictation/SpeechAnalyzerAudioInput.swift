@@ -28,7 +28,7 @@ struct AnalyzerRawInput: @unchecked Sendable {
 /// output copy; format conversion and AnalyzerInput allocation happen on
 /// the actor's worker task.
 final class AnalyzerInputBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock()
+    private let lock = OSAllocatedUnfairLock() // lock-allow: realtime audio tap, os_unfair_lock donates
     // The continuation is guarded by lock.
     private var continuation:
         AsyncThrowingStream<AnalyzerRawInput, any Error>.Continuation?

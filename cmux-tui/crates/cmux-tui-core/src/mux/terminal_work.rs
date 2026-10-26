@@ -44,7 +44,6 @@ struct TerminalWorkState {
 /// A bounded pool of short-lived worker threads. Workers start on demand
 /// and exit when the queue is empty, so an idle owner holds none and a
 /// dropped owner never joins a worker that holds its last reference.
-#[derive(Default)]
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
     /// The host process started ahead of the next new tab (R81, cap one).
@@ -53,6 +52,23 @@ pub(crate) struct TerminalWorkPool {
 }
 
 impl TerminalWorkPool {
+    /// The owner's pool. Its standby slot is a consumer in `memory`, the
+    /// owner's registry (`Mux::memory`).
+    #[cfg_attr(not(any(unix, windows)), allow(unused_variables))]
+    pub(crate) fn new(memory: &Arc<crate::memory::DaemonMemory>) -> Self {
+        Self {
+            state: Arc::default(),
+            #[cfg(any(unix, windows))]
+            standby: standby_host::StandbyHostSlot::new(memory.clone()),
+        }
+    }
+
+    /// A pool whose registry no system source feeds.
+    #[cfg(test)]
+    pub(crate) fn for_test() -> Self {
+        Self::new(&Arc::new(crate::memory::DaemonMemory::without_system_source()))
+    }
+
     /// Queue `job`. Returns it when the queue is full or no worker thread
     /// could start, so the caller can run it inline.
     pub(crate) fn try_submit(&self, job: TerminalJob) -> Result<(), TerminalJob> {
@@ -368,9 +384,18 @@ fn holder_model() -> bool {
 mod tests {
     use super::*;
 
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn the_owner_pools_spare_is_a_consumer_in_the_mux_memory() {
+        let mux = Mux::new_for_test("terminal-work-memory", SurfaceOptions::default());
+        let names: Vec<_> =
+            mux.memory.registry().report().into_iter().map(|line| line.name).collect();
+        assert_eq!(names, ["terminal.standby-host"], "one registry per owner, from the root");
+    }
+
     #[test]
     fn terminal_work_pool_runs_every_job_and_keeps_input_order() {
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let jobs: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..50usize)
             .map(|index| {
                 Box::new(move || {
@@ -388,7 +413,7 @@ mod tests {
         fn failing_job() -> usize {
             panic!("job failed")
         }
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let panicking: Vec<Box<dyn FnOnce() -> usize + Send>> = (0..2 * MAX_TERMINAL_WORKERS)
             .map(|_| Box::new(failing_job) as Box<dyn FnOnce() -> usize + Send>)
             .collect();
@@ -408,7 +433,7 @@ mod tests {
 
     #[test]
     fn terminal_work_pool_bounds_concurrent_workers() {
-        let pool = TerminalWorkPool::default();
+        let pool = TerminalWorkPool::for_test();
         let running = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         let jobs: Vec<Box<dyn FnOnce() + Send>> = (0..40)

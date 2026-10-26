@@ -359,6 +359,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.
+    public static let pointerFrameDrags = Feature(
+        index: 20,
+        name: "pointerFrameDrags",
+        owner: "PL-motion-cef",
+        description: "Pane divider, column edge, row edge, both sidebar edges and the DevTools divider move on the first drag event of a display frame and once more at the frame, to the latest pointer point; every drag event still counts toward the release velocity.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
         index: 21,
@@ -538,6 +555,7 @@ nonisolated extension Feature {
         .pageProcessGroups,
         .pageSpringResizeOnce,
         .pagesSpareWindow,
+        .pointerFrameDrags,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
@@ -572,6 +590,7 @@ nonisolated extension Feature {
         .pageProcessGroups,
         .pageSpringResizeOnce,
         .pagesSpareWindow,
+        .pointerFrameDrags,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
         .rendererlessSpareWindow,

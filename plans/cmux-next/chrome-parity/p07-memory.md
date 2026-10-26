@@ -1002,6 +1002,25 @@ All IDs below are `p07-memory-NNN`.
   in deps and restore exactly.
 - Acceptance: round trip on terminal_corpus and kitty fixtures; ratio >= 8x; SAFETY notes.
 - Test: fleet cargo test -p ghostty-vt cold_pages.
+- Measured against libghostty-vt's own page compression (`ghostty_terminal_compress`, FULL; LZ4 per
+  history page, restored on access), filled 10 MB scrollback at 120x40, release build on Linux
+  (`cold_pages_compare_with_native_page_compression`, 2026-10-26):
+
+  | Content | Live resident | Native resident (compressed part) | Codec held | Codec over native |
+  | --- | --- | --- | --- | --- |
+  | terminal corpus text | 9.67 MB | 1.01 MB (0.61 MB) | 0.21 MB | 4.9x |
+  | varied log lines | 9.63 MB | 2.18 MB (1.78 MB) | 0.39 MB | 5.6x |
+
+  Native: compress 5-9 ms, viewport read 30-40 us, full history read 11-13 ms. Codec: freeze
+  50-90 ms, thaw 9-10 ms, and nothing reads the terminal while cold. The codec passes the 2x bar over
+  native, so it stays; 112 must still show it against WKdm. Native compression keeps the terminal
+  live (no thaw, tracked points and instance kept, no Kitty refusals), so 041 should run it at the idle
+  step and freeze with this codec only at the cold deadline.
+- Kitty limit: libghostty-vt reads only the active screen's Kitty state and its replay encoder sends
+  only placements that show, so the codec refuses an image on the inactive screen, a placement only
+  in scrollback and an image without a placement (cheap checks before any encode). Removing these
+  refusals needs a ghostty-next change: an encoder mode that sends every image with pixels and every
+  placement (scrollback pins included) and counts what it dropped. Follow-up, not done in 040.
 
 ### 041 Compress cold scrollback (gated by 112)
 - Files: cmux-tui-core/src/surface.rs, mux cold policy module, surface/tests/cold_scrollback.rs.
@@ -1523,6 +1542,9 @@ All IDs below are `p07-memory-NNN`.
   compressed); go for 040/041 only if deflate gains >= 2x over WKdm.
 - Acceptance: bytes per cold terminal and the go/no-go decision recorded.
 - Test: fleet exclusive.
+- Also record libghostty-vt's page compression (`ghostty_terminal_compress`) in the same table: 040
+  measured that the codec holds 4.9-5.6x less than it (see 040), so the comparison that gates 041
+  is the codec vs WKdm vs native page compression.
 
 ### 113 One Chromium-side spare
 - Files: CEF/CEFSwitches.swift, CEF/CEFSpareWindow.swift, Control/DebugMemoryControl.swift.
