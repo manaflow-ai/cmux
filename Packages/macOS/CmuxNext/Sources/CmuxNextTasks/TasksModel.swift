@@ -32,6 +32,9 @@ public final class TasksModel {
     public internal(set) var newTaskFocusRequest = 0
     /// The last request a New Task field consumed.
     var newTaskFocusHandled = 0
+    /// The New Task title typed and not sent (client view state): it outlives the pane's view, so
+    /// a page tab whose view was discarded shows it again.
+    public var newTaskDraft = ""
     /// Agent harnesses the Assignee control offers (the App may narrow it).
     public var knownAgents: [String] = TaskAssigneeChoices.defaultAgents
 

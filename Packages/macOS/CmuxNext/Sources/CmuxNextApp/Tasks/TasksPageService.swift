@@ -20,8 +20,6 @@ extension InternalPageID {
 final class TasksPageService: InternalPageProvider {
     private unowned let services: AppServices
     private var sharedModel: TasksModel?
-    /// Each tab's view while it has one, for its keep reasons.
-    private var views: [String: WeakView] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -72,40 +70,19 @@ final class TasksPageService: InternalPageProvider {
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let view = TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
-        views[key] = WeakView(view: view)
-        return view
+        TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
     }
 
     // MARK: Discard (p07-memory-025)
 
-    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The scope and selection live in
-    /// the shared model, which stays while the tab does, so the default view state adds the scroll.
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The scope, the selection and a
+    /// New Task title typed and not sent (`newTaskDraft`) live in the shared model, which stays
+    /// while the tab does, so the rebuilt view shows them; the default view state adds the scroll.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// A New Task title typed and not sent keeps the view: the field holds it.
-    func keepReasons(for key: String) -> [CannotDiscardReason] {
-        views[key]?.view?.hasTypedText == true ? [.unsavedEdits] : []
-    }
-
-    func viewDiscarded(_ key: String) { views[key] = nil }
-
     func tabClosed(_ key: String) {
-        views[key] = nil
         guard !services.pageIsOpen(.tasks), let model = sharedModel else { return }
         model.stop()
         sharedModel = nil
-    }
-}
-
-private struct WeakView {
-    weak var view: NSView?
-}
-
-private extension NSView {
-    /// Whether an editable text field in this view's tree holds text (a title typed and not sent).
-    var hasTypedText: Bool {
-        if let field = self as? NSTextField, field.isEditable, !field.stringValue.isEmpty { return true }
-        return subviews.contains { $0.hasTypedText }
     }
 }

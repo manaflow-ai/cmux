@@ -96,6 +96,10 @@ protocol InternalPageProvider: AnyObject {
     /// Puts `state` back on tab `key`'s rebuilt view `content`, once it has its size. Default:
     /// scrolls the first scroll view in `content` to the saved position.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView)
+    /// Whether tab `key`'s last picture is kept while its view is gone (the rebuilt view's cover
+    /// and the tab's hover preview). Default: true; a page that lists secrets says false, so its
+    /// listing is not kept as a bitmap.
+    func keepsDiscardPicture(for key: String) -> Bool
     /// Tab `key`'s view went and the tab stays: drop what refers to the view, keep what its next
     /// view needs. Default: nothing.
     func viewDiscarded(_ key: String)
@@ -116,25 +120,40 @@ extension InternalPageProvider {
         ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
     }
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        guard let scroll = state.scroll, let view = content.firstScrollView else { return }
-        view.contentView.scroll(to: scroll)
-        view.reflectScrolledClipView(view.contentView)
+        content.firstScrollView?.restoreScroll(state.scroll)
     }
+    func keepsDiscardPicture(for key: String) -> Bool { true }
     func viewDiscarded(_ key: String) {}
 }
 
 extension NSView {
     /// The first scroll view in this view's tree, breadth first (a page's main list or document):
     /// the default view state of a discarded page tab.
-    var firstScrollView: NSScrollView? {
+    var firstScrollView: NSScrollView? { firstScrollView(where: { _ in true }) }
+
+    /// The first scroll view of a list (`NSTableView`, which a SwiftUI `List` is) in this view's
+    /// tree: a native page's rows, past a sidebar or toolbar scroll view before it.
+    var listScrollView: NSScrollView? { firstScrollView(where: { $0.documentView is NSTableView }) }
+
+    /// The first scroll view in this view's tree, breadth first, that `matches`.
+    func firstScrollView(where matches: (NSScrollView) -> Bool) -> NSScrollView? {
         var queue: [NSView] = [self]
         var index = 0
         while index < queue.count {
             let next = queue[index]
             index += 1
-            if let scroll = next as? NSScrollView { return scroll }
+            if let scroll = next as? NSScrollView, matches(scroll) { return scroll }
             queue.append(contentsOf: next.subviews)
         }
         return nil
+    }
+}
+
+extension NSScrollView {
+    /// Scrolls to `origin`, a discarded page's saved scroll; nothing for nil.
+    func restoreScroll(_ origin: CGPoint?) {
+        guard let origin else { return }
+        contentView.scroll(to: origin)
+        reflectScrolledClipView(contentView)
     }
 }

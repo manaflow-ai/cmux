@@ -49,24 +49,29 @@ final class HistoryTopPage: InternalPageProvider {
     /// reads the history again when it is made, so nothing but its view state is kept.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// The native page's search, filter and selection with its scroll; the React page keeps its
-    /// own search in its document, so it gives only the default scroll.
+    /// The native page's search, filter, selection and list scroll. The React page
+    /// (`history.surface = web`, a Debug setting) keeps none: its search lives only in its
+    /// document, which closes with the view, so it comes back on its start.
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
-        var state = ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
-        guard let model = pages[key].flatMap({ $0.webPage == nil ? $0.model : nil }) else { return state }
-        state.search = model.text
-        state.selection = model.selection
-        state.values[Self.filterValue] = model.filter.rawValue
-        return state
+        guard let model = nativeModel(key) else { return ContentViewState() }
+        return ContentViewState(scroll: content.listScrollView?.documentVisibleRect.origin, search: model.text,
+                                selection: model.selection, values: [Self.filterValue: model.filter.rawValue])
     }
 
+    /// One reload for the saved search and filter; the selection and the scroll go back once its
+    /// rows are in (before, the list is empty and the scroll clamps to the top).
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        if let model = pages[key].flatMap({ $0.webPage == nil ? $0.model : nil }) {
-            if let filter = state.values[Self.filterValue].flatMap(HistoryPageModel.Filter.init(rawValue:)) { model.filter = filter }
-            if let search = state.search { model.text = search }
-            model.selection = state.selection
+        guard let model = nativeModel(key) else { return }
+        let filter = state.values[Self.filterValue].flatMap(HistoryPageModel.Filter.init(rawValue:)) ?? model.filter
+        model.restore(text: state.search ?? model.text, filter: filter, selection: state.selection) { [weak content] in
+            guard let content else { return }
+            content.layoutSubtreeIfNeeded()
+            content.listScrollView?.restoreScroll(state.scroll)
         }
-        content.scrollFirstScrollView(to: state.scroll)
+    }
+
+    private func nativeModel(_ key: String) -> HistoryPageModel? {
+        pages[key].flatMap { $0.webPage == nil ? $0.model : nil }
     }
 
     /// The tab stays and its page goes; the next show makes a new one.
@@ -111,38 +116,33 @@ final class BookmarksTopPage: InternalPageProvider {
     /// bookmarks are read again when the page is made, so only its view state is kept.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// The shown folder, the search, the selected bookmarks (ids, one per line) and the scroll.
-    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
-        var state = ContentViewState(scroll: content.firstScrollView?.documentVisibleRect.origin)
-        guard let model = pages[key]?.model else { return state }
-        state.values[Self.folderValue] = model.folder
-        state.search = model.query
-        state.selection = model.selection.isEmpty ? nil : model.selection.sorted().joined(separator: "\n")
-        return state
+    /// An open add or edit sheet keeps the view: its typed title and URL live in the sheet.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        pages[key]?.model.editor == nil ? [] : [.unsavedEdits]
     }
 
+    /// The shown folder, the search, the selected bookmarks (ids, one per line) and the list scroll.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let model = pages[key]?.model else { return ContentViewState() }
+        return ContentViewState(scroll: content.listScrollView?.documentVisibleRect.origin, search: model.query,
+                                selection: model.selection.isEmpty ? nil : model.selection.sorted().joined(separator: "\n"),
+                                values: [Self.folderValue: model.folder])
+    }
+
+    /// The page reads the bookmarks when it is made, so the state goes back at once (the rows of
+    /// the restored folder laid out first); a folder or bookmark gone from the tree is dropped.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        if let model = pages[key]?.model {
-            if let folder = state.values[Self.folderValue], model.tree.isContainer(folder) { model.folder = folder }
-            if let search = state.search { model.query = search }
-            let selected = state.selection.map { $0.split(separator: "\n").map(String.init) } ?? []
-            model.selection = Set(selected.filter { model.tree.node($0) != nil })
-        }
-        content.scrollFirstScrollView(to: state.scroll)
+        guard let model = pages[key]?.model else { return }
+        if let folder = state.values[Self.folderValue], model.tree.isContainer(folder) { model.folder = folder }
+        if let search = state.search { model.query = search }
+        let selected = state.selection.map { $0.split(separator: "\n").map(String.init) } ?? []
+        model.selection = Set(selected.filter { model.tree.node($0) != nil })
+        content.layoutSubtreeIfNeeded()
+        content.listScrollView?.restoreScroll(state.scroll)
     }
 
     /// The tab stays and its page goes; the next show makes a new one.
     func viewDiscarded(_ key: String) { pages[key] = nil }
 
     static let folderValue = "folder"
-}
-
-private extension NSView {
-    /// Scrolls the first scroll view in this view's tree to `origin`, the scroll part of a page's
-    /// default view state (``InternalPageProvider/restoreViewState(_:for:content:)``).
-    func scrollFirstScrollView(to origin: CGPoint?) {
-        guard let origin, let scroll = firstScrollView else { return }
-        scroll.contentView.scroll(to: origin)
-        scroll.reflectScrolledClipView(scroll.contentView)
-    }
 }

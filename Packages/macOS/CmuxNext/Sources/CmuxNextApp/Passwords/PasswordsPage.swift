@@ -84,6 +84,9 @@ final class PasswordsPageService: InternalPageProvider {
     /// Nothing: no search, row or scroll of a secrets page is kept while it is gone.
     func saveViewState(for key: String, content: NSView) async -> ContentViewState { ContentViewState() }
 
+    /// No picture either: the listing does not stay as a bitmap in the previews.
+    func keepsDiscardPicture(for key: String) -> Bool { false }
+
     /// The browser profiles in sidebar order (the default profile first when it leads).
     static func profiles(_ services: AppServices?) -> [PasswordsPageProvider.Profile] {
         guard let profiles = services?.browserProfiles else { return [] }

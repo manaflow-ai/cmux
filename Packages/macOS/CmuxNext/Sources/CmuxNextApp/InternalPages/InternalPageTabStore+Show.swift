@@ -203,17 +203,24 @@ extension InternalPageTabStore: ContentDiscardHost {
         existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
     }
 
-    /// Saves hidden page tab `key`'s state and picture. It stays (nil) when anything changed
-    /// meanwhile: a show or hide (the lifecycle's generation), a new view, or a reason to keep it.
+    /// Saves hidden page tab `key`'s state and picture (none for a provider that keeps none, and
+    /// any older one dropped). It stays (nil) when anything changed meanwhile: a show or hide (the
+    /// lifecycle's generation), a new view, or a reason to keep it.
     func prepareDiscard(_ key: String) async -> ContentViewState? {
         guard let view = existingView(key), let provider = self.provider(ofTab: key), let record = cache?.lifecycle.record(key),
               record.phase == .mountedHidden else { return nil }
         let pageKey = providerKey(ofTab: key)
+        let keepsPicture = provider.keepsDiscardPicture(for: pageKey)
         let state = await provider.saveViewState(for: pageKey, content: view.content)
-        let picture = await view.lastPicture()
+        var picture: CGImage?
+        if keepsPicture { picture = await view.lastPicture() }
         guard let cache, cache.lifecycle.record(key)?.generation == record.generation, existingView(key) === view,
               provider.keepReasons(for: pageKey).isEmpty else { return nil }
-        if let picture { cache.previews.insert(picture, for: key) }
+        if let picture {
+            cache.previews.insert(picture, for: key)
+        } else if !keepsPicture {
+            cache.previews.remove(key)
+        }
         return state
     }
 
