@@ -66,7 +66,7 @@ function rowDefects(where: NotesDefect["where"], rows: Row[], shown: boolean): N
 }
 
 /** The lines the notes carry for people. */
-function noteRows(notes: ReleaseNotes, language: string): Row[][] {
+function noteRows(notes: ReleaseNotes, language: string): Row[] {
   const entries = notes.whatsNew?.entries ?? [];
   const headline = localized(notes.whatsNew?.headline, language);
   return [
@@ -74,7 +74,7 @@ function noteRows(notes: ReleaseNotes, language: string): Row[][] {
     headline ? [{ title: headline }] : [],
     (notes.summary ?? []).map((line) => ({ title: line.title, machine: true })),
     notes.highlights.map((h) => ({ title: h.title })),
-  ];
+  ].flat();
 }
 
 /** The page's rows: the hero and New / Improved / Fixed / Security; All Changes only for bead ids. */
@@ -128,7 +128,7 @@ export function checkNightlyNotes(notes: ReleaseNotes, previous: ReleaseNotes[],
   const before = previous.filter((n) => n.build !== notes.build).slice(0, RANGE - 1);
   const older = pageDefects("page (10 nightlies)", mergedView(before, language));
   const defects = [
-    ...noteRows(notes, language).flatMap((rows) => rowDefects("notes", rows, false)),
+    ...rowDefects("notes", noteRows(notes, language), false),
     ...pageDefects("page (1 nightly)", mergedView([notes], language)),
     ...pageDefects("page (10 nightlies)", mergedView([notes, ...before], language)).filter(
       (d) => !older.some((o) => same(o, d)),
