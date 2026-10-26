@@ -57,6 +57,8 @@ extension DaemonStore {
         return updateCycles.run { applyBatch(batch) }
     }
 
+    /// Applies each event with its own cause (``withCause(_:_:)``): in one batch an observer only an
+    /// agent's event changed flushes as automation, one the person's echo changed as person.
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
         applyDepth += 1
         defer {
@@ -76,7 +78,7 @@ extension DaemonStore {
                 }
                 before = max(before ?? 0, envelope.sequence)
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    switch withCause(envelope.cause, { applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) }) {
                     case .resync: followup = .resync
                     case .personal:
                         personalRefetch.saw(envelope.sequence)
@@ -90,9 +92,11 @@ extension DaemonStore {
                     // creation the person closed first keeps hiding (and then
                     // closes) that tab instead of leaving the log with it
                     // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
-                    confirm(transaction)
-                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
-                    settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    withCause(envelope.cause) {
+                        confirm(transaction)
+                        ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
+                        settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                    }
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot

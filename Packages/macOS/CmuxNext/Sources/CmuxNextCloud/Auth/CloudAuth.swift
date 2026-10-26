@@ -127,13 +127,24 @@ public final class CloudAuth {
         )
     }
 
-    /// Starts restoring the stored session (and dev auto sign-in).
+    /// Starts restoring the stored session (and dev auto sign-in); a second call does nothing.
+    /// The readers below call it first, so whoever reads first starts the restore and no reader
+    /// sees the primed state of a restore that never started (``AuthCoordinator/start()``).
     public func start() { coordinator.start() }
 
-    public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+    /// Called when the person starts a sign-in or a sign-in callback arrives, before the flow runs:
+    /// the app starts Cloud there (`AppServices.startCloudNow`), so a sign-in never waits for the
+    /// launch's Cloud post.
+    @ObservationIgnored public var onSignIn: (@MainActor () -> Void)?
 
-    /// A coherent access/refresh pair for one API call.
+    public func awaitRestored() async {
+        start()
+        await coordinator.awaitBootstrapped()
+    }
+
+    /// A coherent access/refresh pair for one API call, after the session restore.
     public func tokens() async throws -> (access: String, refresh: String) {
+        start()
         let pair = try await coordinator.currentTokens()
         return (pair.accessToken, pair.refreshToken)
     }
@@ -153,6 +164,7 @@ public final class CloudAuth {
     /// Account) asks the hosted page which account to use.
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
+        signInBegins()
         let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
         return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
     }
@@ -181,7 +193,15 @@ public final class CloudAuth {
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.
     public func handleCallback(_ url: URL) async -> Bool {
         guard callbackRouter.isAuthCallbackURL(url) else { return false }
+        signInBegins()
         return await browserSignIn.handleCallbackURL(url)
+    }
+
+    /// A sign-in begins: the app's hook (it starts Cloud), then the restore, so the sign-in never
+    /// races a restore that starts after it.
+    private func signInBegins() {
+        onSignIn?()
+        start()
     }
 }
 

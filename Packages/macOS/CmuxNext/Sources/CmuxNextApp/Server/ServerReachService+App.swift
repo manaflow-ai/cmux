@@ -6,7 +6,7 @@ extension ServerReachService {
     /// The App's service: reads as the signed-in user through the feed's
     /// API Worker call, dials with the bundled cmux-tui.
     static func app(services: AppServices) -> ServerReachService {
-        let feed = services.feed, auth = services.cloud.auth
+        let auth = services.cloudAuth  // the feed at the first call: the policy enforcer builds this service at launch
         let binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         // The bundle's own CLI, never one found on PATH.
         let bundled: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
@@ -14,8 +14,8 @@ extension ServerReachService {
         return ServerReachService(
             machines: services.machines,
             mainWork: services.mainWork,
-            call: { [weak feed] path, body in
-                guard let feed else { throw FeedServiceError.signedOut }
+            call: { [weak services] path, body in
+                guard let feed = services?.feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
             },
             signedInUser: { [weak auth] in
