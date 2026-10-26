@@ -24,8 +24,9 @@
 // (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
 // and with the side panel open beside the chat it floats in the chat's gutter, never over the
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
-// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are the viewer's
-// and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
+// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
+// (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
+// (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -62,12 +63,14 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
+  bindInspectorPane,
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
@@ -280,9 +283,16 @@ export function useChatInspector({
 } {
   const t = useT();
   const { inspector: on, pullRequest } = useHeaderState();
+  // This pane's state is its chat's: a relaunched pane shows its Inspector as it left it, and a
+  // toggle in another pane never reaches it (inspectorState.ts).
+  // The chat's state is read from its first frame (`useInspectorOpen(paneSession)`), before the bind,
+  // and the panel is keyed by the chat, so a pane switched to another chat shows that chat's
+  // Inspector at once instead of playing the last chat's panel out.
+  const paneSession = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  useLayoutEffect(() => bindInspectorPane(paneSession), [paneSession]);
   // Open alone: the width and the folds are the panel's (InspectorPresence), so a drag step or a fold
   // does not draw the whole chat pane again.
-  const open = useInspectorOpen();
+  const open = useInspectorOpen(paneSession);
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
@@ -359,6 +369,8 @@ export function useChatInspector({
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
+        key={paneSession ?? ""}
+        chat={paneSession}
         shown={shown}
         snapshot={snapshot}
         pullRequest={pullRequest}
@@ -404,6 +416,7 @@ const closeInspector = () => {
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
 function InspectorPresence({
+  chat,
   shown,
   snapshot,
   pullRequest,
@@ -430,6 +443,8 @@ function InspectorPresence({
   onShowCall,
   scope,
 }: {
+  /// The chat whose width and folds it draws (inspectorState.ts `useInspectorState`).
+  chat: string | undefined;
   shown: boolean;
   snapshot: AcpmuxSnapshot;
   /// What the App read of the chat's pull requests (header state), which the hook already follows.
@@ -467,7 +482,7 @@ function InspectorPresence({
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
-  const { width, sections } = useInspectorState();
+  const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
   const column = chatColumnOf(useChatWidth(), display);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
@@ -540,7 +555,11 @@ function InspectorPresence({
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
   );
-  const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
+  // Every pull request's title, state, lines and checks from the App's cache, the folder's live
+  // read over it (changesStatus.ts); asked for only while Changes is unfolded.
+  const prUrls = useStableUrls(made?.pullRequests);
+  const { statuses: cached, unsettled } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
+  const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
   // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
   // again. Floating, it takes no room from the chat and stays.
@@ -583,6 +602,7 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
+        changesUnsettled={unsettled}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
@@ -758,6 +778,7 @@ export function ChatInspector({
   waiting = new Set(),
   onOpenSubagent,
   statuses = {},
+  changesUnsettled = false,
   processes = [],
   listed = false,
   transcriptTasks = [],
@@ -801,6 +822,10 @@ export function ChatInspector({
   onOpenSubagent?: (id: string) => void;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
+  /// A pull request the chat named has no settled answer from the App yet (none asked for while
+  /// Changes is folded, or the host still reading): Changes keeps its header, with no rows and no
+  /// count for them, so it can be opened to ask.
+  changesUnsettled?: boolean;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
@@ -979,15 +1004,18 @@ export function ChatInspector({
       </ul>
     </InspectorSection>
   );
-  const changes = pullRequests.length > 0 && (
+  const candidates = made?.pullRequests.length ?? 0;
+  const changes = (pullRequests.length > 0 || (changesUnsettled && candidates > 0)) && (
     <InspectorSection
       id="changes"
       title={t("header.changes")}
       open={state.changes}
       onOpenChange={fold("changes")}
-      meta={value(String(pullRequests.length))}
+      meta={pullRequests.length > 0 ? value(String(pullRequests.length)) : undefined}
     >
-      <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      {pullRequests.length > 0 && (
+        <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      )}
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
