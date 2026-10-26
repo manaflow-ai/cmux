@@ -55,3 +55,38 @@ import Testing
         #expect(CEFSwitches.benchSwitches("\r\n\(Self.spki)\r\n") == [Self.spki])
     }
 }
+
+/// A CEF pin bump must not put Chromium's commit waits back on the main thread (p03-rendering-041):
+/// a page-window resize calls `CATransactionCoordinator::Synchronize`, which waits up to 500 ms
+/// before the app's commit and up to 50 ms after it (`ca_transaction_observer.mm`). Every fork
+/// version either keeps `AsyncLiveResize` (which skips that call) or skips it itself for a resize
+/// with no deadline (fork API 27, e07a2f78).
+@Suite struct CEFResizeCommitWaitTests {
+    private static func enabledFeatures(forkAPIVersion: Int32) -> [String] {
+        CEFSwitches.current(forkAPIVersion: forkAPIVersion, rendererPaths: forkAPIVersion >= CEFForkFeatures.rendererPathsForkAPI,
+                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+            .filter { $0.hasPrefix("enable-features=") }
+            .flatMap { $0.dropFirst("enable-features=".count).split(separator: ",").map(String.init) }
+    }
+
+    @Test func everyForkVersionResizesWithoutACommitWait() {
+        for forkAPIVersion in Int32(0)...64 {
+            let skipsSynchronize = CEFForkFeatures(forkAPIVersion: forkAPIVersion, shimHasRendererPaths: true)
+                .resizeWaitsOnlyForDeadline
+            let asyncLiveResize = Self.enabledFeatures(forkAPIVersion: forkAPIVersion).contains("AsyncLiveResize")
+            #expect(asyncLiveResize || skipsSynchronize, "fork API \(forkAPIVersion) waits for Chromium's commit on every resize")
+        }
+    }
+
+    @Test func aForkWithoutTheSkipKeepsAsyncLiveResize() {
+        #expect(!CEFForkFeatures(forkAPIVersion: 26, shimHasRendererPaths: false).resizeWaitsOnlyForDeadline)
+        #expect(Self.enabledFeatures(forkAPIVersion: 26).contains("AsyncLiveResize"))
+    }
+
+    /// The skip keeps the bounded wait a layer-hosted page asks for, which AsyncLiveResize would lose.
+    @Test func aForkWithTheSkipDropsAsyncLiveResize() {
+        #expect(CEFForkFeatures(forkAPIVersion: 27, shimHasRendererPaths: false).resizeWaitsOnlyForDeadline)
+        #expect(!Self.enabledFeatures(forkAPIVersion: 27).contains("AsyncLiveResize"))
+        #expect(CEFSwitches.resizeSyncForkAPI == CEFForkFeatures.resizeSyncForkAPI)
+    }
+}
