@@ -20,9 +20,9 @@ enum GhosttyActionDispatcher {
             if bridge == nil, let runtime {
                 // SAFETY: as above.
                 unsafe runtime.adoptAppliedConfig(config)
-            } else {
-                releaseConfig(pointer)
             }
+            // Adoption keeps a clone of its own, so this one is given back on every path.
+            releaseConfig(pointer)
             return true
         case .reloadConfig(let soft):
             guard let runtime else { return false }
