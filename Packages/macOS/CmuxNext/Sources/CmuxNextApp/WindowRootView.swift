@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextLaunch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -94,6 +95,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true // invalidate: another right panel (the guard above) to place.
         }
     }
+    /// The launch picture's regions while the launch builds this view behind it (p08-startup-060); its layout keeps
+    /// each part on its area. The picture's phase owns them.
+    weak var launchPictureRegions: LaunchPictureRegions?
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`, which marks the root for the window's
     /// next layout pass; a resize drag lays out once per frame, not per move).
@@ -237,6 +241,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// window's overlay host. The sidebar's resize band gets a catcher panel
     /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        launchPictureRegions?.layout() // the panes' frames are final at the pass's end
         // Before the guard: the band's catcher needs no overlay host.
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }

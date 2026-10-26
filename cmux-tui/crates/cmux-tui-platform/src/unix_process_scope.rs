@@ -35,6 +35,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_process::Command;
+use cmux_threads::ThreadQos;
 
 const CLEANUP_DEADLINE: Duration = Duration::from_millis(250);
 const TRACK_INTERVAL: Duration = Duration::from_millis(100);
@@ -192,15 +193,16 @@ impl UnixChildExitSignal {
         })?;
         let (sender, result) = mpsc::sync_channel(1);
         let (action_sender, action_receiver) = mpsc::sync_channel(1);
-        let observer =
-            std::thread::Builder::new().name("cmux-child-exit".into()).spawn(move || {
-                let result = wait_for_child_exit_without_reaping(pid);
-                let observed = result.is_ok();
-                let _ = sender.send(result);
-                if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
-                    reap_child(pid);
-                }
-            })?;
+        // A helper child's exit (hooks, helper commands): Utility, as the
+        // child itself runs (cmux_threads::HELPER_CHILD).
+        let observer = cmux_threads::spawn("cmux-child-exit", ThreadQos::Utility, move || {
+            let result = wait_for_child_exit_without_reaping(pid);
+            let observed = result.is_ok();
+            let _ = sender.send(result);
+            if matches!(action_receiver.recv(), Ok(UnixChildExitAction::Reap)) && observed {
+                reap_child(pid);
+            }
+        })?;
         Ok(Self { result, action: Some(action_sender), observer: Some(observer) })
     }
 
@@ -653,9 +655,7 @@ impl ProcessScopeTracker {
             return Ok(());
         }
         let tracker = self.clone();
-        std::thread::Builder::new()
-            .name("cmux-process-scopes".into())
-            .spawn(move || tracker.run())?;
+        cmux_threads::spawn("cmux-process-scopes", ThreadQos::Utility, move || tracker.run())?;
         *started = true;
         Ok(())
     }

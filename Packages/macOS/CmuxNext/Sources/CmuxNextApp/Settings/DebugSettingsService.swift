@@ -39,7 +39,7 @@ enum TunableCatalog {
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + MemoryDiscardToggles.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
@@ -208,7 +208,7 @@ final class DebugSettingsService: InternalPageProvider {
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        return VisibilityGatedHostingView(owner: "DebugSettingsPage", hosting: model.makePaneView(scope: window?.themeScope ?? .app))
     }
 
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the

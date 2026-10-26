@@ -16,20 +16,23 @@ import ObjectiveC
 final class AssociationKey: Sendable {
     /// The value associated with `object` under this key, or nil.
     func value(on object: Any) -> Any? {
+        guard let pointer = unsafe pointer else { return nil }
         // SAFETY: the key is this object's address, valid while it lives (a global `let` keeps every key for the
         // process); the runtime only compares it and never reads or writes memory through it.
-        unsafe objc_getAssociatedObject(object, pointer)
+        return unsafe objc_getAssociatedObject(object, pointer)
     }
 
     /// Associates `value` with `object` under this key, retained, nonatomic (nil removes it).
     func set(_ value: Any?, on object: Any) {
+        guard let pointer = unsafe pointer else { return }
         // SAFETY: as `value(on:)`: the key's address is only compared.
         unsafe objc_setAssociatedObject(object, pointer, value, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
 
-    /// The key's address: the value the Objective-C runtime compares. Stable while the object lives.
-    private var pointer: UnsafeRawPointer {
-        // SAFETY: the address of `self`, unretained: it is only compared (above), never dereferenced.
-        unsafe UnsafeRawPointer(Unmanaged.passUnretained(self).toOpaque())
+    /// The key's address, the value the Objective-C runtime compares: this object's identity, stable while it
+    /// lives and never 0 (nil only for a 0 identity, which no object has).
+    private var pointer: UnsafeRawPointer? {
+        // SAFETY: built from the identity's bits and only compared (above), never dereferenced.
+        unsafe UnsafeRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(self)))
     }
 }

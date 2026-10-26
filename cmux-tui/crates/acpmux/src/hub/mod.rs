@@ -343,33 +343,30 @@ pub struct Hub {
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
-    /// `_acpmux/models` replies now asking peers for theirs
-    /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
-    /// daemon's own catalog, so mutual peers cannot ping-pong.
+    /// `_acpmux/models` replies now asking peers for theirs (`server/models_fanout.rs`): a remote
+    /// asker meanwhile gets this daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
-    /// Leased peers by name, with the generation of the peer each lease
-    /// started (`peer_lease.rs`); never saved. Lock order: this, then
-    /// `peers`; never `peers` first.
+    /// Leased peers by name, with the generation of the peer each lease started (`peer_lease.rs`);
+    /// never saved. Lock order: this, then `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
-    /// Models each agent has advertised, keyed by agent profile name. Filled
-    /// whenever a session starts, so the picker can list a harness that has
-    /// no live session.
+    /// Models each agent has advertised, keyed by agent profile name. Filled whenever a session
+    /// starts, so the picker can list a harness that has no live session.
     pub(super) known_models: StdMutex<HashMap<String, Vec<(String, String)>>>,
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
-    /// False while the daemon finishes startup work (login environment,
-    /// launcher checks) in the background. Session creation and agent
-    /// spawns wait for it; every other request is answered at once.
+    /// False while the daemon finishes startup work (login environment, launcher checks) in the
+    /// background. Session creation and agent spawns wait for it; every other request is answered
+    /// at once.
     pub(super) startup_ready: tokio::sync::watch::Sender<bool>,
     /// False from a deferred start (`Hub::new_deferred`) until `load_logs` read the
     /// chat logs: prompts wait for it, so a restored queue keeps its place.
@@ -471,6 +468,8 @@ pub struct Hub {
     pub(super) memory: crate::memory::AcpmuxMemory,
     /// The hub's memory consumers (`memory_consumers.rs`), registered once.
     pub(super) memory_consumers: std::sync::OnceLock<Vec<cmux_memory::Registration>>,
+    /// Connected clients, for the leftover daemon idle exit (`daemon_lifecycle.rs`).
+    pub clients: crate::daemon_lifecycle::ClientPresence,
 }
 
 impl Hub {
@@ -568,6 +567,7 @@ impl Hub {
             briefs,
             memory: Default::default(),
             memory_consumers: std::sync::OnceLock::new(),
+            clients: Default::default(),
         });
         hub.register_memory_consumers();
         if let Ok(c) = hub.config.try_read() {
@@ -602,9 +602,9 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// Turns on the folder-trust gate for the app's agent pane, reading the
-    /// agents' files and acpmux's record at `paths` (the daemon passes the
-    /// user's; tests pass fixtures). None turns it off.
+    /// Turns on the folder-trust gate for the app's agent pane, reading the agents' files and
+    /// acpmux's record at `paths` (the daemon passes the user's; tests pass fixtures). None turns
+    /// it off.
     pub fn set_trust_gate(&self, paths: Option<crate::trust::Paths>) {
         *self.trust_gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = paths;
     }

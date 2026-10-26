@@ -46,6 +46,30 @@ fn request_path_note_feeds_the_thread_blocking_detector_at_the_same_site() {
 }
 
 #[test]
+fn request_path_sleep_reaches_the_thread_blocking_detector_once_at_its_caller() {
+    cmux_threads::blocking::set_mode(cmux_threads::blocking::BlockingMode::Record);
+    let stats = RequestPathStats::new(RequestPathMode::OFF);
+    let line = cmux_threads::spawn("request-path-sleep-probe", cmux_threads::ThreadQos::Utility, {
+        let stats = stats.clone();
+        move || {
+            let _scope = RequestPathScope::enter(&stats);
+            cmux_threads::blocking::disallow_blocking();
+            let line = line!() + 1;
+            sleep(Duration::ZERO);
+            line
+        }
+    })
+    .expect("sleep thread")
+    .join()
+    .expect("sleep thread");
+    assert_eq!(stats.count(BlockingKind::Sleep), 1);
+    let snapshot = cmux_threads::blocking::snapshot();
+    let site = snapshot.site(file!(), line).expect("a violation at the sleep's caller");
+    assert!(site.kinds.contains(cmux_threads::blocking::BlockingKind::Sleep));
+    assert_eq!(site.count, 1, "one check per sleep");
+}
+
+#[test]
 fn request_path_sleep_is_noted_at_its_caller() {
     let stats = RequestPathStats::new(RequestPathMode::RECORD);
     let _scope = RequestPathScope::enter(&stats);

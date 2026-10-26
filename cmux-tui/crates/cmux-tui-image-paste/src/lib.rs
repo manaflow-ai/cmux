@@ -5,6 +5,8 @@
 //! files. Unix only. cmux-tui-core re-exports [`image_paste`] at its old
 //! path (`crate::image_paste`).
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 pub mod image_paste;
 #[cfg(unix)]

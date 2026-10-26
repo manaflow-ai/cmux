@@ -15,11 +15,20 @@ extension CEFPaneHost {
         if visibleTab?.browserID == browser { hostedPageView?.pageCursor = cursor }
     }
 
-    /// `browser`'s tab shows: its last cursor, the arrow until its page set one. In process the
-    /// page window shows Chromium's cursor itself.
+    /// `browser`'s tab shows: its last cursor, the arrow until its page set one, and no tooltip
+    /// (the tab before's text is not this page's; its page sends a new one on the next hover). In
+    /// process the page window shows Chromium's cursor and tooltip itself.
     func showPageCursor(of browser: Int32) {
         guard isHostMode else { return }
         hostedPageView?.pageCursor = pageCursors[browser] ?? .arrow
+        hostedPageView?.pageTooltip = nil
+    }
+
+    /// TOOLTIP of `browser` (task 054): shown on the page view while its tab is the shown one. A
+    /// renderer sends its tooltip on each hover change, so nothing is kept for a hidden tab.
+    func pageTooltipChanged(_ text: String, browser: Int32) {
+        guard visibleTab?.browserID == browser else { return }
+        hostedPageView?.pageTooltip = text
     }
 
     /// Drops the cursors of browsers no tab of this pane has any more (closed, or moved away).

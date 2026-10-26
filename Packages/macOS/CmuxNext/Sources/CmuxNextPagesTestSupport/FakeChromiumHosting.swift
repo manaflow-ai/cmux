@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -17,6 +18,25 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     public var onMade: ((FakeChromiumPage) -> Void)?
     /// The lanes the pages decode their large replies on (a test's own).
     public let work: BackgroundWork
+    /// The off-screen host of ``dialogs``: what a page's notice shows (its "Page unresponsive" card).
+    public let dialogHost = CmuxDialogHeadlessHost()
+    /// The pages' dialog center, on ``dialogHost``.
+    public let dialogs: CmuxDialogCenter
+
+    /// How many times a page asked for the supervisor's outcome (``supervisorOutcome(then:)``).
+    public private(set) var supervisorAsks = 0
+    /// The answers the pages wait for, until ``finishSupervision(_:)``: like the Chromium Host's
+    /// supervisor, the fake answers no page in the turn of its browser's end.
+    private var supervisorWaiters: [@MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void] = []
+
+    /// While set, ``makePage(_:chatOpen:)`` waits for its browser until ``endHeldBrowsers()``, as a
+    /// page of the Chromium Host waits while the host makes its browser.
+    public var holdsBrowsers = false
+    /// How many ``makePage(_:chatOpen:)`` calls wait for their browser now.
+    public var heldBrowsers: Int { browserWaiters.count }
+    /// Runs each time a ``makePage(_:chatOpen:)`` call starts to wait (tests wait on it).
+    public var onBrowserHeld: (() -> Void)?
+    private var browserWaiters: [CheckedContinuation<Void, any Error>] = []
 
     /// The error ``makePage(_:chatOpen:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
@@ -26,6 +46,7 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// - Parameter work: The lanes for ``PageChromiumHosting/work``; by default a one-wide set of the test's own.
     public init(work: BackgroundWork = BackgroundWork(cpuWidth: 1, label: "test.fake-chromium-hosting")) {
         self.work = work
+        dialogs = CmuxDialogCenter(host: dialogHost)
     }
 
     /// Serves every page.
@@ -38,13 +59,45 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     ///   - page: The page to show.
     ///   - chatOpen: The agent chat open the page shows, if any.
     /// - Returns: The new page.
-    /// - Throws: ``Refused`` while ``fails`` is set.
+    /// - Throws: ``Refused`` while ``fails`` is set; ``PageChromiumStartError/browserEnded`` when
+    ///   ``endHeldBrowsers()`` ended the browser it waited for.
     public func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
         if fails { throw Refused() }
+        if holdsBrowsers {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                browserWaiters.append(continuation)
+                onBrowserHeld?()
+            }
+        }
         let fake = FakeChromiumPage()
         fake.senderURL = page.url().absoluteString
         made.append(fake)
         onMade?(fake)
         return fake
+    }
+
+    /// Counts the ask and keeps `answer` for ``finishSupervision(_:)``.
+    ///
+    /// - Parameter answer: Gets the outcome ``finishSupervision(_:)`` gives.
+    public func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
+        supervisorAsks += 1
+        supervisorWaiters.append(answer)
+    }
+
+    /// The Chromium Host ended with the browsers it was making: every ``makePage(_:chatOpen:)`` that
+    /// waits throws ``PageChromiumStartError/browserEnded`` (its task resumes after this turn).
+    public func endHeldBrowsers() {
+        let waiters = browserWaiters
+        browserWaiters = []
+        for waiter in waiters { waiter.resume(throwing: PageChromiumStartError.browserEnded) }
+    }
+
+    /// Answers every page waiting in ``supervisorOutcome(then:)`` with `outcome`, in this turn.
+    ///
+    /// - Parameter outcome: What the supervisor did.
+    public func finishSupervision(_ outcome: PageChromiumSupervisorOutcome) {
+        let waiters = supervisorWaiters
+        supervisorWaiters = []
+        for waiter in waiters { waiter(outcome) }
     }
 }

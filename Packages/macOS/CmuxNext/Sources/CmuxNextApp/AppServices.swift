@@ -447,7 +447,8 @@ final class AppServices {
                 preference: { [weak self] in
                     self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
                 },
-                keyRouter: keyRouter, work: work),
+                keyRouter: keyRouter, work: work, dialogs: .shared,
+                hangWork: features.isEnabled(.pageHangNotice) ? mainWork : nil),
             openPanel: openPanel, memory: memoryCoordinator, registry: .processWide, startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput)
         host.scriptFrames = pageScriptFrame
@@ -487,10 +488,13 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
+    let inputFrameSignposts = InputFrameSignposts()  // the key slots' key.frame; opt-in hang reports read each commit (WatchdogReporting)
     /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface (``inputTargets(agentPaneOwnsPage:)``).
     /// Its key and scroll slots carry the `key.frame` and `key.scroll_frame` intervals.
-    private(set) lazy var inputLatency = InputLatencyDispatch(tracker: InputLatencyTracker(presentation: PresentationClock()), classifier: Self.inputTargets {
-        [weak self] page in self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
+    private(set) lazy var inputLatency = InputLatencyDispatch(
+        tracker: InputLatencyTracker(presentation: PresentationClock(), frameIntervals: inputFrameSignposts),
+        classifier: Self.inputTargets { [weak self] page in
+            self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
     /// The surfaces, most specific first. A Chromium page in either process: an in-process page window (`CefNSWindow`, an agent
     /// chat's being the agent pane's) or a host-mode page view, which takes text input, so it precedes that rule (p04-input-066).
     static func inputTargets(agentPaneOwnsPage: @escaping @MainActor (NSWindow) -> Bool) -> InputTargetClassifier {
@@ -542,7 +546,7 @@ final class AppServices {
     private(set) lazy var terminalTheme = TerminalThemeSetting(backdropScope: .app, deadlines: mainDeadlines, appEvents: appEvents,
                                                                       workspaceEvents: workspaceEvents)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
-    private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
+    private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile), mainWork: mainWork)
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines, on: mainWork) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
@@ -718,7 +722,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys, work: work, mainWork: mainWork)
         self.features = features ?? Self.launchFeatures(environment)
@@ -804,7 +808,7 @@ final class AppServices {
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputLatency = inputLatency
-        registry.dispatchingInputEvent = { inputDispatch.event }
+        (registry.dispatchingInputEvent, inputTap.dispatchedEvent) = ({ inputDispatch.event }, { inputDispatch.event })
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in

@@ -123,6 +123,10 @@ public final class TerminalSurfaceView: NSView {
     /// insertText brings its trail (upstream Ghostty #13737).
     var leadSurrogate: UTF16.CodeUnit?
     var lastPerformKeyEventTimestamp: TimeInterval?
+    /// The key down `keyDown` runs through `interpretKeyEvents`, which `doCommand` re-sends.
+    var interpretingKeyDown: NSEvent?
+    /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
+    var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.
@@ -208,8 +212,8 @@ public final class TerminalSurfaceView: NSView {
         let userdata = unsafe bridge.toOpaque()
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        // SAFETY: as above.
-        unsafe config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(self).toOpaque()))
+        // SAFETY: as above; the NSView is this view's address (its identity's bits), not a callback context.
+        unsafe config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: UnsafeMutableRawPointer(bitPattern: UInt(bitPattern: ObjectIdentifier(self)))))
         // SAFETY: as above.
         unsafe config.userdata = userdata
         config.scale_factor = Double(NSScreen.main?.backingScaleFactor ?? 2)

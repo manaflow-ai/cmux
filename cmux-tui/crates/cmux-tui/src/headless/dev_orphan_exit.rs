@@ -102,6 +102,12 @@ pub(crate) trait OrphanFacts: Send + Sync {
     /// Live terminals; `None` when the registry could not be read (the owner
     /// then keeps its terminals).
     fn live_terminals(&self) -> Option<usize>;
+
+    /// The exit rule once the delay has passed with no client: here the
+    /// DEV orphan's; the idle exit (`server_lifecycle.rs`) has its own.
+    fn exits(&self) -> bool {
+        !self.executable_present() || self.live_terminals() == Some(0)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,7 +149,7 @@ pub(crate) fn decide_with(
 /// The executable is gone, or no terminal lives (an unreadable registry
 /// keeps the owner).
 pub(crate) fn orphaned(facts: &dyn OrphanFacts) -> bool {
-    !facts.executable_present() || facts.live_terminals() == Some(0)
+    facts.exits()
 }
 
 /// The watcher's time source. Tests inject a fake.
@@ -342,16 +348,19 @@ pub(crate) fn start(
     }
     let facts = Arc::new(OwnerFacts { mux: Arc::downgrade(mux), executable });
     let watch = OrphanWatch::with_timing(Arc::new(SystemClock), facts, Timing::for_owner());
-    Some(spawn(watch, mux, stop_owner))
+    Some(spawn("dev-orphan-exit", watch, mux, stop_owner))
 }
 
-fn spawn(
+/// Runs `watch` on a thread named `name`, fed by the mux's client presence;
+/// `stop_owner` runs when the facts' exit rule holds.
+pub(crate) fn spawn(
+    name: &str,
     watch: Arc<OrphanWatch>,
     mux: &Arc<cmux_tui_core::Mux>,
     stop_owner: impl Fn(&dyn OrphanFacts) -> bool + Send + 'static,
 ) -> OrphanExit {
     let observer = Arc::downgrade(&watch);
-    mux.set_client_presence_observer(move || {
+    mux.add_client_presence_observer(move || {
         if let Some(watch) = observer.upgrade() {
             watch.clients_changed();
         }
@@ -360,7 +369,7 @@ fn spawn(
     watch.clients_changed();
     let waiter = watch.clone();
     let thread = std::thread::Builder::new()
-        .name("dev-orphan-exit".into())
+        .name(name.into())
         .spawn(move || {
             while waiter.wait() {
                 if stop_owner(waiter.facts.as_ref()) {
