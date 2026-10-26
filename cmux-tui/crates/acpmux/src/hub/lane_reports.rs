@@ -848,12 +848,34 @@ mod tests {
         k.steer_in("c");
         k.report_only.insert(("c".into(), 2));
         assert!(!k.end("c", 2), "the task's turn was taken for reports only");
-        // Answered after that turn ended, it went in: the next turn reports too, as base did.
+        // Answered after that turn ended: the turn it went into already reported, so the next
+        // one does not.
         k.steer_done("c", true);
         k.report_only.insert(("c".into(), 3));
-        assert!(!k.end("c", 3));
+        assert!(k.end("c", 3));
+    }
+
+    #[test]
+    fn a_late_steer_answer_does_not_make_a_later_report_turn_report() {
+        let turns = StdMutex::new(TurnKinds::default());
+        let count = SteerCount::new(&turns, "c");
+        // Two report turns end while the steer is on its way: both report, one had it.
+        for turn in [1, 2] {
+            let mut k = turns.lock().unwrap();
+            k.report_only.insert(("c".into(), turn));
+            assert!(!k.end("c", turn));
+        }
+        // Its answer comes after: no later report turn is put down to it.
+        count.done(true);
+        let mut k = turns.lock().unwrap();
+        k.report_only.insert(("c".into(), 3));
+        assert!(k.end("c", 3), "a later report turn reported for a steer it never had");
+        drop(k);
+        // Answered before any turn ended, it went into the turn running: that one reports.
+        SteerCount::new(&turns, "c").done(true);
+        let mut k = turns.lock().unwrap();
         k.report_only.insert(("c".into(), 4));
-        assert!(k.end("c", 4));
+        assert!(!k.end("c", 4));
     }
 
     #[test]
