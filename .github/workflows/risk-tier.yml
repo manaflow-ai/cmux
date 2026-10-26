@@ -89,14 +89,11 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
+        # The risk labels are in .github/labels.json (labels-sync.yml creates them), and the event
+        # carries the pull request's labels: creating four labels and reading the pull request on
+        # every event spent five GITHUB_TOKEN calls a run, hundreds an hour (2026-10-25).
         run: |
-          for tier in low normal high; do
-            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
-              --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
-          done
-          gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
-            --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
-          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          current=$(jq -r '.pull_request.labels[].name' "$GITHUB_EVENT_PATH")
           # risk:medium is the old name for risk:normal.
           for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
