@@ -33,8 +33,12 @@ struct AcpmuxTwoHomesUpdateTests {
             try await AcpmuxStatusClient.status(socketPath: sockets[index], deadline: .seconds(15)).pid
         }
 
-        // Every daemon this test starts, so each one ends with it whatever failed.
-        var started: Set<Int32> = []
+        // Every daemon this test starts, with its start time read while it runs, so each one ends
+        // with the test whatever failed, and a pid reused since is never signalled.
+        var started: [Int32: UInt64] = [:]
+        func record(_ pid: Int32?) {
+            if let pid, let start = Self.startTime(pid) { started[pid] = start }
+        }
         var step = "build N's launch"
         var outcome: Result<[Int32?], any Error> = .success([])
         do {
@@ -44,7 +48,7 @@ struct AcpmuxTwoHomesUpdateTests {
                 try await AcpmuxHost(environment: try environment(index)).prewarm()
                 let now = try await pid(index)
                 before.append(now)
-                if let now { started.insert(now) }
+                record(now)
             }
             // The update: the bundle goes aside and away, the new one takes its place.
             step = "the bundle swap"
@@ -60,7 +64,7 @@ struct AcpmuxTwoHomesUpdateTests {
                 try await AcpmuxHost(environment: try environment(index)).prewarm()
                 let now = try await pid(index)
                 after.append(now)
-                if let now { started.insert(now) }
+                record(now)
                 #expect(now != before[index], "home \(homes[index].lastPathComponent)'s old daemon still answers")
             }
             outcome = .success(after)
@@ -79,9 +83,13 @@ struct AcpmuxTwoHomesUpdateTests {
         for (index, socket) in sockets.enumerated() {
             _ = try? await AcpmuxStatusClient.shutdown(socketPath: socket, home: homes[index], deadline: .seconds(10))
         }
-        for pid in started {
-            // A daemon the app refused may outlive the shutdown above; it is this test's own.
-            if await !AgentPaneProcessExit(pid: pid).event(within: .seconds(10)) { kill(pid, SIGKILL) }
+        for (pid, start) in started {
+            // A daemon the app refused may outlive the shutdown above: it is signalled only while
+            // its pid still names the process this test started (same start time).
+            if await !AgentPaneProcessExit(pid: pid).event(within: .seconds(10)), Self.startTime(pid) == start {
+                kill(pid, SIGKILL)
+                _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(10))
+            }
         }
         guard case .success = outcome else {
             Issue.record("\(step) failed: \(outcome)\n--- a/daemon.log\n\(logs[0])\n--- b/daemon.log\n\(logs[1])")
@@ -92,5 +100,13 @@ struct AcpmuxTwoHomesUpdateTests {
             #expect(path.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } == bundled,
                     "home \(homes[index].lastPathComponent) does not run the bundled acpmux")
         }
+    }
+
+    /// When process `pid` started (`proc_bsdinfo`), in microseconds; nil when it does not run.
+    static func startTime(_ pid: Int32) -> UInt64? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
     }
 }
