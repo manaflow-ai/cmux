@@ -152,8 +152,8 @@ public final class InputEventTap: InputObserving {
         })
     }
 
-    /// The other-app monitors installed now (tests).
-    var globalMonitorCount: Int { globalMonitors.count }
+    /// The other-app monitors installed now (`debug.input` and tests).
+    public var globalMonitorCount: Int { globalMonitors.count }
 
     // MARK: Flags
 

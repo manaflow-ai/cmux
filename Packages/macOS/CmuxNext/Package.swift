@@ -268,6 +268,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
                 "CmuxNextInput",
+                "CmuxNextInputDiagnostics",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
                 "CmuxNextAgentPermissions",
@@ -1479,16 +1480,25 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
         // phase and window that replace AppKit event monitors and the application object's closures.
         // The only target besides the App that sees NSEvent for input routing; core and service
-        // packages take its InputObserving face from CmuxNextInputCore.
+        // packages take its InputObserving face from CmuxNextInputCore. It depends on nothing above the
+        // core, so every ui package (CmuxNextDesign's popups, overlays, tooltips and hover cards too)
+        // subscribes to it instead of installing AppKit event monitors.
         .target(
             name: "CmuxNextInput",
-            // Control and Settings: the debug.input method and its JSON (Diagnostics/DebugInput.swift).
-            dependencies: ["CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings"],
+            dependencies: ["CmuxNextInputCore"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The debug.input control method and its JSON (Control and Settings, which sit above the tap's
+        // consumers: CmuxNextSettings depends on CmuxNextDesign, which subscribes to the tap).
+        .target(
+            name: "CmuxNextInputDiagnostics",
+            dependencies: ["CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextInputTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputDiagnostics",
+                           "CmuxNextControl", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1499,6 +1509,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
                 "CmuxNextIcons",
                 "CmuxNextWakeups",
+                // The app's one input tap: popups, overlays, tooltips and hover cards subscribe to it
+                // (p04-input-013), no AppKit event monitor.
+                "CmuxNextInput",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
                 "CCmuxAppFFI",
@@ -1516,6 +1529,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextInput",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),

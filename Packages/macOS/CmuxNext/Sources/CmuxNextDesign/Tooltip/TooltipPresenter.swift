@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextInput
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -10,8 +11,8 @@ public import CmuxNextDesignTokens
 /// there at once; each fades out quicker than it came. It draws in the view's theme scope on the
 /// shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small tight shadow)
 /// under the legibility tint (`TooltipSurface.tint`), with a shortcut hint in the secondary ink. Pages draw the same tooltip
-/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
-/// inactive puts it away.
+/// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key or a scroll puts it away; the app
+/// going inactive hides its panel (`hidesOnDeactivate`), and the next check (``recheck``) puts it away.
 @MainActor
 public final class TooltipPresenter {
     public static let shared = TooltipPresenter()
@@ -41,7 +42,11 @@ public final class TooltipPresenter {
     /// Trackers the pointer is inside (entered, not exited); the deepest one with text shows.
     private var inside: [TooltipTracker] = []
     private weak var current: TooltipTracker?
-    private var monitor: Any?
+    /// The tap subscription for the clicks, keys and scrolls that put the tooltip away: held only
+    /// while a tooltip shows or waits (``watch()``).
+    private var dismissals: InputSubscription?
+    /// The app's input tap, read when a tooltip starts to show or wait (tests inject their own).
+    var inputTap: () -> InputEventTap? = { InputEventTap.application }
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
@@ -217,22 +222,26 @@ public final class TooltipPresenter {
         return NSPoint(x: x.rounded(), y: y.rounded())
     }
 
+    /// Watches for the clicks, keys and scrolls that put the tooltip away while one shows or waits: an
+    /// observer of the tap (it never stops the event).
     private func watch() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown, .scrollWheel, .appKitDefined]
-        ) { [weak self] event in
-            if event.type == .scrollWheel {
-                self?.scrolled()
-            } else if event.type != .appKitDefined || event.subtype == .applicationDeactivated {
-                self?.dismiss()
-            }
-            return event
+        guard dismissals == nil else { return }
+        dismissals = inputTap()?.subscribe(class: [.button, .key, .scroll]) { [weak self] event in self?.inputEvent(event.type) }
+    }
+
+    /// A click, key press or scroll seen by the tap while watching (button and key ups pass by).
+    func inputEvent(_ type: NSEvent.EventType) {
+        switch type {
+        case .scrollWheel: scrolled()
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown: dismiss()
+        default: break
         }
     }
 
     private func unwatch() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        dismissals = nil
     }
+
+    /// The tap subscription is held (tests).
+    var isWatching: Bool { dismissals != nil }
 }

@@ -37,7 +37,7 @@ import os
 /// - `CMUX_NEXT_NO_ACTIVATE=1` (``refusesActivation``): every activation
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app.
-final class CmuxApplication: NSApplication, CEFAppProtocol {
+final class CmuxApplication: NSApplication, CEFAppProtocol, InputEventTapHosting {
     private var handlingSendEvent = false
     /// Set once in `CmuxNextApp.shared.main` before `run()`.
     var refusesActivation = false

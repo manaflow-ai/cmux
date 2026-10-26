@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextInput
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -35,7 +36,9 @@ public final class WindowOverlayHost {
     var observers: [any NSObjectProtocol] = []
     /// Window notification observers held while the panel is attached.
     var windowObservers: [any NSObjectProtocol] = []
-    var mouseMonitor: Any?
+    /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
+    /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
+    var mouseRouting: InputSubscription?
     /// The key window and first responder to give back when the last modal overlay goes.
     weak var restoreWindow: NSWindow?
     weak var restoreResponder: NSResponder?
@@ -54,7 +57,11 @@ public final class WindowOverlayHost {
     public var onPanelChange: (() -> Void)?
     /// Called when `blocksWholeWindow` may have changed (a modal or dimming overlay came or went).
     public var onBlockingChange: (() -> Void)?
-    var escapeMonitor: Any?
+    /// The tap intercept for Escape (``InputEventTap/InterceptOrder/modal``), held while an overlay
+    /// that dismisses on Escape, or a modal, shows (``updateEscapeIntercept()``).
+    var escapeIntercept: InputSubscription?
+    /// The app's input tap, read when a subscription starts (tests inject their own).
+    var inputTap: () -> InputEventTap? = { InputEventTap.application }
     /// Rects in window coordinates that sit above `.pane` overlays and pages (the sidebar), by id.
     var occluders: [String: NSRect] = [:]
     /// `interactiveRegions()`, rebuilt on present, layout, dismiss, occluder and content frame changes.
@@ -169,8 +176,8 @@ public final class WindowOverlayHost {
         for handle in handles { handle.dismiss() }
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
-        removeMouseMonitor()
-        updateEscapeMonitor()
+        mouseRouting = nil
+        updateEscapeIntercept()
         if let keyObserver { NotificationCenter.default.removeObserver(keyObserver) }
         keyObserver = nil
         stopObservingWindow()
