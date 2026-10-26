@@ -516,8 +516,10 @@ public final class TerminalModel {
             composerPresented = true
             focusComposer()
         case .closeComposer:
+            // The keyboard stays up and keys go to the terminal (classic hands
+            // first responder over instead of dropping the keyboard).
             composerPresented = false
-            controller?.hideKeyboard()
+            controller?.focusTerminal()
         }
         controller?.dockChanged()
     }
