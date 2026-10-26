@@ -57,7 +57,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     }
 
     func start() {
-        let configuration = BrowserTabConfiguration(profile: ephemeralProfile ?? .default)
+        let configuration = BrowserTabConfiguration(profile: ephemeralProfile ?? .default, origin: .user)
         let host = host
         Task { [weak self] in
             do {
