@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -27,8 +28,11 @@ final class CloudMachineCreation: Identifiable {
     private(set) var workspaceID: String?
     /// Time from the attempt's start to `ready`.
     private(set) var readyAfter: Duration?
-    /// The flow's work for this creation; cancelled on dismiss and retry.
-    @ObservationIgnored var task: Task<Void, Never>?
+    /// The flow's work for this creation, off main; cancelled on dismiss and retry.
+    @ObservationIgnored var task: Task<Void, any Error>?
+    /// The run that owns the creation's steps (bumped by each run: the first, and every Retry). A cancelled run's
+    /// step already queued on main finds a newer attempt, or the creation unlisted, and changes nothing.
+    @ObservationIgnored private(set) var attempt: UInt64 = 0
 
     init(windowID: String?, session: CloudMachineSession? = nil, clock: ContinuousClock = ContinuousClock()) {
         self.windowID = windowID
@@ -66,6 +70,12 @@ final class CloudMachineCreation: Identifiable {
         phase = .failed(RefusalStrings.describe(error))
     }
 
+    /// A new run owns the creation's steps from here on.
+    func beginAttempt() -> UInt64 {
+        attempt += 1
+        return attempt
+    }
+
     func markReady(now: ContinuousClock.Instant = ContinuousClock().now) {
         if readyAfter == nil { readyAfter = startedAt.duration(to: now) }
     }
@@ -87,6 +97,14 @@ final class CloudMachineCreation: Identifiable {
 @Observable
 final class CloudCreations {
     private(set) var all: [CloudMachineCreation] = []
+    /// Where each creation's run is awaited (off main), and where its steps on the creation run.
+    let work: BackgroundWork
+    let mainWork: MainWorkScheduler
+
+    init(work: BackgroundWork, mainWork: MainWorkScheduler) {
+        self.work = work
+        self.mainWork = mainWork
+    }
 
     /// A new creation, listed at once.
     @discardableResult
@@ -112,6 +130,11 @@ final class CloudCreations {
 
     /// The creations window `id` lists, oldest first.
     func shown(in id: String) -> [CloudMachineCreation] { all.filter { $0.windowID == id } }
+
+    /// Whether run `attempt` still owns `creation`: its latest run, and still listed (not removed or dismissed).
+    func owns(_ attempt: UInt64, of creation: CloudMachineCreation) -> Bool {
+        creation.attempt == attempt && all.contains { $0 === creation }
+    }
 
     func remove(_ creation: CloudMachineCreation) {
         creation.task?.cancel()
@@ -166,49 +189,80 @@ struct CloudCreationFlow {
 
     private func run(_ creation: CloudMachineCreation) {
         let create = create, open = open, show = show, creations = creations
-        // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
-        creation.task = Task { @MainActor in
-            do {
-                let session: CloudMachineSession
-                if let existing = creation.session {
-                    session = existing
-                } else {
-                    session = try await create(creation)
+        let mainWork = creations.mainWork, existing = creation.session, attempt = creation.beginAttempt()
+        // A detached task inherits no task local: the run carries the caller's action scopes, so the person's
+        // New Cloud Workspace still owns the daemon commands of the create and the open, and the window's show.
+        let scopes = ActionScopes.current
+        // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal. R-hop: the run is
+        // awaited off main; each step on the creation and its window is one visible task (a person's New Cloud
+        // Workspace, shown in the window that asked). A cancel can land between a step's check off main and its
+        // queued body, so each body runs only while this run still owns the creation.
+        creation.task = creations.work.task(.userVisible) {
+            await scopes.awaiting {
+                do {
+                    let session: CloudMachineSession
+                    if let existing {
+                        session = existing
+                    } else {
+                        session = try await create(creation)
+                        try Task.checkCancellation()
+                        await mainWork.apply(.visible, owner: "CloudCreation.attach") {
+                            guard creations.owns(attempt, of: creation) else { return }
+                            creation.attach(session)
+                        }
+                    }
+                    guard await Self.ready(creation, on: mainWork) else { return }
+                    await mainWork.apply(.visible, owner: "CloudCreation.ready") {
+                        guard creations.owns(attempt, of: creation) else { return }
+                        creation.markReady()
+                    }
+                    let id = try await open(session)
                     try Task.checkCancellation()
-                    creation.attach(session)
+                    await mainWork.apply(.visible, owner: "CloudCreation.open") {
+                        guard creations.owns(attempt, of: creation) else { return }
+                        scopes.applying {
+                            creation.opened(id)
+                            show(id, creation)
+                        }
+                    }
+                    // The row leaves when the workspace's own row can take its place.
+                    guard await Self.mirrored(id, on: session) else { return }
+                    await mainWork.apply(.visible, owner: "CloudCreation.mirrored") {
+                        guard creations.owns(attempt, of: creation) else { return }
+                        creations.remove(creation)
+                    }
+                } catch is CancellationError {
+                    return
+                } catch CloudMachineCreateFlow.Failure.declined {
+                    // The person said no in the confirmation: the creation closes
+                    // quietly (its window shows what it showed before).
+                    await mainWork.apply(.visible, owner: "CloudCreation.declined") {
+                        guard creations.owns(attempt, of: creation) else { return }
+                        creations.remove(creation)
+                    }
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    await mainWork.apply(.visible, owner: "CloudCreation.failed") {
+                        guard creations.owns(attempt, of: creation) else { return }
+                        creation.fail(error)
+                    }
                 }
-                guard await Self.ready(creation) else { return }
-                creation.markReady()
-                let id = try await open(session)
-                try Task.checkCancellation()
-                creation.opened(id)
-                show(id, creation)
-                // The row leaves when the workspace's own row can take its place.
-                guard await Self.mirrored(id, on: session) else { return }
-                creations.remove(creation)
-            } catch is CancellationError {
-                return
-            } catch CloudMachineCreateFlow.Failure.declined {
-                // The person said no in the confirmation: the creation closes
-                // quietly (its window shows what it showed before).
-                creations.remove(creation)
-            } catch {
-                guard !Task.isCancelled else { return }
-                creation.fail(error)
             }
         }
     }
 
     /// Waits for the ready stage (a failure in between may recover: the
     /// daemon keeps retrying). False when cancelled.
-    private static func ready(_ creation: CloudMachineCreation) async -> Bool {
-        for await stage in ObservationStream({ creation.stage }) where stage == .ready { return true }
-        return false
+    private static func ready(_ creation: CloudMachineCreation, on work: MainWorkScheduler) async -> Bool {
+        await ObservedCondition(owner: "CloudCreation.ready", .visible, on: work).until { creation.stage == .ready }
+        return !Task.isCancelled && creation.stage == .ready
     }
 
+    /// How long a created workspace may take to reach this Mac's mirror before its row stays as it is.
+    private static let mirrorLimit: Duration = .seconds(600)
+
+    /// Whether the machine's store lists workspace `id` (its keyed wait): false after ``mirrorLimit`` or when cancelled.
     private static func mirrored(_ id: String, on session: CloudMachineSession) async -> Bool {
-        let store = session.daemon.store
-        for await known in ObservationStream({ store.workspaces.contains { $0.id == id } }) where known { return true }
-        return false
+        await session.daemon.store.waitForWorkspace(id: id, timeout: mirrorLimit) != nil
     }
 }

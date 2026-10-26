@@ -6,12 +6,14 @@
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
-// ways; Chromium focuses a page only inside cmux's set_focus; a bad message
-// ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// ways; Chromium focuses a page only inside cmux's set_focus; a page's
+// accessibility token comes back in its REPLY; a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cmux_cef_shim.h"
@@ -48,6 +50,9 @@ struct Shim {
   int live = 0;
   int devtools_result = 77;
   int focus_answer = -1;  // what the focus handler said inside set_focus
+  bool create_at_once = true;  // create_window's AFTER_CREATED comes inside the call
+  // (browser, request): AFTER_CREATED events the next create_window emits inside the call, in order.
+  std::vector<std::pair<int, int>> created_in_call;
 } shim;
 
 void Emit(int kind, int browser, int request, const char* s1 = "") {
@@ -70,7 +75,10 @@ void cmux_shim_set_new_tab_page_url(const char* url) { shim.calls.push_back(std:
 int cmux_shim_create_window(int request, void* parent_view, int, int, const char* url, const char*) {
   shim.calls.push_back("create " + std::to_string(request) + " " + url + (parent_view ? " view" : " noview"));
   ++shim.live;
-  Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
+  if (shim.create_at_once) Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
+  const std::vector<std::pair<int, int>> created = std::move(shim.created_in_call);
+  shim.created_in_call.clear();
+  for (const auto& [browser, created_request] : created) Emit(CMUX_SHIM_AFTER_CREATED, browser, created_request);
   return 1;
 }
 int TabSetFrozen(int browser_id, int frozen) {
@@ -103,6 +111,20 @@ int cmux_shim_devtools_call(int browser_id, const char* method, const char*) {
 }
 void cmux_shim_devtools_set_placement(int browser_id, void* parent_view, int, int, int, int) {
   shim.calls.push_back("placement " + std::to_string(browser_id) + (parent_view ? " view" : " noview"));
+}
+// The fork's page accessibility call (task 049): takes the embedder's tokens, copies the page's
+// token into `out` when it fits and returns its length; 0 for a browser it does not have.
+int cmux_shim_browser_accessibility_token(int browser_id, int embedder_pid, const uint8_t* parent_token,
+                                          int parent_token_length, const uint8_t* window_token,
+                                          int window_token_length, uint8_t* out, int capacity) {
+  shim.calls.push_back("ax " + std::to_string(browser_id) + " " + std::to_string(embedder_pid) + " " +
+                       std::string(reinterpret_cast<const char*>(parent_token), parent_token_length) + " " +
+                       std::string(reinterpret_cast<const char*>(window_token), window_token_length));
+  if (browser_id != 3) return 0;
+  static constexpr char kToken[] = "page-token";
+  constexpr int kLength = sizeof kToken - 1;
+  if (out && capacity >= kLength) std::memcpy(out, kToken, kLength);
+  return kLength;
 }
 void cmux_shim_shutdown(void) { shim.calls.push_back("shutdown"); }
 char* cmux_shim_tab_navigation_state(int browser_id) {
@@ -601,6 +623,169 @@ void PopupBoundsByWindow() {
   Expect(f.Sent(), {"event 16 77 11"}, "another window's change leaves it, even from browser 77");
 }
 
+// cmux's page view and window tokens reach the fork for Chromium's browser, and the page's token
+// comes back in the REPLY: its length, then the out buffer of the capacity cmux asked for (task 049;
+// ChromiumHostAccessibilityToken in cmux reads it so).
+void AccessibilityToken() {
+  Fixture f;
+  f.Start();
+  Writer create;
+  create.I32(kMinted);
+  create.I32(42);
+  create.ViewToken(9);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://b/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 20, create)});
+  f.Sent();
+  shim.calls.clear();
+  struct Answer {
+    int32_t length = -1;
+    std::string buffer;
+  };
+  auto ask = [&f](int32_t browser, int32_t capacity, uint32_t token) {
+    Writer w;
+    w.I32(browser);
+    w.I32(4242);
+    w.Bytes("view", 4);
+    w.Bytes("win", 3);
+    w.I32(capacity);
+    f.host.OnMessages({Op(kOpBrowserAccessibilityToken, token, w)});
+    Answer answer;
+    Check(f.sent.size() == 1 && f.sent[0].op == kOpReply && f.sent[0].token == token,
+          "one REPLY under the request's token " + std::to_string(token));
+    if (f.sent.size() != 1) return answer;
+    Reader r(f.sent[0].fields);
+    answer.length = r.I32();
+    answer.buffer = r.Bytes();
+    Check(r.ok() && r.AtEnd(), "the REPLY is the result, then the out buffer");
+    f.sent.clear();
+    return answer;
+  };
+
+  const Answer fits = ask(kMinted, 64, 50);
+  Expect(shim.calls, {"ax 3 4242 view win"}, "the minted id reaches the fork as Chromium's, with cmux's pid and tokens");
+  Check(fits.length == 10 && fits.buffer.size() == 64 && fits.buffer.compare(0, 10, "page-token") == 0,
+        "the page's token's length, and the token at the start of the buffer cmux sized");
+
+  const Answer short_buffer = ask(kMinted, 4, 51);
+  Check(short_buffer.length == 10 && short_buffer.buffer == std::string(4, '\0'),
+        "a token longer than the buffer: its length, nothing copied (cmux asks again at that length)");
+
+  const Answer unknown = ask(77, 64, 52);
+  Check(unknown.length == 0, "a browser the fork does not have: no token");
+  Expect(f.delegate.calls, {"initialize /root"}, "no bad message");
+}
+
+// cmux shows a page it minted in the key's turn, so an assistive client can read it before
+// Chromium created its browser: the request waits for the creation instead of reaching the fork
+// under an id it does not know (task 049).
+void AccessibilityTokenBeforeCreation() {
+  Fixture f;
+  f.Start();
+  shim.create_at_once = false;
+  Writer create;
+  create.I32(kMinted + 5);
+  create.I32(43);
+  create.ViewToken(10);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://b/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 20, create)});
+  f.Sent();
+  shim.calls.clear();
+  Writer w;
+  w.I32(kMinted + 5);
+  w.I32(4242);
+  w.Bytes("view", 4);
+  w.Bytes("win", 3);
+  w.I32(64);
+  f.host.OnMessages({Op(kOpBrowserAccessibilityToken, 60, w)});
+  Check(shim.calls.empty() && f.sent.empty(), "before the creation: no fork call and no reply");
+
+  Emit(CMUX_SHIM_AFTER_CREATED, 3, 43);
+  Expect(shim.calls, {"nav_state 3", "ax 3 4242 view win"}, "the creation runs the held request on Chromium's id");
+  std::vector<std::string> sent = f.Sent();
+  const std::string minted = std::to_string(kMinted + 5);
+  const auto event = std::find(sent.begin(), sent.end(), "event 2 " + minted + " 43");
+  const auto reply = std::find(sent.begin(), sent.end(), "reply 60 10");
+  Check(event != sent.end() && reply != sent.end() && event < reply,
+        "the creation's event, then the page token's reply: [" + Join(sent) + "]");
+
+  // A peer that floods one uncreated browser with requests breaks the wire's bounds.
+  Writer again;
+  again.I32(kMinted + 6);
+  again.I32(44);
+  again.ViewToken(11);
+  again.I32(800);
+  again.I32(600);
+  again.Str("https://c/");
+  again.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 21, again)});
+  Writer flood;
+  flood.I32(kMinted + 6);
+  flood.I32(4242);
+  flood.Bytes("view", 4);
+  flood.Bytes("win", 3);
+  flood.I32(64);
+  for (uint32_t token = 70; token < 87; ++token) f.host.OnMessages({Op(kOpBrowserAccessibilityToken, token, flood)});
+  Check(f.delegate.calls.back() == "bad too many accessibility requests waiting for a browser's creation",
+        "the 17th held request is a bad message");
+}
+
+// Chromium can create a browser cmux minted inside another op's call. Its held page accessibility
+// request runs after that op's ack, as an op of its own: the op's mirrors and events still come
+// before its ack, and the held request's reply after it (task 049).
+void AccessibilityTokenCreatedInsideAnotherOp() {
+  Fixture f;
+  f.Start();
+  shim.create_at_once = false;
+  auto create = [&f](int32_t minted, int32_t request, uint64_t view, uint32_t token) {
+    Writer w;
+    w.I32(minted);
+    w.I32(request);
+    w.ViewToken(view);
+    w.I32(800);
+    w.I32(600);
+    w.Str("https://b/");
+    w.Str(nullptr);
+    f.host.OnMessages({Op(kOpCreateWindow, token, w)});
+  };
+  create(kMinted + 5, 43, 10, 20);
+  f.Sent();
+  Writer ax;
+  ax.I32(kMinted + 5);
+  ax.I32(4242);
+  ax.Bytes("view", 4);
+  ax.Bytes("win", 3);
+  ax.I32(64);
+  f.host.OnMessages({Op(kOpBrowserAccessibilityToken, 60, ax)});
+  Check(f.sent.empty(), "before the creation: no reply");
+
+  // The second create_window's call creates the first browser (3), then its own (5).
+  shim.created_in_call = {{3, 43}, {5, 44}};
+  shim.calls.clear();
+  create(kMinted + 6, 44, 11, 21);
+  Expect(shim.calls, {"create 44 https://b/ view", "nav_state 3", "nav_state 5", "ax 3 4242 view win"},
+         "the held request runs after the op's own events");
+  const std::vector<std::string> sent = f.Sent();
+  const auto at = [&sent](const std::string& line) { return std::find(sent.begin(), sent.end(), line); };
+  const auto first = at("event 2 " + std::to_string(kMinted + 5) + " 43");
+  const auto second = at("event 2 " + std::to_string(kMinted + 6) + " 44");
+  const auto ack = at("ack 21");
+  const auto reply = at("reply 60 10");
+  Check(first != sent.end() && second != sent.end() && ack != sent.end() && reply != sent.end() && first < ack &&
+            second < ack && ack < reply,
+        "both creations, then the op's ack, then the held reply: [" + Join(sent) + "]");
+  Check(ack == sent.end() || std::none_of(ack, sent.end(), [](const std::string& line) {
+          return line.rfind("mirror ", 0) == 0 || line.rfind("event ", 0) == 0;
+        }),
+        "no mirror or event of the op after its ack: [" + Join(sent) + "]");
+  Expect(f.delegate.calls, {"initialize /root"}, "no bad message");
+}
+
 void WipeZeroes() {
   std::vector<std::string> secrets = {"hunter2", ""};
   cmux_host::Wipe(secrets);
@@ -622,6 +807,9 @@ int main() {
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();
+  AccessibilityToken();
+  AccessibilityTokenBeforeCreation();
+  AccessibilityTokenCreatedInsideAnotherOp();
   WipeZeroes();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");

@@ -62,7 +62,7 @@ public final class TerminalLastFrame {
         guard let surface = pin() else { return nil }
         defer { unpin() }
         let frame = SendableSurface(surface: surface)
-        return await Task.detached(priority: .utility) {
+        return await Task.detached(priority: Task.currentPriority) {
             TerminalSnapshotRenderer.render(frame, maxPixelSize: maxPixelSize)
         }.value
     }

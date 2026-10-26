@@ -705,6 +705,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextCompat CheckedQueueLog.app (Debug and bench builds only, #if DEBUG || CMUX_BENCH_HOOKS): the record of every queue DispatchQueue.checked made (label, QoS, target, call site, registry problem), which debug.threads lists (p02-threads-018, RUN-3(b)). DispatchQueue.checked is a static factory called wherever a queue is made, in every module and before any composition root exists, so it has no injection path; the same shape as BlockingViolationTable.shared. Written once per queue creation under CmuxNextCompat Mutex, bounded at 512 records; ThreadsControl takes it injected (tests pass their own log). Not in Release builds."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life."
     }
   ],
   "observer_wrappers": [

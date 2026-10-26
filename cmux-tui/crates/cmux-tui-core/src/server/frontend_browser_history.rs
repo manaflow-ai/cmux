@@ -2,6 +2,11 @@
 //! `update-frontend-browser-tab` (`frontend-browser-tabs-v1`) and the opaque
 //! per-tab session history (`frontend-browser-history-v1`).
 
+use super::tabs_wire::{
+    GetFrontendBrowserHistoryParams as GetParams, NewFrontendBrowserTabParams as NewTabParams,
+    SetFrontendBrowserHistoryParams as SetParams,
+    UpdateFrontendBrowserTabParams as UpdateTabParams,
+};
 use super::*;
 use crate::Actor;
 
@@ -15,45 +20,6 @@ pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-
 /// id and position. The hosting app re-creates the page in the new
 /// profile's store (cookies, storage, cache), which reloads it.
 pub const FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY: &str = "frontend-browser-tab-profile-v1";
-
-/// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
-/// (WebKit or CEF); the daemon persists its location and never attaches a CDP
-/// target. With `idempotency_key` (`frontend-browser-tab-keys-v1`) a retry
-/// returns the tab the first request created (state/frontend_browser_keys.rs).
-#[derive(Deserialize)]
-pub(super) struct NewTabParams {
-    url: String,
-    engine: String,
-    #[serde(default)]
-    pane: Option<PaneId>,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    favicon_url: Option<String>,
-    #[serde(default)]
-    profile_id: Option<String>,
-    /// Install id of the hosting app (the record's only writer).
-    #[serde(default)]
-    owner: Option<String>,
-    #[serde(default)]
-    idempotency_key: Option<String>,
-    #[serde(default)]
-    cols: Option<u16>,
-    #[serde(default)]
-    rows: Option<u16>,
-    /// `frontend-browser-activate-v1`: false keeps the pane's active tab.
-    #[serde(default = "activate_by_default")]
-    activate: bool,
-    /// `frontend-browser-insert-after-v1`: the tab lands right after this
-    /// tab of the target pane (a link's opener, or the opener's last child),
-    /// instead of at the end. Ignored when that tab is not in the pane.
-    #[serde(default)]
-    after: Option<SurfaceId>,
-}
-
-const fn activate_by_default() -> bool {
-    true
-}
 
 pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyhow::Result<Value> {
     let NewTabParams {
@@ -119,38 +85,6 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
     }))
 }
 
-/// `update-frontend-browser-tab`: record a frontend-rendered browser's URL,
-/// title, or favicon.
-#[derive(Deserialize)]
-pub(super) struct UpdateTabParams {
-    surface: SurfaceId,
-    #[serde(default)]
-    url: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default, deserialize_with = "super::present_nullable")]
-    favicon_url: Option<Option<String>>,
-    #[serde(default, deserialize_with = "super::present_nullable")]
-    profile_id: Option<Option<String>>,
-    #[serde(default)]
-    owner: Option<String>,
-}
-
-/// `set-frontend-browser-history`: store a frontend-rendered browser's
-/// opaque session history (a JSON object), or clear it with `null`.
-#[derive(Deserialize)]
-pub(super) struct SetParams {
-    surface: SurfaceId,
-    history: Value,
-}
-
-/// `get-frontend-browser-history`: read a frontend-rendered browser's stored
-/// session history.
-#[derive(Deserialize)]
-pub(super) struct GetParams {
-    surface: SurfaceId,
-}
-
 pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
     let UpdateTabParams { surface, url, title, favicon_url, profile_id, owner } = params;
     let (record, changed) = mux.update_frontend_browser_tab_with_owner_and_profile_as(
@@ -175,8 +109,8 @@ pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyho
 
 pub(super) fn set(mux: &Mux, params: SetParams) -> anyhow::Result<Value> {
     let history = match params.history {
-        Value::Null => None,
-        Value::Object(object) => Some(serde_json::to_string(&object)?),
+        None => None,
+        Some(Value::Object(object)) => Some(serde_json::to_string(&object)?),
         _ => anyhow::bail!("bad request: history must be a JSON object or null"),
     };
     mux.set_frontend_browser_history(params.surface, history)?;

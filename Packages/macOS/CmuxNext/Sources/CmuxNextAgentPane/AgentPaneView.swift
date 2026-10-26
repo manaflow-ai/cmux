@@ -130,9 +130,10 @@ public final class AgentPaneView: NSView {
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
+    ///   - chromiumChat: Whether the page may show in Chromium: feature `agentChromium` now (tests: its default, on).
     public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
-                 chatStores: AgentPaneChatStores = .keepsNothing) {
+                 chatStores: AgentPaneChatStores = .keepsNothing, chromiumChat: Bool = true) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
@@ -143,7 +144,7 @@ public final class AgentPaneView: NSView {
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
         guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
-                                                    chatOpen: model.chatOpen)
+                                                    chatOpen: model.chatOpen, chromiumChat: chromiumChat)
         else { return nil }
         self.page = page
         pageEvents = provider

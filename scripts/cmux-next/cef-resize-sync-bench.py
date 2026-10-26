@@ -10,10 +10,14 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
 
   off     layer hosting off: the page is a child window. API 26 and older: Chromium's own wait (up to 500 ms per
           page resize); API 27: no wait
-  on      layer hosting on, `browserResize.syncDeadline` at its default (8 ms, capped at half a display frame by
+  on      every page window hosted (cef-layer-verify.py --mode on: the bench-only feature `cefLayerHostingEveryPage`),
+          `browserResize.syncDeadline` at its default (8 ms, capped at half a display frame by
           CEFResizeSyncDeadline: 4 ms at 120 Hz)
-  on0     layer hosting on, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
+  on0     the same hosting, syncDeadline 0: the page never holds the commit (it shows its last frame until Chromium
           draws the new size)
+
+The shipping feature `cefLayerHosting` hosts a pane's page only where the app makes every Track A call (resize fence,
+embedder visibility); cef-layer-verify.py --mode default checks it. The modes here measure the hosted resize itself.
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
 (pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session, every pane a Chromium page),
@@ -42,7 +46,8 @@ from bench_launch import RecordError  # noqa: E402
 from new_tab_bench_report import perf_result, write_all  # noqa: E402
 from sidebar_drag_bench_report import measured_build  # noqa: E402
 
-HOSTING_KEY = "browserResize.layerHosting"
+# The hosting tunables cef-layer-verify.py sets per mode (features' local overrides), removed at the end.
+HOSTING_KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage")
 DEADLINE_KEY = "browserResize.syncDeadline"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0)}
 
@@ -180,7 +185,7 @@ def main(argv=None):
                                              "rows": rows or {"error": "no report"}}
     if tunables_file:
         data = load(tunables_file) or {}
-        for key in (HOSTING_KEY, DEADLINE_KEY):
+        for key in (*HOSTING_KEYS, DEADLINE_KEY):
             data.setdefault("values", {}).pop(key, None)
         try:
             with open(tunables_file, "w") as f:

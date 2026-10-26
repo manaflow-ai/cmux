@@ -442,5 +442,57 @@ class CommandLine(unittest.TestCase):
         self.assertFalse(crash.missing_method(None))
 
 
+class HostArms(unittest.TestCase):
+    """p12-perf-process-101: each arm turns cefHelperHost on or off through a tunables file a launched app keeps
+    (an inherited CMUX_ENABLE_FEATURES is stripped), and reads the arm back from features.list."""
+
+    class FakeApp:
+        def __init__(self, answers):
+            self.answers = list(answers)
+            self.features = self.answers.pop(0)
+
+        def read_features(self):
+            return self.answers.pop(0) if self.answers else self.features
+
+    @staticmethod
+    def snapshot(state, source="local"):
+        return ({"cefHelperHost": {"state": state, "source": source}}, "hash", None) if state else ({}, None, None)
+
+    def test_each_arm_writes_its_own_toggle_and_never_the_stripped_variable(self):
+        with tempfile.TemporaryDirectory() as out:
+            for arm in ("off", "on"):
+                path = os.path.join(out, f"t-{arm}.json")
+                env = crash.arm_env(arm, "/tmp/probe.csv", path)
+                self.assertEqual(env[crash.TUNABLES_FILE], path)
+                self.assertEqual(env["CMUX_NEXT_TYPING_PROBE"], "/tmp/probe.csv")
+                self.assertNotIn("CMUX_ENABLE_FEATURES", env)
+                self.assertTrue(crash.TUNABLES_FILE.startswith("CMUX_NEXT_"), "LaunchIdentity keeps CMUX_NEXT_ knobs")
+                with open(path) as handle:
+                    self.assertEqual(json.load(handle), {"version": 1, "values": {"browserHost.helper": arm == "on"}})
+
+    def test_the_on_arm_waits_for_the_toggle_and_records_that_snapshot(self):
+        app = self.FakeApp([self.snapshot("off", "default"), self.snapshot("off", "default"), self.snapshot("on")])
+        with mock.patch.object(crash.time, "sleep"):
+            self.assertEqual(crash.settle_host_state(app, "on", seconds=5), "on")
+        self.assertEqual(app.features[0]["cefHelperHost"], {"state": "on", "source": "local"})
+
+    def test_an_on_arm_the_app_never_reports_stays_off(self):
+        app = self.FakeApp([self.snapshot("off", "default"), self.snapshot("off", "default")])
+        self.assertEqual(crash.settle_host_state(app, "on", seconds=0), "off")
+
+    def test_the_off_arm_reads_once_and_a_build_without_features_runs(self):
+        app = self.FakeApp([self.snapshot("off", "local")])
+        self.assertEqual(crash.settle_host_state(app, "off"), "off")
+        self.assertIsNone(crash.host_state(self.snapshot(None)))
+        self.assertIsNone(crash.host_state(None))
+
+    def test_the_story_runs_both_arms(self):
+        doc = json.loads((PERF_LAB / "stories.d" / "crash-survival.json").read_text())
+        command = doc["command"]
+        arms = command[command.index("--host-arms") + 1]
+        self.assertEqual(crash.parse(["--app", "a", "--host-arms", arms]).host_arms.split(","), ["off", "on"])
+        self.assertIn("env:CMUX_NEXT_DEBUG_TUNABLES_FILE", doc["needs"])
+
+
 if __name__ == "__main__":
     unittest.main()

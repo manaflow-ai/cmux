@@ -1,5 +1,15 @@
 import CmuxNextSettings
 
+/// Why ``PageRouter`` holds delivery; each reason is set and cleared by its own owner, and the hold
+/// lets events through once none is left.
+enum PageDeliveryHoldReason: Hashable {
+    /// The page lifecycle froze the page (``PageRouter/holdDelivery()``).
+    case lifecycle
+    /// The page view is hidden and delivers on frames (``PageWebView/deliverOnFrames(_:)``,
+    /// p06-scheduler-222): a hidden page takes no script until it shows.
+    case hidden
+}
+
 /// The router's hold (p13-webui-023): while the page is hidden or frozen, events wait here by each
 /// stream's ``PageFrozenDelivery`` instead of reaching the script pipeline.
 extension PageRouter {
@@ -9,15 +19,38 @@ extension PageRouter {
     /// freezable task queues (third_party/blink/renderer/platform/scheduler/main_thread/
     /// main_thread_task_queue.h, `can_be_frozen`), held work waits and runs in order on resume.
     public func holdDelivery() {
-        held.hold()
+        holdDelivery(.lifecycle)
     }
 
     /// Sends what the hold kept as one batch, in arrival order across streams and in `seq` order
     /// within each, in this turn, then lets events through again. A stream that dropped events gets
     /// `gap: true` on its first released event.
     public func releaseDelivery() {
-        guard held.isHeld else { return }
+        releaseDelivery(.lifecycle)
+    }
+
+    /// Holds delivery for `reason` (``holdDelivery()``).
+    func holdDelivery(_ reason: PageDeliveryHoldReason) {
+        holdReasons.insert(reason)
+        held.hold()
+    }
+
+    /// Ends `reason`'s hold; the last one sends what was kept (``releaseDelivery()``).
+    func releaseDelivery(_ reason: PageDeliveryHoldReason) {
+        holdReasons.remove(reason)
+        guard holdReasons.isEmpty, held.isHeld else { return }
         emit(held.release())
+        // The batch reaches the page in this turn, not on a later frame: a page that shows draws its
+        // latest state in its first frame.
+        deliverNow?()
+    }
+
+    /// A pooled router's new document: the lifecycle hold followed the old claim (the new owner's
+    /// lifecycle holds again); the view's hidden hold stays with the view.
+    func renewHold() {
+        held = PageDeliveryHold()
+        holdReasons.remove(.lifecycle)
+        if !holdReasons.isEmpty { held.hold() }
     }
 
     /// Whether events wait in the router instead of reaching the page (``holdDelivery()``).
