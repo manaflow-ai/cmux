@@ -168,9 +168,11 @@ before decoding or allocating its payload.
 ### Binary frames (cmux-ipc, not yet negotiated)
 
 The `cmux-ipc` crate defines binary frames that a local Unix connection will
-carry next to JSON lines once a client negotiates them. No server grants them
-yet; until a later capability does, a frame on any connection is a bad
-message. WebSocket, relay and bridged connections keep JSON lines only.
+carry next to JSON lines once a client negotiates them. The daemon does not
+advertise or grant `ipc-frames-v2` until its reader reads frames
+(p05-ipc-061; [Framed IPC grants](#framed-ipc-grants)). Until then, a frame
+on any connection is a bad message. WebSocket, relay and bridged connections
+keep JSON lines only.
 
 A message that starts with byte `0xFF` is a frame; any other first byte starts
 a JSON line. `0xFF` never appears in UTF-8, so the two cannot be confused.
@@ -413,6 +415,75 @@ A reconnect creates a new transport generation. Old pending ids, event buffers, 
 
 vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, echoes it on every event, and adds idempotent `cancel-stream`. Request timeout remains distinct from stream cancellation.
 
+## Framed IPC grants
+
+Status: grant rule only. The daemon advertises and grants a capability only
+after its transport is in the daemon. No transport is in the daemon yet, so
+`identify` lists none of the four and `set-client-info` grants none. The
+task that adds a transport also turns on its capability: p05-ipc-061 for
+`ipc-frames-v2`, the stream task for `attach-streams-v1` and `cancel-stream`,
+and the ring task for `terminal-output-ring-v1`
+(`plans/cmux-next/chrome-parity/p05-ipc.md`, sections 3.1 and 3.2). Mojo
+works the same way: it exposes an interface only after its implementation
+is bound.
+
+| Capability | What it enables | Requires |
+| --- | --- | --- |
+| `ipc-frames-v2` | 16-byte framed messages next to JSON lines, `SHARED_BUFFER` included | none |
+| `attach-streams-v1` | Client-minted streams on one connection. Their items stay JSON lines. | none |
+| `attach-frames-v1` | Attach output as `OUTPUT`, `GRID`, `SNAPSHOT` and `REPLAY` frames on a stream | `ipc-frames-v2`, `attach-streams-v1` |
+| `terminal-output-ring-v1` | The per-terminal shared-memory output ring (`RING`, `RING_ADVANCE`, `RING_ACK`) | `attach-frames-v1` |
+
+`identify` lists each capability that is in the daemon and that the
+connection can be granted in its current state. After the client declares an
+`api_revision` other than the daemon's, `identify` no longer lists the
+capabilities that need the same revision. A client gets a grant when it
+echoes the capability in `set-client-info` and its connection meets the rule
+below. The client must also get, or already hold, every capability in the
+Requires column. The daemon ignores a capability that it does not grant, as
+it does for any other capability, and the reply stays `{}`.
+
+| Connection | Grants |
+| --- | --- |
+| Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
+| Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
+| Bridge that the daemon identifies at accept | `attach-streams-v1` |
+| Unverified Unix peer | `attach-streams-v1` |
+| WebSocket | none |
+| Remote entry (`cmux link` peer) | none. The remote gate refuses them with `remote_denied`. |
+| Page relay (`client-hello role:page_relay`) or a page's connection | none |
+
+The daemon classifies a Unix peer at accept, from kernel facts only:
+
+- A direct local peer runs as the daemon's effective user (`SO_PEERCRED` or
+  `getpeereid`), and its executable is not one of cmux's byte bridges.
+- A bridge is this build's `cmux-mobile-host`, or a peer whose executable is
+  the daemon's own executable or `cmux`, `cmux-tui`, `cmux-tui-ssh`,
+  `cmux-remote` or `cmux-relay` in the daemon's folder. These executables
+  include `cmux relay`, `cmux link dial --service owner_session` and the
+  remote daemon's dialer. The daemon cannot see the subcommand, so every
+  connection from these executables counts as a bridge.
+- An unverified peer is one for which the kernel reports no user or no
+  executable, or reports a user other than the daemon's (root).
+
+Streams are JSON lines, so a bridge carries them, and the daemon's revision
+translation applies to them. Frames, the ring and shared buffers carry
+payloads that the daemon does not translate. They also pass descriptors over
+SCM_RIGHTS, which only a direct local peer can receive. This follows Mojo:
+platform handles pass only on a channel that can carry them
+(`mojo/core/channel_posix.cc`), and unversioned interfaces assume that both
+ends come from one build. A bridge that the daemon does not identify reaches
+it as a direct peer. The dialing client knows about the bridge, so it echoes
+only `attach-streams-v1` until the bridge can carry frames
+(`bridge-frames-v1`, p05-ipc-161).
+
+Each `set-client-info` first removes every grant that the connection's
+current state does not allow, for example after an `api_revision` other
+than the daemon's. To get the grant again, the client must echo the
+capability again in a later `set-client-info`. A later page-relay
+`client-hello` also ends every grant. The daemon checks a grant again each
+time the grant is used.
+
 ## Framed IPC method attributes
 
 Status: schema only. No transport reads these attributes yet; JSON-line
@@ -496,9 +567,9 @@ a source changed and the schema did not. With p05-ipc-012,
 | ordinal | The family's `next_ordinal`, in file order. The first command of a family has ordinal 0. |
 | `priority` | Commands: `input` for `send`, `send-key`, `paste-image`, `browser-key*`, `browser-mouse*`, `browser-wheel*`, `browser-insert-text`, `resize-attached-view` and `scroll-surface`. Every command that writes a surface's PTY input has this one priority, because a client keeps call order only inside one priority. `bulk` only for reads: journal and history reads, attachment reads and `get-blob`. A write, such as an upload or `put-blob`, is `control`, so a later command that names what it wrote cannot pass it. `background` for stats (`server-stats`, `machine-usage`, `terminal-resources`). All other commands are `control`. Events: `input` for `output`, `render-delta`, `render-state` and `frame`, which draw the terminal. `bulk` for `surface-output`. `background` for usage and inventory refreshes. All other events are `control`. |
 | `ordering` | `independent` only for three stats reads that do not see this connection's earlier requests: `server-stats`, `machine-usage` and `machine-listening-tcp`. A cloud command is never `independent`: it needs the lease that the connection set with `cloud-session-set`. |
-| `durability` | `read_only` for reads, `memory` for state that the journal never records (input, streams, leases, presence, subscriptions), and `reply_after_journal` for `journal-frontend-event`, whose reply reports the commit, and for `apps-set` and `apps-store`, which write `apps.json` before they reply. The other `apps-*` commands and `cancel-request` are `memory`: every one of them registers the connection for app events, and mounts, runs, log follows and providers last only as long as the connection. All other commands are `reply_before_journal` (F10). A command that changes state is never `read_only`, even when its name sounds like a read: `cloud-selfhost-info` writes the lease's account, `browser-host-provider` starts the browser host and `snapshot-request` admits a snapshot on its stream, so all three are `memory`. |
+| `durability` | `read_only` for reads, `memory` for state that the journal never records (input, streams, leases, presence, subscriptions), and `reply_after_journal` for `journal-frontend-event`, whose reply reports the commit, for `apps-set` and `apps-store`, which write `apps.json` before they reply, and for `agent-cli-intents-record`, `-settle`, `-attach` and `agent-cli-update-job`, which reply after their SQLite commit so a restarted app finds the intent or job it was told about. The other `apps-*` commands are `memory`: every one of them registers the connection for app events, and mounts, runs, log follows and providers last only as long as the connection. `cancel-request` is `memory` too: it only cancels an in-flight `apps-run` or script cell of this connection and journals nothing. All other commands are `reply_before_journal` (F10). A command that changes state is never `read_only`, even when its name sounds like a read: `cloud-selfhost-info` writes the lease's account, `browser-host-provider` starts the browser host and `snapshot-request` admits a snapshot on its stream, so all three are `memory`. |
 | `stream_scoped` | Set on every command that names a surface, terminal or view, unless the script gives a `crosses_stream_ok` reason. Reasons exist for these command groups: commands that create a terminal by `terminal_id`, commands that open a stream, process-state reads, and list filters. |
-| `spawns_terminal` | The script's reviewed list of daemon commands that can start a terminal host: the creates (`new-tab`, `new-pane`, `split`, `new-workspace` and the rest), `run`, `restart-tab`, `create-surface-with-receipt`, `apply-layout`, `sidebar-plugin`, both saved-group reopens, and `move-tab-to-split` and `move-tab-to-column`, which start one with `respawn`. The list must hold every Swift request type that conforms to `TerminalSpawningRequest`; the script stops otherwise. |
+| `spawns_terminal` | The script's reviewed list of daemon commands that can start a terminal host: the creates (`new-tab`, `new-pane`, `split`, `new-workspace` and the rest), `run`, `restart-tab`, `create-surface-with-receipt`, `apply-layout`, `sidebar-plugin`, both saved-group reopens, `move-tab-to-split` and `move-tab-to-column`, which start one with `respawn`, and `agent-cli-update-job`, whose workspace runs the update in a terminal. The list must hold every Swift request type that conforms to `TerminalSpawningRequest`; the script stops otherwise. |
 | `clients` | `sdk` for every command. `macos` for the Swift wire names (census Q1). `cli` for the names that the Rust CLI builds by hand (census Q14). |
 
 `snapshot-request` is `stream_scoped`: it is ordered on its surface's stream.

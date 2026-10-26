@@ -40,4 +40,26 @@ struct NewTabSparePoolTests {
             #expect(tap.liveSubscriptions == 0, "the warm ran at 950 ms and dropped the subscription")
         }
     }
+
+    /// p08-startup-017: the launch posts the hooks after the first frame and the warm at afterStartup.
+    @Test func aHeldStartMakesNoSpareUntilWarmingStarts() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-hooks")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let tap = FakeInputTap()
+            let pool = NewTabSparePool(services: services, memoryPressure: services.memoryPressure, input: tap, clock: ManualClock())
+            pool.webKit.markSlow() // the warm makes no web view: this test is about when it is armed
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                                  backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            pool.start(holdingWarm: true)
+            #expect(services.agentTabs.takeSpare != nil, "Cmd-T and Cmd-N find the hooks")
+            pool.retarget(window)
+            #expect(pool.target === window, "the spare's window is known")
+            #expect(tap.liveSubscriptions == 0, "no warm is armed before startWarming")
+            pool.startWarming()
+            #expect(tap.liveSubscriptions == 1, "the launch warm is armed")
+        }
+    }
 }

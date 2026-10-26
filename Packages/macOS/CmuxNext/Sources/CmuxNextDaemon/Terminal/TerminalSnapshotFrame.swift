@@ -57,6 +57,8 @@ public struct TerminalSnapshotFrame: Sendable, Hashable {
 struct DecodedAttachLine: Sendable, Equatable {
     var event: TerminalChannelEvent
     var generation: UInt64?
+    /// The key press an `output` echoes (its `flow`), for the probe's decode mark.
+    var flow: UInt64?
 }
 
 /// The one owner of snapshot order on an attach stream (runs on the reader

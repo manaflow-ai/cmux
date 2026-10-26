@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
@@ -15,7 +16,7 @@ public final class AgentUnsentDrafts {
         self.file = file
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
-        drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        drafts = data.flatMap { try? JSONDecoder().blockingDecode([String: String].self, from: $0) } ?? [:]
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).

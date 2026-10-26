@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
@@ -164,7 +165,7 @@ final class DaemonPageRelay: PageProvider {
     }
 
     static func daemonParams(_ members: [String: CmuxNextSettings.JSONValue]) throws -> [String: CmuxNextDaemon.JSONValue] {
-        try JSONDecoder().decode([String: CmuxNextDaemon.JSONValue].self,
+        try JSONDecoder().blockingDecode([String: CmuxNextDaemon.JSONValue].self,
                                  from: Data(CmuxNextSettings.JSONValue.object(members).compactText.utf8))
     }
 

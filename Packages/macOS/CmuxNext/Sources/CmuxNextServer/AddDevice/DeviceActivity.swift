@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// One line of the device audit (`cmux device audit --json`): an add, an invite, a remove, or an
@@ -35,6 +36,6 @@ public nonisolated struct DeviceActivity: Equatable, Sendable, Decodable {
 
     /// The entries of `cmux device audit --json`, newest first.
     public static func parse(_ data: Data) throws -> [DeviceActivity] {
-        try JSONDecoder().decode(Page.self, from: data).entries
+        try JSONDecoder().blockingDecode(Page.self, from: data).entries
     }
 }

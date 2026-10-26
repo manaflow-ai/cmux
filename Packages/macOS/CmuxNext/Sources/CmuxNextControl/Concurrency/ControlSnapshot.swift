@@ -42,6 +42,20 @@ public struct ControlSnapshot: Sendable {
     }
 }
 
+extension ControlSnapshot {
+    /// The `snapshot.get` result before the caller's location (`caller`, `beside`): the topology at the daemon
+    /// sequence it reflects, with the publish counters. The oracle's topology facet answers the same members.
+    var snapshotGetMembers: [String: JSONValue] {
+        [
+            "sequence": JSONValue.number(Double(topology.daemonSequence)),
+            "generation": JSONValue(Int(truncatingIfNeeded: generation)),
+            "published_uptime_ns": .number(Double(publishedAtUptimeNanos)),
+            "tab_count": JSONValue(topology.tabCount),
+            "topology": topology.json,
+        ]
+    }
+}
+
 /// Daemon event sequences a read must see (read-your-writes across
 /// sessions): the home daemon's, and each remote session's by
 /// `ControlSessionInfo.id`. Sequences are per daemon connection.
@@ -80,7 +94,7 @@ public final class ControlSnapshotStore: Sendable {
     /// ``fresh()`` builds it first. Set on the main actor, read by connection tasks.
     private let stale = Atomic<Bool>(false)
     /// Builds and publishes a stale snapshot on the main actor (the App's publisher); nil: none.
-    private let refresher = Mutex<(@Sendable () async -> Void)?>(nil)
+    private let refresher = Mutex<(@MainActor @Sendable () -> Void)?>(nil)
 
     public init() {}
 
@@ -95,12 +109,20 @@ public final class ControlSnapshotStore: Sendable {
     public func markStale() { stale.store(true, ordering: .releasing) }
 
     /// Sets the closure that builds and publishes a stale snapshot on the main actor.
-    public func setRefresher(_ refresh: (@Sendable () async -> Void)?) { refresher.withLock { $0 = refresh } }
+    public func setRefresher(_ refresh: (@MainActor @Sendable () -> Void)?) { refresher.withLock { $0 = refresh } }
 
     /// The latest snapshot, built first when main-actor state changed since the last publish (``markStale()``):
     /// what a control call reads, so it covers the writes of the calls before it.
     public func fresh() async -> ControlSnapshot {
         if isStale, let refresh = refresher.withLock({ $0 }) { await refresh() }
+        return current
+    }
+
+    /// ``fresh()`` in this main-actor turn: the snapshot of the model that the turn's other main-actor
+    /// reads see (the oracle's topology facet beside its other main-actor facets).
+    @MainActor
+    public func freshNow() -> ControlSnapshot {
+        if isStale, let refresh = refresher.withLock({ $0 }) { refresh() }
         return current
     }
 

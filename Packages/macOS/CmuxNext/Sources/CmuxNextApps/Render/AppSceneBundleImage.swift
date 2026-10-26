@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import SwiftUI
 
 /// `Image(src)`: a file inside the app bundle (never the network).
@@ -25,7 +26,7 @@ final class AppBundleImageCache {
         let url = directory.appending(path: path).standardizedFileURL
         guard url.path.hasPrefix(directory.standardizedFileURL.path) else { return nil }
         if let cached = images[url.path] { return cached }
-        guard let image = NSImage(contentsOf: url) else { return nil }
+        guard let image = (try? Data(blockingContentsOf: url)).flatMap({ blockingNSImage($0) }) else { return nil }
         if images.count > 64 { images.removeAll() }
         images[url.path] = image
         return image

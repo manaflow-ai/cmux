@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d. */
+/* cmux-tui mux protocol 12, IR e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,59 @@ export type ActivitySnapshot = {
 
 export type ActivitySubscribeResult = {
   "activity": ActivitySnapshot;
+};
+
+export type AgentCLIIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "root_key": string;
+  "session": string;
+};
+
+export type AgentCLIJobPath = {
+  "kind": "terminal";
+  "pane_id": string;
+  "screen_id": string;
+  "tab_id": string;
+  "terminal_id": string;
+  "workspace_id": string;
+};
+
+export type AgentCLIJobReceipt = {
+  "cli": string;
+  "machine": string;
+  "path": AgentCLIJobPath;
+  "replayed": boolean;
+  "revision": string;
+  "session": string;
+};
+
+export type AgentCLIJobResolution = ({ "state": "created" } & {
+  "receipt": AgentCLIJobReceipt;
+  "state": "created";
+}) | ({ "state": "failed" } & {
+  "code": string;
+  "state": "failed";
+}) | ({ "state": "indeterminate" } & {
+  "state": "indeterminate";
+}) | ({ "state": "not_found" } & {
+  "state": "not_found";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+}) | ({ "state": "prepared" } & {
+  "state": "prepared";
+});
+
+export type AgentCLIStoredIntent = {
+  "cli": string;
+  "key": string;
+  "machine": string;
+  "profiles": Array<string>;
+  "receipt": (AgentCLIJobReceipt) | null;
+  "root_key": string;
+  "session": string;
 };
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";

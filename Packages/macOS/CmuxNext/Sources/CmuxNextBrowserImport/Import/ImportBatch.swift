@@ -7,6 +7,10 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     public var history: [ImportedHistoryEntry] = []
     public var openTabs: [ImportedTab] = []
     public var extensions: [ImportedExtension] = []
+    /// Bookmarks, history pages and open tabs the readers left out, by reason (a damaged profile).
+    public var skippedBookmarks = ImportSkipCounts()
+    public var skippedHistory = ImportSkipCounts()
+    public var skippedOpenTabs = ImportSkipCounts()
     /// The default search engine, when the profile set one.
     public var searchEngine: ImportedSearchEngine?
     /// The kinds the user picked for this profile (an empty list then means
@@ -29,7 +33,8 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, bookmarks, history, openTabs, extensions, searchEngine, kinds, cookies, cookieError, passwords, passwordError, importedAt
+        case source, bookmarks, history, openTabs, extensions, skippedBookmarks, skippedHistory, skippedOpenTabs, searchEngine, kinds,
+             cookies, cookieError, passwords, passwordError, importedAt
     }
 
     /// Files saved before `kinds` existed decode with the kinds that hold data.
@@ -40,6 +45,9 @@ public struct ImportBatch: Sendable, Codable, Equatable {
         history = try container.decodeIfPresent([ImportedHistoryEntry].self, forKey: .history) ?? []
         openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
         extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
+        skippedBookmarks = try container.decodeIfPresent(ImportSkipCounts.self, forKey: .skippedBookmarks) ?? ImportSkipCounts()
+        skippedHistory = try container.decodeIfPresent(ImportSkipCounts.self, forKey: .skippedHistory) ?? ImportSkipCounts()
+        skippedOpenTabs = try container.decodeIfPresent(ImportSkipCounts.self, forKey: .skippedOpenTabs) ?? ImportSkipCounts()
         searchEngine = try container.decodeIfPresent(ImportedSearchEngine.self, forKey: .searchEngine)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         cookies = try container.decodeIfPresent(CookieImportReport.self, forKey: .cookies)
@@ -182,6 +190,10 @@ public struct ImportSummary: Sendable, Equatable {
     }
 
     public var counts: ImportCounts { batches.reduce(ImportCounts()) { $0 + $1.counts } }
+    /// Bookmarks, history pages and open tabs every profile's readers left out, by reason.
+    public var skipped: ImportSkipCounts {
+        batches.reduce(ImportSkipCounts()) { $0 + $1.skippedBookmarks + $1.skippedHistory + $1.skippedOpenTabs }
+    }
     public var extensions: [ImportedExtension] {
         var seen = Set<String>()
         return batches.flatMap(\.extensions).filter { seen.insert($0.id).inserted }

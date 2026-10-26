@@ -74,7 +74,9 @@ public final class MacScreenPane {
     }
 
     /// How long a hidden tab keeps its stream (switching tabs back and forth stays live).
-    public var hiddenGrace: Duration = .seconds(20)
+    public var hiddenGrace: Duration = MacScreenPane.defaultHiddenGrace
+    /// The ``hiddenGrace`` of a new pane.
+    nonisolated public static let defaultHiddenGrace: Duration = .seconds(20)
     private let inputSink: MacScreenInputSink?
     private var visible = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")

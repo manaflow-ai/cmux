@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d. */
+/* cmux-tui mux protocol 12, IR e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d" as const;
+export const SDK_IR_SHA256 = "e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -68,6 +68,85 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "agent-cli-intents-attach": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "Attaches the terminal receipt of agent-cli-update-job to a stored intent; its machine, session and cli must equal the intent's. The stored receipt has replayed true.",
+      "A second attach with the same receipt is a no-op; a different receipt is refused with agent_cli_intents.refused."
+    ]
+  },
+  "agent-cli-intents-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+      "Lists the actor's intents recorded in the last seven days."
+    ]
+  },
+  "agent-cli-intents-record": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "A stored intent is non-secret identity, never an execution grant: it holds no argv or credentials.",
+      "Records 1-64 intents before any update starts; cli is one of claude, codex, opencode, pi, chief, gemini, amp, copilot, cursor and profiles holds at most 128 labels.",
+      "Recording the same intent again is a no-op and a different intent under a stored key is refused with agent_cli_intents.refused; rows older than seven days and rows past 256 per actor are pruned. The reply lists every stored intent of the actor."
+    ]
+  },
+  "agent-cli-intents-settle": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-intents-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_intents.not_trusted.",
+      "expected_machine_id and expected_session_id must name this daemon's machine and session; a parse failure is agent_cli_intents.bad_request and another owner is agent_cli_intents.owner_mismatch.",
+      "Deletes 1-64 settled intents so they stop blocking another update; a key already gone is not an error."
+    ]
+  },
+  "agent-cli-update-job": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-update-job-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+      "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+      "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+      "Creates a workspace whose terminal runs the owner's fixed update plan for cli, prepared by acpmux; the caller never chooses argv. The receipt names that terminal, not a finished update.",
+      "The same idempotency_key replays the original receipt without preparing again. One job prepares at a time: another is refused with agent_cli_job.busy."
+    ]
+  },
+  "agent-cli-update-job-resolve": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-cli-update-job-resolve-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs the verified cmux app on a local Unix connection with no terminal or agent binding; any other connection is refused with agent_cli_job.not_trusted.",
+      "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
+      "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
+      "Reads the creation journal of the original idempotency_key without preparing, reconciling or starting anything; no state authorizes execution."
+    ]
+  },
   "apply-layout": {
     "authority": "control",
     "since": 6,
@@ -79,7 +158,7 @@ export const COMMAND_METADATA = {
   "apps-agent-inventory-changed": {
     "authority": "local-admin",
     "since": 12,
-    "capability": "apps-v1",
+    "capability": "agent-cli-app-invalidation-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -149,7 +228,12 @@ export const COMMAND_METADATA = {
     "authority": "local-admin",
     "since": 12,
     "capability": "apps-v1",
-    "fields": {},
+    "fields": {
+      "inventory_watch": {
+        "since": null,
+        "capability": "agent-cli-app-invalidation-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "The Mac app serves ops the daemon does not own (plans/cmux-next/app-op-routing.md).",
@@ -4738,6 +4822,342 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "AgentCLIIntent": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profiles": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "root_key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobPath": {
+    "additional_properties": false,
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "terminal"
+        }
+      },
+      "pane_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "screen_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "tab_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "workspace_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobReceipt": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "path": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentCLIJobPath"
+        }
+      },
+      "replayed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentCLIJobResolution": {
+    "kind": "tagged_union",
+    "tag": "state",
+    "variants": {
+      "created": {
+        "additional_properties": false,
+        "fields": {
+          "receipt": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "AgentCLIJobReceipt"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "created"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "failed": {
+        "additional_properties": false,
+        "fields": {
+          "code": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "failed"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "indeterminate": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "indeterminate"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "not_found": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "not_found"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "pending": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "pending"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "prepared": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "prepared"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
+  "AgentCLIStoredIntent": {
+    "additional_properties": false,
+    "fields": {
+      "cli": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "machine": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profiles": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "receipt": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentCLIJobReceipt"
+        }
+      },
+      "root_key": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentPresenceActivity": {
     "kind": "enum",
     "values": [
@@ -5424,6 +5844,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "inventory_demand": {
+        "capability": "agent-cli-app-invalidation-v1",
         "constraints": [
           "Only when the request set inventory_watch."
         ],
@@ -15770,6 +16191,317 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "TabGroupOutcome"
     }
   },
+  "agent-cli-intents-attach": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "receipt": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "AgentCLIJobReceipt"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intent": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "AgentCLIStoredIntent"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-record": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-intents-settle": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "keys": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "changed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "intents": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentCLIStoredIntent"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-cli-update-job": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cli": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentCLIJobReceipt"
+    }
+  },
+  "agent-cli-update-job-resolve": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cli": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_machine_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "idempotency_key": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentCLIJobResolution"
+    }
+  },
   "apply-layout": {
     "request": {
       "additional_properties": false,
@@ -16059,7 +16791,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "fields": {
         "families": {
           "constraints": [
-            "Non-empty; each a provider family the daemon routes to the app."
+            "Non-empty; each a provider family the daemon routes to the app.",
+            "The agent_cli family needs agent-cli-app-provider-v1."
           ],
           "nullable": false,
           "presence": "required",
@@ -16072,6 +16805,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "inventory_watch": {
+          "capability": "agent-cli-app-invalidation-v1",
           "constraints": [
             "Opts into the inventory demand snapshot; needs the agent_cli family."
           ],

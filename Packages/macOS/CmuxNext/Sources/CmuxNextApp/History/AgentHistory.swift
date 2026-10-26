@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import Foundation
@@ -59,7 +60,7 @@ final class AgentHistory {
             fold = AgentSessionFold(machine: machine)
         }
         let decoder = JSONDecoder()
-        fold.apply(result.records.compactMap { try? decoder.decode(AgentJournalRecord.self, from: $0) })
+        fold.apply(result.records.compactMap { try? decoder.blockingDecode(AgentJournalRecord.self, from: $0) })
         folds[machine] = fold
         if let generation = result.generation { generations[machine] = generation }
     }

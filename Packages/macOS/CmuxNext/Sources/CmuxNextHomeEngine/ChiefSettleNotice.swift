@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The Chief conversation's notice while a turn waits for the compactor to
@@ -7,7 +8,7 @@ import Foundation
 nonisolated struct ChiefSettleNotice {
     /// The notice for the file's contents; nil when it is not a wait.
     static func text(json: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: json) as? [String: Any],
               let built = object["built"] as? Int, let total = object["total"] as? Int,
               built >= 0, built < total else { return nil }
         return HomeStrings.chiefOrganizing(built: built, total: total)

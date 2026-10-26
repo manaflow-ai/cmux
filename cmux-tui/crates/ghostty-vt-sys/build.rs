@@ -39,22 +39,34 @@ fn main() {
 
     // Build libghostty-vt.a with zig. ReleaseFast regardless of the cargo
     // profile: the VT parser is on the PTY hot path and a debug zig build
-    // is an order of magnitude slower.
+    // is an order of magnitude slower. A fuzzing build (cargo fuzz passes
+    // `--cfg fuzzing`) goes through fuzzing/build.zig instead: ReleaseSafe
+    // with SanitizerCoverage, so libFuzzer sees the parser's edges and a Zig
+    // safety check failure is a crash.
     let zig = env::var("ZIG").unwrap_or_else(|_| "zig".to_string());
     let prefix = out_dir.join("ghostty-vt");
     let target = env::var("TARGET").unwrap();
     let host = env::var("HOST").unwrap();
+    let fuzzing = env::var_os("CARGO_CFG_FUZZING").is_some();
+    emit_cargo_path_directive("rerun-if-changed", &manifest_dir.join("fuzzing/build.zig"));
     let mut command = Command::new(&zig);
-    command
-        .current_dir(&ghostty_dir)
-        .arg("build")
-        .arg("-Demit-lib-vt=true")
-        .arg("-Demit-xcframework=false")
-        // No build fetches packages it does not use, so each source archive
-        // equals the real fetch list: libghostty-vt never needs the iTerm2
-        // theme set (emit-themes defaults to true and fetches it lazily).
-        .arg("-Demit-themes=false")
-        .arg("-Doptimize=ReleaseFast");
+    if fuzzing {
+        let project = out_dir.join("ghostty-vt-fuzz");
+        write_fuzzing_project(&project, &ghostty_dir);
+        command.current_dir(&project).arg("build");
+    } else {
+        command
+            .current_dir(&ghostty_dir)
+            .arg("build")
+            .arg("-Demit-lib-vt=true")
+            .arg("-Demit-xcframework=false")
+            // No build fetches packages it does not use, so each source
+            // archive equals the real fetch list: libghostty-vt never needs
+            // the iTerm2 theme set (emit-themes defaults to true and fetches
+            // it lazily).
+            .arg("-Demit-themes=false")
+            .arg("-Doptimize=ReleaseFast");
+    }
     // ghostty-next publishes releases as git tags (xcframework-<sha>-<flavor>)
     // on main commits. Ghostty's build reads `git describe` and panics on a
     // tag that is not vX.Y.Z, so a checkout that fetched tags could not build.
@@ -118,6 +130,14 @@ fn main() {
     } else {
         println!("cargo:rustc-link-lib=static=ghostty-vt");
     }
+    if fuzzing {
+        move_coverage_to_extra_counters(&lib_dir.join("libghostty-vt.a"), &host);
+        // fuzzing/build.zig installs the SIMD archives beside libghostty-vt.a
+        // instead of merging them into it; they come after it on the link line.
+        for name in build_support::fuzzing_extra_archives(&lib_dir) {
+            println!("cargo:rustc-link-lib=static={name}");
+        }
+    }
 
     // Generate bindings from the public C header.
     let include_dir = ghostty_dir.join("include");
@@ -133,6 +153,57 @@ fn main() {
         .generate()
         .expect("bindgen failed for ghostty/vt.h");
     bindings.write_to_file(out_dir.join("bindings.rs")).expect("failed to write bindings.rs");
+}
+
+/// Zig's -ffuzz writes a one-word-per-PC table (`__sancov_pcs1`) that
+/// libFuzzer cannot read, and libFuzzer refuses to start when its counters
+/// and PC tables differ in length. libghostty-vt's counters go to libFuzzer's
+/// extra-counters section instead (FuzzerExtraCounters.cpp), which feeds
+/// coverage features with no PC table; its PC tables are renamed out of the
+/// way. llvm-objcopy comes from the fuzz toolchain's llvm-tools-preview.
+fn move_coverage_to_extra_counters(archive: &Path, host: &str) {
+    let rustc = env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    let output = Command::new(&rustc)
+        .args(["--print", "sysroot"])
+        .output()
+        .unwrap_or_else(|e| panic!("failed to run `{rustc} --print sysroot`: {e}"));
+    let sysroot = String::from_utf8(output.stdout).expect("rustc sysroot is not UTF-8");
+    let objcopy = Path::new(sysroot.trim()).join("lib/rustlib").join(host).join("bin/llvm-objcopy");
+    let mut command = Command::new(&objcopy);
+    for rename in build_support::FUZZING_SECTION_RENAMES {
+        command.arg("--rename-section").arg(rename);
+    }
+    let status = command.arg(archive).status().unwrap_or_else(|e| {
+        panic!("failed to run {} (rustup component add llvm-tools-preview): {e}", objcopy.display())
+    });
+    if !status.success() {
+        panic!("llvm-objcopy on {} failed with {status}", archive.display());
+    }
+}
+
+/// The zig project of a fuzzing build: fuzzing/build.zig and a build.zig.zon
+/// whose `ghostty` dependency is the libghostty-vt tree (zig accepts only a
+/// path relative to the project).
+fn write_fuzzing_project(project: &Path, ghostty_dir: &Path) {
+    std::fs::create_dir_all(project)
+        .unwrap_or_else(|e| panic!("failed to create {}: {e}", project.display()));
+    let project = canonical_dir(project);
+    let dependency = build_support::relative_path(&project, ghostty_dir);
+    let files = [
+        ("build.zig", include_str!("fuzzing/build.zig").to_string()),
+        ("build.zig.zon", build_support::fuzzing_zon(&dependency)),
+    ];
+    for (name, contents) in files {
+        let path = project.join(name);
+        std::fs::write(&path, contents)
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+    }
+}
+
+fn canonical_dir(dir: &Path) -> PathBuf {
+    let resolved =
+        dir.canonicalize().unwrap_or_else(|e| panic!("failed to resolve {}: {e}", dir.display()));
+    strip_windows_verbatim(resolved)
 }
 
 fn require_vt_source(dir: &Path) -> PathBuf {

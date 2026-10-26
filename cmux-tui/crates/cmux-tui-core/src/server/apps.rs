@@ -739,43 +739,83 @@ mod tests {
         assert_eq!(crate::apps::CANCEL_REQUEST_CAPABILITY, "cancel-request-v1");
     }
 
-    /// Every serde name of this module's `Command` enum, from serde's own
-    /// list of expected variants, so a new variant is checked at once.
-    fn apps_command_names() -> Vec<String> {
-        let error = serde_json::from_value::<Command>(json!({"cmd": "__no_such_command__"}))
-            .err()
-            .expect("an unknown command is refused")
-            .to_string();
-        let list = error.split("expected one of ").nth(1).expect("serde lists the variants");
-        list.split(", ").map(|name| name.trim().trim_matches('`').to_string()).collect()
+    /// A deserializer error that keeps the variant list serde gives
+    /// `unknown_variant`, so the test reads `Command`'s wire names from the
+    /// derive itself and not from an error message.
+    #[derive(Debug)]
+    enum VariantList {
+        Variants(&'static [&'static str]),
+        Other(String),
     }
 
-    /// The SDK schema (spec/sdk-schema.json, p05-ipc-013) describes every
-    /// command this door serves: local-admin (the door refuses non-Unix
-    /// connections), the capability `identify` advertises, and a method id
-    /// in the `apps` family.
+    impl std::fmt::Display for VariantList {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "{self:?}")
+        }
+    }
+
+    impl std::error::Error for VariantList {}
+
+    impl serde::de::Error for VariantList {
+        fn custom<T: std::fmt::Display>(message: T) -> Self {
+            Self::Other(message.to_string())
+        }
+
+        fn unknown_variant(_variant: &str, expected: &'static [&'static str]) -> Self {
+            Self::Variants(expected)
+        }
+    }
+
+    /// Every serde name of this module's `Command` enum.
+    fn apps_command_names() -> Vec<&'static str> {
+        let deserializer = serde::de::value::MapDeserializer::<_, VariantList>::new(
+            std::iter::once(("cmd", "__no_such_command__")),
+        );
+        match Command::deserialize(deserializer) {
+            Err(VariantList::Variants(names)) => names.to_vec(),
+            Err(VariantList::Other(message)) => panic!("no variant list: {message}"),
+            Ok(_) => panic!("an unknown command was accepted"),
+        }
+    }
+
+    /// The SDK schema (spec/sdk-schema.json, p05-ipc-013) describes exactly
+    /// the commands this door serves: the `apps` family holds them and no
+    /// other, each is local-admin (the door refuses non-Unix connections) and
+    /// names the capability `identify` advertises for it.
     #[test]
     fn every_apps_command_is_in_the_sdk_schema() {
         let schema: Value =
             serde_json::from_str(include_str!("../../../../spec/sdk-schema.json")).unwrap();
         let family = schema["families"]["apps"]["id"].as_u64().expect("the apps family");
-        let mut names = apps_command_names();
-        assert_eq!(names.len(), 13, "{names:?}");
-        let capability = |name: &str| {
-            if name == "cancel-request" {
-                crate::apps::CANCEL_REQUEST_CAPABILITY
-            } else {
-                crate::apps::CAPABILITY
-            }
+        let mut served = apps_command_names();
+        served.push("cancel-request");
+        let mut in_family: Vec<&str> = schema["commands"]
+            .as_object()
+            .expect("the schema's commands")
+            .iter()
+            .filter(|(_, command)| command["method_id"].as_u64().map(|id| id >> 8) == Some(family))
+            .map(|(name, _)| name.as_str())
+            .collect();
+        served.sort_unstable();
+        in_family.sort_unstable();
+        assert_eq!(in_family, served);
+        let invalidation = crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY;
+        let capability = |name: &str| match name {
+            "cancel-request" => crate::apps::CANCEL_REQUEST_CAPABILITY,
+            "apps-agent-inventory-changed" => invalidation,
+            _ => crate::apps::CAPABILITY,
         };
-        names.push("cancel-request".to_string());
-        for name in &names {
-            let command = &schema["commands"][name.as_str()];
+        for name in served {
+            let command = &schema["commands"][name];
             assert_eq!(command["authority"], "local-admin", "{name}");
             assert_eq!(command["capability"], capability(name), "{name}");
-            let method_id = command["method_id"].as_u64().expect("a method id");
-            assert_eq!(method_id >> 8, family, "{name}");
         }
+        // An apps-v1 daemon older than the inventory watch ignores
+        // inventory_watch, so the field and its answer carry their own gate.
+        let register = &schema["commands"]["apps-provider-register"]["request"]["fields"];
+        assert_eq!(register["inventory_watch"]["capability"], invalidation);
+        let result = &schema["types"]["AppsProviderRegisterResult"]["fields"];
+        assert_eq!(result["inventory_demand"]["capability"], invalidation);
     }
 
     #[test]

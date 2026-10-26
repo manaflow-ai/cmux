@@ -10,8 +10,8 @@ use super::*;
 use crate::Actor;
 use crate::panic_free::RecoverPoison;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, RequestOrigin, forbidden, mint_token, needs_user,
-    valid_sha256_hex,
+    CONFIRMATION_TTL_MS, HelloRole, LocalPeer, PeerProcess, RequestOrigin, forbidden, mint_token,
+    needs_user, valid_sha256_hex,
 };
 use crate::resource::RequestEnvelope;
 
@@ -367,15 +367,78 @@ pub(super) fn set_peer_identity_at_accept(
     client: u64,
     peer_key: Option<String>,
     peer_token: Option<cmux_link::app_caller::PeerToken>,
+    peer_uid: Option<u32>,
 ) {
     let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
-    let mobile_host = peer_executable(peer_key.as_deref(), peer_token.as_ref())
-        .is_some_and(|path| is_bundled_mobile_host_path(&path));
+    let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
+    let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
+    // Windows sockets pass no descriptors: no peer there is direct.
+    #[cfg(unix)]
+    let peer_process = classify_peer_process(
+        peer_uid,
+        executable.as_deref(),
+        platform::effective_uid(),
+        daemon_executable(),
+    );
+    #[cfg(not(unix))]
+    let peer_process = {
+        let _ = peer_uid;
+        PeerProcess::Unverified
+    };
     let mut state = mux.control_clients.state.lock().recover_poison();
     if let Some(record) = state.clients.get_mut(&client) {
         record.origin.peer_key = peer_key;
         record.origin.local_peer = local_peer;
         record.origin.mobile_host = mobile_host;
+        record.origin.peer_process = peer_process;
+    }
+}
+
+/// cmux's own executables beside the daemon's that splice a far client's
+/// bytes onto this socket: the `cmux` CLI (`cmux relay`, `cmux link dial`),
+/// the SSH helper and the remote daemon. A peer that runs one of them, or
+/// the daemon's own executable, may be a byte bridge, so it is classed as
+/// one: the daemon cannot see the subcommand, and a bridge cannot carry
+/// descriptors (server/capabilities.rs `IpcPeer::Bridged`).
+#[cfg(unix)]
+const BYTE_BRIDGE_NAMES: [&str; 5] =
+    ["cmux", "cmux-tui", "cmux-tui-ssh", "cmux-remote", "cmux-relay"];
+
+/// The daemon's own executable, canonical; `None` when it cannot be read.
+#[cfg(unix)]
+fn daemon_executable() -> Option<&'static Path> {
+    static OWN: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    OWN.get_or_init(|| std::fs::canonicalize(std::env::current_exe().ok()?).ok()).as_deref()
+}
+
+/// Classifies the accepted peer from its kernel uid and executable. A peer
+/// with no uid, another uid (root), or no executable stays unverified.
+#[cfg(unix)]
+pub(super) fn classify_peer_process(
+    peer_uid: Option<u32>,
+    executable: Option<&Path>,
+    own_uid: u32,
+    daemon: Option<&Path>,
+) -> PeerProcess {
+    let (Some(uid), Some(executable)) = (peer_uid, executable) else {
+        return PeerProcess::Unverified;
+    };
+    if uid != own_uid {
+        return PeerProcess::Unverified;
+    }
+    let Ok(executable) = std::fs::canonicalize(executable) else {
+        return PeerProcess::Unverified;
+    };
+    let Some(daemon) = daemon else { return PeerProcess::Unverified };
+    let beside_daemon = executable.parent() == daemon.parent()
+        && executable
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| BYTE_BRIDGE_NAMES.contains(&name));
+    if executable == daemon || beside_daemon {
+        PeerProcess::ByteBridge
+    } else {
+        PeerProcess::SameUser
     }
 }
 
@@ -610,6 +673,14 @@ mod test_hooks {
         verified: bool,
     ) {
         with_origin(mux, client, |origin| origin.verified_app = verified);
+    }
+
+    pub(in crate::server) fn set_peer_process_for_test(
+        mux: &Arc<Mux>,
+        client: u64,
+        peer: PeerProcess,
+    ) {
+        with_origin(mux, client, |origin| origin.peer_process = peer);
     }
 
     /// What accept sets for a connection from the bundled cmux-mobile-host.

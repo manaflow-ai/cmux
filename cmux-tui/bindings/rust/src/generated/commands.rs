@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d.
+// cmux-tui mux protocol 12, IR e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -41,6 +41,89 @@ pub struct AddTabsToTabGroupRequest {
 
 #[rustfmt::skip]
 pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub key: String,
+    pub receipt: T::AgentCLIJobReceipt,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsAttachResult {
+    pub changed: bool,
+    pub intent: T::AgentCLIStoredIntent,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsListResult {
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub intents: Vec<T::AgentCLIIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsRecordResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleRequest {
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub keys: Vec<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliIntentsSettleResult {
+    pub changed: bool,
+    pub intents: Vec<T::AgentCLIStoredIntent>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResult = T::AgentCLIJobReceipt;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCliUpdateJobResolveRequest {
+    pub cli: String,
+    pub expected_machine_id: String,
+    pub expected_session_id: String,
+    pub idempotency_key: String,
+}
+
+#[rustfmt::skip]
+pub type AgentCliUpdateJobResolveResult = T::AgentCLIJobResolution;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4413,6 +4496,30 @@ impl CmuxClient {
         self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
     }
 
+    pub fn agent_cli_intents_attach(&mut self, request: AgentCliIntentsAttachRequest) -> Result<AgentCliIntentsAttachResult> {
+        self.execute(&AGENT_CLI_INTENTS_ATTACH_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_list(&mut self, request: AgentCliIntentsListRequest) -> Result<AgentCliIntentsListResult> {
+        self.execute(&AGENT_CLI_INTENTS_LIST_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_record(&mut self, request: AgentCliIntentsRecordRequest) -> Result<AgentCliIntentsRecordResult> {
+        self.execute(&AGENT_CLI_INTENTS_RECORD_METADATA, &request)
+    }
+
+    pub fn agent_cli_intents_settle(&mut self, request: AgentCliIntentsSettleRequest) -> Result<AgentCliIntentsSettleResult> {
+        self.execute(&AGENT_CLI_INTENTS_SETTLE_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job(&mut self, request: AgentCliUpdateJobRequest) -> Result<AgentCliUpdateJobResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_METADATA, &request)
+    }
+
+    pub fn agent_cli_update_job_resolve(&mut self, request: AgentCliUpdateJobResolveRequest) -> Result<AgentCliUpdateJobResolveResult> {
+        self.execute(&AGENT_CLI_UPDATE_JOB_RESOLVE_METADATA, &request)
+    }
+
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {
         self.execute(&APPLY_LAYOUT_METADATA, &request)
     }
@@ -4442,6 +4549,9 @@ impl CmuxClient {
     }
 
     pub fn apps_provider_register(&mut self, request: AppsProviderRegisterRequest) -> Result<T::AppsProviderRegisterResult> {
+        if request.inventory_watch.is_some() {
+            self.require_capability_field("apps-provider-register", "agent-cli-app-invalidation-v1")?;
+        }
         self.execute(&APPS_PROVIDER_REGISTER_METADATA, &request)
     }
 

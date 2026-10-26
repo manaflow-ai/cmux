@@ -13,7 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
-        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal() }
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal(bridge.takeUnretainedValue().typingSurface) }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -154,7 +154,7 @@ extension TerminalSurfaceView {
         } else {
             took = clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
-        if took, action != GHOSTTY_ACTION_RELEASE { noteKeyTaken() }
+        if took, action != GHOSTTY_ACTION_RELEASE { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
 
     /// Text an input method committed while handling a key that belongs to
@@ -170,7 +170,7 @@ extension TerminalSurfaceView {
             keyEvent.text = pointer
             return clipboardRequests.asUserClipboardWrite { ghostty_surface_key(surface, keyEvent) }
         }
-        if took { noteKeyTaken() }
+        if took { TypingLatencyProbe.shared.terminalTookKey(); noteKeyTaken() }
     }
 
     func syncPreedit(clearIfNeeded: Bool = true) {

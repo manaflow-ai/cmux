@@ -156,7 +156,7 @@ final class TabContentCache {
          resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame
         self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)

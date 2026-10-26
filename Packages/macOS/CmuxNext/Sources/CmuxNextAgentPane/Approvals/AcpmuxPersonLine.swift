@@ -96,7 +96,7 @@ public final class AcpmuxPersonLine {
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
     nonisolated static func decode(_ data: Data) -> Reply? {
-        guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let message = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
         return Reply(id: id, result: message["error"] == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil)
     }

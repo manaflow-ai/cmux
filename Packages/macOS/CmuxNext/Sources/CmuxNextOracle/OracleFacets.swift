@@ -7,6 +7,7 @@
 /// A snapshot takes one main-actor hop: ``beginCapture(_:)`` runs every main-actor provider in
 /// the same turn, then ``OracleCapture/finish()`` runs the background providers off the main actor.
 public struct OracleFacets: Sendable {
+    private let list: [any OracleFacetProvider]
     private let providers: [OracleFacet: any OracleFacetProvider]
     /// Facets that more than one provider named; the first provider in the list answers. The App
     /// test of its own list expects none.
@@ -22,12 +23,31 @@ public struct OracleFacets: Sendable {
                 duplicates.append(provider.facet)
             }
         }
+        self.list = list
         self.providers = providers
         self.duplicates = duplicates
     }
 
+    /// This list followed by `more`: the facets a server owns (the control router's topology) join the
+    /// host's list where the methods are registered. A facet already in this list keeps its provider.
+    public func adding(_ more: [any OracleFacetProvider]) -> OracleFacets {
+        OracleFacets(list + more)
+    }
+
     /// The facets this build has a provider for, in catalog order.
     public var provided: [OracleFacet] { OracleFacet.allCases.filter { providers[$0] != nil } }
+
+    /// `facet`'s change signal, nil when its provider gives none (``OracleFacetProvider/changes``).
+    public func changes(_ facet: OracleFacet) -> OracleFacetChanges? { providers[facet]?.changes }
+
+    /// Whether `debug.oracle.wait_for` can wait on `facet`: a provider reads it on the main actor (its reads are
+    /// observed) or gives a change signal. A background facet without one would only be read once.
+    public func signalsChanges(_ facet: OracleFacet) -> Bool {
+        guard let provider = providers[facet] else { return false }
+        if provider.changes != nil { return true }
+        if case .mainActor = provider.capture { return true }
+        return false
+    }
 
     /// The facets a request names (`facets: [String]`), or every facet when it names none.
     /// An unknown name is an error: a typo must not turn into a facet nobody compares.

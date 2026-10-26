@@ -42,81 +42,29 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "crate::apps::Origin": "AppOrigin",
     "crate::apps::HiddenAccess": "AppHiddenAccess",
     "GrantParam": "AppGrant",
+    "AgentCLIIntent": "AgentCLIIntent",
     "RemoteMachine": "MachineCatalogEntry",
 }
 
-
-class ModuleCommands:
-    """A server module that decodes its own commands before the server's
-    Command enum sees the line (p05-ipc queue Q2).
-
-    `enum_name` is its `#[serde(tag = "cmd")]` enum, each variant named with
-    `#[serde(rename = "...")]`; `envelope` is the struct that flattens the
-    enum, whose other fields (minus the reply `id`) every variant accepts.
-    A module that matches its commands only by name has neither.
-    `literals` maps a command the module matches by name to the request
-    structs whose fields make up its request: `Name` in the module, or
-    `path/under/server.rs::Name` in another server file.
-    `refused_envelope_fields` lists envelope fields a command's handler
-    refuses before decoding. check-spec-inventory.py lists the same modules
-    for command names.
-    """
-
-    __slots__ = ("enum_name", "envelope", "literals", "refused_envelope_fields")
-
-    def __init__(
-        self,
-        enum_name: str | None,
-        envelope: str | None,
-        literals: dict[str, tuple[str, ...]],
-        refused_envelope_fields: dict[str, set[str]],
-    ) -> None:
-        self.enum_name = enum_name
-        self.envelope = envelope
-        self.literals = literals
-        self.refused_envelope_fields = refused_envelope_fields
-
-
-MODULE_COMMANDS = {
-    "apps": ModuleCommands(
-        enum_name="Command",
-        envelope="Request",
-        literals={"cancel-request": ("CancelRequest",)},
-        # server/apps.rs accepts only id, cmd and demand_sequence here.
-        refused_envelope_fields={"apps-agent-inventory-changed": {"origin"}},
-    ),
-    "browser_runtime": ModuleCommands(
-        enum_name="RuntimeCommand",
-        envelope="RuntimeRequest",
-        literals={},
-        refused_envelope_fields={},
-    ),
-    "loopback_forward": ModuleCommands(
-        enum_name="LoopbackCommand",
-        envelope="LoopbackRequest",
-        literals={},
-        refused_envelope_fields={},
-    ),
-    # The connection's hello gate (server/client_hello.rs) reads it before
-    # any other line.
-    "client_hello": ModuleCommands(
-        enum_name=None,
-        envelope=None,
-        literals={"client-hello": ("HelloRequest",)},
-        refused_envelope_fields={},
-    ),
-    "connection_frame/machine_catalog": ModuleCommands(
-        enum_name=None,
-        envelope=None,
-        literals={
-            "machine-catalog-publish": (
-                "Owner",
-                "client_registry/machine_catalog.rs::Publication",
-            ),
-        },
-        refused_envelope_fields={},
-    ),
+# Named request types whose server struct is the authority for their fields:
+# the SDK object type of the same name must have the same fields, checked like
+# a command's request fields. Paths are under crates/cmux-tui-core/src.
+RUNTIME_NAMED_REQUEST_STRUCTS = {
+    "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
 }
+
+
+# Server modules that decode their own commands (p05-ipc queue Q2). One table
+# for this checker and check-spec-inventory.py; its description names each key.
+MODULE_COMMANDS_PATH = Path(__file__).with_name("server-module-commands.json")
+
+
+def module_commands() -> dict[str, dict[str, Any]]:
+    modules = json.loads(MODULE_COMMANDS_PATH.read_text(encoding="utf-8")).get("modules")
+    if not isinstance(modules, dict):
+        fail(f"{MODULE_COMMANDS_PATH.name} needs a modules object")
+    return modules
+
 
 # Request fields the server takes as raw JSON and then decodes element by
 # element into a named type, so a bad element gets the command's own error
@@ -126,6 +74,9 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
     # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
+    # workspace_registry/agent_cli_intents.rs `normalize_receipt` accepts only
+    # the receipt agent-cli-update-job returned.
+    ("agent-cli-intents-attach", "receipt"): ("Value", "ref<AgentCLIJobReceipt>"),
     # server/client_hello.rs: each hello step checks the members it reads and
     # refuses a bad one with its own error code (client_hello.bad_request
     # {field} in step 1, client_hello.refused in step 2).
@@ -135,8 +86,8 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
     ("client-hello", "proof"): ("Option<Value>", "string"),
 }
 
-# Decoded fields whose raw JSON keeps a null that the decoder then refuses,
-# so the SDK field is not nullable.
+# Decoded `Option<Value>` fields whose decoder refuses null, so the SDK field
+# is not nullable (a decoded bare `Value` is never nullable).
 RUNTIME_DECODED_NULL_REFUSED = {
     # server/client_hello.rs: a null role or install id is
     # client_hello.bad_request in step 1 (`present` keeps the null install id
@@ -147,8 +98,10 @@ RUNTIME_DECODED_NULL_REFUSED = {
 }
 
 sys.path.insert(0, str(BINDINGS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 
 
 class SdkSchemaError(ValueError):
@@ -357,11 +310,12 @@ def _without_reply_id(fields: dict[str, RuntimeField]) -> dict[str, RuntimeField
 
 
 def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
-    """Request fields of the commands MODULE_COMMANDS decode. A module file
-    that is gone serves nothing, so its schema commands become stale."""
+    """Request fields of the commands server-module-commands.json lists. A
+    module file that is gone serves nothing, so its schema commands become
+    stale."""
 
     commands: dict[str, dict[str, RuntimeField]] = {}
-    for module, spec in MODULE_COMMANDS.items():
+    for module, spec in module_commands().items():
         path = SERVER.with_suffix("") / f"{module}.rs"
         if not path.exists():
             continue
@@ -369,35 +323,40 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
         label = f"server/{module}.rs"
         envelope: dict[str, RuntimeField] = {}
         found: dict[str, dict[str, RuntimeField]] = {}
-        if spec.enum_name is not None and spec.envelope is not None:
+        if "enum" in spec:
             envelope = {
                 name: field
-                for name, field in _without_reply_id(_rust_struct_fields(source, spec.envelope)).items()
+                for name, field in _without_reply_id(_rust_struct_fields(source, spec["envelope"])).items()
                 if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
             }
-            found = _module_enum_fields(
-                _rust_enum_body(source, spec.enum_name), f"{label} {spec.enum_name}"
-            )
-        for name, refused in spec.refused_envelope_fields.items():
+            enum_name = spec["enum"]
+            found = _module_enum_fields(_rust_enum_body(source, enum_name), f"{label} {enum_name}")
+        refused_fields = {
+            name: set(fields) for name, fields in spec.get("refused_envelope_fields", {}).items()
+        }
+        for name in refused_fields:
             if name not in found:
                 fail(f"{label}: refused envelope fields name unknown command {name!r}")
         for name, fields in found.items():
             shared = {
                 key: field
                 for key, field in envelope.items()
-                if key not in spec.refused_envelope_fields.get(name, set())
+                if key not in refused_fields.get(name, set())
             }
             duplicate = sorted(set(fields) & set(shared))
             if duplicate:
                 fail(f"{label} {name} repeats envelope fields {duplicate}")
             found[name] = {**fields, **shared}
-        for name, request_types in spec.literals.items():
+        for name, literal in spec.get("literals", {}).items():
             if f'"{name}"' not in source:
                 fail(f"{label} no longer matches {name!r}")
+            requests = literal["request"]
             fields: dict[str, RuntimeField] = {}
-            for request_type in request_types:
-                type_source, type_name = _module_struct_source(source, request_type, label)
-                for key, field in _without_reply_id(_rust_struct_fields(type_source, type_name)).items():
+            for request in [requests] if isinstance(requests, str) else requests:
+                request_source, request_type = _module_struct_source(source, request, label)
+                for key, field in _without_reply_id(
+                    _rust_struct_fields(request_source, request_type)
+                ).items():
                     if key in fields:
                         fail(f"{label} {name} names request field {key!r} twice")
                     fields[key] = field
@@ -409,18 +368,18 @@ def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
     return commands
 
 
-def _module_struct_source(source: str, request_type: str, label: str) -> tuple[str, str]:
-    """The source holding `request_type` and its struct name: `Name` is in
-    the module itself, `path/under/server.rs::Name` in that server file."""
+def _module_struct_source(source: str, request: str, label: str) -> tuple[str, str]:
+    """The source that declares a literal's request struct, and its name:
+    `Name` is in the module itself, `path/under/server.rs::Name` in that
+    server file."""
 
-    path, separator, name = request_type.rpartition("::")
+    path, separator, name = request.rpartition("::")
     if not separator:
-        return source, request_type
-    other = SERVER.with_suffix("") / path
+        return source, request
     try:
-        return other.read_text(encoding="utf-8"), name
+        return (SERVER.with_suffix("") / path).read_text(encoding="utf-8"), name
     except (OSError, UnicodeError) as error:
-        fail(f"{label}: cannot read request struct {request_type}: {error}")
+        fail(f"{label}: cannot read request struct {request}: {error}")
     return "", name
 
 
@@ -470,6 +429,37 @@ def _module_enum_fields(body: str, label: str) -> dict[str, dict[str, RuntimeFie
             fail(f"duplicate {label} command {rename!r}")
         commands[rename] = fields
         rename = None
+    return commands
+
+
+def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]]:
+    """Request fields of the `names` a handler module decodes before the
+    Command enum (handler_commands.py); names no handler decodes are left out,
+    and so are the modules server-module-commands.json lists, whose fields
+    module_command_fields reads."""
+
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    listed = {SERVER.with_suffix("") / f"{module}.rs" for module in module_commands()}
+    commands: dict[str, dict[str, RuntimeField]] = {}
+    for name in sorted(names & set(decoded)):
+        command = decoded[name]
+        if command.module in listed:
+            continue
+        label = f"{command.module.name} {command.enum}::{command.variant}"
+        if command.kind == "unit":
+            fields: dict[str, RuntimeField] = {}
+        elif command.kind == "tuple":
+            fields = _rust_struct_fields(command.source, command.payload)
+        else:
+            fields = _parse_rust_fields(command.payload, label)
+        envelope = _parse_rust_fields(command.envelope, f"{label} envelope")
+        overlap = set(envelope) & set(fields)
+        if overlap:
+            fail(f"{label} repeats envelope fields {sorted(overlap)}")
+        commands[name] = _expand_flattened(command.source, {**envelope, **fields}, label)
     return commands
 
 
@@ -648,6 +638,10 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     for key in RUNTIME_DECODED_NULL_REFUSED:
         if key not in RUNTIME_DECODED_REQUEST_FIELDS:
             fail(f"null-refused field {key} is not a decoded request field")
+    for name, fields in handler_command_fields(set(ir.commands)).items():
+        if name in runtime_commands:
+            fail(f"{name} is both a Command variant and a handler module command")
+        runtime_commands[name] = fields
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
         fields = runtime_commands.get(command_name, {})
         missing = refused - set(fields)
@@ -659,58 +653,79 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     for command_name, command in ir.commands.items():
         request = command["request"]
         assert isinstance(request, Mapping)
-        raw_fields = request["fields"]
-        assert isinstance(raw_fields, Mapping)
-        schema_fields = raw_fields
-        runtime_fields = runtime_commands[command_name]
-        compare_names(
-            set(schema_fields),
-            set(runtime_fields),
-            f"SDK request field for {command_name}",
+        _compare_request_fields(
+            command_name, request["fields"], runtime_commands[command_name], ir.types
         )
-        for field_name, runtime_field in runtime_fields.items():
-            schema_field = schema_fields[field_name]
-            assert isinstance(schema_field, Mapping)
-            runtime_presence = _runtime_field_presence(runtime_field)
-            if (command_name, field_name) in RUNTIME_DECODED_NULL_REFUSED:
+    validate_named_request_structs(ir)
+
+
+def validate_named_request_structs(ir: SdkIR) -> None:
+    """Reject drift between RUNTIME_NAMED_REQUEST_STRUCTS and their SDK types."""
+
+    for type_name, relative_path in RUNTIME_NAMED_REQUEST_STRUCTS.items():
+        path = TUI / "crates/cmux-tui-core/src" / relative_path
+        try:
+            source = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            fail(f"cannot read {path.relative_to(ROOT)}: {error}")
+        sdk_type = ir.types.get(type_name)
+        if not isinstance(sdk_type, Mapping) or sdk_type.get("kind") != "object":
+            fail(f"SDK type {type_name} must be an object type")
+        _compare_request_fields(
+            type_name, sdk_type["fields"], _rust_struct_fields(source, type_name), ir.types
+        )
+
+
+def _compare_request_fields(
+    label: str,
+    schema_fields: Mapping[str, Any],
+    runtime_fields: Mapping[str, RuntimeField],
+    types: Mapping[str, Any],
+) -> None:
+    """Fields of one request (a command name) or one named request type."""
+
+    compare_names(set(schema_fields), set(runtime_fields), f"SDK request field for {label}")
+    for field_name, runtime_field in runtime_fields.items():
+        schema_field = schema_fields[field_name]
+        assert isinstance(schema_field, Mapping)
+        runtime_presence = _runtime_field_presence(runtime_field)
+        runtime_shape = _runtime_type_shape(runtime_field.rust_type)
+        decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((label, field_name))
+        if decoded is not None:
+            rust_type, decoded_shape = decoded
+            if runtime_field.rust_type.replace(" ", "") != rust_type:
+                fail(
+                    f"decoded request field {label}.{field_name} is no longer "
+                    f"{rust_type} at runtime: {runtime_field.rust_type}"
+                )
+            runtime_shape = decoded_shape
+            if rust_type == "Value" or (label, field_name) in RUNTIME_DECODED_NULL_REFUSED:
+                # The decoder refuses the null a bare Value would take.
                 runtime_presence = (runtime_presence[0], False)
-            schema_presence = (
-                schema_field["presence"],
-                bool(schema_field["nullable"]),
+        schema_presence = (schema_field["presence"], bool(schema_field["nullable"]))
+        if runtime_presence != schema_presence:
+            fail(
+                f"SDK request field presence drift for {label}.{field_name}, "
+                f"SDK={schema_presence}, runtime={runtime_presence}"
             )
-            if runtime_presence != schema_presence:
-                fail(
-                    f"SDK request field presence drift for {command_name}.{field_name}, "
-                    f"SDK={schema_presence}, runtime={runtime_presence}"
-                )
-            runtime_aliases = _runtime_field_aliases(runtime_field)
-            # Several legacy aliases repeat the canonical snake_case field
-            # name. They do not add another accepted wire spelling.
-            runtime_aliases.discard(field_name)
-            schema_aliases = set(schema_field.get("aliases", ()))
-            if runtime_aliases != schema_aliases:
-                fail(
-                    f"SDK request field alias drift for {command_name}.{field_name}, "
-                    f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
-                )
-            runtime_shape = _runtime_type_shape(runtime_field.rust_type)
-            decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((command_name, field_name))
-            if decoded is not None:
-                rust_type, decoded_shape = decoded
-                if runtime_field.rust_type.replace(" ", "") != rust_type:
-                    fail(
-                        f"decoded request field {command_name}.{field_name} is no longer "
-                        f"{rust_type} at runtime: {runtime_field.rust_type}"
-                    )
-                runtime_shape = decoded_shape
-            type_expression = schema_field["type"]
-            assert isinstance(type_expression, Mapping)
-            schema_shape = _schema_type_shape(type_expression, ir.types)
-            if runtime_shape != schema_shape:
-                fail(
-                    f"SDK request field type drift for {command_name}.{field_name}, "
-                    f"SDK={schema_shape}, runtime={runtime_shape}"
-                )
+        runtime_aliases = _runtime_field_aliases(runtime_field)
+        # Several legacy aliases repeat the canonical snake_case field
+        # name. They do not add another accepted wire spelling.
+        runtime_aliases.discard(field_name)
+        schema_aliases = set(schema_field.get("aliases", ()))
+        if runtime_aliases != schema_aliases:
+            fail(
+                f"SDK request field alias drift for {label}.{field_name}, "
+                f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
+            )
+        type_expression = schema_field["type"]
+        assert isinstance(type_expression, Mapping)
+        schema_shape = _schema_type_shape(type_expression, types)
+        if runtime_shape != schema_shape:
+            fail(
+                f"SDK request field type drift for {label}.{field_name}, "
+                f"SDK={schema_shape}, runtime={runtime_shape}"
+            )
 
 
 def validate_sdk_ir(

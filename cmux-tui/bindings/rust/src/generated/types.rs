@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d.
+// cmux-tui mux protocol 12, IR e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -34,6 +34,73 @@ pub struct ActivitySnapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySubscribeResult {
     pub activity: ActivitySnapshot,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub root_key: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobPath {
+    pub kind: String,
+    pub pane_id: String,
+    pub screen_id: String,
+    pub tab_id: String,
+    pub terminal_id: String,
+    pub workspace_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIJobReceipt {
+    pub cli: String,
+    pub machine: String,
+    pub path: AgentCLIJobPath,
+    pub replayed: bool,
+    pub revision: String,
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state")]
+pub enum AgentCLIJobResolution {
+    #[serde(rename = "created")]
+    Created {
+        receipt: AgentCLIJobReceipt,
+    },
+    #[serde(rename = "failed")]
+    Failed {
+        code: String,
+    },
+    #[serde(rename = "indeterminate")]
+    Indeterminate,
+    #[serde(rename = "not_found")]
+    NotFound,
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "prepared")]
+    Prepared,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentCLIStoredIntent {
+    pub cli: String,
+    pub key: String,
+    pub machine: String,
+    pub profiles: Vec<String>,
+    pub receipt: Nullable<AgentCLIJobReceipt>,
+    pub root_key: String,
+    pub session: String,
 }
 
 #[rustfmt::skip]

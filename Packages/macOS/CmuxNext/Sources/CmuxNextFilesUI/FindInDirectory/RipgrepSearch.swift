@@ -76,7 +76,7 @@ package nonisolated struct RipgrepSearch {
 
     /// A `--json` output line, if it is a match.
     package static func parse(_ line: String, root: String) -> RipgrepMatch? {
-        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: Data(line.utf8)) as? [String: Any],
               object["type"] as? String == "match",
               let payload = object["data"] as? [String: Any],
               let path = (payload["path"] as? [String: Any]).flatMap(text),

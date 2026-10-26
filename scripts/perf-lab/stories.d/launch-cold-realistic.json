@@ -1,0 +1,23 @@
+{
+  "id": "launch-cold-realistic",
+  "tier": "T1",
+  "description": "True cold launch x5, realistic profile (24 seeded workspaces, a split and an agent chat): the daemon stopped and the file cache purged (sudo -n purge, decision D3) right before each launch; process start to the first window frame and the first live terminal frame. The launch.cold target is judged on the empty profile (launch-cold). A host without the purge right refuses with sudo's reason and writes nothing.",
+  "command": ["scripts/cmux-next/bench-startup.py", "--profile", "realistic", "--mode", "cold", "--purge", "--runs",
+              "5", "--timeout", "60"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "launch\\.cold\\.first_window_frame_committed", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.first_terminal_frame", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.did_finish_launching_end", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.sidebar_rows_shown", "unit": "ms", "better": "lower"},
+    {"name": "launch\\.cold\\.[a-z_]+\\.missing_runs", "unit": "count", "better": "lower"},
+    {"name": "launch\\.cold\\.not_cold_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 2,
+  "seconds": 240,
+  "needs": ["privilege:purge"],
+  "owner": "Performance Lead",
+  "component": "Launch"
+}

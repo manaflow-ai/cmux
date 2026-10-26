@@ -87,6 +87,21 @@ public struct TraceCategories: OptionSet, Sendable, Hashable {
 
     /// Every category of the table.
     public static let all: TraceCategories = blackBox.union(recordingAdds)
+
+    /// The categories that time a person's typing (rule 5 of plans/cmux-next/chrome-parity/p09-observability.md,
+    /// task 128): off while any ``TraceRuntime/KeyTimingHold`` holds the gate closed, in the black box and in a
+    /// local recording. Chrome turns on `EnableSecureEventInput` for a focused password field
+    /// (ui/base/cocoa/secure_password_input.mm), which closes the gate through ``TraceRuntime/KeyTimingHold/secureEventInput``.
+    public static let keyTiming: TraceCategories = .key
+
+    /// The categories no upload carries (``TraceBlackBoxUpload``): key timing and the per-input events.
+    public static let neverUploaded: TraceCategories = [.key, .input]
+
+    /// The set that records: this one without ``keyTiming`` while the keystroke-timing gate is closed.
+    @inlinable
+    public func gated(keyTimingSuppressed: Bool) -> TraceCategories {
+        keyTimingSuppressed ? subtracting(.keyTiming) : self
+    }
 }
 
 extension TraceRuntime {
@@ -103,8 +118,26 @@ extension TraceRuntime {
         categoryMask & categories.rawValue != 0
     }
 
-    /// Replaces the categories that record (launch defaults, `trace.start`, `trace.stop`, the secure-input gate).
+    /// Replaces the categories asked for (launch defaults, `trace.start`, `trace.stop`); ``TraceCategories/keyTiming``
+    /// still records only while the keystroke-timing gate is open (``setKeyTimingSuppressed(_:by:)``).
     public func setCategories(_ categories: TraceCategories) {
         setCategoryMask(categories.rawValue)
+    }
+
+    /// What holds the keystroke-timing gate closed. Each source sets and clears its own bit, so one source
+    /// turning off never reopens the gate while another still needs it closed.
+    public struct KeyTimingHold: OptionSet, Sendable, Hashable {
+        public let rawValue: UInt64
+
+        public init(rawValue: UInt64) {
+            self.rawValue = rawValue
+        }
+
+        /// A terminal of this process asked for secure keyboard entry (`GHOSTTY_ACTION_SECURE_INPUT`: the
+        /// toggle keybind, or a password prompt Ghostty detects).
+        public static let terminalSecureInput = KeyTimingHold(rawValue: 1 << 0)
+        /// The system reported secure event input on at the last key-down (`IsSecureEventInputEnabled`): a
+        /// focused Chromium password field (ui/base/cocoa/secure_password_input.mm), a terminal, or another app.
+        public static let secureEventInput = KeyTimingHold(rawValue: 1 << 1)
     }
 }

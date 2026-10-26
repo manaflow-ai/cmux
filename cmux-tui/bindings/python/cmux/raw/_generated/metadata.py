@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d'
+IR_SHA256 = 'e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967'
 
 
 @dataclass(frozen=True)
@@ -75,6 +75,86 @@ COMMANDS = {
             'transaction': CommandFieldMetadata(None, None),
         },
     ),
+    'agent-cli-intents-attach': CommandMetadata(
+        'agent-cli-intents-attach',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'key': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-list': CommandMetadata(
+        'agent-cli-intents-list',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-record': CommandMetadata(
+        'agent-cli-intents-record',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'intents': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-intents-settle': CommandMetadata(
+        'agent-cli-intents-settle',
+        'local-admin',
+        12,
+        'agent-cli-intents-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'keys': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job': CommandMetadata(
+        'agent-cli-update-job',
+        'local-admin',
+        12,
+        'agent-cli-update-job-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-cli-update-job-resolve': CommandMetadata(
+        'agent-cli-update-job-resolve',
+        'local-admin',
+        12,
+        'agent-cli-update-job-resolve-v1',
+        ('local-admin',),
+        None,
+        {
+            'cli': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_session_id': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
     'apply-layout': CommandMetadata(
         'apply-layout',
         'control',
@@ -94,7 +174,7 @@ COMMANDS = {
         'apps-agent-inventory-changed',
         'local-admin',
         12,
-        'apps-v1',
+        'agent-cli-app-invalidation-v1',
         ('local-admin',),
         None,
         {
@@ -175,7 +255,7 @@ COMMANDS = {
         None,
         {
             'families': CommandFieldMetadata(None, None),
-            'inventory_watch': CommandFieldMetadata(None, None),
+            'inventory_watch': CommandFieldMetadata(None, 'agent-cli-app-invalidation-v1'),
             'origin': CommandFieldMetadata(None, None),
         },
     ),

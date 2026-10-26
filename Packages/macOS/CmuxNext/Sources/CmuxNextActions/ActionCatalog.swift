@@ -186,6 +186,17 @@ extension ActionRegistry {
     ///
     /// - Parameter runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
     public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
+        standard(runTiming: runTiming, turnObserver: nil)
+    }
+
+    /// A registry seeded with the full cmux catalog and legacy aliases whose perform turns
+    /// `turnObserver` hears (the App's oracle recorder in DEV and bench builds).
+    ///
+    /// - Parameters:
+    ///   - runTiming: Times every run.
+    ///   - turnObserver: Hears the end of every outermost perform turn, or nil.
+    public static func standard(runTiming: any ActionRunTiming, turnObserver: (any ActionRunObserver)?) -> ActionRegistry {
+        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
+                       turnObserver: turnObserver)
     }
 }

@@ -14,10 +14,15 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b016858037d746fc84c6c6f31f8f88ed821b9bf4a32b31a5c66408f8027e0a1d";
+inline constexpr std::string_view kProtocolIrSha256 = "e9b31cd92d60508864e5c60284f67d9fdc9fc0c8a2777c1ceb9c47e66a3a2967";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
+struct AgentCliIntent;
+struct AgentCliJobPath;
+struct AgentCliJobReceipt;
+struct AgentCliJobResolution;
+struct AgentCliStoredIntent;
 enum class AgentPresenceActivity;
 struct AgentRecord;
 enum class AgentReportSource;
@@ -276,6 +281,16 @@ struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
 struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
+struct AgentCliIntentsAttachRequest;
+struct AgentCliIntentsAttachResult;
+struct AgentCliIntentsListRequest;
+struct AgentCliIntentsListResult;
+struct AgentCliIntentsRecordRequest;
+struct AgentCliIntentsRecordResult;
+struct AgentCliIntentsSettleRequest;
+struct AgentCliIntentsSettleResult;
+struct AgentCliUpdateJobRequest;
+struct AgentCliUpdateJobResolveRequest;
 struct ApplyLayoutRequest;
 struct AppsAgentInventoryChangedRequest;
 struct AppsDispatchRequest;
@@ -725,6 +740,12 @@ struct WorkspaceChangedEvent;
 struct WorkspaceClosedEvent;
 struct WorkspaceMovedEvent;
 struct WorkspaceRenamedEvent;
+struct AgentCliJobResolutionCreated;
+struct AgentCliJobResolutionFailed;
+struct AgentCliJobResolutionIndeterminate;
+struct AgentCliJobResolutionNotFound;
+struct AgentCliJobResolutionPending;
+struct AgentCliJobResolutionPrepared;
 enum class CopyResultMode;
 struct DeclarativeLayoutLeaf;
 struct DeclarativeLayoutSplit;
@@ -837,6 +858,145 @@ struct AgentChangedEvent {
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
+};
+
+struct AgentCliIntent {
+    std::string cli{};
+    std::string key{};
+    std::string machine{};
+    std::vector<std::string> profiles{};
+    std::string root_key{};
+    std::string session{};
+    friend bool operator==(const AgentCliIntent&, const AgentCliIntent&) = default;
+};
+
+struct AgentCliJobPath {
+    std::string pane_id{};
+    std::string screen_id{};
+    std::string tab_id{};
+    std::string terminal_id{};
+    std::string workspace_id{};
+    friend bool operator==(const AgentCliJobPath&, const AgentCliJobPath&) = default;
+};
+
+struct AgentCliJobReceipt {
+    std::string cli{};
+    std::string machine{};
+    AgentCliJobPath path{};
+    bool replayed{};
+    std::string revision{};
+    std::string session{};
+    friend bool operator==(const AgentCliJobReceipt&, const AgentCliJobReceipt&) = default;
+};
+
+struct AgentCliIntentsAttachRequest {
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    std::string key{};
+    AgentCliJobReceipt receipt{};
+    friend bool operator==(const AgentCliIntentsAttachRequest&, const AgentCliIntentsAttachRequest&) = default;
+};
+
+struct AgentCliStoredIntent {
+    std::string cli{};
+    std::string key{};
+    std::string machine{};
+    std::vector<std::string> profiles{};
+    std::optional<AgentCliJobReceipt> receipt{};
+    std::string root_key{};
+    std::string session{};
+    friend bool operator==(const AgentCliStoredIntent&, const AgentCliStoredIntent&) = default;
+};
+
+struct AgentCliIntentsAttachResult {
+    bool changed{};
+    AgentCliStoredIntent intent{};
+    friend bool operator==(const AgentCliIntentsAttachResult&, const AgentCliIntentsAttachResult&) = default;
+};
+
+struct AgentCliIntentsListRequest {
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    friend bool operator==(const AgentCliIntentsListRequest&, const AgentCliIntentsListRequest&) = default;
+};
+
+struct AgentCliIntentsListResult {
+    std::vector<AgentCliStoredIntent> intents{};
+    friend bool operator==(const AgentCliIntentsListResult&, const AgentCliIntentsListResult&) = default;
+};
+
+struct AgentCliIntentsRecordRequest {
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    std::vector<AgentCliIntent> intents{};
+    friend bool operator==(const AgentCliIntentsRecordRequest&, const AgentCliIntentsRecordRequest&) = default;
+};
+
+struct AgentCliIntentsRecordResult {
+    bool changed{};
+    std::vector<AgentCliStoredIntent> intents{};
+    friend bool operator==(const AgentCliIntentsRecordResult&, const AgentCliIntentsRecordResult&) = default;
+};
+
+struct AgentCliIntentsSettleRequest {
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    std::vector<std::string> keys{};
+    friend bool operator==(const AgentCliIntentsSettleRequest&, const AgentCliIntentsSettleRequest&) = default;
+};
+
+struct AgentCliIntentsSettleResult {
+    bool changed{};
+    std::vector<AgentCliStoredIntent> intents{};
+    friend bool operator==(const AgentCliIntentsSettleResult&, const AgentCliIntentsSettleResult&) = default;
+};
+
+struct AgentCliJobResolutionCreated {
+    AgentCliJobReceipt receipt{};
+    friend bool operator==(const AgentCliJobResolutionCreated&, const AgentCliJobResolutionCreated&) = default;
+};
+
+struct AgentCliJobResolutionFailed {
+    std::string code{};
+    friend bool operator==(const AgentCliJobResolutionFailed&, const AgentCliJobResolutionFailed&) = default;
+};
+
+struct AgentCliJobResolutionIndeterminate {
+    friend bool operator==(const AgentCliJobResolutionIndeterminate&, const AgentCliJobResolutionIndeterminate&) = default;
+};
+
+struct AgentCliJobResolutionNotFound {
+    friend bool operator==(const AgentCliJobResolutionNotFound&, const AgentCliJobResolutionNotFound&) = default;
+};
+
+struct AgentCliJobResolutionPending {
+    friend bool operator==(const AgentCliJobResolutionPending&, const AgentCliJobResolutionPending&) = default;
+};
+
+struct AgentCliJobResolutionPrepared {
+    friend bool operator==(const AgentCliJobResolutionPrepared&, const AgentCliJobResolutionPrepared&) = default;
+};
+
+struct AgentCliJobResolution {
+    using Variant = std::variant<AgentCliJobResolutionCreated, AgentCliJobResolutionFailed, AgentCliJobResolutionIndeterminate, AgentCliJobResolutionNotFound, AgentCliJobResolutionPending, AgentCliJobResolutionPrepared>;
+    Variant value{};
+    friend bool operator==(const AgentCliJobResolution&, const AgentCliJobResolution&) = default;
+};
+
+struct AgentCliUpdateJobRequest {
+    std::string cli{};
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    std::string idempotency_key{};
+    friend bool operator==(const AgentCliUpdateJobRequest&, const AgentCliUpdateJobRequest&) = default;
+};
+
+struct AgentCliUpdateJobResolveRequest {
+    std::string cli{};
+    std::string expected_machine_id{};
+    std::string expected_session_id{};
+    std::string idempotency_key{};
+    friend bool operator==(const AgentCliUpdateJobResolveRequest&, const AgentCliUpdateJobResolveRequest&) = default;
 };
 
 struct AgentInventoryChangedEvent {
@@ -6600,6 +6760,36 @@ struct Codec<ActivitySubscribeResult> {
 };
 
 template <>
+struct Codec<AgentCliIntent> {
+    static Result<Json> encode(const AgentCliIntent& value);
+    static Result<AgentCliIntent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobPath> {
+    static Result<Json> encode(const AgentCliJobPath& value);
+    static Result<AgentCliJobPath> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobReceipt> {
+    static Result<Json> encode(const AgentCliJobReceipt& value);
+    static Result<AgentCliJobReceipt> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolution> {
+    static Result<Json> encode(const AgentCliJobResolution& value);
+    static Result<AgentCliJobResolution> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliStoredIntent> {
+    static Result<Json> encode(const AgentCliStoredIntent& value);
+    static Result<AgentCliStoredIntent> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentPresenceActivity> {
     static Result<Json> encode(const AgentPresenceActivity& value);
     static Result<AgentPresenceActivity> decode(const Json& value);
@@ -8145,6 +8335,66 @@ template <>
 struct Codec<AddTabsToTabGroupRequest> {
     static Result<Json> encode(const AddTabsToTabGroupRequest& value);
     static Result<AddTabsToTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsAttachRequest> {
+    static Result<Json> encode(const AgentCliIntentsAttachRequest& value);
+    static Result<AgentCliIntentsAttachRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsAttachResult> {
+    static Result<Json> encode(const AgentCliIntentsAttachResult& value);
+    static Result<AgentCliIntentsAttachResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsListRequest> {
+    static Result<Json> encode(const AgentCliIntentsListRequest& value);
+    static Result<AgentCliIntentsListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsListResult> {
+    static Result<Json> encode(const AgentCliIntentsListResult& value);
+    static Result<AgentCliIntentsListResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsRecordRequest> {
+    static Result<Json> encode(const AgentCliIntentsRecordRequest& value);
+    static Result<AgentCliIntentsRecordRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsRecordResult> {
+    static Result<Json> encode(const AgentCliIntentsRecordResult& value);
+    static Result<AgentCliIntentsRecordResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsSettleRequest> {
+    static Result<Json> encode(const AgentCliIntentsSettleRequest& value);
+    static Result<AgentCliIntentsSettleRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliIntentsSettleResult> {
+    static Result<Json> encode(const AgentCliIntentsSettleResult& value);
+    static Result<AgentCliIntentsSettleResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliUpdateJobRequest> {
+    static Result<Json> encode(const AgentCliUpdateJobRequest& value);
+    static Result<AgentCliUpdateJobRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliUpdateJobResolveRequest> {
+    static Result<Json> encode(const AgentCliUpdateJobResolveRequest& value);
+    static Result<AgentCliUpdateJobResolveRequest> decode(const Json& value);
 };
 
 template <>
@@ -10839,6 +11089,42 @@ template <>
 struct Codec<WorkspaceRenamedEvent> {
     static Result<Json> encode(const WorkspaceRenamedEvent& value);
     static Result<WorkspaceRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionCreated> {
+    static Result<Json> encode(const AgentCliJobResolutionCreated& value);
+    static Result<AgentCliJobResolutionCreated> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionFailed> {
+    static Result<Json> encode(const AgentCliJobResolutionFailed& value);
+    static Result<AgentCliJobResolutionFailed> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionIndeterminate> {
+    static Result<Json> encode(const AgentCliJobResolutionIndeterminate& value);
+    static Result<AgentCliJobResolutionIndeterminate> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionNotFound> {
+    static Result<Json> encode(const AgentCliJobResolutionNotFound& value);
+    static Result<AgentCliJobResolutionNotFound> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionPending> {
+    static Result<Json> encode(const AgentCliJobResolutionPending& value);
+    static Result<AgentCliJobResolutionPending> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentCliJobResolutionPrepared> {
+    static Result<Json> encode(const AgentCliJobResolutionPrepared& value);
+    static Result<AgentCliJobResolutionPrepared> decode(const Json& value);
 };
 
 template <>

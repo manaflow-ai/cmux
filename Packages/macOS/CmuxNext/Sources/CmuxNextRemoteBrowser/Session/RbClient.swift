@@ -1,4 +1,5 @@
 import CCmuxRdFFI
+import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
@@ -54,7 +55,7 @@ public nonisolated final class RbClient {
         }
         guard let outcome else { throw .malformedOutcome }
         let bytes = Data(bytes: outcome, count: length)
-        guard let decoded = try? Self.decoder.decode(RbClientOutcome.self, from: bytes) else { throw .malformedOutcome }
+        guard let decoded = try? Self.decoder.blockingDecode(RbClientOutcome.self, from: bytes) else { throw .malformedOutcome }
         return decoded
     }
 

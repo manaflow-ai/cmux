@@ -1,0 +1,43 @@
+{
+  "description": "Server modules that decode their own commands before the server's Command enum sees the line (p05-ipc queue Q2). check-spec-inventory.py reads the names and the authority; check-sdk-schema.py reads the request fields. enum: the module's #[serde(tag = \"cmd\")] enum, each variant named with #[serde(rename = \"...\")]. envelope: the struct that flattens the enum; its other fields (minus the reply id) every variant accepts. enum_handler: the function that dispatches the enum. A module that matches its commands only by name has none of the three. literals: commands the module matches by name, with their request struct (or the list of structs whose fields make up the request; a struct in another server file is \"path/under/server.rs::Name\") and handler. refused_envelope_fields: envelope fields a command's handler refuses before decoding. authority: the profile of every command; local-admin needs the non-Unix refusal in enum_handler and in every literal handler.",
+  "modules": {
+    "apps": {
+      "enum": "Command",
+      "envelope": "Request",
+      "enum_handler": "try_handle",
+      "literals": {
+        "cancel-request": {
+          "request": "CancelRequest",
+          "handler": "cancel_request"
+        }
+      },
+      "refused_envelope_fields": {
+        "apps-agent-inventory-changed": [
+          "origin"
+        ]
+      },
+      "authority": "local-admin"
+    },
+    "client_hello": {
+      "literals": {
+        "client-hello": {
+          "request": "HelloRequest",
+          "handler": "observe"
+        }
+      },
+      "authority": "local-admin"
+    },
+    "connection_frame/machine_catalog": {
+      "literals": {
+        "machine-catalog-publish": {
+          "request": [
+            "Owner",
+            "client_registry/machine_catalog.rs::Publication"
+          ],
+          "handler": "try_handle"
+        }
+      },
+      "authority": "local-admin"
+    }
+  }
+}
