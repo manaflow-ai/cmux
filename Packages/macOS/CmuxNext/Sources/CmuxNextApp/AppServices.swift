@@ -160,8 +160,13 @@ final class AppServices {
     var observations: ObservationLedger { mainWork.observations }
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
-    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+") and agent page WebKit warm-up.
-    let openPanel = MadeAheadOpenPanel(), agentPageWarmup = AgentPageWarmup(chromiumChat: { AgentPaneTunables.chromium.value })
+    /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+"). With feature
+    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and released once unused, so no
+    /// panel service process runs at Home idle.
+    private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
+        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)) : .ahead)
+    /// The agent page WebKit warm-up.
+    let agentPageWarmup = AgentPageWarmup(chromiumChat: { AgentPaneTunables.chromium.value })
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
     private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })

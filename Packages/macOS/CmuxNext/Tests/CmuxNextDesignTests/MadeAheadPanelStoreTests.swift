@@ -134,4 +134,69 @@ struct MadeAheadPanelStoreTests {
         #expect(factory.made.isEmpty, "the warm-up made a panel off the console session")
         #expect(!store.isMade && !store.isWarming)
     }
+
+    // MARK: - On first use (feature memoryOpenPanelOnFirstUse, MQ-PROC)
+
+    private static let releaseAfter = Duration.seconds(300)
+
+    private static func firstUseStore(_ factory: Factory, clock: ManualClock) -> MadeAheadPanelStore<Panel> {
+        MadeAheadPanelStore(clock: clock, policy: .afterFirstUse(releaseAfter: releaseAfter),
+                            makePanel: { factory.make() }, warmCheck: { .ready })
+    }
+
+    /// The launch's afterStartup warm-up and every agent chat or Home view that reaches a window call
+    /// `warmWhenIdle()`: on first use none of them makes a panel, so no panel service process runs at Home idle.
+    @Test func onFirstUseTheLaunchAndViewWarmUpsMakeNoPanel() {
+        let factory = Factory([])
+        let clock = ManualClock()
+        let store = Self.firstUseStore(factory, clock: clock)
+        store.warmWhenIdle()  // the launch's afterStartup post
+        store.warmWhenIdle()  // Home's transcript reaching its window
+        #expect(!store.isWarming, "a warm-up was armed before any click")
+        #expect(factory.made.isEmpty, "a panel was made at launch")
+        #expect(!store.isMade)
+    }
+
+    @Test func onFirstUseTheClickMakesAndKeepsThePanelThenReleasesItOnceUnused() async throws {
+        let factory = Factory([])
+        let clock = ManualClock()
+        let store = Self.firstUseStore(factory, clock: clock)
+        var releases = store.releaseChecksRan.makeAsyncIterator()
+
+        let clicked = try #require(store.panel(), "the first click got no panel")
+        #expect(factory.made.count == 1 && clicked === factory.made.first)
+        #expect(store.isMade, "the first click's panel was not kept for later clicks")
+
+        try await clock.waitForSleeper()
+        clock.advance(by: Self.releaseAfter)
+        _ = await releases.next()
+        #expect(!store.isMade, "the unused panel was kept past its deadline")
+        #expect(store.releasedPanels == 1)
+
+        // A view reaching a window after the release makes none: the next warm-up waits for the next click.
+        store.warmWhenIdle()
+        #expect(!store.isWarming && factory.made.count == 1, "a warm-up remade the released panel with no click")
+        _ = try #require(store.panel())
+        #expect(factory.made.count == 2 && store.isMade, "the click after a release did not make and keep a panel")
+    }
+
+    @Test func onFirstUseAPanelShowingItsSheetAtTheDeadlineIsKeptUntilItIsFree() async throws {
+        let factory = Factory([])
+        let clock = ManualClock()
+        let store = Self.firstUseStore(factory, clock: clock)
+        var releases = store.releaseChecksRan.makeAsyncIterator()
+
+        let clicked = try #require(store.panel())
+        clicked.isFreeForReuse = false  // its sheet shows
+        try await clock.waitForSleeper()
+        clock.advance(by: Self.releaseAfter)
+        _ = await releases.next()
+        #expect(store.isMade && store.releasedPanels == 0, "a panel whose sheet shows was released")
+
+        clicked.isFreeForReuse = true  // the sheet ended
+        try await clock.waitForSleeper()
+        clock.advance(by: Self.releaseAfter)
+        _ = await releases.next()
+        #expect(!store.isMade && store.releasedPanels == 1, "the panel was kept after its sheet ended and its deadline passed")
+    }
 }
