@@ -30,6 +30,11 @@ fn cmux_next_inventory_native_watch_negotiates_and_emits_only_owner_invalidation
         json!({"event":"agent-inventory-changed","machine":mux.machine_public_id,
         "watch_id":ack["data"]["watch_id"],"revision":5})
     );
+    // The ack and the event are the schema's AgentInventoryWatchActive and event payload.
+    let ack_fields = agent_inventory::schema::type_fields("AgentInventoryWatchActive");
+    assert_eq!(agent_inventory::schema::keys(&ack["data"]), ack_fields);
+    let event_fields = agent_inventory::schema::event_fields("agent-inventory-changed");
+    assert_eq!(agent_inventory::schema::keys(&event), event_fields);
     assert_eq!(owner.methods(), ["initialize", "_acpmux/harness/inventory/watch"]);
 }
 
@@ -199,6 +204,8 @@ fn cmux_next_inventory_native_watch_invalid_notifications_end_the_current_lease(
         json!({"event":"agent-inventory-watch-ended","machine":mux.machine_public_id,
         "watch_id":ack["data"]["watch_id"],"reason":"agent_inventory.invalid_response"})
     );
+    let ended_fields = agent_inventory::schema::event_fields("agent-inventory-watch-ended");
+    assert_eq!(agent_inventory::schema::keys(&ended), ended_fields);
     owner.wait_closed();
     assert!(client.named_event("agent-inventory-changed", Duration::from_millis(100)).is_none());
 }
