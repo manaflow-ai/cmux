@@ -436,6 +436,9 @@ impl Hub {
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
+        // Read before the locks (it reads the settings file); the mode is read again under them.
+        let full_access_on =
+            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -516,11 +519,17 @@ impl Hub {
                 None
             };
             let floored = web_turn && !denied && auto.is_some();
+            // Full access answers what the harness still asks, unless a rule decided it.
+            let full_access = (full_access_on && rule.is_none() && !denied)
+                .then(|| full_access_allow(session, &request))
+                .flatten();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
                 // Policy never answers a question: only a person does.
                 None
+            } else if let Some((_, option_id)) = &full_access {
+                Some(option_id.clone())
             } else {
                 chat_option.clone().or(auto)
             };
@@ -529,12 +538,13 @@ impl Hub {
                 if option_kind(&options, &option_id) == Some("allow_always") {
                     session.floor.harness_grant.store(true, Ordering::SeqCst);
                 }
-                self.append(
-                session,
-                "mux",
-                "permission_auto",
-                json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance":chat_option.is_some(), "request": request}),
-            );
+                let mut record = json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance": chat_option.is_some() && full_access.is_none(), "request": request});
+                // The mode that answered it, for the transcript's "Approved: … (Full access)".
+                if let Some((mode, _)) = &full_access {
+                    record["fullAccess"] = json!(mode);
+                    tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
+                }
+                self.append(session, "mux", "permission_auto", record);
                 return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
             }
             // No safe rejection option means cancel, never fall through to an allow ask.
@@ -810,6 +820,34 @@ impl Hub {
         // A secret card waits on the same turn (`secrets.rs`).
         self.cancel_pending_secrets(session);
     }
+}
+
+/// The Full access mode chat `m` runs in now: its current mode, when the shared rule
+/// (`spec/full-access-modes.json`, `start_mode::is_full_access`) names it full access and cmux set
+/// it itself (`SessionMeta::mode_set_by_cmux`: the person's pick or start mode, never a mode the
+/// harness reported on its own, `trust_wait.rs` `full_access_by_cmux`).
+fn full_access_mode(m: &SessionMeta) -> Option<String> {
+    let mode = crate::web_modes::mode_of(m)?;
+    (m.mode_set_by_cmux.as_deref() == Some(mode.as_str())
+        && super::start_mode::is_full_access(&mode))
+    .then_some(mode)
+}
+
+/// The Full access mode and the one-time allow with which a chat in Full access answers `request`
+/// unasked (Leo, 2026-10-25, on what Claude Code still asks in bypassPermissions, such as
+/// "Dangerous rm operation on statically-unresolvable target": "i think it should... idk like if
+/// it is on bypass permissions, that's not auto"): bypass means no prompts, for the harness's own
+/// guards and plain tool approvals alike. Only a plain tool ask (`plain_tool_ask`: never a
+/// question, a plan approval or a folder-trust card, which stay the person's), only while the
+/// current mode is Full access (a chat switched out of it asks again from its next request), and
+/// only with a one-time allow: never an "always" option, which writes a rule. The caller keeps
+/// deny-all, rules and Web turns ahead of it.
+fn full_access_allow(session: &Session, request: &Value) -> Option<(String, String)> {
+    if !super::permission_groups::plain_tool_ask(request) {
+        return None;
+    }
+    let mode = full_access_mode(&session.meta())?;
+    Some((mode, super::permission_groups::option(request, "allow_once")?))
 }
 
 /// The kind of the offered option `id`.

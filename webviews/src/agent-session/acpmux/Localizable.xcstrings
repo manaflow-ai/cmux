@@ -2141,6 +2141,138 @@
         }
       }
     },
+    "permission.receipt.fullAccess": {
+      "comment": "Agent pane: one-line transcript receipt of a permission ask a chat in Full access (Claude Code's Bypass permissions, Codex's full access) answered without asking. {action} is the ask's title, such as 'rm -rf build'",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تمت الموافقة: {action} (وصول كامل)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odobreno: {action} (Potpuni pristup)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkendt: {action} (Fuld adgang)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genehmigt: {action} (Vollzugriff)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approved: {action} (Full access)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprobado: {action} (Acceso total)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approuvé : {action} (Accès complet)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approvato: {action} (Accesso completo)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "承認済み: {action}（フルアクセス）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានយល់ព្រម៖ {action} (សិទ្ធិចូលប្រើពេញលេញ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "승인됨: {action} (전체 액세스)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjent: {action} (Full tilgang)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdzono: {action} (Pełny dostęp)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprovado: {action} (Acesso total)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобрено: {action} (Полный доступ)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุมัติแล้ว: {action} (สิทธิ์เต็ม)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Onaylandı: {action} (Tam erişim)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалено: {action} (Повний доступ)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã phê duyệt: {action} (Toàn quyền truy cập)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已批准：{action}（完全访问）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已核准：{action}（完整存取）"
+          }
+        }
+      }
+    },
     "permission.receipt.cancelled": {
       "comment": "Agent pane: one-line transcript receipt of a permission ask nobody answered (the turn ended or was stopped first). {action} is the ask's title",
       "extractionState": "manual",
