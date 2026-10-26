@@ -82,6 +82,8 @@ public final class BackgroundWork: Sendable {
     let state = Mutex(DrainState())
     /// Test seams around a ``task(_:shutdown:fileID:line:_:)`` start; production uses ``TaskHooks/none``.
     let taskHooks: TaskHooks
+    /// The main-thread task board whose open input work makes an awaited low item a priority-inversion site.
+    let inputTurns: MainTaskBoard?
 
     struct DrainState {
         var nextID: UInt64 = 1
@@ -127,14 +129,16 @@ public final class BackgroundWork: Sendable {
     ///     (``stopReportingRuns()``).
     ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
+    ///   - inputTurns: the app's main task board; an item below `.userBlocking` awaited on main while it runs input
+    ///     work is a Debug priority-inversion site. nil checks nothing.
     public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, filesWidths: FilesLaneWidths = .standard,
                             label: String = "com.cmuxterm.next.work",
                             hangs: (any HangWatchScoping)? = nil,
                             onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
                             onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
-                            uptimeNanos: (@Sendable () -> UInt64)? = nil) {
+                            uptimeNanos: (@Sendable () -> UInt64)? = nil, inputTurns: MainTaskBoard? = nil) {
         self.init(cpuWidth: cpuWidth, filesWidths: filesWidths, label: label, hangs: hangs, onQueued: onQueued,
-                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none)
+                  onRan: onRan, uptimeNanos: uptimeNanos, taskHooks: .none, inputTurns: inputTurns)
     }
 
     /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
@@ -144,8 +148,10 @@ public final class BackgroundWork: Sendable {
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks,
-         mayBlockClock: any Clock<Duration> = ContinuousClock(), qosOverride: ThreadQoSOverride = .system) {
+         mayBlockClock: any Clock<Duration> = ContinuousClock(), qosOverride: ThreadQoSOverride = .system,
+         inputTurns: MainTaskBoard? = nil) {
         self.taskHooks = taskHooks
+        self.inputTurns = inputTurns
         self.cpuWidth = max(1, cpuWidth)
         self.filesWidths = filesWidths
         self.label = label
@@ -166,25 +172,6 @@ public final class BackgroundWork: Sendable {
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
                                  compensation: compensation, hangWatching: watching, qosOverride: qosOverride)
-        }
-    }
-
-    /// How long one item of `lane` may run before the hang watcher reports it: a file operation 5 s,
-    /// a system call 30 s (`getaddrinfo`'s own timeout, see ``systemWidth``), CPU work 10 s.
-    public static func hangDeadline(_ lane: BlockingLane) -> Duration {
-        switch lane {
-        case .files: .seconds(5)
-        case .system: .seconds(30)
-        case .cpu: .seconds(10)
-        }
-    }
-
-    /// The name a hang report gives an item of `lane`.
-    static func hangScopeName(_ lane: BlockingLane) -> StaticString {
-        switch lane {
-        case .files: "lane.files"
-        case .system: "lane.system"
-        case .cpu: "lane.cpu"
         }
     }
 
@@ -217,6 +204,7 @@ public final class BackgroundWork: Sendable {
                                  fileID: StaticString = #fileID, line: UInt = #line,
                                  _ body: @escaping @Sendable () throws -> T) async throws -> T {
         try Task.checkCancellation()
+        noteAwaited(priority, site: CallSite(fileID: fileID, line: line))
         let id = nextID()
         let start = max(priority, WorkPriority(Task.currentPriority))
         // No withTaskPriorityEscalationHandler here: its runtime entry point
