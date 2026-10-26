@@ -24,8 +24,8 @@ public import CmuxNextDesignTokens
 ///
 /// Under Energy Saver (``DesignSettings/energySaver``) only `animatesLoops` turns false: the loop
 /// helpers (`spinAnimation`, `pulseAnimation`, ...) return nil and their layers keep the static
-/// frame, as under Reduce Motion. Moves, fades, the attention blink and `flashAnimation` keep
-/// their normal-mode timing, so motion the person starts never changes.
+/// frame, as under Reduce Motion. Moves, fades, the attention blink, `flashAnimation` and edit
+/// mode's `wiggleAnimation` keep their normal-mode timing, so motion the person starts never changes.
 public nonisolated struct MotionGate: Sendable, Equatable {
     /// The area this gate decides for.
     public let category: MotionCategory

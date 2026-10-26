@@ -7,24 +7,28 @@ import Testing
 
 /// Under Energy Saver ambient motion loops hold still and nothing else changes
 /// (plans/cmux-next/chrome-parity/p14-energy.md, D; p14-energy-027): the loop helpers return nil,
-/// as under Reduce Motion, while moves, fades, the flash verb and the attention blink keep their
-/// normal-mode timing. Normal mode is the policy it was before the saver existed.
+/// as under Reduce Motion, while moves, fades, the flash verb, the attention blink and edit mode's
+/// wiggle keep their normal-mode timing. Normal mode is the policy it was before the saver existed.
 @MainActor @Suite(.serialized) struct MotionEnergySaverTests {
-    /// Runs `body` with the live switches on, Reduce Motion pinned off and the saver set, then puts them back.
-    private func with<T>(saver: Bool, _ body: () throws -> T) rethrows -> T {
+    /// Runs `body` with the live switches on, Reduce Motion pinned off, the saver and frame-rate
+    /// pacing (feature `frameRateClasses`) set, then puts them back.
+    private func with<T>(saver: Bool, paces: Bool = false, _ body: () throws -> T) rethrows -> T {
         let design = DesignSettings.shared
         let (oldEnabled, oldDisabled, oldSpeed, oldSaver) = (design.animationsEnabled, design.disabledAnimationCategories,
                                                              design.animationSpeed, design.energySaver)
+        let oldPaces = design.loopsFollowFrameRate
         Motion.reduceMotionOverride = false
         design.animationsEnabled = true
         design.disabledAnimationCategories = []
         design.animationSpeed = .fast
         design.energySaver = saver
+        design.loopsFollowFrameRate = paces
         defer {
             design.animationsEnabled = oldEnabled
             design.disabledAnimationCategories = oldDisabled
             design.animationSpeed = oldSpeed
             design.energySaver = oldSaver
+            design.loopsFollowFrameRate = oldPaces
             Motion.reduceMotionOverride = nil
         }
         return try body()
@@ -45,6 +49,15 @@ import Testing
     }
 
     @Test func saverStillsEveryLoop() throws {
+        // The same switches with the saver off run every loop of every category, so the nils below
+        // are the saver's, not another switch's.
+        try with(saver: false) {
+            for category in MotionCategory.allCases {
+                let gate = Motion.gate(category)
+                for (name, loop) in try loops(gate) { #expect(loop != nil, "\(category) \(name) does not loop with the saver off") }
+                #expect(gate.animatesLoops && gate.period(.spinner) != nil && gate.period(.pulse) != nil)
+            }
+        }
         try with(saver: true) {
             for category in MotionCategory.allCases {
                 let gate = Motion.gate(category)
@@ -55,22 +68,30 @@ import Testing
         }
     }
 
-    /// Normal mode is unchanged: every loop runs with the timing and frame rate range it has with no saver input.
+    /// Normal mode is unchanged: every loop runs forever with its token's period (`MotionLoop`;
+    /// a breath and a pulse are two half periods, autoreversed), and asks the render server for the
+    /// rate `Motion.paced` gives it: none with pacing off, 30 Hz or its stepping rate with it on.
     @Test func normalModeLoopsAreUnchanged() throws {
-        func shape(_ loop: CAAnimation?) -> [Double] {
-            guard let loop else { return [] }
-            return [loop.duration, Double(loop.repeatCount), Double(loop.preferredFrameRateRange.maximum)]
-        }
-        try with(saver: false) {
-            let before = try loops(Motion.indicators).map { ($0.0, shape($0.1)) }
-            DesignSettings.shared.energySaver = true
-            DesignSettings.shared.energySaver = false
-            let after = try loops(Motion.indicators).map { ($0.0, shape($0.1)) }
-            for ((name, old), (_, new)) in zip(before, after) {
-                #expect(!old.isEmpty, "\(name) does not run in normal mode")
-                #expect(old == new, "\(name) changed after a saver round trip: \(old) -> \(new)")
+        let spinner = MotionLoop.spinner.period
+        let expected: [String: (duration: Double, autoreverses: Bool, paced: FrameRate)] = [
+            "spin": (spinner, false, .ambient), "step": (spinner, false, .stepping(8, every: spinner)),
+            "frames": (spinner, false, .stepping(8, every: spinner)), "sweep": (MotionLoop.sweep.period, false, .ambient),
+            "breath": (MotionLoop.breath.period / 2, true, .ambient), "pulse": (MotionLoop.pulse.period / 2, true, .ambient),
+        ]
+        for paces in [false, true] {
+            try with(saver: false, paces: paces) {
+                for category in MotionCategory.allCases {
+                    for (name, made) in try loops(Motion.gate(category)) {
+                        let want = try #require(expected[name])
+                        let loop = try #require(made, "\(category) \(name) does not run in normal mode")
+                        #expect(loop.duration == want.duration && loop.autoreverses == want.autoreverses, "\(category) \(name) timing")
+                        #expect(loop.repeatCount == .infinity, "\(category) \(name) stops")
+                        let range = paces ? want.paced.range : CAFrameRateRange.default
+                        #expect(loop.preferredFrameRateRange.isEqual(to: range),
+                                "\(category) \(name) asks for \(loop.preferredFrameRateRange), not \(range) (pacing \(paces))")
+                    }
+                }
             }
-            #expect(Motion.indicators.animatesLoops)
         }
     }
 
@@ -89,12 +110,18 @@ import Testing
                 && on.duration(MotionSpring.move) == off.duration(MotionSpring.move)
                 && on.spring(.move) == off.spring(.move))
             #expect(on.period(.spinner) == nil && off.period(.spinner) == MotionLoop.spinner.period)
+            // The loops that follow the person keep their period (the flash, edit mode's wiggle).
+            for loop in MotionLoop.allCases where !loop.isAmbient {
+                #expect(on.period(loop) == loop.period && off.period(loop) == loop.period, "\(category) \(loop) stops under the saver")
+            }
         }
         #expect(MotionPolicy(speed: .fast, reduceMotion: false).energySaver == false, "the saver input defaults off")
+        #expect(MotionLoop.allCases.filter { !$0.isAmbient } == [.flash, .wiggle], "a loop changed sides: classify it on purpose")
     }
 
     /// Motion a person or a notification starts keeps its normal-mode shape: the flash verb's two
-    /// blinks, the attention blink and its dismiss flash, and a spring a person triggers.
+    /// blinks, the attention blink and its dismiss flash, edit mode's wiggle (the mode the person
+    /// entered; its wiggle is the sign it is on) and a spring a person triggers.
     @Test func personStartedMotionIsUnchanged() throws {
         func keyframes(_ animation: CAAnimation?) -> [Float] {
             ((animation as? CAKeyframeAnimation)?.values ?? []).compactMap { ($0 as? NSNumber)?.floatValue }
@@ -108,14 +135,17 @@ import Testing
             let dismiss = try #require(gate.attentionDismissAnimation(AttentionSettings(), look: .subtle))
             let layer = CALayer()
             let spring = try #require(Motion.panes.set(layer, "position", to: CGPoint(x: 40, y: 0), spring: .move, from: CGPoint.zero))
+            let wiggle = try #require(Motion.sidebar.wiggleAnimation(center: CGPoint(x: 20, y: 10), phase: 0.25) as? CAKeyframeAnimation)
             return ["flash": keyframes(flash) + [Float(flash.duration)],
                     "attention": keyframes(attention) + [Float(attention.duration)],
                     "dismiss": keyframes(dismiss) + [Float(dismiss.duration)],
-                    "spring": [Float(spring.duration)]]
+                    "spring": [Float(spring.duration)],
+                    "wiggle": [Float(wiggle.values?.count ?? 0), Float(wiggle.duration), Float(wiggle.timeOffset), Float(wiggle.repeatCount)]]
         }
         let normal = try with(saver: false) { try snapshot() }
         let saver = try with(saver: true) { try snapshot() }
         #expect(normal == saver)
+        #expect(normal["wiggle"]?.first == 3, "edit mode's wiggle turns either way and back")
         #expect(normal["flash"].map { Array($0.dropLast()) } == [0, 1, 0, 1, 0], "the flash verb blinks twice")
     }
 

@@ -84,7 +84,7 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
     /// Energy Saver. When false they show their static frame.
     public var animatesLoops: Bool { animatesBlinks && !energySaver }
     /// Blinks and repeats that end on their own or follow what the person does (an attention
-    /// blink, the flash verb, dictation level bars) run: not Reduce Motion. Energy Saver leaves
+    /// blink, the flash verb, dictation level bars, edit mode's wiggle) run: not Reduce Motion. Energy Saver leaves
     /// them as they are; it stills only ambient ``animatesLoops``.
     public var animatesBlinks: Bool { categoryAnimates && !reduceMotion }
 
@@ -116,8 +116,9 @@ public nonisolated struct MotionPolicy: Sendable, Equatable {
         animatesMovement ? spring(token).perceivedDuration : 0
     }
 
-    /// Period of `loop`, or nil when loops are stopped.
+    /// Period of `loop`, or nil when it is stopped: an ambient loop by ``animatesLoops``, a loop
+    /// that follows the person (``MotionLoop/isAmbient`` false: the flash, the wiggle) by ``animatesBlinks``.
     public func period(_ loop: MotionLoop) -> TimeInterval? {
-        animatesLoops ? loop.period : nil
+        (loop.isAmbient ? animatesLoops : animatesBlinks) ? loop.period : nil
     }
 }
