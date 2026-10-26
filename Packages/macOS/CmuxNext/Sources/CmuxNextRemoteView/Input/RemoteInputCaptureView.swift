@@ -11,8 +11,8 @@ package import CmuxNextInputCore
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
 ///
-/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags and mid-gesture scrolls
-/// reach the host at most twice per display frame: a frame interval's first event at once, the rest
+/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags, mid-gesture scrolls and
+/// wheel notches reach the host at most twice per display frame: a frame interval's first event at once, the rest
 /// merged into one delivery at the window's frame (the latest point; scroll deltas summed per phase),
 /// as Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
 /// main_thread_event_queue.cc`). Buttons, keys and scroll phase edges flush what waits first
@@ -154,12 +154,16 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     override func otherMouseDown(with event: NSEvent) { press(event, down: true) }
     override func otherMouseUp(with event: NSEvent) { press(event, down: false) }
 
-    /// A scroll in the middle of its gesture waits for the frame; a phase edge (began, ended,
-    /// momentum began, a wheel notch) goes at once, after what waits.
-    override func scrollWheel(with event: NSEvent) {
-        if event.isMidGestureScroll, let consumer = framePointerConsumer() {
-            consumer.post(event)
-            return
+    /// A scroll in the middle of its gesture, or a wheel notch, waits for the frame; a phase edge
+    /// (began, ended, momentum began) goes at once, after what waits. A pane that sends nothing to
+    /// the host (view mode, not first responder) posts nothing: it never wakes the window's frame.
+    override func scrollWheel(with event: NSEvent) { // perf-hot: 2us pointer-coalesce (every scroll over a remote desktop)
+        if event.isMergeableScroll {
+            guard controller.isActive else { return }
+            if let consumer = framePointerConsumer() {
+                consumer.post(event)
+                return
+            }
         }
         flushPointer()
         controller.scroll(event)
@@ -169,7 +173,9 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     /// key, a system shortcut) is about to go to the host, and must not pass them.
     func flushPointer() { framePointer?.flush() }
 
-    private func pointerMoved(_ event: NSEvent) {
+    /// A move or drag for the host. A pane that sends nothing to the host posts nothing, as for scrolls.
+    private func pointerMoved(_ event: NSEvent) { // perf-hot: 2us pointer-coalesce (every move and drag over a remote desktop)
+        guard controller.isActive else { return }
         if let consumer = framePointerConsumer() {
             consumer.post(event)
         } else {
@@ -178,7 +184,7 @@ final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     }
 
     /// One frame delivery: the latest point of the merged moves or drags, or the summed scroll.
-    private func deliver(_ input: PointerCoalescedInput) {
+    private func deliver(_ input: PointerCoalescedInput) { // perf-hot: 2us pointer-coalesce (every frame delivery to the host)
         let record = input.latest
         switch input.kind {
         case .move, .drag:
@@ -268,17 +274,20 @@ extension RemoteInputCaptureView: @MainActor NSTextInputClient {
 }
 
 extension NSEvent {
-    /// A scroll in the middle of its gesture (changed, or momentum changed): one a newer scroll of the
-    /// same phase may be merged with. Its edges (may begin, began, ended, cancelled, momentum began and
-    /// ended) and phaseless wheel notches are not.
-    nonisolated package var isMidGestureScroll: Bool {
-        type == .scrollWheel && (phase == .changed || momentumPhase == .changed)
+    /// A scroll a newer scroll of the same phase may be merged with: one in the middle of its gesture
+    /// (changed, or momentum changed), or a phaseless wheel notch, as Chromium merges wheels of equal
+    /// phase, none included (`WebMouseWheelEvent::CanCoalesce`,
+    /// `third_party/blink/common/input/web_mouse_wheel_event.cc`). A gesture's edges (may begin,
+    /// began, ended, cancelled, momentum began and ended) are not.
+    nonisolated package var isMergeableScroll: Bool {
+        type == .scrollWheel
+            && ((phase.isEmpty && momentumPhase.isEmpty) || phase == .changed || momentumPhase == .changed)
     }
 }
 
 extension InputScrollPhase {
-    /// The AppKit gesture and momentum phases of a merged scroll. Only mid-gesture scrolls are merged
-    /// (``NSEvent/isMidGestureScroll``), so `.momentum` is momentum changed.
+    /// The AppKit gesture and momentum phases of a merged scroll. Only mid-gesture scrolls and wheel
+    /// notches merge (``NSEvent/isMergeableScroll``), so `.momentum` is momentum changed.
     nonisolated package var appKitPhases: (phase: NSEvent.Phase, momentum: NSEvent.Phase) {
         switch self {
         case .none: ([], [])

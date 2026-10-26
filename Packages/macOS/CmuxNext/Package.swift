@@ -804,13 +804,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // no UI framework beyond AppKit; the App supplies the page and the sink.
         .target(
             name: "CmuxNextPhone",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextWakeups"],
             resources: [.process("Localizable.xcstrings")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextPhoneTests",
-            dependencies: ["CmuxNextPhone", "CmuxNextCompat"],
+            dependencies: ["CmuxNextPhone", "CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             resources: [.copy("Fixtures")],
             swiftSettings: daemonSwiftSettings
         ),

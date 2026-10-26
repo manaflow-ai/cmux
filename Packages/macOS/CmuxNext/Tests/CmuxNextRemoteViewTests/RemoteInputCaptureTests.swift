@@ -30,8 +30,9 @@ import Testing
         let coalescer: FrameInputCoalescer
         private var frames = 0
 
-        /// `coalesced`: the pointer goes through the window's coalescer (the feature on).
-        init(coalesced: Bool = true) {
+        /// `coalesced`: the pointer goes through the window's coalescer (the feature on). `controlMode`
+        /// false: the view mode, where nothing goes to the host.
+        init(coalesced: Bool = true, controlMode: Bool = true) {
             _ = NSApplication.shared
             let ledger = WakeupLedger()
             scheduler = FrameScheduler.testing(clock: ManualClock(), ledger: ledger, mediaTime: { 1000 }) { _ in RemoteCaptureTestLink() }
@@ -44,8 +45,13 @@ import Testing
                                                     backingScale: 2) }
             capture.controller.sink = sink
             capture.pointerFrames = coalesced ? FrameInputCoalescers { _ in coalescer } : nil
-            capture.controlMode = true
+            capture.controlMode = controlMode
             window.makeFirstResponder(capture)
+        }
+
+        /// A mouse-wheel notch of `lines`: no phase, no momentum, line deltas.
+        func wheelNotch(lines: Int32 = 1) -> NSEvent {
+            NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)!)!
         }
 
         func mouse(_ type: NSEvent.EventType, x: CGFloat, y: CGFloat = 300) -> NSEvent {
@@ -163,6 +169,44 @@ import Testing
         #expect(Array(harness.sink.scrolls.suffix(2)) == [.scroll(dx: 0, dy: 200, precise: true), .scroll(dx: 0, dy: 400, precise: true)],
                 "momentum is its own phase: its first scroll at once, the rest summed at the frame")
         #expect(!harness.coalescer.hasPending)
+    }
+
+    /// Mouse-wheel notches have no phase and merge like a gesture's middle (Chromium merges wheels of
+    /// equal phase, none included): eight in one frame reach the host twice, the second with the sum
+    /// of the other seven, so a free-spinning wheel sends at most two scrolls per frame.
+    @Test func eightWheelNotchesInOneFrameSendTwoScrolls() {
+        let harness = Harness()
+        defer { harness.close() }
+        let notch = harness.wheelNotch()
+        let lines = Double(notch.scrollingDeltaY)
+        harness.capture.scrollWheel(with: notch)
+        for _ in 1...7 { harness.capture.scrollWheel(with: harness.wheelNotch()) }
+        #expect(harness.sink.scrolls.count == 1, "the leading notch went in its own turn")
+        harness.frame()
+        // The host's accumulator as the view drives it: the first notch, then the seven summed in order.
+        var expected = RemoteScrollAccumulator()
+        var sum = lines
+        for _ in 2...7 { sum += lines }
+        let sent = [expected.add(deltaX: 0, deltaY: lines, precise: false, phase: [], momentumPhase: []),
+                    expected.add(deltaX: 0, deltaY: sum, precise: false, phase: [], momentumPhase: [])].compactMap { $0 }
+        #expect(sent.count == 2)
+        #expect(harness.sink.scrolls == sent, "the frame sent the seven waiting notches as one, summed")
+        #expect(!harness.coalescer.hasPending)
+    }
+
+    /// In view mode nothing goes to the host, so moves and scrolls never reach the coalescer: hovering
+    /// a passive remote desktop does not run the window's frame.
+    @Test func aPassivePaneNeverWakesTheFrame() {
+        let harness = Harness(controlMode: false)
+        defer { harness.close() }
+        for step in 1...8 {
+            harness.capture.mouseMoved(with: harness.mouse(.mouseMoved, x: 100 + CGFloat(step) * 10))
+        }
+        harness.capture.scrollWheel(with: harness.scroll(dy: 3, phase: .changed))
+        harness.capture.scrollWheel(with: harness.wheelNotch())
+        #expect(!harness.coalescer.hasPending)
+        #expect(!harness.coalescer.isTicking, "no input stage frame for input nobody receives")
+        #expect(harness.sink.events.isEmpty)
     }
 }
 

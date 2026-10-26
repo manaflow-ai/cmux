@@ -64,10 +64,49 @@ import Testing
             return NSEvent(cgEvent: cg)!
         }
 
+        /// A mouse-wheel notch of `lines`: no phase, no momentum, line deltas.
+        func wheelNotch(lines: Int32 = 1) -> NSEvent {
+            NSEvent(cgEvent: CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0)!)!
+        }
+
         func close() {
             rig.close()
             window.close()
         }
+    }
+
+    /// Mouse-wheel notches have no phase and merge like a gesture's middle (Chromium merges wheels of
+    /// equal phase, none included): eight in one frame reach the page twice, the second with the sum
+    /// of the other seven.
+    @Test func eightWheelNotchesInOneFrameReachThePageTwice() {
+        let harness = Harness()
+        defer { harness.close() }
+        let notch = harness.wheelNotch()
+        let lines = Double(notch.scrollingDeltaY)
+        harness.view.scrollWheel(with: notch)
+        for _ in 1...7 { harness.view.scrollWheel(with: harness.wheelNotch()) }
+        #expect(harness.target.calls == [.frame(.scroll, x: 0, merged: 1, dy: lines, clickCount: 0)])
+        harness.rig.frame()
+        var sum = lines
+        for _ in 2...7 { sum += lines }
+        #expect(harness.target.calls == [.frame(.scroll, x: 0, merged: 1, dy: lines, clickCount: 0),
+                                         .frame(.scroll, x: 0, merged: 7, dy: sum, clickCount: 0)])
+        #expect(!harness.rig.coalescer.hasPending)
+    }
+
+    /// A merged notch carries deltas no newer notch repeats, so the wire must deliver it; merged moves
+    /// and mid-gesture scrolls may still be superseded, as the single events are.
+    @Test func mergedWheelNotchesMustBeDelivered() throws {
+        func scroll(_ dy: Double, _ phase: InputScrollPhase) -> InputEventRecord {
+            InputEventRecord(type: .scrollWheel, timestamp: 1, scrollPhase: phase, scrollDelta: InputPoint(x: 0, y: dy))
+        }
+        var notches = try #require(PointerCoalescedInput(scroll(1, .none)))
+        notches.merge(scroll(1, .none))
+        #expect(RemoteBrowserInputEncoder.mustDeliver(notches))
+        let gesture = try #require(PointerCoalescedInput(scroll(3, .changed)))
+        #expect(!RemoteBrowserInputEncoder.mustDeliver(gesture))
+        let move = try #require(PointerCoalescedInput(InputEventRecord(type: .mouseMoved, timestamp: 1, location: InputPoint(x: 1, y: 1))))
+        #expect(!RemoteBrowserInputEncoder.mustDeliver(move))
     }
 
     /// Eight moves in one frame: the page gets the first at once and the other seven once at the frame.

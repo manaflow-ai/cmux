@@ -21,8 +21,9 @@ public protocol RemoteBrowserPageChannel: AnyObject {
     /// Sends a pointer event (modifiers and click count included) at
     /// `point`, in the page's CSS pixels.
     func sendPointer(_ event: NSEvent, at point: CGPoint)
-    /// Sends one frame delivery of merged moves, drags or mid-gesture scrolls at `point`: the latest
-    /// point, or the summed scroll. Newer input supersedes it, as it does a single move.
+    /// Sends one frame delivery of merged moves, drags, mid-gesture scrolls or wheel notches at
+    /// `point`: the latest point, or the summed scroll. Newer input supersedes it as it does the
+    /// single events (`RemoteBrowserInputEncoder.mustDeliver`: wheel notches must arrive).
     func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint)
     func history(_ op: RemoteBrowserHistoryOp)
     func setVisible(_ visible: Bool)

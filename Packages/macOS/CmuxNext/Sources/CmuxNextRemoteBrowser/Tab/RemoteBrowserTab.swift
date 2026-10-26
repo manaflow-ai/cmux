@@ -80,7 +80,7 @@ public final class RemoteBrowserTab: BrowserTab {
         channel.sendPointer(event, at: pane.view.convert(event.locationInWindow, from: nil))
     }
 
-    public func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) {
+    public func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) { // perf-hot: 2us pointer-coalesce (every frame delivery to the page)
         let location = NSPoint(x: input.latest.location.x, y: input.latest.location.y)
         channel.sendPointerFrame(input, clickCount: clickCount, at: pane.view.convert(location, from: nil))
     }

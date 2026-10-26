@@ -22,8 +22,8 @@ public protocol RemoteBrowserEventTarget: AnyObject {
 /// browser chrome around it (tab strip, omnibar, find) is the local cmux UI
 /// (RT11); only the page is remote. Its events go to `eventTarget`.
 ///
-/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags and mid-gesture scrolls
-/// go out at most twice per display frame: a frame interval's first event at once, the rest merged
+/// With ``pointerFrames`` (feature `pointerFrameRemoteInput`) moves, drags, mid-gesture scrolls and
+/// wheel notches go out at most twice per display frame: a frame interval's first event at once, the rest merged
 /// into one delivery at the window's frame (the latest point; scroll deltas summed per phase), as
 /// Chromium delivers rAF-aligned input (`third_party/blink/renderer/platform/widget/input/
 /// main_thread_event_queue.cc`). Buttons, enter, leave, keys and scroll phase edges flush what waits
@@ -212,9 +212,10 @@ public final class RemoteBrowserContentView: NSView {
     public override func rightMouseDragged(with event: NSEvent) { continuous(event) }
     public override func otherMouseDragged(with event: NSEvent) { continuous(event) }
     /// Wheel and trackpad scrolls go to the page (`wheel`), phases and momentum included: a scroll in
-    /// the middle of its gesture waits for the frame, a phase edge goes at once after what waits.
+    /// the middle of its gesture, or a wheel notch, waits for the frame; a phase edge goes at once
+    /// after what waits.
     public override func scrollWheel(with event: NSEvent) {
-        if event.isMidGestureScroll { continuous(event) } else { discrete(event) }
+        if event.isMergeableScroll { continuous(event) } else { discrete(event) }
     }
 
     public override func rightMouseDown(with event: NSEvent) { press(event) }
@@ -243,7 +244,9 @@ public final class RemoteBrowserContentView: NSView {
         eventTarget?.handlePointer(event)
     }
 
-    private func continuous(_ event: NSEvent) {
+    /// A move, drag, mid-gesture scroll or wheel notch for the page; nothing without a target.
+    private func continuous(_ event: NSEvent) { // perf-hot: 2us pointer-coalesce (every move and scroll over a remote page)
+        guard eventTarget != nil else { return }
         if let consumer = framePointerConsumer() {
             consumer.post(event)
         } else {

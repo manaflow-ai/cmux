@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "pointerFrameRemoteInput",
   "owner": "Performance Lead",
-  "description": "Remote desktop and remote browser tabs send pointer moves, drags and mid-gesture scrolls to the host on the first event of a display frame and once more at the frame, with the latest point and the frame's scroll summed per phase; buttons, keys and scroll phase edges send what waits first.",
+  "description": "Remote desktop, Mac Screen, remote browser and phone tabs send pointer moves, drags, mid-gesture scrolls and wheel notches to the host once at a display frame's first event and once at the frame (latest point, scrolls summed per phase); buttons, keys and scroll edges send what waits first.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

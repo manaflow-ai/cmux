@@ -252,7 +252,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     public func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint) {
         guard let json = RemoteBrowserInputEncoder.pointer(input, clickCount: clickCount, at: point),
               let bytes = RemoteBrowserInputEncoder.bytes(json) else { return }
-        _ = transport.sendServiceInput(bytes, mustDeliver: false)
+        _ = transport.sendServiceInput(bytes, mustDeliver: RemoteBrowserInputEncoder.mustDeliver(input))
     }
 
     public func history(_ op: RemoteBrowserHistoryOp) {

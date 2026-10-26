@@ -98,6 +98,12 @@ public nonisolated struct RemoteBrowserInputEncoder {
         }
     }
 
+    /// ``mustDeliver(_:)`` of a frame delivery: wheel notches (no phase) carry deltas a newer notch
+    /// does not repeat, so they must arrive; moves, drags and mid-gesture scrolls may go.
+    public static func mustDeliver(_ input: PointerCoalescedInput) -> Bool {
+        input.kind == .scroll && input.latest.scrollPhase == InputScrollPhase.none
+    }
+
     /// The AppKit button (0 left, 1 right, 2+ other): the event type decides
     /// left and right, since a synthesized right click can carry button 0.
     static func appKitButton(_ event: NSEvent) -> Int {

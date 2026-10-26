@@ -237,7 +237,7 @@ private final class SurfaceInput: RemoteBrowserEventTarget {
         owner?.sendPointer(event, at: view.convert(location, from: nil), surface: surface)
     }
 
-    func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) {
+    func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) { // perf-hot: 2us pointer-coalesce (every frame delivery to a popup)
         guard let view else { return }
         // As `handlePointer`: a hover from another window of the app comes through the screen.
         let record = input.latest
