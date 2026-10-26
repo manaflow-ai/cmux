@@ -133,6 +133,8 @@ export function IncomingMessageLine({
     if (!inText && !inRaw) return;
     played.current = false;
     cardFrom.current = undefined;
+    // A slide the reader's click started stops, even when the card is already open.
+    if (textBox.current) cancelResize(textBox.current);
     show(true);
     if (inRaw) setDetails(true);
     reveal?.repaint();
