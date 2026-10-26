@@ -412,9 +412,11 @@ fn read(
             })?;
     let mut page = transcript.page(chat, after, limit, more, cursor);
     if code_block {
-        page["last_code_block"] =
-            code_blocks::load(|before| acp::events_before(chat, before, found.socket()))
-                .map_err(|error| not_run("chat.code_block_unavailable", error, json!({})))?;
+        let block = code_blocks::load(|before| acp::events_before(chat, before, found.socket()))
+            .map_err(|error| not_run("chat.code_block_unavailable", error, json!({})))?;
+        if let Some(fields) = page.as_object_mut() {
+            fields.insert("last_code_block".into(), block);
+        }
     }
     Ok(page)
 }
