@@ -44,6 +44,26 @@ import Testing
         #expect(!AcpmuxPathPolicy.isDirectory(canonical + "/MixedCase.txt"))
     }
 
+    // MARK: Folder and file checks without an ObjCBool pointer
+
+    @Test func folderAndFileChecksFollowLinksAndRefuseTheOtherKind() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cmux-075-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let sessions = home.appending(path: "sessions", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessions.appending(path: "kept"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        try Data("x".utf8).write(to: sessions.appending(path: "plain"))
+        try FileManager.default.createSymbolicLink(at: sessions.appending(path: "linked"), withDestinationURL: sessions.appending(path: "kept"))
+        #expect(AcpmuxChiefSessionRouter.keeps(session: "kept", home: home))
+        #expect(AcpmuxChiefSessionRouter.keeps(session: "linked", home: home), "a link to a folder counts, as fileExists did")
+        #expect(!AcpmuxChiefSessionRouter.keeps(session: "plain", home: home))
+        #expect(!AcpmuxChiefSessionRouter.keeps(session: "missing", home: home))
+
+        let file = sessions.appending(path: "plain")
+        #expect(AgentPaneFileOpen.resolve(file.path)?.lastPathComponent == "plain")
+        #expect(AgentPaneFileOpen.resolve(sessions.path) == nil, "a folder is not a file")
+        #expect(AgentPaneFileOpen.resolve(sessions.path + "/missing") == nil)
+    }
+
     // MARK: AcpmuxSecretKey (its own buffer, zeroed)
 
     @Test func theKeyLineIsSixtyFourHexDigitsAndANewline() throws {

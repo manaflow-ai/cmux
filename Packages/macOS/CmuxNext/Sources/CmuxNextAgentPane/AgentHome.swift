@@ -141,7 +141,7 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         guard let home = standard else { return }
         // task-owner: one sweep of the trash-pending folder; nothing waits for it
         Task.detached(priority: .utility) {
-            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+            home.emptyTrashPending(using: AgentPaneGitDiscard.systemTrash)
         }
     }
 

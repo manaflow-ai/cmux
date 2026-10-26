@@ -116,8 +116,7 @@ public final class AgentPaneShell {
     public func run(_ command: String, cwd: String?) async throws(Failure) -> String {
         guard runs.values.filter({ $0.exit == nil }).count + spawning < Self.maximumRunning else { throw .tooMany }
         let folder = cwd ?? home
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder, isDirectory: &isDirectory), isDirectory.boolValue else {
+        guard AcpmuxPathPolicy.isDirectory(folder) else {
             throw .folderMissing
         }
         var pipe: [Int32] = [-1, -1]

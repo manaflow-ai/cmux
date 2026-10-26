@@ -192,7 +192,9 @@ public struct CheckedFileManager: Sendable {
     /// Moves a file or folder to the Trash. Like `FileManager.trashItem`, checked.
     @inlinable
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>? = nil, fileID: StaticString = #fileID, line: UInt = #line) throws {
-        try blockingCall(.fileIO, fileID: fileID, line: line) { try FileManager.default.trashItem(at: url, resultingItemURL: outResultingURL) }
+        // SAFETY: forwards the caller's result pointer to trashItem unchanged, only for the call; the caller's own
+        // `unsafe` states why it is valid for it (nil writes nothing).
+        try blockingCall(.fileIO, fileID: fileID, line: line) { try unsafe FileManager.default.trashItem(at: url, resultingItemURL: outResultingURL) }
     }
 
     /// Finds (and with `create`, makes) a system folder such as Application Support. Like `FileManager.url`, checked.
