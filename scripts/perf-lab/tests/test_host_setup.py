@@ -26,7 +26,11 @@ BENCH = "benchuser"
 TOOLS = ["/usr/bin/pmset", "/usr/bin/mdutil", "/usr/bin/defaults", "/usr/bin/tmutil", "/usr/bin/fdesetup",
          "/usr/sbin/sysadminctl", "/usr/bin/sudo", "/bin/launchctl", "/usr/bin/id", "/usr/bin/stat",
          "/usr/sbin/sysctl", "/usr/bin/dscl", "/usr/bin/git", "/opt/homebrew/bin/go", "/usr/bin/xcrun",
-         "/usr/bin/codesign", "/usr/bin/shasum", "/usr/sbin/chown", "/usr/sbin/visudo"]
+         "/usr/bin/codesign", "/usr/bin/shasum", "/usr/sbin/chown", "/usr/sbin/visudo", "/bin/cat"]
+TIME_MACHINE_PLIST = "Library/Preferences/com.apple.TimeMachine.plist"
+UPDATE_KEYS = [f"/Library/Preferences/com.apple.SoftwareUpdate/{key}" for key in (
+    "AutomaticCheckEnabled", "AutomaticDownload", "AutomaticallyInstallMacOSUpdates", "CriticalUpdateInstall",
+    "ConfigDataInstall", "AutomaticallyInstallAppUpdates")] + ["/Library/Preferences/com.apple.commerce/AutoUpdate"]
 
 
 def load(name, path):
@@ -96,7 +100,12 @@ def fake(root, tool, args):
             rest = rest[2:] if rest[0] == "-u" else rest[1:]
         os.execv(rest[0], rest)
     elif name == "id":
-        print(501)
+        print(state["uid"] if args == ["-u"] else 501)
+    elif name == "cat":
+        if state["tcc_denied"]:  # TCC refuses the open even to root when sshd lacks Full Disk Access
+            print(f"cat: {args[0]}: Operation not permitted", file=sys.stderr)
+            return 1
+        sys.stdout.write(Path(args[0]).read_text())
     elif name == "stat":
         print(state["console"])
     elif name == "sysctl":
@@ -137,9 +146,11 @@ class FakeMac:
             path.chmod(0o755)
         (self.root / "etc/sudoers.d").mkdir(parents=True)
         (self.root / "home" / BENCH).mkdir(parents=True)
+        (self.root / TIME_MACHINE_PLIST).parent.mkdir(parents=True)
+        (self.root / TIME_MACHINE_PLIST).write_text("<plist/>\n")
         self.state = {"pmset": {"sleep": "1", "displaysleep": "10", "disksleep": "10", "standby": "1"},
                       "indexing": True, "prefs": {}, "screen_lock": True, "console": BENCH,
-                      "chip": "Apple M6", "memsize": str(16 * 2**30)}
+                      "chip": "Apple M6", "memsize": str(16 * 2**30), "uid": 0, "tcc_denied": False}
         self.save()
 
     def save(self):
@@ -185,6 +196,8 @@ class HostSetupTests(unittest.TestCase):
         self.assertEqual(set(items.values()), {"ok"}, result.stdout)
         self.assertEqual(self.mac.calls(), calls, "a second run called a tool that changes state")
         self.assertFalse(self.sudoers.exists())
+        prefs = json.loads((self.mac.root / "state.json").read_text())["prefs"]
+        self.assertEqual({key: prefs.get(key) for key in UPDATE_KEYS}, dict.fromkeys(UPDATE_KEYS, "0"))
 
     def test_check_reports_and_changes_nothing(self):
         code, items, result = self.mac.run("--check")
@@ -200,7 +213,7 @@ class HostSetupTests(unittest.TestCase):
         rules = [line for line in self.sudoers.read_text().splitlines() if not line.startswith("#")]
         self.assertEqual(rules, [
             f"{BENCH} ALL=(root) NOPASSWD: /usr/bin/powermetrics --samplers cpu_power\\,gpu_power\\,ane_power "
-            "-i 1000 -f plist",
+            "-i 1000 -n 600 -f plist",
             f'{BENCH} ALL=(root) NOPASSWD: /usr/sbin/purge ""'])
         self.assertEqual(self.sudoers.stat().st_mode & 0o777, 0o440)
         self.assertEqual([p.name for p in self.sudoers.parent.iterdir()], ["cmux-perf-lab"])
@@ -226,6 +239,44 @@ class HostSetupTests(unittest.TestCase):
         self.assertEqual(items["vdisplay"], "fail")
         self.assertIn("reboot so auto-login takes effect", result.stdout)
 
+    def test_check_refuses_a_user_who_is_not_root(self):
+        self.mac.state["uid"] = 501
+        self.mac.save()
+        for args in (("--check",), ()):
+            with self.subTest(args):
+                code, items, result = self.mac.run(*args)
+                self.assertEqual(code, 2)
+                self.assertEqual(items, {}, "no item line may be printed without root")
+                self.assertIn("run it with sudo, --check too", result.stderr)
+        self.assertEqual(self.mac.calls(), [])
+
+    def test_a_flag_without_its_value_is_a_usage_error(self):
+        for flag in ("--host", "--bench-user", "--pool", "--root"):
+            with self.subTest(flag):
+                result = subprocess.run(["bash", str(SCRIPT), "--root", str(self.mac.root), "--bench-user", BENCH,
+                                         "--check", flag], capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(f"{flag} needs a value", result.stderr)
+
+    def test_time_machine_without_full_disk_access_says_so(self):
+        self.mac.state["tcc_denied"] = True
+        self.mac.save()
+        code, items, result = self.mac.run()
+        self.assertEqual(code, 1)
+        self.assertEqual(items["time-machine"], "fail")
+        line = next(line for line in result.stdout.splitlines() if line.startswith("fail time-machine:"))
+        self.assertIn("Operation not permitted", line)
+        self.assertIn("Full Disk Access", line)
+        self.assertNotIn("backs up automatically", line)
+        self.assertFalse([call for call in self.mac.calls() if call.startswith("tmutil")], "tmutil ran without access")
+        self.assertEqual(items["power"], "changed", "the other items still run")
+        self.mac.state = json.loads((self.mac.root / "state.json").read_text())
+        self.mac.state["tcc_denied"] = False  # the operator gave sshd Full Disk Access
+        self.mac.save()
+        code, items, result = self.mac.run()
+        self.assertEqual(code, 0, result.stdout)
+        self.assertEqual(items["time-machine"], "changed")
+
     def test_unknown_host_is_a_usage_error(self):
         code, _, result = self.mac.run(host="cmux99")
         self.assertEqual(code, 2)
@@ -247,6 +298,19 @@ class PoolTests(unittest.TestCase):
         self.assertEqual(len({h.host_class for h in m6}), 1, "pinpoint M6 hosts share the waterfall host class")
         builders = {b["name"] for b in self.pool["builders"]}
         self.assertFalse(builders & {h.name for h in hosts}, "a builder is never a lab host")
+
+    def test_waterfall_classes_of_one_host_class_own_no_common_story(self):
+        """store.series_key has no host name, so one story on two classes of one host class is one series."""
+        shard_map = json.loads((LAB / "shard_map.json").read_text())["classes"]
+        owners = {}
+        for host in self.pool["hosts"]:
+            if host["role"] != "waterfall":
+                continue
+            for tier, stories in shard_map[host["class"]]["shards"][host["shard"]]["stories"].items():
+                for story in stories:
+                    owners.setdefault((host["host_class"], tier, story), set()).add(host["class"])
+        shared = {key: sorted(classes) for key, classes in owners.items() if len(classes) > 1}
+        self.assertEqual(shared, {})
 
     def test_every_shard_has_one_waterfall_owner(self):
         shard_map = json.loads((LAB / "shard_map.json").read_text())["classes"]

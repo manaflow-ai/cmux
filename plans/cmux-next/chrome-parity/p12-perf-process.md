@@ -101,7 +101,7 @@ Code lives in `scripts/perf-lab/`. The design doc is `plans/cmux-next/perf-lab-D
 | --- | --- | --- |
 | waterfall M6 | 2 M6 minis (from the owned cmux15-24 set) | T0 shards A and B, T1 shards. Alerting class. |
 | pinpoint M6 | 2 M6 minis | bisect, culprit verification, A/A, reference runs. They have the same fingerprint as the waterfall hosts. |
-| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T1 and T2 (xbench vs-browsers, soak). Bisect for their own class borrows them when idle. |
+| waterfall + pinpoint (other classes) | cmux20-bench; 1 aws-m4pro on macOS 26 | T2 (xbench vs-browsers, soak) on both, T1 on aws-m4pro only (cmux20-bench is the M6 host class; its T1 points would join the M6 series). Bisect for their own class borrows them when idle. |
 
 - Each T0/T1 story is bound to one fixed waterfall host by a generated shard map (`shard_map.json`, bin packing on story seconds), as Chrome does. If the owner host is down, the point is a coverage gap. The story is never moved to another host.
 - A bisect may borrow a waterfall host only when it is idle and its next T0 starts in more than 10 minutes.

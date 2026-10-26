@@ -34,27 +34,14 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 7920,
             "T2": 0
           },
           "stories": {
-            "T1": [
-              "chat-anim",
-              "home-idle",
-              "motion",
-              "omnibar",
-              "pane-stress",
-              "perf-gate",
-              "sidebar",
-              "switch",
-              "tab-switch"
-            ],
             "T2": []
           }
         }
       ],
       "tiers": [
-        "T1",
         "T2"
       ]
     },

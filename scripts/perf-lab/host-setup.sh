@@ -2,29 +2,37 @@
 # Makes one perf lab host the same as the others (p12-perf-process-130). An operator runs it on the host:
 #
 #   ssh -t NODE 'cd CHECKOUT && sudo scripts/perf-lab/host-setup.sh --host NODE --bench-user USER [--grant-privileged]'
-#   scripts/perf-lab/host-setup.sh --host NODE --bench-user USER --check      (reports only; no sudo needed)
+#   ssh -t NODE 'cd CHECKOUT && sudo scripts/perf-lab/host-setup.sh --host NODE --bench-user USER --check'
+#
+# It runs as root, --check too: the checks read the bench user's settings and ~/Library and root-only files. --check
+# changes nothing; its vdisplay item still brings a virtual display up for 2 s. Prerequisite: Remote Login has
+# "Allow full disk access for remote users" (System Settings > General > Sharing), because TCC keeps the Time Machine
+# settings even from root; without it time-machine fails and says so.
 #
 # Each item prints one line: `ok ITEM: ...` (already so; nothing changed), `changed ITEM: ...`, `needs ITEM: ...`
 # (--check: a run would change it) or `fail ITEM: ...`. A second run prints only ok lines and changes nothing.
 # Exit 0 when no item failed or needs a change, 1 otherwise, 2 for a usage error.
 #
 # Items: pool-entry (NODE is a lab host in pool.json; its chip and memory match its host_class), power (pmset sleep,
-# displaysleep and disksleep 0), spotlight (indexing off on the data volume), time-machine, auto-updates, auto-login
-# (the bench user; asks for its password on the TTY), screen-lock (off for the bench user, screen saver idle 0), wpr
+# displaysleep and disksleep 0), spotlight (indexing off on the data volume), time-machine, auto-updates (macOS,
+# security responses and App Store apps neither check, download nor install), auto-login (the bench user; asks for
+# its password on the TTY), screen-lock (off for the bench user, screen saver idle 0), wpr
 # (Web Page Replay, go.chromium.org/webpagereplay as Chrome's Telemetry uses it, at pool.json's pinned commit, built
 # with Go in the bench user's Application Support), vdisplay-helper (scripts/ci/frame-pacing/vdisplay.m built there),
 # vdisplay (a 120 Hz virtual display comes up for 2 s in the bench user's console session) and sudoers.
 #
 # sudoers (decision D3): with --grant-privileged, /etc/sudoers.d/cmux-perf-lab lets the bench user run exactly the
 # argv lists in pool.json `privileged` (purge with no arguments, one fixed powermetrics command line: any free argument
-# list would allow `powermetrics -o FILE`, a root-owned write). Without the flag that file is removed. The script
-# never touches SSH keys, Tailscale, user accounts, FileVault or any other host access.
+# list would allow `powermetrics -o FILE`, a root-owned write; its fixed `-n` count ends it by itself, as the bench user
+# cannot signal a root sampler its killed job left). Without the flag that file is removed. The script never touches
+# SSH keys, Tailscale, user accounts, FileVault or any other host access.
 #
 # --root DIR is the test seam: every macOS tool and system file is looked up under DIR (tests/test_host_setup.py).
 set -uo pipefail
 
-usage() { sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 die() { echo "host-setup.sh: $*" >&2; exit 2; }
+need() { (( $# >= 2 )) && [[ -n "$2" ]] || die "$1 needs a value"; }
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
@@ -32,29 +40,25 @@ pool="$here/pool.json"
 host=""; bench=""; grant=0; check_only=0; root=""
 while (( $# )); do
   case "$1" in
-    --host) host="${2:-}"; shift 2 ;;
-    --bench-user) bench="${2:-}"; shift 2 ;;
+    --host) need "$@"; host="$2"; shift 2 ;;
+    --bench-user) need "$@"; bench="$2"; shift 2 ;;
     --grant-privileged) grant=1; shift ;;
     --check) check_only=1; shift ;;
-    --pool) pool="${2:-}"; shift 2 ;;
-    --root) root="${2:-}"; [[ -d "$root" ]] || die "--root takes an existing directory"; shift 2 ;;
+    --pool) need "$@"; pool="$2"; shift 2 ;;
+    --root) need "$@"; root="$2"; [[ -d "$root" ]] || die "--root takes an existing directory"; shift 2 ;;
     -h|--help) usage 0 ;;
     *) echo "host-setup.sh: unknown argument $1" >&2; usage ;;
   esac
 done
 [[ -n "$host" ]] || die "--host NODE is required (its pool.json name)"
 [[ "$bench" =~ ^[a-z_][a-z0-9_-]*$ ]] || die "--bench-user USER is required (a short user name)"
-if [[ -z "$root" ]]; then
-  [[ "$(uname -s)" == Darwin ]] || die "lab hosts are Macs"
-  (( check_only || EUID == 0 )) || die "run it with sudo (or pass --check to report only)"
-fi
+[[ -n "$root" || "$(uname -s)" == Darwin ]] || die "lab hosts are Macs"
 
 # A macOS tool, under --root in tests.
 c() { local tool="$1"; shift; "$root$tool" "$@"; }
-# A command as the bench user (directly when this already is the bench user).
-as_bench() {
-  if [[ "$(id -un)" == "$bench" ]]; then "$@"; else c /usr/bin/sudo -n -u "$bench" -H "$@"; fi
-}
+[[ "$(c /usr/bin/id -u)" == 0 ]] || die "run it with sudo, --check too: it reads the bench user's settings and root-only files"
+# A command as the bench user.
+as_bench() { c /usr/bin/sudo -n -u "$bench" -H "$@"; }
 
 pool_vars="$(/usr/bin/python3 -I - "$pool" "$host" "$bench" <<'PY'
 import json, re, shlex, sys
@@ -103,11 +107,13 @@ say() {
   printf '%s %s: %s\n' "$1" "$2" "$3"
   [[ "$1" == ok || "$1" == changed ]] || failed=1
 }
-# item NAME CHECK [APPLY]: CHECK prints why and succeeds when the host already is right; APPLY changes it.
+# item NAME CHECK [APPLY]: CHECK prints why and succeeds when the host already is right, returns 1 when APPLY would
+# change it and 2 when it cannot read the state (then APPLY does not run).
 item() {
-  local name="$1" check="$2" apply="${3:-}" why
-  if why="$("$check")"; then say ok "$name" "$why"; return; fi
-  if [[ -z "$apply" ]]; then say fail "$name" "$why"; return; fi
+  local name="$1" check="$2" apply="${3:-}" why status
+  why="$("$check")"; status=$?
+  if (( status == 0 )); then say ok "$name" "$why"; return; fi
+  if (( status == 2 )) || [[ -z "$apply" ]]; then say fail "$name" "$why"; return; fi
   if (( check_only )); then say needs "$name" "$why"; return; fi
   if ! "$apply" >&2; then say fail "$name" "$why"; return; fi
   if why="$("$check")"; then say changed "$name" "$why"; else say fail "$name" "still: $why"; fi
@@ -144,22 +150,34 @@ check_spotlight() {
 }
 apply_spotlight() { c /usr/bin/mdutil -i off "$data_volume"; }
 
+time_machine=/Library/Preferences/com.apple.TimeMachine
 check_time_machine() {
-  [[ "$(pref /Library/Preferences/com.apple.TimeMachine AutoBackup)" == 0 ]] && { echo "automatic backups are off"; return 0; }
+  local err
+  if [[ -e "$root$time_machine.plist" ]] && ! err="$(c /bin/cat "$root$time_machine.plist" 2>&1 >/dev/null)"; then
+    echo "cannot read $time_machine.plist (${err##*: }): give sshd Full Disk Access (System Settings > General >" \
+      "Sharing > Remote Login > Allow full disk access for remote users)"
+    return 2
+  fi
+  [[ "$(pref "$time_machine" AutoBackup)" == 0 ]] && { echo "automatic backups are off"; return 0; }
   echo "Time Machine backs up automatically"; return 1
 }
 apply_time_machine() { c /usr/bin/tmutil disable; }
 
+# CriticalUpdateInstall and ConfigDataInstall are "Install Security Responses and system files" (XProtect, Rapid
+# Security Responses); AutomaticallyInstallAppUpdates is App Store apps since macOS 13, com.apple.commerce before.
 update_prefs="/Library/Preferences/com.apple.SoftwareUpdate AutomaticCheckEnabled
 /Library/Preferences/com.apple.SoftwareUpdate AutomaticDownload
 /Library/Preferences/com.apple.SoftwareUpdate AutomaticallyInstallMacOSUpdates
+/Library/Preferences/com.apple.SoftwareUpdate CriticalUpdateInstall
+/Library/Preferences/com.apple.SoftwareUpdate ConfigDataInstall
+/Library/Preferences/com.apple.SoftwareUpdate AutomaticallyInstallAppUpdates
 /Library/Preferences/com.apple.commerce AutoUpdate"
 check_auto_updates() {
   local domain key on=""
   while read -r domain key; do
     [[ "$(pref "$domain" "$key")" == 0 ]] || on+=" ${domain##*/}.$key"
   done <<<"$update_prefs"
-  [[ -z "$on" ]] && { echo "macOS and App Store updates neither check, download nor install"; return 0; }
+  [[ -z "$on" ]] && { echo "macOS, security response and App Store updates neither check, download nor install"; return 0; }
   echo "still on:$on"; return 1
 }
 apply_auto_updates() {
@@ -244,12 +262,8 @@ check_vdisplay() {
   console="$(c /usr/bin/stat -f %Su /dev/console 2>/dev/null)"
   [[ "$console" == "$bench" ]] \
     || { echo "the console user is ${console:-nobody}, not $bench; reboot so auto-login takes effect"; return 1; }
-  if [[ "$(id -un)" == "$bench" ]]; then
-    out="$("$vdisplay_app/Contents/MacOS/VDisplay" 120 2 2>&1)"
-  else
-    out="$(c /bin/launchctl asuser "$(c /usr/bin/id -u "$bench")" "$root/usr/bin/sudo" -u "$bench" \
-      "$vdisplay_app/Contents/MacOS/VDisplay" 120 2 2>&1)"
-  fi
+  out="$(c /bin/launchctl asuser "$(c /usr/bin/id -u "$bench")" "$root/usr/bin/sudo" -u "$bench" \
+    "$vdisplay_app/Contents/MacOS/VDisplay" 120 2 2>&1)"
   p50="$(sed -n 's/^ready [0-9]* \([0-9.]*\).*/\1/p' <<<"$out" | head -n 1)"
   [[ -n "$p50" ]] || { echo "no ready line: $(head -n 2 <<<"$out" | tr '\n' ' ')"; return 1; }
   echo "a 120 Hz virtual display came up, CVDisplayLink p50 $p50 ms (task 160 decides hz=120 or hz=60)"
