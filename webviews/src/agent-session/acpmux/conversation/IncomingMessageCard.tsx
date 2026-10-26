@@ -50,6 +50,8 @@ import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useAgentAvatar } from "../agentAvatar";
+import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useChatDisplay } from "../chatDisplay";
@@ -144,6 +146,7 @@ export function IncomingMessageLine({
   const sender = useSenderChat(message.name, message.sessionId);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
+  const avatar = useAgentAvatar(sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
   const text = unsigned(message.text, message.name);
@@ -365,7 +368,13 @@ export function IncomingMessageLine({
     <div className="cv-received" data-open={open || undefined} data-minimal={minimal || undefined}>
       <div className="cv-received__line">
         <span className="cv-received__icon">
-          {agentBrand(sender.harness) ? <AgentMark agent={sender.harness} size={14} /> : <Bot size={16} />}
+          {avatar ? (
+            <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
+          ) : agentBrand(sender.harness) ? (
+            <AgentMark agent={sender.harness} size={14} />
+          ) : (
+            <Bot size={16} />
+          )}
         </span>
         {sessionId ? (
           <button
