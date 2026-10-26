@@ -78,7 +78,11 @@ test("a config without a location leaves the cursor alone; a malformed one is ig
 });
 
 test("a recovered draft does not take the cursor off the config's location", async () => {
-  const { store, view, reveals } = harness({ ...file, recoveredText: "one\ntwo\nthree\nfour\n", location: { line: 3 } });
+  const { store, view, reveals } = harness({
+    ...file,
+    recoveredText: "one\ntwo\nthree\nfour\n",
+    location: { line: 3 },
+  });
   const steps: string[] = [];
   const recording: CodeView = {
     ...view,
