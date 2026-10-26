@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.chief-profile-adopt",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -38,7 +39,7 @@
       "args": {
         "method": "chief.profile.adopt",
         "params": {
-          "participant_id": "agent_oracle"
+          "participant_id": "agent_unknown"
         },
         "idempotencyKey": "chief-profile-adopt-error.call"
       },

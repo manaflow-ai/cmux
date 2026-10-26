@@ -37,8 +37,9 @@ operation counts as covered only when its success case has no placeholder and no
 excluded with the task that closes them. Covered is not a verdict: driver_daemon.py on the VM gives the first one.
 
 Usage:
-  gen_daemon_ops.py --out DIR          write the cases and coverage.json into DIR
-  gen_daemon_ops.py --out DIR --check  exit 1 when DIR differs from a fresh generation
+  gen_daemon_ops.py --out DIR          write the cases and coverage.json into DIR, and the Skip block of the
+                                       excluded success cases into DIR/../../Expectations.d/daemon-ops.txt
+  gen_daemon_ops.py --out DIR --check  exit 1 when DIR or that block differs from a fresh generation
   gen_daemon_ops.py --selftest         offline tests against the checked-in catalog
 """
 
@@ -518,6 +519,8 @@ class Request:
     untested: List[str] = field(default_factory=list)
     # The error details the error case asserts (case-v1 expect.errorDetails, a subset of the reply's details).
     details: Optional[Dict[str, Any]] = None
+    # case-v1 fixture.agent: "mock" runs the case with the mock agent (mock_chief.py MockAgent).
+    agent: Optional[str] = None
 
 
 class Synth:
@@ -836,7 +839,7 @@ def known_gap(operation: str) -> Optional[str]:
 
 
 def case_doc(case_id: str, operation: str, family: str, kind: str, request: Request, expect: Mapping[str, Any],
-             note: str, gap: Optional[str] = None) -> Dict[str, Any]:
+             note: str, catalog: Catalog, gap: Optional[str] = None) -> Dict[str, Any]:
     """One case; `gap` is the untested line that says why its success cannot be checked yet."""
     steps = []
     used = [*handles_in(request.target), *handles_in(request.params), *handles_in(request.before),
@@ -846,7 +849,7 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     for step_id in fixture_closure(used):
         fx = FIXTURE_BY_ID[step_id]
         steps.append(call_step(case_id, fx.id, fx.operation, {s: Handle(h) for s, h in fx.target}, fx.params, OK))
-    steps.extend(before_step(case_id, spec) for spec in request.before)
+    steps.extend(before_step(case_id, spec, catalog) for spec in request.before)
     steps.append(call_step(case_id, "call", operation, request.target, request.params, expect, ["before", "settled"], note))
     requires = ["resource_api", *(cap for cap in request.requires if cap != "resource_api")]
     preconditions = ["hermetic state root", "no other cmux-tui on the state root"]
@@ -861,7 +864,8 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         "surface": "cmux-next-daemon",
         "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
         "environment": {},
-        "fixture": {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual"},
+        "fixture": {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual",
+                    **({"agent": request.agent} if request.agent else {})},
         "preconditions": preconditions,
         "requires": requires,
         "platforms": ["linux", "mac"],
@@ -878,19 +882,28 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     return doc
 
 
-def before_step(case_id: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
-    """A tuning `before` step: a mutation call (method, target, params) or a settle that waits (waitFor)."""
+def before_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[str, Any]:
+    """A tuning `before` step: a call (method, target, params) or a settle that waits (waitFor). A read call is a
+    readOnly step that expects ok; a later step names its reply with `$step:<id>#<pointer>`."""
     if "waitFor" in spec:
         return {"id": spec["id"], "op": "settle", "waitFor": copy.deepcopy(spec["waitFor"]),
                 "settleMaxMs": spec["waitFor"]["maxMs"]}
-    return call_step(case_id, spec["id"], spec["method"], spec.get("target") or {}, spec.get("params") or {}, OK)
+    method = spec["method"]
+    if catalog.operations[method].get("class") == "read":
+        return {"id": spec["id"], "op": "resource.call", "target": {**SCOPE, **refs(dict(spec.get("target") or {}))},
+                "args": {"method": method, "params": refs(dict(spec.get("params") or {}))}, "readOnly": True,
+                "expect": {"outcome": "ok"}}
+    return call_step(case_id, spec["id"], method, spec.get("target") or {}, spec.get("params") or {}, OK)
 
 
 # ---------------------------------------------------------------------------------------------- tuning
 
 
 TUNING_KINDS = ("success", "error")
-TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details"})
+TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details",
+                         "agent"})
+# case-v1 fixture.agent values a tuning may set: the mock agent (mock_chief.py), or none (the default).
+TUNING_AGENTS = frozenset({"mock", "none"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
 KIND_ONLY_KEYS = {"error": "error", "details": "error", "gap": "success"}
 # A gap names the task that closes it (WORK.tsv ids, p15-oracle-204).
@@ -946,10 +959,10 @@ class TaskGraph:
 
 def load_tuning(out: Path, catalog: Catalog, tasks: Optional[TaskGraph] = None) -> Dict[str, Dict[str, Any]]:
     """`<out>/<family>/_tuning.json`: {"operations": {op: {"success"|"error": {params, target, error, details, note,
-    before, requires, untested, gap}}}}. A params or target value null removes the key; {"$fixture": NAME} is a
-    fixture handle. `before` (steps between the fixture and the call: {id, method, target, params} calls a mutation,
-    {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api) and `untested`
-    replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
+    before, requires, untested, gap, agent}}}}. A params or target value null removes the key; {"$fixture": NAME} is a
+    fixture handle. `before` (steps between the fixture and the call: {id, method, target, params} calls a mutation
+    or a read, {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api),
+    `untested` and `agent` (case-v1 fixture.agent: mock runs the mock agent of mock_chief.py) replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
     of the error's details the case asserts; `gap` (success only) says why no product can check the success yet and
     names the task that closes it (`tasks`, WORK.tsv by default), so coverage excludes the operation. A value that
     looks like a real credential (CREDENTIAL_PATTERNS) is refused."""
@@ -1026,7 +1039,9 @@ def credential_values(value: Any, path: str) -> Iterable[str]:
 
 
 def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> None:
-    """The before, requires and untested keys of one tuning kind."""
+    """The before, requires, untested and agent keys of one tuning kind."""
+    if "agent" in spec and spec["agent"] not in TUNING_AGENTS:
+        raise GenError(f"{where}: agent takes only {sorted(TUNING_AGENTS)}")
     requires = spec.get("requires", [])
     if not isinstance(requires, list) or not set(requires) <= TUNING_CAPABILITIES:
         raise GenError(f"{where}: requires takes only {sorted(TUNING_CAPABILITIES)}")
@@ -1052,8 +1067,8 @@ def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> 
                 raise GenError(f"{where}: before step {step_id} waitFor {problem}")
         method = item.get("method")
         if "method" in item and (method not in catalog.operations
-                                 or catalog.operations[method].get("class") != "mutation"):
-            raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation of the catalog")
+                                 or catalog.operations[method].get("class") not in ("mutation", "read")):
+            raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation or read of the catalog")
 
 
 def wait_for_problem(wait: Any) -> Optional[str]:
@@ -1111,6 +1126,8 @@ def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
         request.untested = list(spec["untested"])
     if "details" in spec:
         request.details = tuned_value(spec["details"])
+    if "agent" in spec:
+        request.agent = None if spec["agent"] == "none" else spec["agent"]
     for part in ("params", "target"):
         into = request.params if part == "params" else request.target
         for key, value in (spec.get(part) or {}).items():
@@ -1175,9 +1192,9 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         gap = tuned_gap if "success" in tuned else known_gap(operation)
         files[f"{ok_id}.json"] = case_doc(ok_id, operation, family, "success", success, OK,
                                           success_tuning.get("note", "every required field from its catalog type"),
-                                          tuned_gap or (gap and f"{gap}; {family}/{TUNING} tunes it"))
+                                          catalog, tuned_gap or (gap and f"{gap}; {family}/{TUNING} tunes it"))
         files[f"{error_id}.json"] = case_doc(error_id, operation, family, "error", broken_request,
-                                             {"outcome": "error", "error": code}, error_note)
+                                             {"outcome": "error", "error": code}, error_note, catalog)
         entry: Dict[str, Any] = {
             "family": family,
             "cases": {"success": f"{SUITE}/{ok_id}", "error": f"{SUITE}/{error_id}"},
@@ -1221,6 +1238,68 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
 
 def render(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+
+
+# ------------------------------------------------------------------------------------------ expectations
+
+# The success cases coverage excludes cannot pass until the task their reason names lands. Blink lists such a test
+# in TestExpectations with its bug (third_party/blink/web_tests/TestExpectations, `crbug.com/N path [ Skip ]`), so
+# a run counts it as expected, not as a failure. The generator owns one block of the suite's expectations file
+# (expectations.py: tests/oracle/Expectations.d/<suite>.txt); lines outside the block are kept.
+EXPECTATIONS_BEGIN = f"# BEGIN {GENERATOR}: the success cases coverage.json excludes, skipped until their task lands"
+EXPECTATIONS_END = f"# END {GENERATOR}"
+EXPECTATIONS_HEADER = (f"# {SUITE} expectations (format: scripts/cmux-next/oracle/expectations.py).\n"
+                       f"# {GENERATOR} writes the block below from coverage.json: edit the family\n"
+                       "# tuning, not the block. Lines outside the block are kept.\n")
+
+
+def expectations_path(out: Path) -> Path:
+    """`<oracle root>/Expectations.d/<suite>.txt` for a suite directory `<oracle root>/corpus/<suite>`."""
+    return out.parent.parent / "Expectations.d" / f"{SUITE}.txt"
+
+
+def expectation_lines(coverage: Mapping[str, Any]) -> List[str]:
+    """`<task> daemon-ops/<op>-ok [ Skip ]` per excluded operation; the task is the first one its reason names (a
+    tuned gap's closing task, or the family task that tunes a placeholder)."""
+    lines = []
+    for operation, reason in coverage["excluded"].items():
+        task = TASK_ID.search(reason)
+        if task is None:
+            raise GenError(f"{operation}: the exclusion reason names no task: {reason}")
+        lines.append(f"{task.group(0)} {coverage['operations'][operation]['cases']['success']} [ Skip ]")
+    return sorted(lines, key=lambda line: line.split(" ", 1)[1])
+
+
+def render_expectations(existing: str, lines: Sequence[str]) -> str:
+    """`existing` with the generator's block replaced by `lines` (or appended, with a header for a new file)."""
+    block = "\n".join([EXPECTATIONS_BEGIN, *lines, EXPECTATIONS_END]) + "\n"
+    begin, end = existing.find(EXPECTATIONS_BEGIN), existing.find(EXPECTATIONS_END)
+    if begin >= 0 and end > begin:
+        tail = existing[end + len(EXPECTATIONS_END):]
+        return existing[:begin] + block + (tail[1:] if tail.startswith("\n") else tail)
+    if begin >= 0 or end >= 0:
+        raise GenError(f"the {SUITE} expectations file has one of the generator's block markers without the other")
+    if not existing.strip():
+        return EXPECTATIONS_HEADER + block
+    return existing + ("" if existing.endswith("\n") else "\n") + block
+
+
+def expectations_drift(path: Path, coverage: Mapping[str, Any]) -> List[str]:
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if existing != render_expectations(existing, expectation_lines(coverage)):
+        return [f"{path.name}: the generated Skip block differs from coverage.json"]
+    return []
+
+
+def write_expectations(path: Path, coverage: Mapping[str, Any]) -> bool:
+    """Writes the block when it changed; True when the file was written."""
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = render_expectations(existing, expectation_lines(coverage))
+    if text == existing:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return True
 
 
 def owned_files(out: Path) -> List[str]:
@@ -1275,6 +1354,12 @@ def write(out: Path, files: Mapping[str, Any]) -> Tuple[int, int]:
 
 # --------------------------------------------------------------------------------------------- self test
 
+
+def _sibling_module(name: str) -> Any:
+    """A sibling oracle script, for the self tests that check against it."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    return __import__(name)
 
 class GenDaemonOpsSelfTest(unittest.TestCase):
     @classmethod
@@ -1423,8 +1508,11 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"rules": {}}, "unknown keys"),
             ({"operations": {"pane.close": {"success": {"requires": ["gui"]}}}}, "requires takes only"),
             ({"operations": {"pane.close": {"success": {"untested": [""]}}}}, "untested is a list"),
-            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "workspace.list"}]}}}},
-             "not a mutation of the catalog"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "workspace.nope"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "conversation.events"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"agent": "real"}}}}, "agent takes only"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "fx-workspace", "method": "pane.split"}]}}}},
              "not a new step id"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "call", "waitFor": {}}]}}}}, "not a new step id"),
@@ -1719,39 +1807,95 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
 
     def test_the_chief_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/chief/_tuning.json (p15-oracle-069): each of the 24 chief, conversation,
-        room, participant and agent mutations has a success and a typed-error case on the mock agent (no agent
-        process, no credential). Every error case reaches the handler and asserts its refusal; the success cases
-        that need a Chief brain, a conversation or the verified app are excluded with the task that closes them."""
-        gapped = {
-            "agent.message.release": "p15-oracle-023", "agent.message.unsend": "p15-oracle-023",
-            "chief.engine.set": "p15-oracle-200", "chief.stop": "p15-oracle-200",
-            "chief.profile.adopt": "p15-oracle-023", "conversation.draft": "p15-oracle-023",
-            "conversation.send": "p15-oracle-023", "conversation.typing": "p15-oracle-023",
-        }
+        room, participant and agent mutations has a success and a typed-error case. The Chief brain and the
+        conversations are the mock agent's (fixture.agent mock, mock_chief.py); no case holds a credential. Every
+        error case asserts its refusal by typed keys, except the three whose refusal has none yet (p15-oracle-241).
+        The success cases that need a bound agent connection or the verified app name p15-oracle-240."""
+        gapped = {"agent.message.release", "agent.message.unsend", "conversation.draft"}
+        code_only = {"agent.report", "room.create", "room.delete"}
+        mock = {"chief.engine.set", "chief.stop", "chief.profile.adopt", "conversation.send", "conversation.typing",
+                "conversation.draft"}
         tuning = load_tuning(DEFAULT_OUT, self.catalog)
         files = generate(self.catalog, tuning)
         chief = sorted(op for op in self.catalog.mutations() if family_of(op) == "chief")
         self.assertEqual(len(chief), 24)
         excluded = files[COVERAGE]["excluded"]
         self.assertEqual(sorted(op for op in excluded if family_of(op) == "chief"), sorted(gapped))
+        skips = expectation_lines(files[COVERAGE])
         for operation in chief:
             entry = files[COVERAGE]["operations"][operation]
+            success_id = entry["cases"]["success"]
+            self.assertEqual(f"p15-oracle-240 {success_id} [ Skip ]" in skips, operation in gapped, operation)
             if operation in gapped:
-                self.assertIn(gapped[operation], excluded[operation], operation)
+                self.assertTrue(excluded[operation].startswith("no product runs it yet"), operation)
+                self.assertIn("p15-oracle-240", excluded[operation], operation)
             else:
                 self.assertEqual(entry["placeholders"], [], operation)
+            ok = files[success_id.split("/", 1)[1] + ".json"]
+            self.assertEqual(ok["fixture"].get("agent"), "mock" if operation in mock else None, operation)
             for kind in ("success", "error"):
                 case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
                 self.assertEqual(case["requires"], ["resource_api"], f"{operation} {kind}")
                 self.assertEqual(case["steps"][-1]["args"]["method"], operation)
                 self.assertIsNone(next(credential_values(case, operation), None), f"{operation} {kind}")
             error = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
-            self.assertTrue(error.get("errorDetails"), f"{operation}: the error case asserts its refusal")
+            self.assertEqual("errorDetails" in error, operation not in code_only, operation)
+            # Typed keys only: a reason is a token (no spaces), never message text.
+            reason = error.get("errorDetails", {}).get("reason", "")
+            self.assertRegex(reason, r"^[a-z_]*$", f"{operation}: the reason is a token, not prose")
+        send = files["conversation-send-ok.json"]["steps"]
+        self.assertEqual(send[0], {"id": "conversation", "op": "resource.call", "target": dict(SCOPE),
+                                   "args": {"method": "conversation.list", "params": {}}, "readOnly": True,
+                                   "expect": {"outcome": "ok"}})
+        self.assertEqual(send[-1]["args"]["params"]["conversation"], "$step:conversation#/0/id")
+        adopt = files["chief-profile-adopt-ok.json"]["steps"][-1]["args"]["params"]
+        self.assertEqual(adopt["participant_id"], _sibling_module("mock_chief").ADOPTABLE)
         undo = [step["id"] for step in files["chief-profile-undo-ok.json"]["steps"]]
         self.assertEqual(undo, ["fx-chief", "rename", "call"])
         self.assertNotIn("rename", [step["id"] for step in files["chief-profile-undo-error.json"]["steps"]])
         unpin = [step["id"] for step in files["room-unpin-ok.json"]["steps"]]
         self.assertEqual(unpin, ["fx-workspace", "fx-room", "pin", "call"])
+
+    def test_each_excluded_success_case_is_a_skip_line_naming_its_task(self) -> None:
+        files = generate(self.catalog, load_tuning(DEFAULT_OUT, self.catalog))
+        coverage = files[COVERAGE]
+        lines = expectation_lines(coverage)
+        self.assertEqual(len(lines), len(coverage["excluded"]))
+        for operation, reason in coverage["excluded"].items():
+            task = TASK_ID.search(reason).group(0)
+            self.assertIn(f"{task} {coverage['operations'][operation]['cases']['success']} [ Skip ]", lines)
+        with self.assertRaisesRegex(GenError, "names no task"):
+            expectation_lines({"excluded": {"pane.close": "no reason"}, "operations": coverage["operations"]})
+        # The checked-in file is the expectations.py format, and every line parses with no diagnostic.
+        expectations = _sibling_module("expectations")
+        text = render_expectations("", lines)
+        entries, diagnostics = expectations.parse_text(text, "daemon-ops.txt", "expectations")
+        self.assertEqual((len(entries), diagnostics), (len(lines), []))
+        self.assertTrue(all(entry.results == frozenset({"Skip"}) for entry in entries))
+
+    def test_the_skip_block_keeps_hand_lines_and_check_finds_drift(self) -> None:
+        coverage = generate(self.catalog, {})[COVERAGE]
+        lines = expectation_lines(coverage)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Expectations.d" / f"{SUITE}.txt"
+            self.assertEqual(expectations_drift(path, coverage), [f"{SUITE}.txt: the generated Skip block differs "
+                                                                   "from coverage.json"])
+            self.assertTrue(write_expectations(path, coverage))
+            self.assertFalse(write_expectations(path, coverage))
+            self.assertEqual(expectations_drift(path, coverage), [])
+            hand = "#1234 daemon-ops/pane-close-ok [ Failure Pass ]\n"
+            path.write_text(hand + path.read_text(encoding="utf-8"), encoding="utf-8")
+            fewer = {**coverage, "excluded": dict(list(coverage["excluded"].items())[1:])}
+            self.assertEqual(len(expectations_drift(path, fewer)), 1)
+            self.assertTrue(write_expectations(path, fewer))
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith(hand), "a line outside the block is kept")
+            self.assertEqual(text.count(EXPECTATIONS_BEGIN), 1)
+            dropped = coverage["operations"][next(iter(coverage["excluded"]))]["cases"]["success"]
+            self.assertNotIn(f" {dropped} [ Skip ]", text)
+            path.write_text(EXPECTATIONS_BEGIN + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(GenError, "one of the generator's block markers"):
+                write_expectations(path, coverage)
 
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
@@ -1881,6 +2025,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="the suite directory (default: the corpus)")
     parser.add_argument("--catalog", type=Path, default=CATALOG)
+    parser.add_argument("--expectations", type=Path,
+                        help="the suite's expectations file (default: <out>/../../Expectations.d/daemon-ops.txt)")
     parser.add_argument("--check", action="store_true", help="exit 1 when --out differs from a fresh generation")
     parser.add_argument("--selftest", action="store_true", help="run the offline self tests")
     args = parser.parse_args(argv)
@@ -1891,14 +2037,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         catalog = Catalog.load(args.catalog)
         files = generate(catalog, load_tuning(args.out, catalog))
         coverage = files[COVERAGE]
+        expectations = args.expectations or expectations_path(args.out)
         if args.check:
-            problems = drift(args.out, files)
+            problems = drift(args.out, files) + expectations_drift(expectations, coverage)
             for problem in problems:
                 print(f"gen_daemon_ops: {problem}", file=sys.stderr)
             print(f"gen_daemon_ops: {coverage['covered']}/{coverage['total']} operations, "
                   f"{'stale' if problems else 'up to date'}")
             return 1 if problems else 0
         written, removed = write(args.out, files)
+        written += write_expectations(expectations, coverage)
     except GenError as error:
         print(f"gen_daemon_ops: {error}", file=sys.stderr)
         return 2

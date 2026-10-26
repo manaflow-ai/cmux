@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.conversation-draft",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -29,6 +30,22 @@
   ],
   "steps": [
     {
+      "id": "conversation",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "conversation.list",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,7 +55,7 @@
       "args": {
         "method": "conversation.draft",
         "params": {
-          "conversation": "conv_00000000000000000000000000",
+          "conversation": "$step:conversation#/0/id",
           "turn": "oracle",
           "segment": 1,
           "seq": 1,
@@ -61,7 +78,7 @@
         "before",
         "settled"
       ],
-      "note": "the case connection acts as the person, and only a bound agent participant publishes drafts"
+      "note": "the case connection acts as the person in the mock conversation, and only a bound agent participant publishes drafts"
     }
   ],
   "invariants": [

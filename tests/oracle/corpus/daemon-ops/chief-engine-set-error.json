@@ -14,7 +14,8 @@
   "fixture": {
     "seed": "daemon-ops.chief-engine-set",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "agent": "mock"
   },
   "preconditions": [
     "hermetic state root",
@@ -54,7 +55,7 @@
         "before",
         "settled"
       ],
-      "note": "a Chief id that names no live Chief (chief_control.rs target), refused before any brain is asked"
+      "note": "a Chief id that names no live Chief (chief_control.rs target), refused before the mock brain is asked"
     }
   ],
   "invariants": [

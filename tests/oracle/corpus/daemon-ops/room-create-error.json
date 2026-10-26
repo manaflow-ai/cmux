@@ -44,16 +44,13 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid",
-        "errorDetails": {
-          "reason": "room name cannot be empty"
-        }
+        "error": "validation.invalid"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "the catalog types name as any string; the room store refuses an empty one"
+      "note": "the catalog types name as any string; the room store refuses an empty one. The code only: the refusal has no field yet (a prose reason), p15-oracle-241 adds field name"
     }
   ],
   "invariants": [

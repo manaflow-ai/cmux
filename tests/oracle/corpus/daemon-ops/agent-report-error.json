@@ -46,16 +46,13 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "operation.failed",
-        "errorDetails": {
-          "reason": "unknown terminal term_00000000000000000000000000000000"
-        }
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "a hook report for a well-formed terminal id that names no terminal"
+      "note": "a hook report for a well-formed terminal id that names no terminal; the code only: the daemon gives no typed key yet (operation resource.runtime, a prose reason), p15-oracle-241 makes it resource.not_found"
     }
   ],
   "invariants": [
