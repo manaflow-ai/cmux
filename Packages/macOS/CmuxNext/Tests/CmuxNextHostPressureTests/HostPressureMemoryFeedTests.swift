@@ -5,18 +5,33 @@ import Testing
 
 /// A memory pressure source the test drives, as the kernel's would: on the main actor, at once.
 private final class DrivenPressureSource: MemoryPressureSource {
-    private let deliver = OSAllocatedUnfairLock<(@MainActor @Sendable (MemoryPressureLevel) -> Void)?>(initialState: nil)
+    private struct State {
+        var deliver: (@MainActor @Sendable (MemoryPressureLevel) -> Void)?
+        var level = MemoryPressureLevel.normal
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {
-        self.deliver.withLock { $0 = deliver }
+        state.withLock { $0.deliver = deliver }
     }
 
     func cancel() {
-        deliver.withLock { $0 = nil }
+        state.withLock { $0.deliver = nil }
     }
 
+    /// The level last sent; normal before the first.
+    var currentLevel: MemoryPressureLevel {
+        state.withLock { $0.level }
+    }
+
+    /// Sets ``currentLevel`` and delivers `level`; nothing after ``cancel()``.
     @MainActor func send(_ level: MemoryPressureLevel) {
-        deliver.withLock { $0 }?(level)
+        let deliver = state.withLock { state in
+            state.level = level
+            return state.deliver
+        }
+        deliver?(level)
     }
 }
 
