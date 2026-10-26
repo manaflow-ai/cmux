@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -16,8 +17,9 @@ import Observation
 @MainActor
 final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
-    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
-    private let domains: @MainActor () -> [String: [String]]
+    /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`); async,
+    /// so a domain read from disk (the sounds folder) is awaited on a lane, never read on the main thread.
+    private let domains: @MainActor () async -> [String: [String]]
     /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
     /// in tests without an app.
     private let hostLists: (@MainActor () -> JSONValue)?
@@ -91,7 +93,7 @@ final class SettingsPageProvider: PageProvider {
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
 
-    init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
+    init(settings: SettingsController, domains: @escaping @MainActor () async -> [String: [String]] = { [:] },
          hostLists: (@MainActor () -> JSONValue)? = nil) {
         self.settings = settings
         self.domains = domains
@@ -122,7 +124,7 @@ final class SettingsPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.list": return list(section: params["section"]?.stringValue)
-        case "cmux.settings.snapshot": return snapshot()
+        case "cmux.settings.snapshot": return await snapshot()
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
@@ -349,11 +351,11 @@ final class SettingsPageProvider: PageProvider {
         })
     }
 
-    private func snapshot() -> JSONValue {
+    private func snapshot() async -> JSONValue {
+        var published: [String: JSONValue] = [:]
+        for (name, values) in await domains() { published[name] = .array(values.map(JSONValue.string)) }
         var managed: [String: JSONValue] = [:]
         for (key, source) in settings.managedKeys { managed[key] = Self.managedInfo(source) }
-        var published: [String: JSONValue] = [:]
-        for (name, values) in domains() { published[name] = .array(values.map(JSONValue.string)) }
         return [
             "revision": .number(Double(settings.loadCount)),
             // The page checks no hash yet; the daemon owner will send the export's.
@@ -434,7 +436,7 @@ final class SettingsPageProvider: PageProvider {
     }
 }
 
-/// The value domains the Settings page offers in menus, listed once per launch.
+/// The value domains the Settings page offers in menus.
 @MainActor
 enum SettingsPageDomains {
     /// Installed fixed-pitch families the terminal accepts, sorted.
@@ -445,10 +447,13 @@ enum SettingsPageDomains {
         return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }()
 
-    /// The sounds in /System/Library/Sounds.
-    static let sounds: [String] = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "/System/Library/Sounds"),
-                                                                  includingPropertiesForKeys: nil)) ?? []
+    /// The sounds in /System/Library/Sounds, listed on the files lane while the page's snapshot waits (a
+    /// directory read: never a static initializer on whichever thread reads it first, p02-threads-122).
+    static func sounds(work: BackgroundWork) async -> [String] {
+        let folder = URL(fileURLWithPath: "/System/Library/Sounds")
+        let urls = (try? await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+        }) ?? []
         return urls.map { $0.deletingPathExtension().lastPathComponent }.sorted()
-    }()
+    }
 }

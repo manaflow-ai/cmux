@@ -2,7 +2,7 @@
 """threading-inventory.py (p02-threads-001) on fixture trees, and its acceptance counts on 772cdfc45ac.
 
 The fixture has hits of every rule (main-blocking, raw-blocking, raw-blocking-ext, maybe-main-blocking, task-priority,
-thread-doc, cpu-intensive: raw JSON, property list, image and regex calls on the main thread, not off it in the
+thread-doc, once-blocking, cpu-intensive: raw JSON, property list, image and regex calls on the main thread, not off it in the
 main-actor target nor in another target), an `await backoff.wait(` that no rule reports, a sync main-actor function
 with 4 call sites (a comment, a string, a declaration and a call from another module do not count), and the isolation
 forms the JSONL names (main, pool, nonisolated, actor). The CLI runs on a throwaway git repo with sockets switched off
@@ -274,6 +274,23 @@ final class FenceOwner {
     }
 }
 """,
+    # awaited-low-priority (p02-threads-113): a stored background task that a main-actor method awaits, and a
+    # fire-and-forget one (a plain `Task(priority:)` states its priority: no task-priority hit).
+    SRC + "CmuxNextUI/Saver.swift": """import Foundation
+
+final class Saver {
+    private var lastWrite: Task<Void, Never>?
+
+    func save() {
+        lastWrite = Task(priority: .background) { print("written") }
+        Task(priority: .background) { print("forgotten") }
+    }
+
+    func flush() async {
+        await lastWrite?.value
+    }
+}
+""",
     # Two functions with hits where one calls the other (one call-graph root), and one unrelated function.
     SRC + "CmuxNextCore/Graph.swift": """import Foundation
 
@@ -307,6 +324,17 @@ struct Posix {
     }
 }
 """,
+    # once-blocking (p02-threads-122): a seam in an immediately called static initializer closure (no other rule:
+    # a seam off the main thread is fine, but here it blocks whichever thread reads `list` first).
+    SRC + "CmuxNextCore/Words.swift": """import Foundation
+
+enum Words {
+    static let list: [String] = {
+        (try? String(blockingContentsOf: url, encoding: .utf8))?.components(separatedBy: "\\n") ?? []
+    }()
+    static let limit = 2048
+}
+""",
 }
 
 
@@ -335,6 +363,7 @@ class RuleTests(unittest.TestCase):
         self.assertEqual({(h.enclosing_func, h.isolation) for h in self.hits if h.rule == "pool-blocking"},
                          {("Reader.offMain", "pool"), ("Store.save", "actor")})
         hit(self.hits, "raw-blocking-ext", "files.removeItem(atPath: path)")
+        self.assertEqual(hit(self.hits, "awaited-low-priority", "lastWrite = Task(").enclosing_func, "Saver.save")
 
     def test_cpu_intensive_lists_raw_long_cpu_calls_that_run_on_the_main_thread(self):
         found = [h for h in self.hits if h.rule == "cpu-intensive"]
@@ -857,7 +886,8 @@ class CLITests(unittest.TestCase):
         self.assertEqual({k: int(v) for k, v in counts.items()},
                          {"main-blocking": 1, "raw-blocking": 8, "pool-blocking": 2, "raw-blocking-ext": 1,
                           "maybe-main-blocking": 1,
-                          "task-priority": 1, "thread-doc": 1, "cpu-intensive": 8, "sync-inversion": 1})
+                          "task-priority": 1, "thread-doc": 1, "cpu-intensive": 8, "sync-inversion": 1,
+                          "once-blocking": 1, "awaited-low-priority": 1})
         records = [json.loads(line) for line in self.run_main("--rule", "main-blocking", "--jsonl").splitlines()]
         self.assertEqual(len(records), 1)
         self.assertEqual(set(records[0]), {"rule", "path", "line", "module", "ui_target", "text", "enclosing_func",
