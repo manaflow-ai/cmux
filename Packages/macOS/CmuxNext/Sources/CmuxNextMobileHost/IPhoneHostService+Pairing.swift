@@ -32,18 +32,28 @@ extension IPhoneHostService {
         }
     }
 
-    /// Loads the list of the signed-in user; a sign-out forgets that user's phones.
+    /// Loads the list of the signed-in user; a sign-out forgets that user's phones. The list is
+    /// read off the main actor (its seal is a Keychain item), after every save already queued;
+    /// until it is in, no phone is trusted and no pairing is decided (each needs `paired`).
     func loadPaired(signedOut: Bool) {
         guard let file = pairedFile else { return }
         if signedOut, let previous = paired {
-            try? file.save(MobileHostPairedDevices(userID: previous.userID))
+            file.saveInBackground(MobileHostPairedDevices(userID: previous.userID))
         }
         if paired?.userID != account?.userID { resetPrompts() }
-        paired = account.map { file.load(userID: $0.userID) }
+        paired = nil
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
             approverSync = makeApproverSync(environment)
         }
         pushPaired()
+        guard let userID = account?.userID else { return }
+        // task-owner: one read per account change; its answer is dropped once the account changed
+        Task { [weak self] in
+            let list = await file.loadInBackground(userID: userID)
+            guard let self, self.account?.userID == userID, self.paired == nil else { return }
+            self.paired = list
+            self.pushPaired()
+        }
     }
 
     /// Settings > Mobile: forget a phone. Its live links end now, its next link asks
@@ -206,11 +216,8 @@ extension IPhoneHostService {
 
     private func savePaired(_ list: MobileHostPairedDevices) {
         paired = list
-        do {
-            try pairedFile?.save(list)
-        } catch {
-            Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
-        }
+        // Off the main actor, in order (the seal is a Keychain item); a failure is logged there.
+        pairedFile?.saveInBackground(list)
         pushPaired()
     }
 

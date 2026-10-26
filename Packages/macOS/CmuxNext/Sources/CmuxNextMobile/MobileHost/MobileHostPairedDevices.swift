@@ -200,10 +200,18 @@ public struct MobileHostPairedDevicesFile: Sendable {
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.pairing")
 
-    /// The stored list when it belongs to `userID`, else an empty one for that user.
+    /// The stored list when it is the one this app saved last (its digest matches the seal's) and
+    /// belongs to `userID`, else an empty one for that user. Both consumers (hostd's pinned keys,
+    /// acpmux's approvers) get only this result. Any other list (changed, an older copy put back,
+    /// one a build before the seal wrote, or one saved while the Keychain refused) trusts no
+    /// phone: each pairs again, which the person approves.
     public func load(userID: String) -> MobileHostPairedDevices {
-        guard let data = try? Data(contentsOf: file),
-              let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data),
+        guard let data = try? Data(contentsOf: file) else { return MobileHostPairedDevices(userID: userID) }
+        guard let sealed = seal.digest(), sealed == MobileHostPairingSeal.digest(data) else {
+            Self.logger.error("iPhone pairing: paired-devices.json is not the list this app saved; no phone is trusted until it pairs again")
+            return MobileHostPairedDevices(userID: userID)
+        }
+        guard let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data),
               stored.userID == userID else { return MobileHostPairedDevices(userID: userID) }
         return stored
     }
@@ -213,7 +221,13 @@ public struct MobileHostPairedDevicesFile: Sendable {
                                                 attributes: [.posixPermissions: 0o700])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
-        try encoder.encode(devices).write(to: file, options: .atomic)
+        let data = try encoder.encode(devices)
+        // The old digest goes first, and nothing is written while the Keychain keeps it: until the
+        // new one is recorded no copy of any list counts, so a crash, or a Keychain that refuses
+        // the new digest (logged there), trusts nothing, never an older list put back.
+        guard seal.clearDigest() else { throw MobileHostPairingSealError.keychainRefused }
+        try data.write(to: file, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        _ = seal.setDigest(MobileHostPairingSeal.digest(data))
     }
 }
