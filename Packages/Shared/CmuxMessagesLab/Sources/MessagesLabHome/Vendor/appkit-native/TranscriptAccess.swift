@@ -56,6 +56,7 @@ extension ChatController {
         }
     }
 
+    @MainActor  // cmux: the window and the elements are AppKit's (main actor); its caller is the document view
     func accessibilityElements(parent: NSView) -> [NSAccessibilityElement] {
         guard let store, let window = host.window else { return [] }
         let time = DateFormatter()

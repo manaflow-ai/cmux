@@ -28,7 +28,7 @@
              let id = p.ref.messageId
              let t = p.text?.text ?? Self.describe(p.part)
              if let e = by[id] { by[id] = (e.0.union(body), e.1 + [(p.ref.partIndex, t)]) } else { by[id] = (body, [(p.ref.partIndex, t)]); order.append(id) }
-@@ -52,6 +52,7 @@
+@@ -52,16 +52,25 @@
          case let .link(url, title, site, _, _): return [title, site ?? url].compactMap { $0 }.joined(separator: ", ")
          case let .attachment(a): return String(format: NativeStrings.attachmentFormat, a.fileName)
          case let .location(_, _, title, subtitle): return [title, subtitle].compactMap { $0 }.joined(separator: ", ")
@@ -36,7 +36,9 @@
          }
      }
  
-@@ -60,8 +61,15 @@
++    @MainActor  // cmux: the window and the elements are AppKit's (main actor); its caller is the document view
+     func accessibilityElements(parent: NSView) -> [NSAccessibilityElement] {
+         guard let store, let window = host.window else { return [] }
          let time = DateFormatter()
          time.dateStyle = .none
          time.timeStyle = .short
@@ -54,7 +56,7 @@
              let msg = store.state.message(m.id)
              let sender = msg.map { msg in
                  msg.senderId == store.state.me ? NativeStrings.you
-@@ -94,11 +102,18 @@
+@@ -94,11 +103,18 @@
  /// A text position in the transcript: a row (by key) and a UTF-16 offset.
  struct TextPosition: Equatable { var key: String; var offset: Int }
  
@@ -76,7 +78,7 @@
      private(set) var anchor: TextPosition?
      private(set) var focus: TextPosition?
      private var downPoint: CGPoint?
-@@ -106,15 +121,20 @@
+@@ -106,15 +122,20 @@
  
      init(controller: ChatController) {
          self.controller = controller
@@ -86,16 +88,16 @@
 -        layer.fillColor = Fixture.p3(2.6, 37.7, 85).cgColor
 -        layer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
 -        layer.compositingFilter = "screenBlendMode"
-     }
- 
++    }
++
 +    /// cmux: rows renamed in place (old key -> new key: a stream's final message took its rows,
 +    /// MessagesWindowView.onRowsRenamed). The selection stays on the same text under the new keys.
 +    func renameRows(_ map: [String: String]) {
 +        if let a = anchor, let b = map[a.key] { anchor?.key = b }
 +        if let f = focus, let b = map[f.key] { focus?.key = b }
 +        if let k = selectedKey, let b = map[k] { selectedKey = b }
-+    }
-+
+     }
+ 
      var isEmpty: Bool { anchor == nil || anchor == focus }
 +    /// cmux: MessagesLab ced183d's NativeScroll asks it (this file stays at bd65bbf): something is
 +    /// highlighted, a text selection or a selected bubble.
@@ -103,7 +105,7 @@
  
      // MARK: Selected message (a click on a bubble)
  
-@@ -178,8 +198,12 @@
+@@ -178,8 +199,12 @@
          guard let key = selectedKey, let demo = controller.demo else { return nil }
          for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
              guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
@@ -118,7 +120,7 @@
          }
          return nil
      }
-@@ -218,11 +242,8 @@
+@@ -218,11 +243,8 @@
      /// when the point is not on text.
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
@@ -132,7 +134,7 @@
          anchor = TextPosition(key: pos.key, offset: r.location)
          focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
          downPoint = nil
-@@ -230,17 +251,42 @@
+@@ -230,15 +252,40 @@
          return true
      }
  
@@ -169,19 +171,17 @@
          }
 -        return out.sorted { $0.0 < $1.0 }
 +        return out
-     }
- 
++    }
++
 +    /// Rows with text, in transcript order (model index); bodies in window content coordinates.
 +    private func textRows() -> [(index: Int, key: String, geometry: RowTextGeometry, body: CGRect)] {
 +        guard let demo = controller.demo else { return [] }
 +        return textCells().map { ($0.index, $0.key, $0.geometry, $0.cell.convert(RowDraw.bodyRect($0.spec), to: demo)) }
 +            .sorted { $0.0 < $1.0 }
-+    }
-+
+     }
+ 
      /// The text position nearest to a point (window content coordinates).
-     func position(at p: CGPoint) -> TextPosition? {
-         let rows = textRows()
-@@ -251,68 +297,93 @@
+@@ -251,68 +298,93 @@
              let db = p.y < b.body.minY ? b.body.minY - p.y : max(0, p.y - b.body.maxY)
              return da < db
          }!

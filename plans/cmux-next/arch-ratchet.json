@@ -633,6 +633,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "assume_isolated_outside_adapters",
+      "allow": 1,
+      "why": "p10-stability-042: MessagesLabHome's MainQueueObservation is CmuxNextCompat.MainActorObservation's seam (the same queue .main observer with its one main-proof, removed when released), which a Shared package cannot import. It replaces the hand-written block observers of the vendored MessagesLab views (FieldTextView's key and text-storage observers, ComposeTextView's bounds observer, FieldChrome's key-fix observers, TranscriptScrollView's three, SequenceScroller's style observer: eleven registrations) whose handlers called main-actor view methods from a nonisolated Sendable block. Inline delivery is kept: the transcript's clip-to-model sync must run in the poster's turn, which the async notification sequence would not. It goes when CmuxMessagesLab can import the CmuxSafeConcurrency seams (p10-stability-172)."
     }
   ],
   "observer_wrappers": [
