@@ -20,19 +20,25 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
         if target.name == "CmuxNextIPCTests" {
             return [Self.fixtureEvents(tool: tool.url, spec: spec, work: work, target: target.name)]
         }
-        return [Self.schemaBindings(tool: tool.url, spec: spec, work: work, target: target.name)]
+        return [try Self.schemaBindings(tool: tool.url, spec: spec, work: work, target: target.name)]
     }
 
     /// The identity, `MethodTable.schema` (task 023) and the app's `cmux.protocol/2` requests
     /// (task 024) of cmux-tui/spec. `DaemonWireEvent+Schema.swift` joins them once TypeEmitter's
     /// payload types build (p05-ipc-020, then p05-ipc-195).
-    private static func schemaBindings(tool: URL, spec: URL, work: URL, target: String) -> Command {
+    private static func schemaBindings(tool: URL, spec: URL, work: URL, target: String) throws -> Command {
         let sdkSchema = spec.appending(path: "sdk-schema.json", directoryHint: .notDirectory)
         let resourceOperations = spec.appending(path: "resource-operations-v2.json", directoryHint: .notDirectory)
         let identity = work.appending(path: "WireSchemaIdentity+Built.generated.swift", directoryHint: .notDirectory)
         let methodTable = work.appending(path: "MethodTable+Schema.swift", directoryHint: .notDirectory)
         // ResourceEmitter writes one file of shared types and errors and one per operation family.
         let resourceFiles = resourceFileNames(appResourceOperations).map {
+            work.appending(path: $0, directoryHint: .notDirectory)
+        }
+        // The wire types (task 020, TypeEmitter): the support files and one file per named type
+        // the app's commands reach, listed by WireTypeFiles, the source CmuxNextWireGen names its
+        // files with (this directory's WireTypeFiles.swift is a symlink to it).
+        let wireTypes = try WireTypeFiles(sdkSchema: Data(contentsOf: sdkSchema)).fileNames.map {
             work.appending(path: $0, directoryHint: .notDirectory)
         }
         return .buildCommand(
@@ -45,9 +51,10 @@ struct CmuxNextWireGenPlugin: BuildToolPlugin {
                 "--method-table-output", methodTable.path(percentEncoded: false),
                 "--resource-output-dir", work.path(percentEncoded: false),
                 "--resource-operation-names", appResourceOperations.joined(separator: ","),
+                "--types-output-dir", work.path(percentEncoded: false),
             ],
             inputFiles: [sdkSchema, resourceOperations],
-            outputFiles: [identity, methodTable] + resourceFiles
+            outputFiles: [identity, methodTable] + resourceFiles + wireTypes
         )
     }
 

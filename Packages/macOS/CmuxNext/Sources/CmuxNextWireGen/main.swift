@@ -8,7 +8,8 @@
 //     --resource-operations cmux-tui/spec/resource-operations-v2.json \
 //     --identity-output <plugin work dir>/WireSchemaIdentity+Built.generated.swift \
 //     --method-table-output <plugin work dir>/MethodTable+Schema.swift \
-//     --resource-output-dir <plugin work dir> --resource-operation-names terminal.input.write,...
+//     --resource-output-dir <plugin work dir> --resource-operation-names terminal.input.write,... \
+//     --types-output-dir <plugin work dir>
 //
 // The last pair writes ResourceOperations.swift and ResourceOperations+<family>.swift: typed
 // requests for the named `cmux.protocol/2` operations (the plugin's appResourceOperations).
@@ -67,6 +68,26 @@ func run(_ argv: [String]) throws(WireGenError) {
         }
         for file in files {
             try GeneratedFile(url: directory.appending(path: file.name, directoryHint: .notDirectory)).write(file.text)
+        }
+    }
+    if let directory = arguments.typesOutputDirectory {
+        let types: [GeneratedSource]
+        do {
+            types = try TypeEmitter(sdkSchema: sdk.bytes).files()
+        } catch {
+            throw WireGenError.types(error)
+        }
+        // The plugin declared its outputs from the same WireTypeFiles rule; a file it did not
+        // declare would not compile, so a difference fails here with the names.
+        let declared = (try? WireTypeFiles(sdkSchema: sdk.bytes).fileNames) ?? []
+        let written = types.map(\.fileName)
+        guard declared == written else {
+            let detail = "the plugin declares \(Set(declared).subtracting(written).sorted()) but TypeEmitter writes "
+                + "\(Set(written).subtracting(declared).sorted()) instead"
+            throw WireGenError.types(TypeSchemaError(path: "$", message: detail))
+        }
+        for file in types {
+            try GeneratedFile(url: directory.appending(path: file.fileName, directoryHint: .notDirectory)).write(file.text)
         }
     }
 }
