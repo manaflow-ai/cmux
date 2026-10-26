@@ -103,10 +103,8 @@ extension CloudHandlers {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))
             }
             // The marker first, so a hub that ends from here on is restarted for the route.
-            let marker = cloud.paths.sshRoutesMarker
-            _ = try await work.run(.userBlocking, mayBlock: .files) {
-                FileManager.checked.createFile(atPath: marker.path, contents: Data(), attributes: [.posixPermissions: 0o600])
-            }
+            let paths = cloud.paths
+            try await work.run(.userBlocking, mayBlock: .files) { try paths.markSSHRoutes() }
             _ = try await hub.linkedSocketPath() // the hub runs, and its link points at it
             let local = try await work.run(.userBlocking, mayBlock: .files) {
                 try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)

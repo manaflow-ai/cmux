@@ -43,6 +43,15 @@ public struct CloudPaths: Sendable {
     /// starts the hub at sign-in, so the route works after a relaunch.
     public var sshRoutesMarker: URL { root.appendingPathComponent("ssh-routes") }
 
+    /// Writes ``sshRoutesMarker`` (blocking file I/O: call it off the main thread), creating the
+    /// Cloud folder first on a fresh install; throws when it cannot.
+    public func markSSHRoutes() throws {
+        try prepare()
+        guard FileManager.checked.createFile(atPath: sshRoutesMarker.path, contents: Data(), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: sshRoutesMarker.path])
+        }
+    }
+
     /// Whether ``sshRoutesMarker`` exists (a file check: call it off the main thread).
     public func hasSSHRoutes() -> Bool { FileManager.checked.fileExists(atPath: sshRoutesMarker.path) }
 
