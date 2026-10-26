@@ -24,7 +24,8 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
   scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
 
 --app runs a fleet artifact staged anywhere (its tag comes from the
-`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it).
+`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it; a
+--tag that names the same tag runs it once).
 --profile empty deletes the tag's daemon, agent and sidebar state before
 each run (a first launch on a new Mac; cold mode only). --profile realistic
 seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
@@ -68,10 +69,12 @@ first content is `first_content` (the first live terminal frame or the agent
 page's handshake, whichever came first); the realistic profile restores a
 terminal and writes `first_terminal_frame`. The story is `launch-<mode>` (empty
 profile), `launch-<mode>-realistic` or `launch-after-reboot` (empty profile
-only: a realistic --after-reboot result needs --story), or --story; the
-features come from `features.list`, read in each tag's first measured launch
-that answers it before it quits (a launch that never drew too, so its
-missing_runs still record). Lab stories:
+only: a realistic --after-reboot result needs --story), or --story, or the
+perf-lab runner's PERF_LAB_STORY; the features come from `features.list`, read
+in each tag's first measured launch that answers it before it quits (a launch
+that never drew too, so its missing_runs still record). Under the perf-lab
+runner that launch is also validated again with the tag's pids
+(BenchApp.validate_lab_host: host_env.py's network-egress and the other checks). Lab stories:
 scripts/perf-lab/stories.d/launch-cold.json, launch-cold-realistic.json,
 launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 
@@ -1022,7 +1025,8 @@ class Recorder:
 
     def __init__(self, out, profile, session="light", story=None, build_config=None, after_reboot=False,
                  bench_app=BenchApp, rpc=rpc_at):
-        self.out, self.profile, self.session, self.story = out, profile, session, story
+        self.out, self.profile, self.session = out, profile, session
+        self.story = story or os.environ.get("PERF_LAB_STORY") or None
         self.build_config, self.after_reboot = build_config, after_reboot
         self.bench_app, self.rpc = bench_app, rpc
         self.run = perf_result.Run.start()
@@ -1045,6 +1049,15 @@ class Recorder:
             if not (isinstance(reply, dict) and reply.get("unreachable")):
                 app.features = features_snapshot(reply)
                 return
+
+    def observe(self, tag):
+        """While the tag's measured launch runs: its features (read_features) and, under the perf-lab runner, the
+        lab's full host check over the tag's pids (BenchApp.validate_lab_host, once per tag; skipped while none
+        runs, so a later launch checks it)."""
+        self.read_features(tag)
+        pids = tag_pids(tag)
+        if pids:
+            self.app(tag).validate_lab_host(pids)
 
     def record(self, tag, mode, runs):
         """`{metric: path or "not recorded: <reason>"}` for one tag and mode."""
@@ -1272,7 +1285,7 @@ def main():
             for index in range(args.runs):
                 for tag in args.tag:
                     marks = one_run(tag, mode, args.timeout, args.profile, args.purge_cold,
-                                    before_quit=recorder.read_features if recorder else None)
+                                    before_quit=recorder.observe if recorder else None)
                     results[tag][mode].append(marks)
 
                     def shown(mark):

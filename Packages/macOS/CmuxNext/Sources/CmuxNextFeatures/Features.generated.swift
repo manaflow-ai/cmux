@@ -2,9 +2,32 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// The New Tab and agent chats share one Chromium renderer for up to mainFrames pages, on a fork whose page-scheme switch reads the per-site cap.
+    public static let agentPageRendererSharing = Feature(
+        index: 0,
+        name: "agentPageRendererSharing",
+        owner: "PL-memory",
+        description: "The New Tab and agent chats share one Chromium renderer for up to mainFrames pages, on a fork whose page-scheme switch reads the per-site cap.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [
+            FeatureParamSpec(
+                name: "mainFrames",
+                description: "Most agent-site main frames one renderer takes; Chrome's ProcessPerSiteMainFrameThreshold is 2.",
+                value: .int(default: 8, min: 2, max: 32)
+            ),
+        ],
+        stories: ["agent-engine"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// An agent's or a script's burst of pane layout changes lands with no spring: a change that moves several panes at once, or one that lands while the last automation change still springs.
     public static let automationBurstSnap = Feature(
-        index: 0,
+        index: 1,
         name: "automationBurstSnap",
         owner: "PL-motion-core",
         description: "An agent's or a script's burst of pane layout changes lands with no spring: a change that moves several panes at once, or one that lands while the last automation change still springs.",
@@ -21,7 +44,7 @@ nonisolated extension Feature {
 
     /// A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.
     public static let cefLayerHosting = Feature(
-        index: 1,
+        index: 2,
         name: "cefLayerHosting",
         owner: "PL-cef-layer",
         description: "A Chromium pane page draws in the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popup windows keep their own window.",
@@ -38,7 +61,7 @@ nonisolated extension Feature {
 
     /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
-        index: 2,
+        index: 3,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
         description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
@@ -55,7 +78,7 @@ nonisolated extension Feature {
 
     /// The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.
     public static let cefPumpInputPolicy = Feature(
-        index: 3,
+        index: 4,
         name: "cefPumpInputPolicy",
         owner: "PL-cef-layer",
         description: "The in-process Chromium message pump waits while a key, click, scroll or drag is pending for anything but a Chromium page, at most one display refresh, and runs at once after input to a Chromium page.",
@@ -72,7 +95,7 @@ nonisolated extension Feature {
 
     /// Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.
     public static let cefTimerSlack = Feature(
-        index: 4,
+        index: 5,
         name: "cefTimerSlack",
         owner: "PL-cef-layer",
         description: "Chromium's renderer, GPU and utility processes and the browser's non-UI threads let a delayed timer fire up to its leeway late (TimerSlackMac), so the system can coalesce their wakes; the app's main-thread pump is not affected.",
@@ -818,6 +841,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .agentPageRendererSharing,
         .automationBurstSnap,
         .cefLayerHosting,
         .cefPrefetchBehindFence,
@@ -869,6 +893,7 @@ nonisolated extension Feature {
     #else
     /// Every feature, by index: `registered[feature.index] == feature`.
     public static let registered: [Feature] = [
+        .agentPageRendererSharing,
         .automationBurstSnap,
         .cefLayerHosting,
         .cefPrefetchBehindFence,
