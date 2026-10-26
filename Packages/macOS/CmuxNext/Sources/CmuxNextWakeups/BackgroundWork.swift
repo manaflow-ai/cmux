@@ -2,6 +2,10 @@ import CmuxNextCompat
 public import CmuxNextTrace
 import Darwin
 import Dispatch
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Runs work that may block off Swift's cooperative pool, on small lanes by kind, at a stated priority.
 ///
@@ -96,7 +100,7 @@ public final class BackgroundWork: Sendable {
         var nextID: UInt64 = 1
         /// Block-shutdown items (lane items and tasks) that have not finished.
         var blocking = 0
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [OnceContinuation<Void, OnceContinuationError>] = []
         /// ``beginShutdown()`` ran: only block-shutdown items are taken.
         var closed = false
         /// ``shutdown()`` has returned: no item is taken, a block-shutdown one neither.
@@ -259,11 +263,12 @@ public final class BackgroundWork: Sendable {
                               _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 guard let job = makeJob(id: id, lane: lane, shutdown: shutdown, site: site,
                                         work: { continuation.resume(with: Result { try body() }) },
                                         abandoned: { continuation.resume(throwing: CancellationError()) }) else {
-                    return continuation.resume(throwing: CancellationError())
+                    continuation.resume(throwing: CancellationError())
+                    return
                 }
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
                 submitted(scheduler.submit(job, at: priority, posted: false, cap: cap, unless: { Task.isCancelled }), job, on: lane)
@@ -399,7 +404,8 @@ public final class BackgroundWork: Sendable {
     /// it once, after the engines stop and inside its deadline (QuitCompletion).
     public func shutdown() async {
         beginShutdown()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A waiter the drain state drops unresumed ends abandoned: shutdown returns.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             let now = state.withLock { state -> Bool in
                 if state.blocking == 0 {
                     state.drained = true
@@ -408,7 +414,7 @@ public final class BackgroundWork: Sendable {
                 state.waiters.append(continuation)
                 return false
             }
-            if now { continuation.resume() }
+            if now { continuation.resume(returning: ()) }
         }
     }
 
@@ -462,7 +468,7 @@ public final class BackgroundWork: Sendable {
     /// One block-shutdown item (lane item or task) finished or was abandoned: resumes ``shutdown()`` when it
     /// was the last.
     func blockItemFinished() {
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, OnceContinuationError>] in
             state.blocking -= 1
             guard state.blocking == 0, !state.waiters.isEmpty else { return [] }
             // A shutdown() waits: it returns now, so later block items are refused.
@@ -470,7 +476,7 @@ public final class BackgroundWork: Sendable {
             defer { state.waiters = [] }
             return state.waiters
         }
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
 }

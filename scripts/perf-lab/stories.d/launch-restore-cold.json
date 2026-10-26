@@ -1,0 +1,24 @@
+{
+  "id": "launch-restore-cold",
+  "tier": "T1",
+  "description": "Corpus story launch-restore, cold x5: 60 saved workspaces (perf-corpus/launch-restore.json) restored with the daemon stopped and the file cache purged (sudo -n purge, decision D3) right before each launch; process start to the first window frame, the first live terminal frame and the live sidebar rows, and each launch must restore the story's checkpoint state. A host without the purge right refuses with sudo's reason and writes nothing.",
+  "command": ["scripts/cmux-next/bench-startup.py", "--corpus", "perf-corpus/launch-restore.json", "--mode", "cold",
+              "--purge", "--runs", "5", "--timeout", "60"],
+  "session": "corpus:launch-restore",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "corpus\\.launch_restore\\.cold\\.first_window_frame_committed", "unit": "ms", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.first_terminal_frame", "unit": "ms", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.did_finish_launching_end", "unit": "ms", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.sidebar_rows_shown", "unit": "ms", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.[a-z_]+\\.missing_runs", "unit": "count", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.checkpoint_mismatch_runs", "unit": "count", "better": "lower"},
+    {"name": "corpus\\.launch_restore\\.cold\\.not_cold_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 2,
+  "seconds": 300,
+  "needs": ["privilege:purge", "debug:debug.focus", "debug:debug.surfaces", "debug:debug.window_frame"],
+  "owner": "PL-perf-lab",
+  "component": "Launch>Restore"
+}

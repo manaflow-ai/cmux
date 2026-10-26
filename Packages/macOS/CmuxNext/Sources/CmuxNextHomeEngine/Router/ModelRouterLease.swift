@@ -3,6 +3,9 @@ package import CmuxNextCompat
 package import CmuxNextWakeups
 package import Foundation
 package import os
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Gives the local model relay (cmux-tui crate cmux-coderouter, started by
 /// the acpmux daemon) the signed-in account's bearer for the hosted cmux
@@ -97,7 +100,7 @@ package import os
         // task-owner: this wait; cancelled when it ends, ends when the relay exits
         let watch = Task { if await router.waitUntilGone(pid: pid) { wake.wake() } }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 wake.begin(continuation)
                 renewal.schedule(after: wait) { wake.wake() }
             }
@@ -114,26 +117,26 @@ package import os
 /// a wake before the wait begins resumes it at once.
 private nonisolated final class RenewalWake: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<Void, Never>?
+        var continuation: OnceContinuation<Void, OnceContinuationError>?
         var woken = false
     }
 
     private let state = Mutex(State())
 
-    func begin(_ continuation: CheckedContinuation<Void, Never>) {
+    func begin(_ continuation: OnceContinuation<Void, OnceContinuationError>) {
         let woken = state.withLock { state -> Bool in
             if !state.woken { state.continuation = continuation }
             return state.woken
         }
-        if woken { continuation.resume() }
+        if woken { continuation.resume(returning: ()) }
     }
 
     func wake() {
-        let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let continuation = state.withLock { state -> OnceContinuation<Void, OnceContinuationError>? in
             state.woken = true
             defer { state.continuation = nil }
             return state.continuation
         }
-        continuation?.resume()
+        continuation?.resume(returning: ())
     }
 }

@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The one owner of launch order (plans/cmux-next/chrome-parity/p08-startup.md, section 3B): every
 /// launch task is posted here with a ``StartupPriority``, a name and a destination, and runs when
@@ -115,8 +118,10 @@ public final class StartupScheduler {
     private var idleTasks: [Pending?] = []
     private var idleHead = 0
     private var observers: [@MainActor (Completion) -> Void] = []
+    /// ``whenCompleteFirst(_:)`` observers: they run before ``observers``.
+    private var firstObservers: [@MainActor (Completion) -> Void] = []
     /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
-    private var firstFrameWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstFrameWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// Built in init (lazy because its callback captures self).
     private lazy var idleClient: FrameClient = FrameClient(owner: "Startup.afterStartup", budgeted: .background, on: mainWork) { [weak self] _, budget in
         self?.runIdleTask(budget) ?? false
@@ -265,6 +270,7 @@ public final class StartupScheduler {
         idleHead = 0
         idleClient.deactivate()
         observers = []
+        firstObservers = []
         resumeFirstFrameWaiters()
     }
 
@@ -275,13 +281,21 @@ public final class StartupScheduler {
         observers.append(body)
     }
 
+    /// As ``whenComplete(_:)``, but before every ``whenComplete(_:)`` observer: for a launch value that a reader
+    /// of the completion's own mark (`LaunchOrder`'s `startup_complete`) must already have on the same pipe.
+    public func whenCompleteFirst(_ body: @escaping @MainActor (Completion) -> Void) {
+        if let completion { return body(completion) }
+        guard !isQuitting else { return }
+        firstObservers.append(body)
+    }
+
     /// Returns once the afterFirstFrame tasks are released (the first frame, ``firstFrameMissed(_:)``
     /// or completion): at once when they were, and at once after ``beginQuit()``. For async launch
     /// work that goes on after the first frame (a question shown once a window drew); a post is the
     /// way for work that fits in one main turn.
     public func afterFirstFrame() async {
         guard !firstFrameDone, !isQuitting else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in firstFrameWaiters.append(done) }
+        try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in firstFrameWaiters.append(done) }
     }
 
     /// Whether the scheduler's own failsafe deadline is pending (never while its launch phase owns the deadline).
@@ -331,8 +345,8 @@ public final class StartupScheduler {
         for task in held { dispatch(task) }
         log.close()
         completed.store(true, ordering: .releasing)
-        let waiting = observers
-        observers = []
+        let waiting = firstObservers + observers
+        (firstObservers, observers) = ([], [])
         for observer in waiting { observer(done) }
     }
 
@@ -381,7 +395,7 @@ public final class StartupScheduler {
     private func resumeFirstFrameWaiters() {
         let waiting = firstFrameWaiters
         firstFrameWaiters = []
-        for waiter in waiting { waiter.resume() }
+        for waiter in waiting { waiter.resume(returning: ()) }
     }
 
     /// Runs `task` now (critical), or hands it to its main class or its lane.
