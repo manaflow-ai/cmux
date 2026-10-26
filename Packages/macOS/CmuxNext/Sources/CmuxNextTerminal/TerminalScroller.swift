@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The terminal's scroller (SCROLLBARS-THIN), from Ghostty's scrollbar action
 /// (`TerminalScrollbar`: total, offset and visible rows). It is the shared ``ThinScroller``, an
@@ -13,11 +14,34 @@ import CmuxNextDesign
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
+///
+/// The knob is placed at most once per display frame (p04-input-051): Ghostty's scrollbar and a new
+/// clip size go to one ``FrameClient`` that applies the latest of them. The first change of a frame
+/// interval applies at once (no frame of latency); later ones in the interval wait for the frame and
+/// apply as one. Chrome places scrollbars the same way, from the scroll tree once per frame
+/// (`LayerTreeImpl::UpdateScrollbarGeometries`, cc/trees/layer_tree_impl.cc), not per scroll update.
+/// A knob drag reports every clip move at once and in order (``scrollGeometryDidChange(_:)``).
 @MainActor
 final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     private let document = TerminalScrollerDocument()
     private var applying = false
+    /// The scrollbar the knob shows (the last applied).
     private(set) var shown: TerminalScrollbar?
+    /// Ghostty's newest scrollbar: ``shown`` once the frame applies it.
+    private var latest: TerminalScrollbar?
+    /// The clip size the document was last laid out for.
+    private var placedViewport: CGSize = .zero
+    /// Something waits for this interval's frame (a newer bar or clip size).
+    private var pending = false
+    /// Knob placements made (tests: at most one per frame interval).
+    private(set) var knobPlacements = 0
+    private let frames: @MainActor (NSView) -> FrameScheduler
+    /// Active from a frame interval's first apply until a frame finds nothing to apply.
+    private lazy var frameClient = FrameClient(owner: "Terminal.scroller", isAnimation: false, scheduler: { [weak self] in
+        self.map { $0.frames($0) } ?? .app
+    }, onFrame: { [weak self] _ in
+        self?.frameDidFire() ?? false
+    })
     /// The user dragged the legacy scroller: show this row at the top.
     var onScrollToRow: ((UInt64) -> Void)?
     /// A wheel event over the legacy scroller belongs to the terminal.
@@ -25,7 +49,9 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     /// The style changed; the host lays out again (``reservedWidth``).
     var onStyleChange: (() -> Void)?
 
-    init() {
+    /// - Parameter frames: The frame scheduler of the scroller's window (a test scheduler in tests).
+    init(frames: @escaping @MainActor (NSView) -> FrameScheduler = FrameScheduler.forView) {
+        self.frames = frames
         super.init(frame: .zero)
         drawsBackground = false
         borderType = .noBorder
@@ -78,23 +104,52 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
         return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
     }
 
-    /// Shows `bar` (nil: nothing to scroll).
+    /// Shows `bar` (nil: nothing to scroll): at once on a frame interval's first change, else at the frame.
     func update(_ bar: TerminalScrollbar?) {
-        let previous = shown
-        shown = bar
-        layoutDocument()
-        if scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: bar) {
-            (verticalScroller as? ThinScroller)?.flash()
-        }
+        latest = bar
+        guard bar != shown || pending else { return }
+        scheduleApply()
     }
 
     override func layout() {
         super.layout()
+        // Only a new clip size moves the knob; the scroller's own document change lays out again.
+        guard contentView.bounds.size != placedViewport else { return }
+        scheduleApply()
+    }
+
+    /// Applies now when no apply ran in this frame interval, else at the interval's frame.
+    private func scheduleApply() {
+        if frameClient.isActive {
+            pending = true
+            return
+        }
+        placeKnob()
+        frameClient.activate()
+    }
+
+    /// The frame: applies what waited for it and keeps the interval open, or ends it.
+    private func frameDidFire() -> Bool {
+        guard pending else { return false }
+        placeKnob()
+        return true
+    }
+
+    /// Shows ``latest`` on the current clip size (flashing the overlay knob for a move through the scrollback).
+    private func placeKnob() {
+        pending = false
+        knobPlacements += 1
+        let previous = shown
+        shown = latest
         layoutDocument()
+        if scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: shown) {
+            (verticalScroller as? ThinScroller)?.flash()
+        }
     }
 
     private func layoutDocument() {
-        let viewport = contentView.bounds.height
+        placedViewport = contentView.bounds.size
+        let viewport = placedViewport.height
         guard viewport > 0 else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: viewport)
         applying = true
@@ -107,11 +162,14 @@ final class TerminalScroller: NSScrollView, ScrollGeometryClient {
         }
     }
 
+    /// A knob drag: every clip move reports its row at once, in order. The row is read on the laid-out
+    /// document (``shown``) and compared with Ghostty's newest offset, so a move back to the shown row
+    /// still reports while a newer bar waits for the frame.
     func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
-        guard change.contains(.scrolled), !applying, let shown else { return }
+        guard change.contains(.scrolled), !applying, let shown, let latest else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
-        guard row != shown.offsetRows else { return }
+        guard row != latest.offsetRows else { return }
         onScrollToRow?(row)
     }
 

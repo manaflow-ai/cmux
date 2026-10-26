@@ -19,8 +19,9 @@ public final class TerminalHostView: NSView {
     }
     /// Shown over the last screen while the link is down (click-through).
     private let banner = TerminalStatusBanner()
-    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN).
-    let scroller = TerminalScroller()
+    /// The scroller: thin, shown only while scrolling (SCROLLBARS-THIN). Its knob moves on its window's
+    /// frames (the app's main-work frames while it has no window).
+    let scroller: TerminalScroller
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -123,6 +124,7 @@ public final class TerminalHostView: NSView {
         self.mainWork = mainWork
         self.node = node
         self.configRevision = configRevision
+        scroller = TerminalScroller { view in view.window.map(FrameScheduler.forWindow) ?? mainWork.frames }
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
