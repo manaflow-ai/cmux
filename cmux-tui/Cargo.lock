@@ -1184,6 +1184,8 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "memchr",
+ "phf",
+ "phf_codegen",
  "serde_json",
 ]
 

@@ -10,6 +10,10 @@
 //!
 //! The Swift reader (CmuxNextIPC) and this crate share the golden vectors in
 //! spec/fixtures/ipc-frames.
+//!
+//! `methods` holds the schema's method tables (design 3.3): build.rs writes
+//! them from spec/sdk-schema.json and spec/resource-operations-v2.json into
+//! `OUT_DIR` on every build; nothing generated is committed.
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -35,11 +39,16 @@
 )]
 
 pub mod frame;
+pub mod methods;
 pub mod reader;
 
 pub use frame::{
     Aux, AuxClass, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, HEADER_LEN,
     MAGIC, MAX_FRAME_PAYLOAD, PriorityHint,
+};
+pub use methods::{
+    Coalesce, Durability, EventAttrs, EventId, FamilyTable, MethodAttrs, MethodId, MethodTables,
+    Ordering, Payload,
 };
 pub use reader::{FrameReader, MAX_JSON_LINE, Message, ReaderLimits};
 

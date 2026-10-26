@@ -3,6 +3,7 @@
 
 mod frame_tests;
 mod golden_tests;
+mod methods_table_tests;
 mod reader_tests;
 
 use bytes::{Bytes, BytesMut};
