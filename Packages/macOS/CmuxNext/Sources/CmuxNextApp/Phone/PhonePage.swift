@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextHibernation
 import CmuxNextPhone
+import CmuxNextWakeups
 
 extension InternalPageID {
     static let phone = InternalPageID(rawValue: "phone")
@@ -16,8 +17,14 @@ final class PhonePageTab: InternalPageProvider {
     private var routes: [String: PhoneDeviceID] = [:]
     /// The phone the next new tab shows (set by `phone.show` before it opens one).
     var nextDevice: PhoneDeviceID?
+    /// The windows' frame-aligned pointer input for the tabs' screens (feature `pointerFrameRemoteInput`),
+    /// read when a tab's view is made: the page registers at launch, before features may be read.
+    private let pointerFrames: @MainActor () -> FrameInputCoalescers?
 
-    init(phones: PhoneService) { self.phones = phones }
+    init(phones: PhoneService, pointerFrames: @escaping @MainActor () -> FrameInputCoalescers? = { nil }) {
+        self.phones = phones
+        self.pointerFrames = pointerFrames
+    }
 
     var page: InternalPageID { .phone }
     var title: String { String(localized: "phone.tab.title", defaultValue: "Phone", table: "Phone", bundle: .module) }
@@ -32,6 +39,7 @@ final class PhonePageTab: InternalPageProvider {
             nextDevice = nil
         }
         let view = PhoneTabView(service: phones, device: device)
+        view.pointerFrames = pointerFrames()
         views[key] = view
         return view
     }
