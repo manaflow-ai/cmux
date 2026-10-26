@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextInput
+public import Foundation
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one: each subagent's tab, so a second

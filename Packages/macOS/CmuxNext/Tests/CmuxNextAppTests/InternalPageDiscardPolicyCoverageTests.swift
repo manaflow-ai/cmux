@@ -126,7 +126,7 @@ struct InternalPageDiscardPolicyCoverageTests {
         window.viewDiscarded(key)
         let rebuilt = try #require(window.makeView(for: key, in: nil) as? PageWebView)
         #expect(rebuilt !== first, "the discarded page is not the kept page any more")
-        window.restoreViewState(state, for: key, content: rebuilt)
+        await window.restoreViewState(state, for: key, content: rebuilt)
         #expect(rebuilt.route == "#/settings/appearance")
         window.tabClosed(key)
     }
@@ -158,7 +158,7 @@ struct InternalPageDiscardPolicyCoverageTests {
         #expect(service.keepReasons(for: key).isEmpty, "the discarded page's recorder is no tab's")
         let rebuilt = try #require(service.makeView(for: key, in: nil) as? PageWebView)
         #expect(rebuilt !== first)
-        service.restoreViewState(state, for: key, content: rebuilt)
+        await service.restoreViewState(state, for: key, content: rebuilt)
         #expect(rebuilt.route == "#/conflicts")
         service.tabClosed(key)
     }
@@ -175,12 +175,12 @@ struct InternalPageDiscardPolicyCoverageTests {
         provider.viewDiscarded(key)
         let rebuilt = try #require(provider.makeView(for: key, in: nil) as? PageWebView)
         #expect(rebuilt !== first)
-        provider.restoreViewState(state, for: key, content: rebuilt)
+        await provider.restoreViewState(state, for: key, content: rebuilt)
         #expect(rebuilt.route == "#/?to=1.2.3")
 
         // A page a show opened on a span stays on it.
         let asked = try #require(PageFactory(services: services).changelogPage(route: "#/?to=2.0.0"))
-        provider.restoreViewState(state, for: key, content: asked)
+        await provider.restoreViewState(state, for: key, content: asked)
         #expect(asked.route == "#/?to=2.0.0")
         services.webUI.close(asked)
         provider.tabClosed(key)
@@ -220,7 +220,7 @@ struct InternalPageDiscardPolicyCoverageTests {
         state.values["topRow"] = "local:4242"
         let rebuilt = service.makeView(for: key, in: nil)
         #expect(service.model?.isRunning == true)
-        service.restoreViewState(state, for: key, content: rebuilt)
+        await service.restoreViewState(state, for: key, content: rebuilt)
         #expect(table.sort == "-memory,process")
         #expect(table.scrollTarget == ProcessKey(pid: 4242))
         service.tabClosed(key)

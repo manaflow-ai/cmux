@@ -16,15 +16,13 @@ public protocol PageSurface: AnyObject {
     var pageID: String { get }
 }
 
-/// One React page in a tab or app screen (plans/cmux-next/react-pages.md 1): a transparent
-/// WKWebView over the window's one backdrop (windows.md "One backdrop rule"), loading
-/// `cmux-page://<id>/` from the bundled page, with the shared web theme (`WebTheme`, from this
-/// view's theme scope) and the
-/// engine-neutral bridge (``PageHostBridge`` + ``PageRouter``).
+/// One React page in a tab or app screen (plans/cmux-next/react-pages.md 1): a transparent WKWebView over the
+/// window's one backdrop (windows.md "One backdrop rule"), loading `cmux-page://<id>/` from the bundled page, with
+/// the shared web theme (`WebTheme`, from this view's theme scope) and the engine-neutral bridge (``PageHostBridge`` +
+/// ``PageRouter``).
 ///
-/// Absorbs the Settings lead's `SettingsWebPageView` (branch feat-cmux-next-settings-react):
-/// transparency, the scheme-handler origin, the main-frame and origin check, the debug state and
-/// snapshot.
+/// Absorbs the Settings lead's `SettingsWebPageView` (branch feat-cmux-next-settings-react): transparency, the
+/// scheme-handler origin, the main-frame and origin check, the debug state and snapshot.
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var descriptor: PageDescriptor
@@ -39,8 +37,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     let bridge: any PageHostBridge
     /// Delivers router envelopes in order, rendering large ones off the main actor.
     let scripts: PageScriptPipeline
-    /// The bridge the script FIFO and ``evaluateInPage(_:)`` use: WebKit's, or Chromium's while a
-    /// Chromium page shows the document.
+    /// The bridge the script FIFO and ``evaluateInPage(_:)`` use: WebKit's, or Chromium's while a Chromium page shows the document.
     let scriptTarget: PageScriptTarget
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
@@ -65,17 +62,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
-    /// Makes Chromium pages: a forwarder the app sets once at startup to its ``WebUIHost``'s
-    /// (``WebUIHost/chromium``), for views not yet made through ``WebUIHost/open(_:)``; removed by
-    /// p13-webui-010. Nil keeps every page on WebKit (tests, a build without Chromium).
+    /// Makes Chromium pages: a forwarder the app sets once at startup to its ``WebUIHost``'s (``WebUIHost/chromium``), for
+    /// views not yet made through ``WebUIHost/open(_:)``; removed by p13-webui-010. Nil keeps every page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
-    /// The open panel for a page's `<input type="file">`: a forwarder the app sets once at startup
-    /// to its ``WebUIHost``'s (``WebUIHost/openPanel``); removed by p13-webui-010. Nil: a file input
-    /// does nothing (tests).
+    /// The open panel for a page's `<input type="file">`: a forwarder the app sets once at startup to its ``WebUIHost``'s
+    /// (``WebUIHost/openPanel``); removed by p13-webui-010. Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
-    var loaded = false
+    var loaded = false { didSet { loadState.set(loading: !loaded, page: self) } }
+    /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
+    let loadState = PageLoadState()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.

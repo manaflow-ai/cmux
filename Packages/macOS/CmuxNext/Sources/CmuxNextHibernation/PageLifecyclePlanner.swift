@@ -126,6 +126,16 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         /// The reasons time alone ends; an event ends every other one.
         package static let timeBound: Set<KeepReason> = [.recentlyVisible]
 
+        /// The ``derived`` reasons that come from the person's settings, not from time or the order of hides.
+        package static let fromSettings: Set<KeepReason> = [.freezeOff, .hibernationOff]
+
+        /// The reason, appearing on a frozen page, thaws it: a freeze blocker the page, its owner or a setting
+        /// set, as Chrome unfreezes a page that starts to play audio. The derived reasons of time and the order
+        /// of hides (recently visible, most recently used) never thaw one.
+        package var thawsFrozenPage: Bool {
+            blocksFreeze && (!Self.derived.contains(self) || Self.fromSettings.contains(self))
+        }
+
         /// `reasons` in declaration order, as ``Decision/keptBy`` reports them.
         package static func ordered(_ reasons: Set<KeepReason>) -> [KeepReason] {
             allCases.filter { reasons.contains($0) }

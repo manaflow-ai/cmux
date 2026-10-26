@@ -6,6 +6,9 @@ import CmuxNextSettings
 import Observation
 import Testing
 
+/// The control wire's JSON (CmuxNextDaemon has its own `JSONValue`, which the testable import also brings in).
+private typealias JSONValue = CmuxNextSettings.JSONValue
+
 /// A model a wait_for facet reads, so a change reaches the wait through Observation alone.
 @MainActor @Observable final class OracleWaitModel {
     var count = 0
