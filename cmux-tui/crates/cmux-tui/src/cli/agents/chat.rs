@@ -409,11 +409,12 @@ fn read(
     // `copyLastCodeBlock` means the latest answer, even when a caller is
     // paging forward from a saved cursor.
     let (load_after, load_limit) = if code_block { (0, MAX_READ_LIMIT) } else { (after, limit) };
-    let (transcript, more, cursor) =
-        load(load_after, load_limit, |cursor| acp::events(chat, cursor, EVENT_PAGE, found.socket()))
-            .map_err(|error| {
-                not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
-            })?;
+    let (transcript, more, cursor) = load(load_after, load_limit, |cursor| {
+        acp::events(chat, cursor, EVENT_PAGE, found.socket())
+    })
+    .map_err(|error| {
+        not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
+    })?;
     let mut page = transcript.page(chat, after, limit, more, cursor);
     if code_block {
         page["last_code_block"] = transcript.last_code_block().unwrap_or(Value::Null);
