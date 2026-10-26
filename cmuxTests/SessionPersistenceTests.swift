@@ -1570,6 +1570,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    /// One line past the line cap keeps the newest lines and is marked truncated.
     func testPersistedScrollbackMarksLineCap() {
         let lineCount = SessionPersistencePolicy.maxScrollbackLinesPerTerminal + 1
         let source = (0..<lineCount).map { "line-\($0)" }.joined(separator: "\n")
@@ -1583,6 +1584,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(lines?.last, "line-\(lineCount - 1)")
     }
 
+    /// Past the character cap the tail matches `truncatedScrollback` and is
+    /// marked truncated.
     func testPersistedScrollbackMarksCharacterCap() {
         let maxChars = SessionPersistencePolicy.maxScrollbackCharactersPerTerminal
         let source = "HEAD" + String(repeating: "x", count: maxChars)
@@ -1595,6 +1598,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(persisted.text?.hasPrefix("HEAD") ?? true)
     }
 
+    /// Text under or exactly at either cap is kept as is and not marked.
     func testPersistedScrollbackLeavesTextUnderCapsUnmarked() {
         let short = "alpha\nbeta\n"
         let atLineCap = (0..<SessionPersistencePolicy.maxScrollbackLinesPerTerminal)
@@ -1617,6 +1621,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(charPersisted.text, atCharCap)
     }
 
+    /// A truncated fallback tail stays marked, and a fresh capture replaces both
+    /// the fallback text and its marker.
     func testPersistedSnapshotScrollbackKeepsFallbackTruncation() {
         let fallback = "already-bounded tail\n"
         let persisted = SessionPersistencePolicy.persistedSnapshotScrollback(
@@ -1636,6 +1642,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(fresh.wasTruncated)
     }
 
+    /// Terminal snapshots written before `scrollbackWasTruncated` still decode,
+    /// and the marker survives an encode and decode round trip.
     func testLegacyTerminalSnapshotDecodesWithoutTruncationFlag() throws {
         let json = #"{"workingDirectory":"/tmp","scrollback":"kept tail"}"#
         let decoded = try JSONDecoder().decode(
@@ -1657,6 +1665,7 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(roundTrip.scrollbackWasTruncated, true)
     }
 
+    /// A truncated replay file starts with the notice line; a complete one does not.
     func testTruncatedScrollbackReplayStartsWithNotice() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-notice-\(UUID().uuidString)", isDirectory: true)
