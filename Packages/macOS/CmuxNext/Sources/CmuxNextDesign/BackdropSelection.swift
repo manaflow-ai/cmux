@@ -32,19 +32,24 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// The short title shown in the wallpaper grid: "Title — Artist" for art.
     public var title: String {
+        title(aerialNames: nil)
+    }
+
+    /// The title using metadata retained by the catalog, without rereading the aerial file.
+    public func title(aerialNames: [String: String]?) -> String {
         switch self {
         case .art(let art): return art.label
-        case .system(let path): return Self.systemTitle(path)
+        case .system(let path): return Self.systemTitle(path, aerialNames: aerialNames)
         case .file(let path): return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         case .desktop: return String(localized: "backdrop.desktop.title", defaultValue: "Desktop Wallpaper", bundle: .module)
         }
     }
 
     /// A macOS wallpaper's name: a shipped video's without its cut, an aerial's from idleassetsd.
-    private static func systemTitle(_ path: String) -> String {
+    private static func systemTitle(_ path: String, aerialNames: [String: String]? = nil) -> String {
         let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         guard AppleWallpapers.isVideo(path) else { return name }
-        if let aerial = AppleWallpapers.system.aerialNames()[name] { return aerial }
+        if let aerial = (aerialNames ?? AppleWallpapers.system.aerialNames())[name] { return aerial }
         return [" Light", " Dark", " Landscape"].reduce(name) { $0.replacingOccurrences(of: $1, with: "") }
     }
 
@@ -75,11 +80,16 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
 
     /// The attribution shown below the thumbnail.
     public var attribution: String {
+        attribution(title: title)
+    }
+
+    /// The attribution using a title the caller already resolved.
+    public func attribution(title: String) -> String {
         switch self {
         case .art(let art): return art.attribution
-        case .system(let path):
+        case .system:
             return String(localized: "backdrop.system.attribution", defaultValue: "macOS system wallpaper · %@", bundle: .module)
-                .replacingOccurrences(of: "%@", with: Self.systemTitle(path))
+                .replacingOccurrences(of: "%@", with: title)
         case .file(let path):
             return String(localized: "backdrop.file.attribution", defaultValue: "Your image · %@", bundle: .module)
                 .replacingOccurrences(of: "%@", with: URL(fileURLWithPath: path).lastPathComponent)
