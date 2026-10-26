@@ -7,7 +7,6 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// Perceived speed (#20516): closing a browser tab back to a New Tab page, or Cmd-W back to one,
 /// stalled the main thread 170-215 ms with almost no CPU. The page had left the window when the
