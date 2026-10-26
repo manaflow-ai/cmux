@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextIPC
 @testable import CmuxNextHome
 @testable import CmuxNextHomeEngine
 import Foundation
@@ -89,10 +90,9 @@ import Testing
     @Test func aUniiChatChiefIsMadeOnTheLocalOwnerWithHarnessUnii() async throws {
         let calls = Calls()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
-        let creator = HomeLocalChiefCreator(me: me, send: { operation, params, key in
-            await calls.sent(operation, params, key)
-            return .object(["value": .object(["id": .string("agent_scout01"), "display_name": .string("Scout")]),
-                            "replayed": .bool(false)])
+        let creator = HomeLocalChiefCreator(me: me, send: { request, key in
+            await calls.sent(request, key)
+            return try ChiefCreateFixture(id: "agent_scout01", name: "Scout").result()
         }, open: { request in
             await calls.opened(request)
             return "conv_scout"
@@ -101,9 +101,8 @@ import Testing
         #expect(made.chief == "agent_scout01")
         #expect(made.conversation == ConversationID("conv_scout"))
         let sent = try #require(await calls.sends.first)
-        #expect(sent.operation == "chief.profile.create")
-        #expect(sent.params["harness"] == .string("unii"))
-        #expect(sent.params["display_name"] == .string("Scout"))
+        #expect(sent.request.harness == "unii")
+        #expect(sent.request.displayName == "Scout")
         #expect(!sent.key.isEmpty)
         let dm = try #require(await calls.opens.first)
         #expect(dm.participants.map(\.id) == ["user_local", "agent_scout01"])
@@ -113,14 +112,15 @@ import Testing
     }
 
     @Test func theDefaultEngineIsNotNamedInALocalCreate() {
-        #expect(HomeLocalChiefCreator.params(name: "A", backend: .claude) == ["display_name": .string("A")])
-        #expect(HomeLocalChiefCreator.params(name: "A", backend: .codex)["harness"] == .string("codex"))
+        #expect(HomeLocalChiefCreator.request(name: "A", backend: .claude)
+            == V2ChiefProfileCreateRequest(displayName: "A"))
+        #expect(HomeLocalChiefCreator.request(name: "A", backend: .codex).harness == "codex")
     }
 
     @Test func aRefusedLocalCreateOpensNoConversation() async {
         let calls = Calls()
         let me = ConversationParticipant(id: "user_local", kind: .human, displayName: "Me")
-        let creator = HomeLocalChiefCreator(me: me, send: { _, _, _ in
+        let creator = HomeLocalChiefCreator(me: me, send: { _, _ in
             throw DaemonError.command(cmd: "chief.profile.create", message: "acpmux has no harness unii", code: "operation.failed")
         }, open: { request in
             await calls.opened(request)
@@ -164,9 +164,9 @@ import Testing
 
 /// What the fake owner calls received.
 private actor Calls {
-    var sends: [(operation: String, params: [String: JSONValue], key: String)] = []
+    var sends: [(request: V2ChiefProfileCreateRequest, key: String)] = []
     var opens: [CreateConversationRequest] = []
 
-    func sent(_ operation: String, _ params: [String: JSONValue], _ key: String) { sends.append((operation, params, key)) }
+    func sent(_ request: V2ChiefProfileCreateRequest, _ key: String) { sends.append((request, key)) }
     func opened(_ request: CreateConversationRequest) { opens.append(request) }
 }
