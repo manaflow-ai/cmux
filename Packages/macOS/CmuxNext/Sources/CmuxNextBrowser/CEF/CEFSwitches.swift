@@ -68,6 +68,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// profile, extension background pages and the spare windows should never make one. The
     /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
     static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
+    /// Switches the app never passes, whatever idle source a Q8 slot turns off (p14-energy-109; the
+    /// work list is `cef-idle-probe.py --queue`): Safe Browsing and the CRLSet stay. Chromium's
+    /// chrome/browser/chrome_browser_main.cc skips `RegisterComponentsForUpdate` under
+    /// `disable-component-update`, and that registers the CRLSet (chrome/browser/component_updater/
+    /// registration.cc `RegisterCRLSetComponent`) and Safe Browsing's file type policies. An idle
+    /// component check is a fork patch for that component instead.
+    static let securityUpdateSwitches: Set<String> = ["disable-component-update"]
 
     var arguments: [String] {
         var result: [String] = []
