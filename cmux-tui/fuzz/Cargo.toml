@@ -45,7 +45,10 @@ terminput-crossterm = { path = "../vendor/terminput-crossterm" }
 
 # cargo fuzz builds the release profile. Chromium fuzzes with DCHECKs on
 # (use_fuzzing_engine builds set dcheck_always_on): debug assertions and
-# overflow checks stay on, so an arithmetic overflow is a finding, not a wrap.
+# overflow checks stay on, so an arithmetic overflow in Rust is a finding, not
+# a wrap. libghostty-vt's Zig is built ReleaseSafe with SanitizerCoverage for
+# fuzzing (crates/ghostty-vt-sys/fuzzing/build.zig), so its bounds and
+# overflow checks are findings too.
 [profile.release]
 debug-assertions = true
 overflow-checks = true
@@ -89,6 +92,15 @@ bench = false
 [[bin]]
 name = "holder_decode"
 path = "fuzz_targets/holder_decode.rs"
+test = false
+doc = false
+bench = false
+
+# Tests scripts/cmux-next/rust-fuzz.sh --self-test, not cmux code; --all and
+# --list leave out every selftest_ target.
+[[bin]]
+name = "selftest_findings"
+path = "fuzz_targets/selftest_findings.rs"
 test = false
 doc = false
 bench = false

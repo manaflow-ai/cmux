@@ -7,6 +7,14 @@
 //! that spans `vt_write` calls is exercised; then the terminal resizes (a
 //! reflow), reads its text back, and encodes a snapshot that a second
 //! terminal replays, which is the restore path a daemon restart takes.
+//!
+//! Under cargo fuzz, ghostty-vt-sys builds libghostty-vt with
+//! crates/ghostty-vt-sys/fuzzing/build.zig: ReleaseSafe and SanitizerCoverage
+//! (zig -ffuzz), so libFuzzer is guided by the Zig parser's edges and a Zig
+//! bounds, overflow or unreachable check panics as a crash. Those edges are
+//! libFuzzer extra counters (Linux only): they count in `ft:` (features), not
+//! in `cov:`, which counts only the Rust PCs. The Zig side is not
+//! ASan-instrumented: a fault its safety checks do not cover is missed.
 
 #![no_main]
 
