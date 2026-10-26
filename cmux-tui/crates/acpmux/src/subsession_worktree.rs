@@ -33,6 +33,9 @@ pub struct Worktree {
     pub base: String,
     /// The folder the child starts in: the started-from folder's place in the worktree.
     pub cwd: PathBuf,
+    /// The device and inode of `root` as [`make_worktree`] opened it right after git added it
+    /// (unix): [`verify_made`] proves the folder at `root` later is still that one.
+    pub root_pin: Option<crate::cwd_pin::CwdPin>,
 }
 
 /// No automatic maintenance or gc: run from the throwaway git directory,
@@ -536,10 +539,40 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             Err(e) if taken(&e) => continue,
             Err(e) => return Err(e),
         }
-        let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root };
+        // The folder git just made, by identity, before anything else can take its place.
+        let root_pin = crate::cwd_pin::CwdPin::of(&root);
+        let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root, root_pin };
         return fill(folder, &layout, made, &commit, false);
     }
     Err(format!("every worktree name from {name} to {name}-99 is taken"))
+}
+
+/// Ok when `at` (a folder held open in the new worktree, its sub-session's start folder) is in the
+/// very worktree [`make_worktree`] made of `source`'s repository: the folder at `made.root` is the
+/// one git added (`root_pin`), `at` is inside it (its top level), it shares `source`'s repository,
+/// and it is on `made.branch`. Else a folder that took the worktree's place after it was made
+/// (renamed in, a copied `.git` file) would be checked as if it were acpmux's own.
+pub fn verify_made(source: Dir<'_>, made: &Worktree, at: Dir<'_>) -> Result<(), String> {
+    let moved = |what: &str| {
+        Err(format!("{} is not the worktree that was made: {what}", made.root.display()))
+    };
+    let canonical = |p: &str| std::fs::canonicalize(p).ok();
+    if made.root_pin.is_none() || crate::cwd_pin::CwdPin::of(&made.root) != made.root_pin {
+        return moved("another folder is at its path");
+    }
+    let top = git(at, &["rev-parse", "--path-format=absolute", "--show-toplevel"])?;
+    if canonical(&top) != std::fs::canonicalize(&made.root).ok() {
+        return moved("the start folder is not inside it");
+    }
+    let common = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
+    if canonical(&git(at, &common)?) != canonical(&git(source, &common)?) {
+        return moved("it belongs to another repository");
+    }
+    let head = git(at, &["symbolic-ref", "--quiet", "HEAD"])?;
+    if head != format!("refs/heads/{}", made.branch) {
+        return moved("it is on another branch");
+    }
+    Ok(())
 }
 
 /// The current branch, else `commit` (detached, or a name that reads as an option).
@@ -624,7 +657,7 @@ fn ensure_worktree_under(
             let cwd = Some(root.join(&layout.prefix))
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
-            let worktree = Worktree { root: root.clone(), branch, base, cwd };
+            let worktree = Worktree { root: root.clone(), branch, base, cwd, root_pin: None };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
         std::fs::create_dir_all(&layout.parent)
@@ -665,7 +698,13 @@ fn ensure_worktree_under(
             Err(e) if taken(&e) => continue,
             Err(e) => return Err(e),
         }
-        let made = Worktree { root: root.clone(), branch: branch.clone(), base, cwd: root.clone() };
+        let made = Worktree {
+            root: root.clone(),
+            branch: branch.clone(),
+            base,
+            cwd: root.clone(),
+            root_pin: None,
+        };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
     }
@@ -795,6 +834,28 @@ mod tests {
         remove_worktree(at, &made);
         assert!(!made.root.exists(), "removed");
         assert!(!branch_in(&moved, "task"), "its branch removed from the folder held");
+    }
+
+    /// The worktree made is proven to be the one at its path; a folder renamed into its place
+    /// (here with a copy of its `.git` file, so git takes it for the same worktree) is not.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_took_a_made_worktrees_place_is_not_it() {
+        let (scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let held = std::fs::File::open(&made.cwd).unwrap();
+        let at = Dir::held(&made.cwd, Some(&held));
+        assert_eq!(verify_made(repo.as_path().into(), &made, at), Ok(()));
+
+        let impostor = scratch.0.join("impostor");
+        std::fs::create_dir_all(&impostor).unwrap();
+        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
+        std::fs::rename(&made.root, scratch.0.join("made-moved")).unwrap();
+        std::fs::rename(&impostor, &made.root).unwrap();
+        let held = std::fs::File::open(&made.root).unwrap();
+        let at = Dir::held(&made.root, Some(&held));
+        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
+        assert!(refused.contains("not the worktree that was made"), "{refused}");
     }
 
     #[test]

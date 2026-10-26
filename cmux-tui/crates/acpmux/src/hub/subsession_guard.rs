@@ -322,14 +322,41 @@ fn moved_refusal(cwd: &Path) -> RpcError {
 /// starts again (a restart, a route change, a dead agent's next prompt) only in the folder its
 /// start checked (`SessionMeta::cwd_pin`). A folder whose volume remounted with another device
 /// number is refused too: nothing starts in a folder that may not be the one checked.
+/// A missing folder passes: nothing can start in it, and worktree care brings a reclaimed one
+/// back before the spawn (`Hub::cold_start`, which then checks again).
 pub(super) fn still_pinned(
     cwd: &Path,
     pin: Option<crate::cwd_pin::CwdPin>,
 ) -> Result<(), RpcError> {
-    match pin {
-        Some(pin) if crate::cwd_pin::CwdPin::of(cwd) != Some(pin) => Err(moved_refusal(cwd)),
+    let Some(pin) = pin else { return Ok(()) };
+    match std::fs::metadata(cwd) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ if crate::cwd_pin::CwdPin::of(cwd) != Some(pin) => Err(moved_refusal(cwd)),
         _ => Ok(()),
     }
+}
+
+/// Ok when `start` (a sub-session's folder in the worktree just made from `source`) is in that
+/// very worktree (`subsession_worktree::verify_made`); else `subsessions.cwd_moved`.
+pub(super) async fn verify_worktree(
+    source: &CheckedFolder,
+    made: &crate::subsession_worktree::Worktree,
+    start: &CheckedFolder,
+) -> Result<(), RpcError> {
+    let (source_path, source_held) = (source.path.clone(), source.held());
+    let (start_path, start_held) = (start.path.clone(), start.held());
+    let made = made.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        use crate::subsession_worktree::{Dir, verify_made};
+        let source = Dir::held(&source_path, source_held.as_deref());
+        verify_made(source, &made, Dir::held(&start_path, start_held.as_deref()))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?;
+    checked.map_err(|why| {
+        tracing::warn!(cwd = %start.path.display(), %why, "sub-session worktree");
+        moved_refusal(&start.path)
+    })
 }
 
 impl CheckedFolder {
