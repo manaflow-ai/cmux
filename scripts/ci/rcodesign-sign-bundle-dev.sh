@@ -71,6 +71,8 @@ pkcs12_to_pem() {
 }
 pkcs12_to_pem || pkcs12_to_pem -legacy || { echo "error: openssl could not open the PKCS#12 (wrong password?)" >&2; exit 1; }
 rm -f "$secrets/identity.p12"
+# Only openssl needed these; no later child (rcodesign, python3) inherits them.
+unset APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_BASE64
 [[ "$(grep -c -- '-----BEGIN .*PRIVATE KEY-----' < "$secrets/identity.pem" || true)" == 1 ]] ||
   { echo "error: the PKCS#12 must hold exactly one private key" >&2; exit 1; }
 subject="$(openssl x509 -noout -subject -nameopt multiline,utf8,-esc_msb < "$secrets/identity.pem")"
@@ -239,7 +241,11 @@ for name in sorted(os.listdir(os.path.dirname(path))):
         continue
     if name not in binaries:
         sys.exit(f"error: manifest.json has no checksum for payload {name}")
-    digest = hashlib.sha256(open(file, "rb").read()).hexdigest()
+    sha = hashlib.sha256()
+    with open(file, "rb") as payload:
+        for chunk in iter(lambda: payload.read(64 * 1024), b""):
+            sha.update(chunk)
+    digest = sha.hexdigest()
     if name in signed:
         binaries[name] = digest
     elif binaries[name].lower() != digest:

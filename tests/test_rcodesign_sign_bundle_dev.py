@@ -53,6 +53,8 @@ if argv[0] == "sign":
         record["manifest"] = json.load(open(target + "/Contents/Resources/bin/cmux-tui-ssh/manifest.json"))
     else:
         open(target, "ab").write(b"\nSIGNED")
+# Only openssl may see the certificate secrets: the signer unsets them after the PEM exists.
+record["secret_env"] = sorted(k for k in ("APPLE_CERTIFICATE_PASSWORD", "APPLE_CERTIFICATE_BASE64") if k in os.environ)
 with open(os.environ["FAKE_LOG"], "a") as log:
     log.write(json.dumps(record) + "\n")
 if argv[0] == os.environ.get("FAKE_FAIL") or argv[-1].endswith(os.environ.get("FAKE_FAIL_PATH") or "\0"):
@@ -264,6 +266,8 @@ class RcodesignSignBundleDevTest(unittest.TestCase):
                 if pem in arg or (key_dir in arg and call["tool"] != "rm"):
                     self.assertEqual((call["tool"], call["argv"][i - 1], arg), ("rcodesign", "--pem-file", pem))
         self.assertFalse(Path(key_dir).exists())
+        # The secrets are unset once the PEM exists: no rcodesign call inherits them.
+        self.assertEqual({tuple(c["secret_env"]) for c in self.calls("rcodesign")}, {()})
 
     def test_failures_fail_the_script(self) -> None:
         cases = [{"FAKE_FAIL": "sign"}, {"FAKE_FAIL": "verify"},
