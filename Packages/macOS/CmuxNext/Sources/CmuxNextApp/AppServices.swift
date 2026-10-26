@@ -31,6 +31,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
+import CmuxNextTrace
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -158,7 +159,7 @@ final class AppServices {
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
-    private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork, inputDispatch: inputDispatch)
+    private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
     private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -336,7 +337,8 @@ final class AppServices {
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or
-    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`).
+    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`), and the span of its dispatch
+    /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
@@ -451,14 +453,18 @@ final class AppServices {
     private(set) lazy var sessionTransfer = SessionTransferService(services: self)
     /// - Parameter launchReveal: The launch load-in the windows' sidebars and panes hold for
     ///   (`AppDelegate` passes the one its startup phase reveals on); tests get one of their own.
-    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); a default
-    ///   instance unless a test passes its own.
+    /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); by default
+    ///   one watched by `hangWatch`, unless a test passes its own.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
+    /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
+    ///   connection readers, terminal attachments and terminal output lanes): the process's
+    ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
-         work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+         work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
-         wireStats: DaemonWireStats? = nil) {
+         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
+        let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
@@ -471,8 +477,10 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
-                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
-        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats)
+                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
+                                             discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
+        daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
+                               hangWatch: hangWatch)
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

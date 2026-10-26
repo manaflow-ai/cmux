@@ -13,10 +13,10 @@
 //! a hidden terminal prompt, never from argv, where it would land in shell
 //! history and process listings.
 
+use cmux_process::Command;
 use std::ffi::OsString;
 use std::io::{BufRead, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -341,25 +341,33 @@ pub(super) fn bundled_coderouter(exe: &Path) -> Option<PathBuf> {
     crate::app_identity::containing_app_bundle(&exe).map(|bundle| bundle.join(BUNDLED_CODEROUTER))
 }
 
-/// The command a passthrough runs: `program args…` with every `CMUX_*`
-/// variable of `environment` removed.
-pub(super) fn passthrough_command(
+/// The variables a passthrough removes: every `CMUX_*` one of `environment`.
+pub(super) fn passthrough_removed(
+    environment: impl IntoIterator<Item = (OsString, OsString)>,
+) -> Vec<OsString> {
+    environment
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| name.to_string_lossy().starts_with("CMUX_"))
+        .collect()
+}
+
+/// The command a passthrough runs: `program args…` without the
+/// [`passthrough_removed`] variables of `environment`.
+fn passthrough_command(
     program: &Path,
     args: &[String],
     environment: impl IntoIterator<Item = (OsString, OsString)>,
 ) -> Command {
     let mut command = Command::new(program);
     command.args(args);
-    for (name, _) in environment {
-        if name.to_string_lossy().starts_with("CMUX_") {
-            command.env_remove(name);
-        }
+    for name in passthrough_removed(environment) {
+        command.env_remove(name);
     }
     command
 }
 
 fn exec_bundled(args: &[String]) -> i32 {
-    use std::os::unix::process::CommandExt;
     let messages = &crate::localization::catalog().coderouter;
     let exe = std::env::current_exe().ok();
     let Some(program) = exe.as_deref().and_then(bundled_coderouter) else {

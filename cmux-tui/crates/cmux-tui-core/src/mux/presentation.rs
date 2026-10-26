@@ -236,6 +236,7 @@ impl Mux {
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
+    #[track_caller]
     pub(crate) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
         *self.presentation.lock().unwrap() = Arc::new(snapshot);
@@ -244,6 +245,7 @@ impl Mux {
 
     /// Notifications, presentation, and tab directories for serializing the
     /// whole tree. Git HEAD lookups run after the state lock is released.
+    #[track_caller]
     pub fn tree_decorations(&self) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let (notifications, directories) = {
@@ -266,6 +268,7 @@ impl Mux {
     /// The same as [`Self::tree_decorations`] for a caller that already
     /// holds the state lock. It never touches the filesystem, so git HEADs
     /// come from the cache only.
+    #[track_caller]
     pub(crate) fn tree_decorations_in_state(&self, state: &State) -> TreeDecorations {
         let presentation = self.presentation_snapshot();
         let notifications = self.surface_notifications_in_state(state);
@@ -334,6 +337,7 @@ impl Mux {
 
     /// Tell subscribers that one tab's metadata (pin, directory, git HEAD,
     /// unread marker) changed, with the refreshed tab entity.
+    #[track_caller]
     pub(crate) fn emit_tab_changed(&self, surface: SurfaceId) {
         self.emit_tab_changed_for_transaction(surface, None);
     }
@@ -343,6 +347,7 @@ impl Mux {
     /// carries no transaction), so the client settles its provisional tab. A
     /// tab added to an existing pane carries the transaction on its own
     /// `tab-added` instead and never gets this second one.
+    #[track_caller]
     pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
         let decorations = self.tree_decorations();
         let delta = {
@@ -357,6 +362,7 @@ impl Mux {
 
     /// Refresh the git HEAD for a terminal whose directory changed and emit
     /// `tab-changed` for each of its placements.
+    #[track_caller]
     pub(crate) fn emit_terminal_tabs_changed(&self, terminal: &TerminalPublicId) {
         let placements = self.with_state(|state| {
             state.placements_of_content(&ContentPublicId::Terminal(terminal.clone())).to_vec()
@@ -382,6 +388,7 @@ impl Mux {
     /// it to the start of the unpinned run. The flag is durable and keyed by
     /// the public tab id, so it survives restarts and cross-pane moves. The
     /// raw command and v2 `tab.pin` share one commit path.
+    #[track_caller]
     pub fn set_tab_pinned_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -415,6 +422,7 @@ impl Mux {
 
     /// Clamp a `move-tab` insertion index so pinned tabs stay ahead of
     /// unpinned ones in the destination pane.
+    #[track_caller]
     pub fn pinned_tab_move_index(&self, surface: SurfaceId, pane: PaneId, index: usize) -> usize {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
@@ -443,12 +451,14 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub fn workspace_groups(&self) -> Vec<WorkspaceGroupRecord> {
         self.presentation_snapshot().groups.clone()
     }
 
     /// Create a sidebar group. A caller-chosen `id` makes retries
     /// idempotent: the same id and name return the stored group unchanged.
+    #[track_caller]
     pub fn create_workspace_group(
         &self,
         id: Option<String>,
@@ -467,6 +477,7 @@ impl Mux {
     }
 
     /// Rename, recolor (`Some(None)` clears), or collapse a group.
+    #[track_caller]
     pub fn update_workspace_group(
         &self,
         id: &str,
@@ -490,6 +501,7 @@ impl Mux {
 
     /// Delete a group. Its workspaces keep their registry order and become
     /// ungrouped. Returns the keys of the ungrouped workspaces.
+    #[track_caller]
     pub fn delete_workspace_group(&self, id: &str) -> anyhow::Result<Vec<String>> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let ungrouped = registry.delete_workspace_group(id)?;
@@ -502,6 +514,7 @@ impl Mux {
 
     /// Move a group to an insertion index among groups (the same
     /// insertion-point rule as `move-workspace`).
+    #[track_caller]
     pub fn move_workspace_group(
         &self,
         id: &str,
@@ -521,6 +534,7 @@ impl Mux {
         self.finish_group_change(group, changed)
     }
 
+    #[track_caller]
     fn finish_group_change(
         &self,
         group: WorkspaceGroupRecord,
@@ -549,6 +563,7 @@ impl Mux {
     /// commits one workspace-registry revision, so `origin`/`mutation_id`
     /// retries and `expected_revision` guards work as for `move-workspace`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_workspace_to_group(
         &self,
         workspace: Option<WorkspaceId>,
@@ -688,6 +703,7 @@ impl Mux {
     /// workspace-registry revision (the registry order is unchanged), so it
     /// takes the durable mutation envelope and emits `workspace-changed`
     /// with the full entity.
+    #[track_caller]
     pub fn set_workspace_metadata(
         &self,
         workspace: Option<WorkspaceId>,
@@ -804,10 +820,12 @@ impl Mux {
 impl Mux {
     /// Whether this browser surface's page is rendered by a frontend
     /// (WebKit or CEF) instead of a daemon-attached CDP target.
+    #[track_caller]
     pub(crate) fn is_frontend_browser_surface(&self, surface: &Surface) -> bool {
         self.frontend_browser_id(surface).is_some()
     }
 
+    #[track_caller]
     pub(crate) fn frontend_browser_id(&self, surface: &Surface) -> Option<BrowserPublicId> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
@@ -815,6 +833,7 @@ impl Mux {
     }
 
     /// The frontend record of a browser surface, if it is frontend-rendered.
+    #[track_caller]
     pub fn frontend_browser(&self, surface: &Surface) -> Option<FrontendBrowserRecord> {
         let id = self.frontend_browser_id(surface)?;
         self.presentation_snapshot().frontend_browsers.get(id.as_str()).cloned()
@@ -824,6 +843,7 @@ impl Mux {
     /// registered durably before the tab commits, under the browser id the
     /// creation then uses, so neither a live daemon nor a restarted one ever
     /// bootstraps a CDP target for it. A failed creation removes the record.
+    #[track_caller]
     pub fn new_frontend_browser_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -843,6 +863,7 @@ impl Mux {
     /// [`Mux::new_frontend_browser_tab_as`] with a [`FrontendTabPlacement`]: a
     /// background tab (`frontend-browser-activate-v1`) and a slot right
     /// after another tab of the pane (`frontend-browser-insert-after-v1`).
+    #[track_caller]
     pub(crate) fn new_frontend_browser_tab_placed_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -897,6 +918,7 @@ impl Mux {
     /// or selection: clear the shared unread marker of the tab's content
     /// (every view of one terminal shares it) and durably record the
     /// acknowledgement, so a restart does not bring the marker back.
+    #[track_caller]
     pub fn acknowledge_tab_notifications(
         &self,
         surface: SurfaceId,
@@ -929,6 +951,7 @@ impl Mux {
     /// Durably acknowledge the retained notifications of one terminal, or
     /// of one non-terminal placement, read the tab's local feed items in the
     /// same transaction, and clear its unread marker under the feed lock.
+    #[track_caller]
     pub(crate) fn persist_notification_acks(
         &self,
         terminal: Option<&TerminalPublicId>,
@@ -962,6 +985,7 @@ impl Mux {
 
     /// Retained notifications, newest first, with whether each was
     /// acknowledged.
+    #[track_caller]
     pub fn notification_rows(
         &self,
         limit: usize,

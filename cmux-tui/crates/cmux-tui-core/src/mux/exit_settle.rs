@@ -87,6 +87,7 @@ impl ExitSettleTimer {
         state.worker_running = false;
     }
 
+    #[track_caller]
     fn run_worker(self: Arc<Self>, mux: Weak<Mux>) {
         loop {
             let next = {
@@ -127,10 +128,12 @@ impl ExitSettleTimer {
 impl Mux {
     /// Detach `terminal_id`'s tabs at `until_ms` unless a shutdown started
     /// meanwhile; the detach re-classifies the durable receipt.
+    #[track_caller]
     pub(super) fn schedule_exit_settle(&self, terminal_id: &str, until_ms: u64) {
         self.schedule_exit_settle_attempt(terminal_id, Deadline { until_ms, failures: 0 });
     }
 
+    #[track_caller]
     fn schedule_exit_settle_attempt(&self, terminal_id: &str, scheduled: Deadline) {
         let timer = &self.exit_settles;
         let mut state = timer.state.lock().unwrap();
@@ -163,6 +166,7 @@ impl Mux {
     /// is left to the next owner's startup reconciliation. The tab stays
     /// dead meanwhile (the safe side of invariant 3). Nothing runs once the
     /// owner shuts down; the next owner settles the receipts.
+    #[track_caller]
     pub(super) fn run_due_exit_settles(&self) {
         let _running = self.exit_settles.running.lock().unwrap();
         let now_ms = self.session_shutdown.now_ms();

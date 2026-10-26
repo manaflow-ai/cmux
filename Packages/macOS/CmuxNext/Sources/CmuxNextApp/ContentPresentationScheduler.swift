@@ -1,5 +1,4 @@
 import CmuxNextDaemonService
-import CmuxNextFocusUI
 import CmuxNextWakeups
 
 /// A pane whose selected content the scheduler shows.
@@ -21,108 +20,166 @@ protocol PresentablePane: AnyObject {
 /// shown, content already alive is shown at once, and at most one new
 /// surface is created per frame; the rest wait for the next frame.
 ///
-/// Its frames are the budgeted visible class of the app's `MainWorkScheduler`: a selection no
-/// input of the person's caused yields to pending input and draws on the visible share. One a
-/// person's key or click changed runs on that scheduler's frame unbudgeted
-/// (``FrameBatcher/scheduleFrame(byPerson:_:)``), and ``showNow(_:)`` stays synchronous.
+/// Each queued pane keeps the cause of the changes that queued it (`mainWork.causes`, read when it
+/// is queued), and each cause has its own drain on a budgeted `visible` queue of the app's
+/// `MainWorkScheduler` (``FrameBatchQueue/enqueue(cause:_:)``). A pane a person's or the
+/// frontend's change queued shows in the person's input-response pass or on the next frame,
+/// unbudgeted, and takes the frame's surface creation first; the rest yield to pending input and
+/// draw on the visible share. A person's drain shows only the person's panes, so it neither waits
+/// behind nor pays for the panes automation queued. ``showNow(_:)`` stays synchronous.
 @MainActor
 final class ContentPresentationScheduler {
+    /// A queued pane and the highest cause of the changes that queued it.
+    private struct Entry {
+        let pane: any PresentablePane
+        var cause: ObservationCause
+    }
+
+    /// The budgeted `visible` batcher the drains run on, by cause.
     private let frames: FrameBatcher
-    private let isPersonTurn: @MainActor () -> Bool
-    private var pending: [ObjectIdentifier: any PresentablePane] = [:]
+    /// The next frame of the scheduler, unbudgeted: a person's pane the frame's surface creation
+    /// held, and the frame after a creation (so the next creation's frame comes).
+    private let nextFrame: FrameBatcher
+    private let causes: ObservationCauses
+    /// The frame count that tells one frame from the next (``FrameScheduler/frames``).
+    private let frameScheduler: FrameScheduler
+    private var pending: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    /// Queued panes a person's input changed: while one waits, the drain is the person's (unbudgeted).
-    private var personPending: Set<ObjectIdentifier> = []
-    /// The drain on order: whether it is the person's, and its generation. A person's drain
-    /// supersedes a budgeted one on order, whose callback then does nothing.
-    private var scheduled: (byPerson: Bool, generation: UInt64)?
-    private var generation: UInt64 = 0
-    /// A surface was created since the last frame; the frame's budget is spent.
-    private var createdThisFrame = false
+    /// A person's drain is on order on ``frames``.
+    private var personDrainScheduled = false
+    /// A person's drain is on order on ``nextFrame``.
+    private var nextFrameDrainScheduled = false
+    /// A budgeted drain is on order on ``frames``.
+    private var budgetedDrainScheduled = false
+    /// The frame of the last surface creation, and whether a person's pane made it.
+    private var lastCreation: (frame: UInt64, byPerson: Bool)?
 
-    /// - Parameters:
-    ///   - frames: A budgeted visible batcher on the app's `MainWorkScheduler`.
-    ///   - isPersonTurn: Whether a person's discrete input is being dispatched now
-    ///     (`InputDispatchContext.isDispatchingDiscreteInput`).
-    init(frames: FrameBatcher, isPersonTurn: @escaping @MainActor () -> Bool) {
-        self.frames = frames
-        self.isPersonTurn = isPersonTurn
+    /// - Parameter mainWork: The app's main-thread scheduler: the drains run in its budgeted
+    ///   `visible` class (a person's unbudgeted), the causes are its ``MainWorkScheduler/causes``.
+    init(mainWork: MainWorkScheduler) {
+        frames = FrameBatcher(owner: "ContentPresentation", budgeted: .visible, on: mainWork)
+        nextFrame = FrameBatcher(owner: "ContentPresentation.nextFrame", scheduler: mainWork.frames)
+        causes = mainWork.causes
+        frameScheduler = mainWork.frames
     }
 
-    /// The app's scheduler: a budgeted visible batcher on `mainWork`, the person's turn read from
-    /// `inputDispatch`.
-    convenience init(mainWork: MainWorkScheduler, inputDispatch: InputDispatchContext) {
-        self.init(frames: FrameBatcher(owner: "ContentPresentation", budgeted: .visible, on: mainWork),
-                  isPersonTurn: { [inputDispatch] in inputDispatch.isDispatchingDiscreteInput })
-    }
-
-    /// Queues `pane` to show its selection on the next frame (coalesced).
+    /// Queues `pane` to show its selection on the next frame (coalesced), with the cause of the
+    /// change being made now.
     func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
-        if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
-        if isPersonTurn() { personPending.insert(key) }
-        schedule()
+        var entry = pending[key] ?? Entry(pane: pane, cause: .automation)
+        if pending[key] == nil { order.append(key) }
+        entry.cause = max(entry.cause, causes.currentCause)
+        pending[key] = entry
+        schedule(entry.cause)
     }
 
     /// Shows `pane`'s selection now when that fits this frame's budget (its
-    /// content is alive, or no surface was created since the last frame),
-    /// else queues it. Used when a pane comes on screen, so a split's new
-    /// pane draws in the same frame as the layout change instead of one
-    /// blank frame later. Returns true when it was shown now.
+    /// content is alive, or this frame may still create a surface), else
+    /// queues it. Used when a pane comes on screen, so a split's new pane
+    /// draws in the same frame as the layout change instead of one blank
+    /// frame later. Returns true when it was shown now.
     @discardableResult
     func showNow(_ pane: any PresentablePane) -> Bool {
-        let alive = pane.selectedContentIsAlive
-        guard alive || !createdThisFrame else {
+        let alive = pane.selectedContentIsAlive, byPerson = Self.isPersons(causes.currentCause)
+        guard alive || mayCreate(byPerson: byPerson) else {
             setNeedsShowSelected(pane)
             return false
         }
         cancel(pane)
-        if !alive { createdThisFrame = true }
+        if !alive { noteCreation(byPerson: byPerson) }
         BenchSpans.measure("presentation.showNow") { pane.showSelected() }
-        schedule()
         return true
     }
 
     /// Drops a pane that is going away.
     func cancel(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
-        personPending.remove(key)
         guard pending.removeValue(forKey: key) != nil else { return }
         order.removeAll { $0 == key }
     }
 
-    /// Puts one drain on order. It is the person's while a pane their input queued waits, or when
-    /// it only ends the frame's surface creation (nothing queued, nothing to budget).
-    private func schedule() {
-        guard !pending.isEmpty || createdThisFrame else { return }
-        let byPerson = !personPending.isEmpty || pending.isEmpty
-        if let scheduled, scheduled.byPerson || !byPerson { return }
-        generation &+= 1
-        let current = generation
-        scheduled = (byPerson, current)
-        frames.scheduleFrame(byPerson: byPerson) { [weak self] in
-            guard let self, self.scheduled?.generation == current else { return }
-            self.scheduled = nil
-            self.drain()
+    /// Whether a pane of `cause` shows in the unbudgeted, person's drain.
+    private static func isPersons(_ cause: ObservationCause) -> Bool { cause >= .frontend }
+
+    /// Puts the drain of `cause`'s lane on order (one a lane at a time). A person's goes to the
+    /// input-response pass or the next frame, unbudgeted; the rest to the budgeted `visible` class.
+    private func schedule(_ cause: ObservationCause) {
+        if Self.isPersons(cause) {
+            guard !personDrainScheduled else { return }
+            personDrainScheduled = true
+            frames.queue.enqueue(cause: cause) { [weak self] in
+                guard let self else { return }
+                personDrainScheduled = false
+                drain(persons: true)
+            }
+        } else {
+            guard !budgetedDrainScheduled else { return }
+            budgetedDrainScheduled = true
+            frames.queue.enqueue(cause: cause) { [weak self] in
+                guard let self else { return }
+                budgetedDrainScheduled = false
+                drain(persons: false)
+            }
         }
     }
 
-    private func drain() {
-        var created = false
-        var remaining: [ObjectIdentifier] = []
-        for key in order {
-            guard let pane = pending[key] else { continue }
-            if pane.selectedContentIsAlive || !created {
-                if !pane.selectedContentIsAlive { created = true }
-                pending[key] = nil
-                personPending.remove(key)
-                BenchSpans.measure("presentation.frame") { pane.showSelected() }
-            } else {
-                remaining.append(key)
-            }
+    /// A person's drain on the next frame: never in the turn that just created a surface (the
+    /// input-response pass runs work queued during it in the same turn).
+    private func scheduleNextFrame() {
+        guard !nextFrameDrainScheduled else { return }
+        nextFrameDrainScheduled = true
+        nextFrame.queue.enqueue { [weak self] in
+            guard let self else { return }
+            nextFrameDrainScheduled = false
+            drain(persons: true)
         }
-        order = remaining
-        createdThisFrame = created
-        schedule()
+    }
+
+    /// Whether a new surface may be created now: one a frame, except that a person's pane may take
+    /// a frame whose creation automation took (the person's never waits behind automation's).
+    private func mayCreate(byPerson: Bool) -> Bool {
+        guard let lastCreation, lastCreation.frame == frameScheduler.frames else { return true }
+        return byPerson && !lastCreation.byPerson
+    }
+
+    /// A surface was created now: the frame's creation is spent, and the next frame is asked for.
+    private func noteCreation(byPerson: Bool) {
+        lastCreation = (frameScheduler.frames, byPerson)
+        scheduleNextFrame()
+    }
+
+    /// Shows the queued panes of one lane (the person's: a person's or the frontend's cause), in the
+    /// order they were queued: content already alive at once, a new surface while ``mayCreate(byPerson:)``.
+    /// A pane the frame's creation holds waits for the lane's next drain, on the next frame.
+    private func drain(persons: Bool) {
+        let queued = order
+        order.removeAll(keepingCapacity: true)
+        var kept: [ObjectIdentifier] = []
+        var held = false
+        for key in queued {
+            guard let entry = pending[key] else { continue }
+            guard Self.isPersons(entry.cause) == persons else {
+                kept.append(key)
+                continue
+            }
+            let alive = entry.pane.selectedContentIsAlive
+            guard alive || mayCreate(byPerson: persons) else {
+                kept.append(key)
+                held = true
+                continue
+            }
+            pending[key] = nil
+            if !alive { noteCreation(byPerson: persons) }
+            BenchSpans.measure("presentation.frame") { entry.pane.showSelected() }
+        }
+        // A pane a show queued or cancelled meanwhile is already in (or out of) `order`.
+        order = kept.filter { pending[$0] != nil } + order
+        guard held else { return }
+        if persons {
+            scheduleNextFrame()
+        } else {
+            schedule(.program)
+        }
     }
 }

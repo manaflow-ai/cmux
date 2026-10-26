@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+inline constexpr std::string_view kProtocolIrSha256 = "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -162,6 +162,8 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsRequestPathIo;
+struct ServerStatsRequestPathSite;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsWritePath;
@@ -4879,6 +4881,29 @@ struct ServerStatsRequest {
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
+struct ServerStatsRequestPathSite {
+    std::string kind{};
+    std::string site{};
+    friend bool operator==(const ServerStatsRequestPathSite&, const ServerStatsRequestPathSite&) = default;
+};
+
+struct ServerStatsRequestPathIo {
+    std::uint64_t child_process{};
+    std::uint64_t fs_write{};
+    std::uint64_t host_wait{};
+    std::uint64_t journal_wait{};
+    std::optional<std::uint64_t> lock_hold_over_1ms{};
+    std::uint64_t network{};
+    std::uint64_t proc_scan{};
+    std::uint64_t process_spawn{};
+    bool recording{};
+    std::uint64_t scopes{};
+    std::vector<ServerStatsRequestPathSite> sites{};
+    std::uint64_t sleep{};
+    std::uint64_t sqlite{};
+    friend bool operator==(const ServerStatsRequestPathIo&, const ServerStatsRequestPathIo&) = default;
+};
+
 struct ServerStatsResourceProjection {
     ServerStatsHistogram commit_apply_us{};
     ServerStatsHistogram commit_journal_us{};
@@ -4913,6 +4938,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsRequestPathIo> request_path_io{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::uint64_t uptime_ms{};
@@ -6858,6 +6884,18 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequestPathIo> {
+    static Result<Json> encode(const ServerStatsRequestPathIo& value);
+    static Result<ServerStatsRequestPathIo> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequestPathSite> {
+    static Result<Json> encode(const ServerStatsRequestPathSite& value);
+    static Result<ServerStatsRequestPathSite> decode(const Json& value);
 };
 
 template <>

@@ -53,113 +53,198 @@ import CmuxNextWakeupsTestSupport
         #expect(!work.frames.hasLink, "the link goes away with the backlog")
     }
 
-    // MARK: No batcher outside the budget window (p06-scheduler-010)
-
-    /// A SidebarRows flush no input of the person's caused is budgeted visible work: it waits while
-    /// a key is pending, one frame and never two.
-    @Test func anAutomationRowFlushYieldsToPendingInput() {
-        let (work, input, clock) = Self.budgetedScheduler()
+    /// p06-scheduler-207, through the app's path (`SidebarRowFeed` on a budgeted `visible`
+    /// SidebarRows queue, its causes from `mainWork.causes`): 400 rows an automation change marked,
+    /// then one a person's change marked. One row a flush and 1 ms a row map, so each automation
+    /// flush is a 1 ms task. The person's row patches first, in the first frame; the automation
+    /// rows spread over frames in the order they were marked (with no input pending the visible
+    /// class takes its 2.5 ms share and then idle time up to the 4 ms of scheduled work: 4 flushes a
+    /// frame, so 100 frames).
+    @Test func aPersonRowPatchRunsInTheFirstFrameWhileAutomationRowPatchesSpreadOut() {
+        let clock = BatcherBudgetClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), clock: ManualClock()) { _ in CountedLink() }
         let rows = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: work)
+        let causes = work.causes
+        let feed = SidebarRowFeed(cause: { causes.currentCause }, rowsPerBudgetedFlush: 1,
+                                  schedule: { cause, flush in rows.queue.enqueue(cause: cause, flush) })
+        let mine = 400
+        let models = (0...mine).map { _ in RowTitle() }
+        let ids = (0...mine).map { WorkspaceID("row \($0)") }
+        let positions = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
         let log = RunLog()
-        rows.scheduleFrame(byPerson: false) { log.automation += 1 }
-        input.pending = true
-        Self.fire(work, clock, frame: 1)
-        #expect(log.automation == 0, "the flush ran while a key was pending")
-        Self.fire(work, clock, frame: 2)
-        #expect(log.automation == 1, "the flush was held a second frame")
-    }
-
-    /// Cmd-N's row patch is the person's: it runs in the next frame, ahead of the budgeted classes and
-    /// while a key is pending, though 400 automation patches are queued before it; those spread out.
-    @Test func aPersonsRowPatchRunsInTheNextFrameWhile400AutomationPatchesWait() {
-        let (work, input, clock) = Self.budgetedScheduler()
-        let rows = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: work)
-        let log = RunLog()
-        for _ in 0..<400 {
-            rows.scheduleFrame(byPerson: false) {
-                log.automation += 1
-                clock.advance(ms: 1)
+        let cost = MapCost(clock: clock)
+        feed.onChange = { changed in log.ran += changed.compactMap { positions[$0.id] } }
+        feed.beginPass(inputs: 0)
+        for (position, id) in ids.enumerated() {
+            let model = models[position]
+            _ = feed.row(id, machine: .local) {
+                cost.charge()
+                return SidebarWorkspace(id: id, machineID: .local, title: model.title)
             }
         }
-        rows.scheduleFrame(byPerson: true) { log.personRanAfter = log.automation }
-        input.pending = true
-        Self.fire(work, clock, frame: 1)
-        #expect(log.personRanAfter == 0, "the person's patch waited behind automation (\(String(describing: log.personRanAfter)))")
-        #expect(log.automation == 0, "automation patches ran while a key was pending")
-        #expect(rows.personCount == 0)
-        input.pending = false
-        for frame in 2...4 { Self.fire(work, clock, frame: frame) }
-        #expect(log.automation > 0, "the automation patches never ran")
-        #expect(log.automation <= 3 * 8, "the automation patches were not spread out (\(log.automation) in 3 frames)")
-        #expect(rows.queue.count == 400 - log.automation)
-    }
-
-    /// The feed's flushes coalesce: 400 rows an agent changed wait in one flush held by a pending key.
-    /// The row Cmd-N changed, marked in the person's turn, does not join that held flush: it flushes
-    /// in the next frame (the held flush then finds it done).
-    @Test func aPersonsRowChangeIsNotHeldBehindAQueuedAutomationFlush() {
-        let (work, input, clock) = Self.budgetedScheduler()
-        let turn = PersonTurnFlag()
-        let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: work)
-        let feed = SidebarRowFeed(schedule: { frames.scheduleFrame(byPerson: false, $0) },
-                                  urgent: (isNow: { turn.isPerson }, schedule: { frames.scheduleFrame(byPerson: true, $0) }))
-        let statuses = (0...400).map { _ in RowStatus() }
-        let patched = PatchLog()
-        feed.onChange = { rows in patched.ids.formUnion(rows.map(\.id)) }
-        feed.beginPass(inputs: 0)
-        for (index, status) in statuses.enumerated() {
-            let id = WorkspaceID("w\(index)")
-            _ = feed.row(id, machine: .local) { SidebarWorkspace(id: id, machineID: .local, title: "w", status: status.text) }
-        }
         _ = feed.fill([])
-        for status in statuses.dropLast() { status.text = "agent" }
-        turn.isPerson = true
-        statuses[400].text = "new"
-        turn.isPerson = false
-        input.pending = true
-        Self.fire(work, clock, frame: 1)
-        #expect(patched.ids.contains(WorkspaceID("w400")), "the person's row waited behind the held automation flush")
-        #expect(patched.ids.count == 401, "the urgent flush maps every dirty row it finds (\(patched.ids.count))")
-        #expect(frames.queue.count == 1, "the automation flush is still held")
-        Self.fire(work, clock, frame: 2)
-        #expect(frames.queue.count == 0)
-        #expect(patched.ids.count == 401)
+        cost.msPerMap = 1
+
+        causes.withCause(.automation) { for model in models.dropLast() { model.title += " 2" } }
+        causes.withCause(.person) { models[mine].title = "mine 2" }
+        #expect(rows.queue.unbudgetedCount == 1, "the person's flush waits for no budget")
+        #expect(rows.queue.count == 401, "one automation flush a row")
+        #expect(log.ran.isEmpty, "nothing maps in the change's turn")
+
+        var perFrame: [Int] = []
+        var frame = 0.0
+        while rows.queue.count > 0, frame < 1_000 {
+            frame += 1
+            clock.advance(ms: 17)
+            let before = log.ran.count
+            work.frameDidFire(timestamp: frame, refreshInterval: 1.0 / 60)
+            perFrame.append(log.ran.count - before)
+        }
+        #expect(log.ran.first == mine, "the person's row patches first")
+        #expect((perFrame.first ?? 0) >= 1, "the person's row patches in the first frame")
+        #expect(log.ran.count == 401)
+        #expect(Array(log.ran.dropFirst()) == Array(0..<mine), "the automation rows patch in the order they were marked")
+        #expect((perFrame.first ?? 0) <= 6, "the first frame ran the person's patch and at most a budget's worth: \(perFrame)")
+        let late = perFrame.dropFirst().filter { $0 > 5 }
+        #expect(late.isEmpty, "no later frame ran more than 5 automation flushes: \(late)")
+        #expect(frame >= 80, "the automation rows spread over \(Int(frame)) frames")
     }
 
-    /// A pane selection no input of the person's caused (a CLI or daemon change) is budgeted visible
-    /// work: held one frame by a pending key.
-    @Test func aSelectionNoInputCausedWaitsOneFrameForAPendingKey() {
-        let (work, input, clock) = Self.budgetedScheduler()
-        let presentation = ContentPresentationScheduler(frames: FrameBatcher(owner: "ContentPresentation", budgeted: .visible, on: work),
-                                                        isPersonTurn: { false })
-        let pane = PresentedPane()
-        presentation.setNeedsShowSelected(pane)
-        input.pending = true
-        Self.fire(work, clock, frame: 1)
-        #expect(pane.shown == 0, "the selection showed while a key was pending")
-        Self.fire(work, clock, frame: 2)
-        #expect(pane.shown == 1)
+    /// The person's turn is open (a key that expects a frame): the queue's person item goes to the
+    /// budget's `InputResponsePass` (p06-scheduler-206) and runs before that turn's commit, on a fake
+    /// run loop. Frontend, program and automation items stay for the next frame: the frontend's
+    /// unbudgeted with the frame clients, the others under the class budget. A person item queued
+    /// before the turn opened is not the pass's: it waits for the frame too.
+    @Test func theInputResponsePassRunsThePersonsItemBeforeTheCommit() {
+        let clock = BatcherBudgetClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), clock: ManualClock()) { _ in CountedLink() }
+        let rows = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: work)
+        let loop = CommitRunLoop()
+        let pass = InputResponsePass(budget: work.budget, runLoop: loop)
+        rows.queue.enqueue(cause: .person) { loop.events.append("early person") }
+        #expect(rows.queue.unbudgetedCount == 1, "outside the person's turn the pass takes nothing")
+
+        work.budget.noteDiscreteInput(expectsFrame: true)
+        rows.queue.enqueue(cause: .automation) { loop.events.append("automation") }
+        rows.queue.enqueue(cause: .program) { loop.events.append("program") }
+        rows.queue.enqueue(cause: .frontend) { loop.events.append("frontend") }
+        rows.queue.enqueue(cause: .person) { loop.events.append("person") }
+        #expect(rows.queue.count == 4, "the pass took the person's item")
+        loop.turn()
+        #expect(loop.events == ["person", "commit"], "the pass ran only the person's item, before the commit")
+        #expect(pass.stats.items == 1)
+
+        clock.advance(ms: 17)
+        work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(loop.events == ["person", "commit", "early person", "frontend", "automation", "program"])
+        #expect(rows.queue.count == 0)
     }
 
-    /// A selection a person's key changed shows in the next frame though a key is pending, and takes
-    /// the selections queued before it along: each pane shows once (the budgeted drain it supersedes
-    /// does nothing).
-    @Test func aSelectionAPersonsKeyChangedShowsInTheNextFrame() {
+    /// SidebarRows passes the store change's cause: each cause gets its own flushes, and the person
+    /// flush maps only the rows a person's change marked, not the ones automation marked. The causes
+    /// are the scheduler's (`mainWork.causes`), the instance the app's writers scope.
+    @Test func theRowFeedFlushesPersonRowsApartFromAutomationRows() {
+        let clock = BatcherBudgetClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), clock: ManualClock()) { _ in CountedLink() }
+        let causes = work.causes
+        let titles = RowTitles()
+        let scheduled = ScheduledFlushes()
+        let feed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, flush in scheduled.flushes.append((cause: cause, work: flush)) })
+        var patched: [String] = []
+        feed.onChange = { rows in patched += rows.map(\.title) }
+        feed.beginPass(inputs: 0)
+        let agent = WorkspaceID("agent"), mine = WorkspaceID("mine")
+        _ = feed.row(agent, machine: .local) { SidebarWorkspace(id: agent, machineID: .local, title: titles.agent) }
+        _ = feed.row(mine, machine: .local) { SidebarWorkspace(id: mine, machineID: .local, title: titles.mine) }
+        _ = feed.fill([])
+
+        causes.withCause(.automation) { titles.agent = "agent 2" }
+        causes.withCause(.person) { titles.mine = "mine 2" }
+        #expect(scheduled.flushes.map { $0.cause } == [.automation, .person])
+
+        scheduled.flushes[1].work()
+        #expect(patched == ["mine 2"], "the person flush maps the person's row only")
+        scheduled.flushes[0].work()
+        #expect(patched == ["mine 2", "agent 2"])
+
+        causes.withCause(.automation) { titles.agent = "agent 3" }
+        #expect(scheduled.flushes.map { $0.cause } == [.automation, .person, .automation], "a flush that ran is scheduled again")
+    }
+
+    // MARK: ContentPresentation on the budget window (p06-scheduler-010)
+
+    /// A pane selection automation changed (a CLI or agent request) is budgeted `visible` work: a
+    /// pending key holds it one frame, never two.
+    @Test func anAutomationSelectionWaitsOneFrameForAPendingKey() {
         let (work, input, clock) = Self.budgetedScheduler()
-        let turn = PersonTurnFlag()
-        let presentation = ContentPresentationScheduler(frames: FrameBatcher(owner: "ContentPresentation", budgeted: .visible, on: work),
-                                                        isPersonTurn: { turn.isPerson })
-        let automation = PresentedPane(), person = PresentedPane()
-        presentation.setNeedsShowSelected(automation)
-        turn.isPerson = true
-        presentation.setNeedsShowSelected(person)
-        turn.isPerson = false
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let pane = PresentedPane("agent", alive: true, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(pane) }
         input.pending = true
         Self.fire(work, clock, frame: 1)
-        #expect(person.shown == 1, "the person's selection waited for the budget")
-        #expect(automation.shown == 1)
+        #expect(shown.panes.isEmpty, "the selection showed while a key was pending")
         Self.fire(work, clock, frame: 2)
-        #expect(person.shown == 1 && automation.shown == 1, "a superseded drain showed a pane again")
+        #expect(shown.panes == ["agent"])
+    }
+
+    /// The person's selection change reaches the scheduler in a later turn than their key (a daemon
+    /// echo applied with the person's cause), while another key is pending and an automation pane
+    /// was queued first: the person's pane shows in the next frame, the automation pane does not
+    /// ride along (it waits for its class), and no pane shows twice.
+    @Test func aPersonsSelectionFromALaterTurnShowsInTheNextFrameWhileAKeyIsPending() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let agent = PresentedPane("agent", alive: true, log: shown), mine = PresentedPane("mine", alive: true, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(agent) }
+        work.causes.withCause(.person) { presentation.setNeedsShowSelected(mine) }
+        input.pending = true
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["mine"], "the person's selection waited for the budget, or took automation's along: \(shown.panes)")
+        Self.fire(work, clock, frame: 2)
+        #expect(shown.panes == ["mine", "agent"])
+        Self.fire(work, clock, frame: 3)
+        #expect(shown.panes == ["mine", "agent"], "a pane showed twice")
+    }
+
+    /// Both panes need a new surface (one a frame) and the automation pane was queued first: the
+    /// person's pane takes the frame's creation, the automation pane's waits for the next frame.
+    @Test func thePersonsNewSurfaceTakesTheFramesCreationBeforeAnEarlierAutomationOne() {
+        let (work, input, clock) = Self.budgetedScheduler()
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let agent = PresentedPane("agent", alive: false, log: shown), mine = PresentedPane("mine", alive: false, log: shown)
+        work.causes.withCause(.automation) { presentation.setNeedsShowSelected(agent) }
+        work.causes.withCause(.person) { presentation.setNeedsShowSelected(mine) }
+        input.pending = true
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["mine"], "the person's surface waited behind automation's: \(shown.panes)")
+        input.pending = false
+        Self.fire(work, clock, frame: 2)
+        #expect(shown.panes == ["mine", "agent"], "a frame created two surfaces, or automation's never came: \(shown.panes)")
+    }
+
+    /// In the person's turn (a key that expects a frame) their selection shows in the input-response
+    /// pass, before that turn's commit. Two of their panes need a new surface: one is created in the
+    /// pass, the other on the next frame (the pass does not loop on it).
+    @Test func aPersonsSelectionShowsBeforeTheCommitOfTheirTurn() {
+        let (work, _, clock) = Self.budgetedScheduler()
+        let loop = CommitRunLoop()
+        let pass = InputResponsePass(budget: work.budget, runLoop: loop)
+        let presentation = ContentPresentationScheduler(mainWork: work)
+        let shown = ShowLog()
+        let first = PresentedPane("first", alive: false, log: shown), second = PresentedPane("second", alive: false, log: shown)
+        work.budget.noteDiscreteInput(expectsFrame: true)
+        work.causes.withCause(.person) {
+            presentation.setNeedsShowSelected(first)
+            presentation.setNeedsShowSelected(second)
+        }
+        loop.turn()
+        #expect(shown.panes == ["first"], "the pass showed \(shown.panes)")
+        #expect(pass.stats.items == 1)
+        Self.fire(work, clock, frame: 1)
+        #expect(shown.panes == ["first", "second"])
     }
 
     /// A scheduler on a fake link whose budget reads the test's clock and pending-input flag.
@@ -176,38 +261,29 @@ import CmuxNextWakeupsTestSupport
     }
 }
 
-/// What the batches ran.
+/// The panes shown, in order.
 @MainActor
-private final class RunLog {
-    var automation = 0
-    /// How many automation patches had run when the person's ran; nil until it ran.
-    var personRanAfter: Int?
+private final class ShowLog {
+    var panes: [String] = []
 }
 
-/// A row's observed status, as a store holds it.
-@MainActor @Observable
-private final class RowStatus {
-    var text = "idle"
-}
-
-/// The ids of the rows the feed patched.
-@MainActor
-private final class PatchLog {
-    var ids: Set<WorkspaceID> = []
-}
-
-/// Whether the test's dispatch is a person's discrete input.
-@MainActor
-private final class PersonTurnFlag {
-    var isPerson = false
-}
-
-/// A pane whose selection is alive (no surface to create); counts its shows.
+/// A pane whose selection is alive or needs a new surface (alive once shown); logs its shows.
 @MainActor
 private final class PresentedPane: PresentablePane {
-    private(set) var shown = 0
-    var selectedContentIsAlive: Bool { true }
-    func showSelected() { shown += 1 }
+    private let name: String
+    private let log: ShowLog
+    private(set) var selectedContentIsAlive: Bool
+
+    init(_ name: String, alive: Bool, log: ShowLog) {
+        self.name = name
+        self.log = log
+        selectedContentIsAlive = alive
+    }
+
+    func showSelected() {
+        log.panes.append(name)
+        selectedContentIsAlive = true
+    }
 }
 
 /// A person's key waiting for the main thread, as the test sets it.
@@ -215,6 +291,90 @@ private final class PresentedPane: PresentablePane {
 private final class PendingKeys: InputPendingSource {
     var pending = false
     func hasPendingInput(uptime: TimeInterval) -> Bool { pending }
+}
+
+/// What the queued work ran, in order.
+@MainActor
+private final class RunLog {
+    var ran: [Int] = []
+}
+
+/// The flushes a row feed scheduled, with their causes.
+@MainActor
+private final class ScheduledFlushes {
+    var flushes: [(cause: ObservationCause, work: @MainActor @Sendable () -> Void)] = []
+}
+
+/// Two rows' content.
+@MainActor @Observable
+private final class RowTitles {
+    var agent = "agent"
+    var mine = "mine"
+}
+
+/// One row's content.
+@MainActor @Observable
+private final class RowTitle {
+    var title = "row"
+}
+
+/// What a row map costs on the test's budget clock (none while the rows are first filled).
+@MainActor
+private final class MapCost {
+    private let clock: BatcherBudgetClock
+    var msPerMap = 0.0
+
+    init(clock: BatcherBudgetClock) { self.clock = clock }
+
+    func charge() { clock.advance(ms: msPerMap) }
+}
+
+/// A run loop whose turn runs its queued blocks, then the commit stage's observers in order, and
+/// logs `commit` where Core Animation's observer (order 2,000,000) runs.
+@MainActor
+private final class CommitRunLoop: InputResponseRunLoop {
+    var events: [String] = []
+    private var observers: [CommitStageObserver] = []
+    private var blocks: [@MainActor () -> Void] = []
+
+    func observeBeforeCommit(order: CFIndex, _ handler: @escaping @MainActor () -> Void) -> any InputResponseObservation {
+        let observer = CommitStageObserver(order: order, handler: handler)
+        observers.append(observer)
+        return observer
+    }
+
+    func perform(_ work: @escaping @MainActor () -> Void) {
+        blocks.append(work)
+    }
+
+    func turn() {
+        let queued = blocks
+        blocks.removeAll()
+        for block in queued { block() }
+        var committed = false
+        for observer in observers.filter(\.isValid).sorted(by: { $0.order < $1.order }) {
+            if !committed, observer.order >= 2_000_000 {
+                events.append("commit")
+                committed = true
+            }
+            if observer.isValid { observer.handler() }
+        }
+        if !committed { events.append("commit") }
+        observers.removeAll { !$0.isValid }
+    }
+}
+
+private final class CommitStageObserver: InputResponseObservation {
+    let order: CFIndex
+    let handler: @MainActor () -> Void
+    private(set) var isValid = true
+
+    init(order: CFIndex, handler: @escaping @MainActor () -> Void) {
+        self.order = order
+        self.handler = handler
+    }
+
+    func invalidate() { isValid = false }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).

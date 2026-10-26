@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
+pub const ir_sha256 = "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,31 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestPathIo = struct {
+    child_process: u64,
+    fs_write: u64,
+    host_wait: u64,
+    journal_wait: u64,
+    lock_hold_over_1ms: ?u64 = null,
+    network: u64,
+    proc_scan: u64,
+    process_spawn: u64,
+    recording: bool,
+    scopes: u64,
+    sites: []const ServerStatsRequestPathSite,
+    sleep: u64,
+    sqlite: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "lock_hold_over_1ms",
+    };
+};
+
+pub const ServerStatsRequestPathSite = struct {
+    kind: []const u8,
+    site: []const u8,
+};
+
 pub const ServerStatsResourceProjection = struct {
     commit_apply_us: ServerStatsHistogram,
     commit_journal_us: ServerStatsHistogram,
@@ -1917,12 +1942,14 @@ pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "request_path_io",
         "resource_projection",
         "write_path",
     };

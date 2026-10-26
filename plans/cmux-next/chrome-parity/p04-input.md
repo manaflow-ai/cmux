@@ -676,6 +676,16 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Test phase: UNIT(TerminalEchoStageTests); GUI typing-frame-bench.py --surfaces terminal: |contents_ms - new
   stage| < 0.5 ms.
 - Size M. Depends: 004.
+- Decisions (review of cp/p04-input-006):
+  - Each surface keeps a fixed ring of 8 waiting keys. Every key armed before a chunk reached the lane takes
+    that chunk as its echo and the next frame as its contentSubmitted (Chromium gives each coalesced event its
+    frame); a key past the ring is superseded. One deadline per surface, cancelled when the last key ends.
+  - One contents gate per process (`GhosttyRuntime.shared.echoStages.contentsGate`); every
+    `TerminalEchoStages` is built on it.
+  - The setContents hook is on every terminal layer class only in DEBUG and bench builds (p09-observability-019).
+    Release makes no echo stage until 049's Ghostty hook calls `TerminalEchoStage.contentsSet()` at the
+    IOSurface handoff and lifts the guard in `TerminalEchoStages.makeStage()`.
+  - No sink is installed here: 094 installs it. The GUI bench comparison runs after 094.
 
 #### p04-input-007 debug.input
 - Files: `S/CmuxNextInput/Diagnostics/DebugInput.swift`, `S/CmuxNextApp/Control/AppControl.swift` (one
@@ -1656,6 +1666,11 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
   CLOCK_UPTIME_RAW at receive and PTY write into a fixed per-terminal atomic ring; the first output frame after the
   write carries {id, recv_ns, write_ns, echo_read_ns} in an optional header field older apps ignore; the tracker
   fills daemonReceived, ptyWritten, echoRead, echoSent. No-echo (500 ms) drops the entry.
+  It also installs the terminal echo sink from 006: `InputLatencyTracker` conforms to
+  `TerminalEchoLatencySink` (`dispatchingKey` is the key slot sendEvent is dispatching; `terminalEcho` marks
+  echoParsed/contentSubmitted, and a slot whose key waits for its echo stays open until the ending event), and
+  the composition root calls `GhosttyRuntime.shared.echoStages.install(tracker)` before the first terminal.
+  Then run 006's GUI check: typing-frame-bench.py --surfaces terminal, |contents_ms - new stage| < 0.5 ms.
 - Acceptance: old app + new daemon and new app + old daemon both work (tests both sides); full ring drops and
   counts; no allocation on the daemon hot path (diff); ledger shows the new deltas.
 - Test phase: UNIT(InputLatencyTrackerTests); cmux-tui focused test cmd_terminal_io; GUI DC1 terminal per-stage split.

@@ -10,9 +10,7 @@ use std::fs::{self, DirBuilder};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -21,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use cmux_process::{Child, Command, Stdio};
 use cmux_tui_machine_protocol::BearerToken;
 use zeroize::Zeroize;
 

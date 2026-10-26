@@ -54,6 +54,8 @@ Use it three ways:
   3. Build STRESS in a running tagged app: --socket /tmp/cmux-debug-<tag>.sock
 
 pane-perf-terminal.py --stress measures pane motion in it (layout name `stress`).
+`--shape heavy` (`Stress.build_heavy()`) builds the process census's heavy session instead: 150 workspaces
+with 172 terminals, 10 of them with 2 Chromium pages (process-model-census.py --session heavy).
 Prints one line `STRESS-SESSION {json}`: workspaces, the measured workspace id, its panes, tabs by
 kind, busy terminals, Chromium pages elsewhere and the build time.
 """
@@ -67,6 +69,9 @@ NESTED_COLUMNS = (1, 3)  # 0-based: columns 2 and 4 split their middle row once 
 CHROMIUM_WORKSPACES = 10
 CHROMIUM_PER_WORKSPACE = 2
 BUSY_TERMINALS = 10
+# The census heavy session (process-model-census.py --session heavy, p01-process.md done check 13): 150
+# workspaces with 172 terminals, the first CHROMIUM_WORKSPACES with 2 Chromium pages.
+HEAVY_WORKSPACES, HEAVY_TERMINALS = 150, 172
 WINDOW_SIZE = (1600, 1000)  # width, height in points (debug.window_frame)
 # An app without the screen fields (before bb4ac3c2b03) cannot be placed on its screen: the window then goes
 # here, bottom-left screen points, as before.
@@ -332,6 +337,42 @@ class Stress:
             self.add_tab(workspace, first, kind)
         return workspace, panes
 
+    def build_heavy(self, workspaces=HEAVY_WORKSPACES, terminals=HEAVY_TERMINALS, chromium=CHROMIUM_WORKSPACES):
+        """The census heavy session: `workspaces` in all, each with its terminal, the extra terminals up to
+        `terminals` as a second terminal tab in the first workspaces, the first `chromium` new workspaces with
+        Chromium pages; the last workspace shown. Returns the summary; raises StressShapeError on another shape."""
+        start = time.monotonic()
+        existing = len(self.workspaces())
+        if existing > workspaces:
+            raise StressShapeError(f"the app already has {existing} workspaces; the heavy session has {workspaces}")
+        self.build_background(count=workspaces - existing, chromium=chromium)
+        made = self.workspaces()
+        if not made:
+            raise StressShapeError("the heavy session has no workspace")
+        extra = terminals - terminal_counts(self.topology())["terminals"]
+        for index in range(max(extra, 0)):
+            workspace = made[index % len(made)]["id"]
+            pane = (self.panes(self.workspace(workspace)) or [{}])[0].get("id")
+            self.add_tab(workspace, pane, "terminal")
+        self.show(made[-1]["id"])
+        topology = self.topology()
+        screens = self.rpc("debug.screens")
+        screens = screens if isinstance(screens, dict) and not screens.get("error") else None
+        summary = {"shape": "heavy", "workspaces": len(topology.get("workspaces") or []),
+                   **terminal_counts(topology, screens),
+                   "chromium_unavailable": cef_problems(self.rpc("debug.cef"), self.web_dev_config)[:4],
+                   "refusals": self.refusals[:10], "build_s": round(time.monotonic() - start, 1)}
+        problems = []
+        if summary["workspaces"] != workspaces:
+            problems.append(f"{summary['workspaces']} workspaces, not {workspaces}")
+        if summary["terminals"] != terminals:
+            problems.append(f"{summary['terminals']} terminals, not {terminals}")
+        if summary["chromium_unavailable"]:
+            problems.append(f"Chromium is not available: {summary['chromium_unavailable']}")
+        if problems:
+            raise StressShapeError("the heavy session has the wrong shape: " + "; ".join(problems))
+        return summary
+
     def close(self):
         """Stops the local pages' server (the end of a run, or a test)."""
         self.pages.close()
@@ -582,6 +623,46 @@ class Stress:
                 "pane_problems": pane_problems[:6], "background_chromium": background, "chromium_unavailable": unavailable[:4]}
 
 
+def terminal_counts(topology, screens=None):
+    """{terminals, hidden_terminals} of a `snapshot.get` topology. A terminal shows when it is the selected tab
+    (`selected_tab`) of a pane on the shown screen of a workspace a visible window shows: the window's
+    `active_screen` in `screens` (the `debug.screens` reply), else the workspace's first screen as the app falls
+    back (AppBrowserHostTabs); a zoomed screen shows only its zoomed pane; dock panes are drawn with the screen.
+    Every other terminal is hidden. `hidden_terminals` is None when a shown workspace has several screens and
+    `screens` is not given (which one shows is then unknown)."""
+    active = {w.get("window"): w.get("active_screen") for w in (screens or {}).get("windows") or []}
+    shown = {}  # workspace id -> the active screen of the window that shows it (None: its first screen)
+    for window in topology.get("windows") or []:
+        if window.get("workspace") and window.get("visible", True):
+            shown[window["workspace"]] = active.get(window.get("key"))
+    terminals = hidden = 0
+    unknown = False
+    for workspace in topology.get("workspaces") or []:
+        all_screens = workspace.get("screens") or []
+        ids = {workspace.get("id"), workspace.get("key")} - {None}
+        shown_id = next((i for i in ids if i in shown), None)
+        visible_screen = None
+        if shown_id is not None and all_screens:
+            wanted = shown[shown_id]
+            visible_screen = next((s for s in all_screens if wanted and s.get("id") == wanted), None)
+            if visible_screen is None:
+                if len(all_screens) > 1 and screens is None:
+                    unknown = True
+                visible_screen = all_screens[0]
+        for screen in all_screens:
+            zoomed = screen.get("zoomed_pane")
+            for pane in screen.get("panes") or []:
+                pane_shows = screen is visible_screen and (not zoomed or pane.get("id") == zoomed)
+                for tab in pane.get("tabs") or []:
+                    if tab.get("kind") != "terminal":
+                        continue
+                    terminals += 1
+                    selected = tab.get("id") is not None and tab.get("id") == pane.get("selected_tab")
+                    if not (pane_shows and selected):
+                        hidden += 1
+    return {"terminals": terminals, "hidden_terminals": None if unknown else hidden}
+
+
 def topology_kinds(asked, fallback):
     """The `snapshot.get` tab kinds a tab asked as `asked` may have: a terminal, a browser tab for Chromium
     and WebKit, an agent chat (`conversation`), or the New Tab page (`page`) for a counted chat fallback."""
@@ -813,6 +894,8 @@ def main():
     where.add_argument("--app", help="a Debug `cmux DEV <tag>.app` to launch (not running)")
     where.add_argument("--socket", help="the debug socket of a running tagged app")
     parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="cmux-stress-"))
+    parser.add_argument("--shape", choices=["stress", "heavy"], default="stress",
+                        help="stress (default) or the census heavy session (150 workspaces, 172 terminals)")
     parser.add_argument("--selected", choices=["terminal", "chromium"], default="terminal")
     parser.add_argument("--busy-where", choices=["measured", "elsewhere"], default="measured")
     parser.add_argument("--keep", action="store_true", help="leave the launched app running")
@@ -839,7 +922,8 @@ def main():
             rpc = app.rpc
         else:
             rpc = socket_rpc(opts.socket)
-        summary = Stress(rpc, selected=opts.selected, busy_where=opts.busy_where).build()
+        builder = Stress(rpc, selected=opts.selected, busy_where=opts.busy_where)
+        summary = builder.build_heavy() if opts.shape == "heavy" else builder.build()
         print("STRESS-SESSION " + json.dumps(summary), flush=True)
         with open(os.path.join(opts.out, "stress-session.json"), "w") as f:
             json.dump(summary, f, indent=1)

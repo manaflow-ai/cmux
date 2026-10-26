@@ -14,7 +14,7 @@ impl HostedReader {
     ) -> Flow {
         let mux = self.mux.clone();
         if let Some(delay) = self.output_apply_delay {
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
         let (output, colors) = match transition {
             HostedTransition::Output(output) => (output, None),

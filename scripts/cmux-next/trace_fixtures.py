@@ -24,6 +24,9 @@ StartupTrace file (milestones, main-thread startup tasks, one nested in another,
 main-thread turns), a daemon startup trace on a clock 2 s off (its marks are the app's `daemon.*` marks, emitted
 DAEMON_MARK_DELAY_MS after the daemon reached them, as an identify reply hands them over), a Chromium `--trace-startup` file cut inside an event (a crash or a kill),
 main-thread time profile samples, and watchdog records. `trace.py export OUT` then builds its trace and summary.
+
+It also holds the hand-written `input.latency` recording that trace.py's self-test case 'input latency slices'
+builds (`input_latency_ndjson`): InputLatencyTracker's closed slots as `log stream --signpost` lines.
 """
 import json, os, pwd, re, shutil, socket, subprocess, sys, tempfile
 
@@ -54,6 +57,87 @@ for _ in 0..<20 {
 print(sink > 0 ? "done" : "?")
 '''
 TABLES = {"profile": ["time-profile", "os-signpost"], "system": ["syscall"]}
+
+
+INPUT_PID = 42
+MS = 1_000_000
+# InputLatencySignpostMessage's fields in the order Signposter.event(_:_:) writes them, each stage microseconds after
+# gen_ns (-1: skipped); trace.py's self-test 'input latency tables' compares them with the Swift. Raw values:
+# kind keyPress 0, mousePress 3, scrollUpdate 9; target terminal 0, textView 1, chromiumPage 2, layout 5, other 8;
+# entry person 0, automation 1; source estimatedVsync 0, metalPresented 1, pageEstimated 3, nominalRefresh 5.
+INPUT_FIELDS = ("kind", "target", "entry", "source", "vrr", "coalesced", "frame", "gen_ns", "last_gen_us", "arrived_us",
+                "dispatch_start_us", "ti_start_us", "ti_end_us", "dispatch_end_us", "commit_us", "content_us",
+                "daemon_us", "pty_us", "echo_read_us", "echo_sent_us", "presented_us")
+INPUT_SLOTS = [
+    # 0: a terminal key with every stage, the cross-process ones included, linked to its key.flow chain.
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 5_000 * MS, "arrived_us": 300,
+     "dispatch_start_us": 400, "ti_start_us": 450, "ti_end_us": 600, "dispatch_end_us": 700, "daemon_us": 900,
+     "pty_us": 1_000, "echo_read_us": 2_000, "echo_sent_us": 2_100, "commit_us": 3_000, "content_us": 3_500,
+     "presented_us": 12_000},
+    # 1: a text view key typed before key 0 presented (its own lane): no text input, no cross-process stages, and
+    # a content_us after presented (left out, counted).
+    {"kind": 0, "target": 1, "entry": 0, "source": 1, "frame": 1, "gen_ns": 5_004 * MS, "arrived_us": 200,
+     "dispatch_start_us": 250, "dispatch_end_us": 1_250, "commit_us": 2_000, "presented_us": 8_000,
+     "content_us": 9_000},
+    # 2: three coalesced clicks on a variable-refresh display that skipped dispatch_start (a stage in the middle).
+    {"kind": 3, "target": 2, "entry": 0, "source": 3, "vrr": 1, "coalesced": 3, "frame": 1, "gen_ns": 5_020 * MS,
+     "last_gen_us": 2_000, "arrived_us": 3_000, "dispatch_end_us": 4_000, "commit_us": 5_000, "presented_us": 20_000},
+    # 3: a click held inside click 2's span: it goes to another lane, never nested in it.
+    {"kind": 3, "target": 2, "entry": 0, "source": 3, "frame": 1, "gen_ns": 5_025 * MS, "arrived_us": 500,
+     "dispatch_start_us": 600, "dispatch_end_us": 1_000, "presented_us": 5_000},
+    # 4: a scroll that changed nothing on screen: drawn, not folded (Chrome's caused_frame_update).
+    {"kind": 9, "target": 5, "entry": 0, "source": 0, "frame": 0, "gen_ns": 5_050 * MS, "arrived_us": 1_000,
+     "dispatch_start_us": 1_100, "dispatch_end_us": 2_000, "presented_us": 9_000},
+    # 5: a scripted key: drawn, not folded into the person's rows.
+    {"kind": 0, "target": 0, "entry": 1, "source": 0, "frame": 1, "gen_ns": 5_070 * MS, "arrived_us": 100,
+     "dispatch_start_us": 200, "dispatch_end_us": 500, "presented_us": 5_000},
+    # 6: a terminal key whose echo never came: no presented, its slice ends at its last stage. A stray key.flow
+    # chain 1.5 ms after it is not this key's.
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 5_090 * MS, "arrived_us": 200,
+     "dispatch_start_us": 300, "dispatch_end_us": 900},
+    # 7: a second text view key, so its row has two samples.
+    {"kind": 0, "target": 1, "entry": 0, "source": 1, "frame": 1, "gen_ns": 5_100 * MS, "arrived_us": 200,
+     "dispatch_start_us": 300, "dispatch_end_us": 1_000, "commit_us": 1_500, "presented_us": 10_000},
+    # 8: a kind this script does not know yet (a case added after it), presented from a nominal refresh.
+    {"kind": 200, "target": 8, "entry": 0, "source": 5, "frame": 1, "gen_ns": 5_150 * MS, "arrived_us": 100,
+     "presented_us": 4_000},
+    # 9: no generated time: it cannot be placed.
+    {"kind": 0, "target": 0, "entry": 0, "source": 0, "frame": 1, "gen_ns": 0, "presented_us": 5_000},
+]
+INPUT_FLOW = (INPUT_PID << 32) | 1  # TypingLatencyProbe's flow id: pid << 32 | the press's index
+INPUT_STRAY_FLOW = (INPUT_PID << 32) | 2
+# (flow, hop, written at ns, age_us): each chain's app.key.dispatch hop is written a few us after the probe took its
+# age, so its time minus its age is the key's OS timestamp plus that write.
+INPUT_FLOW_HOPS = [(INPUT_FLOW, "app.key.dispatch", 5_000 * MS + 403_000, 400),
+                   (INPUT_FLOW, "app.key.terminal", 5_000 * MS + 500_000, 500),
+                   (INPUT_STRAY_FLOW, "app.key.dispatch", 5_091 * MS + 800_000, 300),
+                   (INPUT_STRAY_FLOW, "app.key.terminal", 5_091 * MS + 900_000, 400)]
+
+
+def input_latency_message(slot):
+    """One slot's `input.latency` message, as Signposter.event(_:_:) formats an InputLatencySignpostMessage."""
+    defaults = {"vrr": 0, "coalesced": 1}
+    return " ".join(f"{name}={slot.get(name, defaults.get(name, -1))}" for name in INPUT_FIELDS)
+
+
+def input_latency_ndjson():
+    """The input latency recording as `log stream --signpost --style ndjson` writes it (timebase 1/1: the
+    machTimestamp is ns; no sleep since boot): each slot one `input.latency` event when it closed and the two
+    key.flow chains' app hops."""
+    lines = ["#timebase 1/1", "#continuous-minus-uptime-us 0"]
+
+    def event(signpost_id, name, category, at_ns, message):
+        lines.append(json.dumps({"eventType": "signpostEvent", "subsystem": "com.cmuxterm.app.next",
+                                 "category": category, "signpostName": name, "signpostID": signpost_id,
+                                 "signpostType": "event", "processID": INPUT_PID, "threadID": 259,
+                                 "machTimestamp": int(at_ns), "eventMessage": message}))
+
+    for index, slot in enumerate(INPUT_SLOTS):
+        closed = slot["gen_ns"] + max(slot.get(f, -1) for f in INPUT_FIELDS if f.endswith("_us")) * 1000
+        event(100 + index, "input.latency", "input", closed, input_latency_message(slot))
+    for index, (flow, hop, at_ns, age_us) in enumerate(INPUT_FLOW_HOPS):
+        event(200 + index, "key.flow", "keyFlow", at_ns, f"hop={hop} flow={flow} age_us={age_us}")
+    return "\n".join(lines) + "\n"
 
 
 # The launch fixture (``write_launch_fixture``): pid 42 starts at CLOCK_UPTIME_RAW 10 s; marks in ms since then.
