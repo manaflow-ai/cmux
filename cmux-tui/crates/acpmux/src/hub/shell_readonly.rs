@@ -497,6 +497,9 @@ fn git_read_ok(args: &[String]) -> bool {
             || a.contains("%(signature")
             // Opens the manual in a viewer.
             || long_is(a, "--help")
+            // Runs smudge filters (git-lfs can fetch) and textconv drivers.
+            || long_is(a, "--filters")
+            || long_is(a, "--textconv")
     };
     if rest.iter().any(writes) {
         return false;
@@ -615,8 +618,13 @@ fn repository_runs_nothing(git_bin: &Path, env: &Env, dir: &Path, depth: u8) -> 
             return false;
         };
         let (key, value) = entry.split_once('\n').unwrap_or((entry, "true"));
+        let person = !matches!(scope, "local" | "worktree");
         let passes = key_runs_nothing(key, value)
-            || (!matches!(scope, "local" | "worktree") && person_key_runs_nothing(key));
+            || (person && person_key_runs_nothing(key))
+            // `git lfs install` (runner images, Homebrew): its clean filter runs only on files
+            // whose attributes name it, and reads only; smudging, which can fetch, asks
+            // (`--filters`, `--textconv`). Its `lfs.*` settings (transfer agents) ask.
+            || (person && is_lfs_filter(key, value) && resolve("git-lfs", env).is_some());
         if !passes {
             return false;
         }
@@ -664,6 +672,17 @@ fn person_key_runs_nothing(key: &str) -> bool {
         "diff" | "merge" => rest == "tool",
         _ => false,
     }
+}
+
+/// The filter lines `git lfs install` writes.
+fn is_lfs_filter(key: &str, value: &str) -> bool {
+    matches!(
+        (key, value),
+        ("filter.lfs.clean", "git-lfs clean -- %f")
+            | ("filter.lfs.smudge", "git-lfs smudge -- %f")
+            | ("filter.lfs.process", "git-lfs filter-process")
+            | ("filter.lfs.required", "true")
+    )
 }
 
 /// Whether repository config `key` = `value` names no program for a git read to run. An
@@ -882,6 +901,8 @@ mod tests {
             "git -C ~/x status",
             "git -C~ status",
             "git status --help",
+            "git cat-file --filters HEAD:asset.bin",
+            "git show --textconv HEAD:x",
             "git log --hel",
             "git for-each-ref --format='%(signature:grade)' refs/heads/main",
             "file -S -z payload.lrz",
@@ -1186,12 +1207,18 @@ mod tests {
         // An included file is checked like the file that includes it.
         std::fs::write(&identity, "[diff]\n\texternal = /tmp/hook\n").unwrap();
         assert!(!reads("git diff"));
-        // git-lfs's filter runs git-lfs, which reads `.lfsconfig` and can fetch: it asks.
+        // git-lfs's own filter lines pass when git-lfs is a system program; its settings ask.
+        let lfs = "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n";
+        std::fs::write(home.join(".gitconfig"), lfs).unwrap();
+        assert_eq!(reads("git diff"), resolve("git-lfs", &env).is_some());
         std::fs::write(
             home.join(".gitconfig"),
-            "[filter \"lfs\"]\n\tclean = git-lfs clean -- %f\n\tprocess = git-lfs filter-process\n\trequired = true\n",
+            format!("{lfs}[lfs]\n\tstandalonetransferagent = probe\n"),
         )
         .unwrap();
+        assert!(!reads("git diff"));
+        std::fs::write(home.join(".gitconfig"), "[filter \"lfs\"]\n\tclean = /tmp/hook %f\n")
+            .unwrap();
         assert!(!reads("git diff"));
         for d in [dir, home] {
             std::fs::remove_dir_all(d).unwrap();
