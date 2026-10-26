@@ -270,11 +270,18 @@ pub(super) fn is_input_refusal(error: &Value) -> bool {
 }
 
 /// Signed out, or the preview is off: the app's Labs flag, an administrator's policy
-/// (`feature.disabled`) or the server's allowlist. Exit 3: nothing to wait for, act first.
+/// (`feature.disabled`) or the server's allowlist; or the app has no Cloud backend
+/// (`no_backend`). Exit 3: nothing to wait for, act first.
 pub(super) fn is_gate_refusal(error: &Value) -> bool {
     matches!(
         error.get("code").and_then(Value::as_str),
-        Some("not_signed_in" | "labs_off" | "feature.disabled" | "run_sandbox_unavailable")
+        Some(
+            "not_signed_in"
+                | "labs_off"
+                | "feature.disabled"
+                | "run_sandbox_unavailable"
+                | "no_backend"
+        )
     )
 }
 
