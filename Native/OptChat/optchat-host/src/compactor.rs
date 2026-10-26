@@ -11,8 +11,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use optchat_core::{
-    block_cuts, compact_request, finish_line, size_check_for, CompactRequest, Memory, NodeId,
-    SizeCheck, Work,
+    block_cuts, compact_request, finish_line, refusal_stand_in, size_check_for, CompactRequest,
+    Memory, NodeId, SizeCheck, Work,
 };
 
 use crate::clock::Clock;
@@ -479,26 +479,36 @@ fn build_with(
     fallback: Option<impl Fn(&CompactRequest) -> Result<String, ModelError>>,
     request: &CompactRequest,
 ) -> Result<Built, ModelError> {
-    let flat = step_input(&request.step)
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
+    // What the size loop keeps when every try refused in text ("I can't
+    // write this line ..."): the input, cut to the room.
+    let stand_in = finish_line(
+        request,
+        &refusal_stand_in(step_input(&request.step), request.room()),
+    );
     let built = |text: String, by_fallback: bool| Built {
-        stand_in: !flat.is_empty() && flat.starts_with(text.as_str()),
+        stand_in: text == stand_in,
         text,
         by_fallback,
+    };
+    let Some(fallback) = fallback else {
+        return main(request).map(|t| built(t, false));
     };
     match main(request) {
         // A refusal repeats on every try: ask the fallback model, in a fresh
         // conversation (the declined model's blocks mean nothing to it).
-        Err(declined) if declined.refused => match fallback {
-            Some(fallback) => fallback(request)
+        Err(declined) if declined.refused => {
+            fallback(request)
                 .map(|t| built(t, true))
                 .map_err(|e| ModelError {
                     message: format!("{declined}; the fallback model failed too: {e}"),
                     ..e
-                }),
-            None => Err(declined),
+                })
+        }
+        // The main model refused in text on every try: the fallback model
+        // writes the line; the stand-in stays only when it cannot.
+        Ok(text) if text == stand_in => match fallback(request) {
+            Ok(line) if line != stand_in => Ok(built(line, true)),
+            _ => Ok(built(text, false)),
         },
         other => other.map(|t| built(t, false)),
     }
