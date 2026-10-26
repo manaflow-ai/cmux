@@ -71,7 +71,7 @@ const TERMINAL: &str = "00000000000040008000000000000058";
 /// A create that hops threads and follows its terminal, then one dropped
 /// unfinished, with both sinks on.
 fn child_ring(dir: &Path) {
-    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon, &[]);
+    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon);
     let trace = debug_spans::Trace::start("new-tab", Instant::now()).expect("marks are on");
     debug_spans::install(Some(trace));
     debug_spans::mark("job.start");
@@ -176,7 +176,7 @@ fn child_ring(dir: &Path) {
 
 /// The ring alone: a trace starts, writes no file and runs no computed name.
 fn child_ring_only(dir: &Path) {
-    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon, &[]);
+    let _open = cmux_trace::init_blackbox(dir.join("rings"), Role::Daemon);
     debug_spans::install(debug_spans::Trace::start("create", Instant::now()));
     debug_spans::mark("job.start");
     debug_spans::mark_with(|| panic!("a computed name ran with no marks file"));
@@ -199,7 +199,7 @@ fn child_ring_only(dir: &Path) {
 fn child_category_toggle(dir: &Path) {
     let connection =
         debug_spans::traced(rusqlite::Connection::open_in_memory().expect("an in-memory database"));
-    let mut config = cmux_trace::TracerConfig::for_process(dir.join("rings"), Role::Daemon, &[]);
+    let mut config = cmux_trace::TracerConfig::for_process(dir.join("rings"), Role::Daemon);
     config.blackbox_categories &= !cmux_trace::category::DAEMON;
     let _open = cmux_trace::init_process(config);
     assert!(debug_spans::Trace::start("new-tab", Instant::now()).is_none(), "both sinks are off");
