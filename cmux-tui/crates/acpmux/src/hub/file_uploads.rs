@@ -94,6 +94,8 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usiz
         for upload in real_dirs(&session.path()) {
             let Some(made) = upload.file_name().to_str().and_then(made_at) else { continue };
             let dir = upload.path();
+            // Read and deleted under the lock a chunk writes and a finish names under.
+            let _parts = parts_lock();
             if made < cutoff {
                 if std::fs::remove_dir_all(&dir).is_ok() {
                     removed += 1;
@@ -107,6 +109,15 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usiz
         let _ = std::fs::remove_dir(session.path());
     }
     removed
+}
+
+/// Held while a chunk writes an upload's `.part`, while a finish names it, and while the sweep
+/// reads an upload's age and deletes it: the sweep never deletes a part a chunk is writing (whose
+/// bytes would go to a file no longer named) or a finish is naming. Never held across a sync.
+static PARTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn parts_lock() -> std::sync::MutexGuard<'static, ()> {
+    PARTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// When the unfinished upload in folder `dir` was last written, in Unix ms (its `.part`, which
@@ -244,7 +255,7 @@ fn free_bytes(path: &Path) -> Option<u64> {
 /// keeps [`DISK_RESERVE_BYTES`] free: the one bound an upload has.
 fn room_for(name: &str, size: u64, free: Option<u64>) -> Result<(), RpcError> {
     match free {
-        Some(free) if size.saturating_add(DISK_RESERVE_BYTES) > free => Err(no_space(name, free)),
+        Some(free) if size > free.saturating_sub(DISK_RESERVE_BYTES) => Err(no_space(name, free)),
         _ => Ok(()),
     }
 }
@@ -335,7 +346,8 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("invalid upload size"))?;
-    // Never made here: a chunk that lost a race with a finish or a cancel finds none.
+    // Never made here: a chunk that lost a race with a finish, a cancel or the sweep finds none.
+    let _parts = parts_lock();
     let mut file = crate::config::private_state_existing_rw(&path)
         .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?;
     let current = file.metadata().map_err(|e| RpcError::internal(e.to_string()))?.len();
@@ -431,10 +443,26 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         drop(file);
         return Err(write_failed(e, "sync", &part, &meta, name));
     }
+    drop(file);
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
-    std::fs::rename(&part, &path)
-        .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
+    {
+        // The sweep may have deleted an idle part meanwhile: then there is nothing to name.
+        let _parts = parts_lock();
+        let len = std::fs::symlink_metadata(&part)
+            .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?
+            .len();
+        if len != size {
+            return Err(RpcError::invalid_params(format!(
+                "upload has {len} bytes, expected {size}"
+            )));
+        }
+        std::fs::rename(&part, &path)
+            .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
+    }
+    // The name on the disk too (best effort: the file is named either way).
+    #[cfg(unix)]
+    let _ = std::fs::File::open(dir).and_then(|dir| dir.sync_all());
     let _ = std::fs::remove_file(meta);
     Ok(json!({"path": path.to_string_lossy()}))
 }
@@ -728,6 +756,9 @@ mod tests {
         // What the disk keeps for the daemon's own writes.
         assert!(room_for("a.bin", gib, Some(gib + DISK_RESERVE_BYTES)).is_ok());
         assert!(room_for("a.bin", gib + 1, Some(gib + DISK_RESERVE_BYTES)).is_err());
+        // Far past any disk: refused, with no overflow.
+        assert!(room_for("a.bin", u64::MAX, Some(u64::MAX - 1)).is_err());
+        assert!(room_for("a.bin", 1, Some(DISK_RESERVE_BYTES / 2)).is_err());
     }
 
     #[test]
@@ -828,6 +859,29 @@ mod tests {
         assert_eq!(err.code, -32603);
         assert!(dir.join(".part").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The sweep waits while a chunk or a finish holds an upload's part, and deletes an idle part
+    /// only after it.
+    #[test]
+    fn the_sweep_waits_for_a_chunk_writing_the_part() {
+        let root = std::env::temp_dir().join(format!("acpmux-partials-{}", uuid::Uuid::now_v7()));
+        let now = crate::store::now_ms();
+        let dir = root.join("chat").join(uuid::Uuid::now_v7().to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(".part"), b"x").unwrap();
+        written_at(&dir.join(".part"), now - 25 * 60 * 60 * 1000);
+        let held = parts_lock();
+        let sweeping = std::thread::spawn({
+            let root = root.clone();
+            move || sweep(&root, now, None)
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(dir.join(".part").exists(), "the sweep deleted a part a chunk held");
+        drop(held);
+        assert_eq!(sweeping.join().unwrap(), 1);
+        assert!(!dir.exists());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     /// Two finishes of one upload both pass the length check, and the first names the file: the

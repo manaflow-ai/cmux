@@ -180,7 +180,7 @@ pub(crate) fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
         return None;
     }
     let unit = s.f_frsize as u64;
-    Some((s.f_bavail as u64 * unit, s.f_blocks as u64 * unit))
+    Some(((s.f_bavail as u64).saturating_mul(unit), (s.f_blocks as u64).saturating_mul(unit)))
 }
 
 #[cfg(not(unix))]
