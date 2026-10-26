@@ -61,17 +61,10 @@ final class CEFRuntime {
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
-    /// The app's input tap (``attachInput(_:)``, from the App's `CEFEngine`): link clicks and swipes
-    /// subscribe to it when the first tab registers.
-    private(set) var input: InputEventTap?
+    /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
+    var input: InputEventTap?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
-
-    /// Gives the runtime the app's input tap. The first tap stays: the subscriptions made on it live
-    /// as long as the runtime.
-    func attachInput(_ tap: InputEventTap) {
-        if input == nil { input = tap }
-    }
 
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).

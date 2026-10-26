@@ -31,6 +31,8 @@ final class CEFLinkClickTracker {
     /// The last left or middle mouse-up on each Chromium page, by browser id.
     private(set) var clicks: [Int32: CEFLinkClickRecord] = [:]
     private var subscription: InputSubscription?
+    /// The tap `subscription` hears.
+    private weak var input: InputEventTap?
     /// The pages a click can land on now (the runtime's shown tabs).
     private var targets: () -> [CEFClickTarget] = { [] }
     /// A mouse down or key down on page `browser`: a fresh user gesture
@@ -49,12 +51,24 @@ final class CEFLinkClickTracker {
     /// Chromium page draws in its own child window over its pane's host
     /// view; a click in a cmux window itself (strip, sidebar, omnibar) or
     /// on native UI over the page records nothing (`CEFLinkClicks.browser`).
-    /// It observes `input`, the app's input tap, before the event is
-    /// dispatched; it never consumes one.
+    ///
+    /// It hears `input`, the app's input tap, as a `.standard` intercept that
+    /// always passes: where AppKit's local monitor ran, after the key router
+    /// and the earlier intercepts. A shortcut the router takes or a click an
+    /// earlier intercept consumes never reaches the page, so it is no gesture
+    /// and no link click, as Chrome resets its download limiter only on input
+    /// sent to the renderer (`chrome/browser/download/download_request_limiter.cc`,
+    /// `TabDownloadState::DidGetUserInteraction`), not on accelerators taken in
+    /// `PreHandleKeyboardEvent`. A later call with another tap moves the
+    /// subscription to it; one with the same tap does nothing.
     func startRecordingClicks(input: InputEventTap, targets: @escaping () -> [CEFClickTarget]) {
-        guard subscription == nil else { return }
+        guard subscription == nil || self.input !== input else { return }
         self.targets = targets
-        subscription = input.subscribe(class: [.button, .key]) { [weak self] event in self?.record(event) }
+        self.input = input
+        subscription = input.subscribe(class: [.button, .key], phase: .intercept(order: .standard)) { [weak self] event in
+            self?.record(event)
+            return .pass
+        }
     }
 
     /// Whether clicks are recorded now.

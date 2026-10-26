@@ -27,9 +27,22 @@ import CmuxNextInputCore
 /// not from every scroll of the app.
 @MainActor
 final class CEFSwipeNavigation {
-    private weak var runtime: CEFRuntime?
+    /// The Chromium page under a scroll: its tab, the pane's host view and the point in it.
+    struct Target {
+        var tab: CEFTab
+        var host: CEFHostView
+        /// In the host view (not flipped).
+        var point: CGPoint
+    }
+
+    /// Whether a gesture may swipe now: the setting and the system's swipe-between-pages preference.
+    private let enabled: () -> Bool
+    /// The page under a gesture's first scroll (`target(of:in:)` of the runtime; a test's fixed answer).
+    private let locate: (NSEvent) -> Target?
     private var subscription: InputSubscription?
-    private var gesture = BrowserSwipeGesture()
+    /// The tap `subscription` hears.
+    private weak var input: InputEventTap?
+    private(set) var gesture = BrowserSwipeGesture()
     private let pageProbe = BrowserSwipeProbe()
     /// The page the current gesture began over.
     private weak var tab: CEFTab?
@@ -40,13 +53,23 @@ final class CEFSwipeNavigation {
     /// The tracked swipe already navigated (AppKit may report its end more than once).
     private var navigated = false
 
-    init(runtime: CEFRuntime) {
-        self.runtime = runtime
+    /// Swipes over `runtime`'s shown pages, while the setting and the system preference allow them.
+    convenience init(runtime: CEFRuntime) {
+        self.init(enabled: { NavigationTunables.swipeNavigation.value && NSEvent.isSwipeTrackingFromScrollEventsEnabled },
+                  locate: { [weak runtime] event in runtime.flatMap { CEFSwipeNavigation.target(of: event, in: $0) } })
     }
 
-    /// Starts hearing scrolls from `input`, the app's input tap.
+    /// Swipes that ask `enabled` at each gesture's start and find its page with `locate`.
+    init(enabled: @escaping () -> Bool, locate: @escaping (NSEvent) -> Target?) {
+        self.enabled = enabled
+        self.locate = locate
+    }
+
+    /// Starts hearing scrolls from `input`, the app's input tap. A later call with another tap moves
+    /// the subscription to it; one with the same tap does nothing.
     func start(input: InputEventTap) {
-        guard subscription == nil else { return }
+        guard subscription == nil || self.input !== input else { return }
+        self.input = input
         subscription = input.subscribe(class: .scroll, phase: .intercept(order: .standard),
                                        while: { [weak self, weak input] in
                                            CEFSwipeNavigation.isListening(gestureOver: self?.tab != nil, lastPointer: input?.lastPointer)
@@ -57,6 +80,9 @@ final class CEFSwipeNavigation {
 
     /// Whether scrolls are heard now.
     var isStarted: Bool { subscription != nil }
+
+    /// Whether a gesture that began over a page is under way (its scrolls are heard in any window).
+    var isFollowingGesture: Bool { tab != nil }
 
     /// Whether the intercept handles the scroll the tap is delivering: a gesture that began over a
     /// page goes on (its events follow the fingers out of the page), and a new one can begin only in
@@ -73,8 +99,7 @@ final class CEFSwipeNavigation {
         // Momentum after a gesture never starts a swipe; a mouse wheel has no phases.
         guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return .pass }
         if phase == .began {
-            guard NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
-                  let target = target(of: event) else {
+            guard enabled(), let target = locate(event) else {
                 gesture.cancel()
                 tab = nil
                 return .pass
@@ -110,9 +135,9 @@ final class CEFSwipeNavigation {
         return nil
     }
 
-    /// The Chromium page under the event: its tab, the pane's host view and the point in it.
-    private func target(of event: NSEvent) -> (tab: CEFTab, host: CEFHostView, point: CGPoint)? {
-        guard let runtime, let window = event.window else { return nil }
+    /// The Chromium page of `runtime` under the event: its tab, the pane's host view and the point in it.
+    private static func target(of event: NSEvent, in runtime: CEFRuntime) -> Target? {
+        guard let window = event.window else { return nil }
         let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
         let targets = runtime.windowRequests.clickTargets()
         guard let browser = CEFLinkClicks.browser(clickedIn: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
@@ -121,7 +146,7 @@ final class CEFSwipeNavigation {
               let host = runtime.hosts.values.first(where: { $0.visibleTab === tab })?.hostView,
               let hostWindow = host.window else { return nil }
         let point = host.convert(hostWindow.convertPoint(fromScreen: screenPoint), from: nil)
-        return (tab: tab, host: host, point: point)
+        return Target(tab: tab, host: host, point: point)
     }
 
     private func probe() {

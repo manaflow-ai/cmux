@@ -3,9 +3,12 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// Link clicks on Chromium pages hear the app's input tap (p04-input-018): one observer of buttons and
-/// keys, never an intercept, that records a page's mouse-up with its modifiers and reports a press on
-/// a page as a fresh user gesture. A page draws in its own child window over its cmux window.
+/// Link clicks on Chromium pages hear the app's input tap (p04-input-018): one `.standard` intercept of
+/// buttons and keys that always passes, where AppKit's local monitor ran. It records a page's mouse-up
+/// with its modifiers and reports a press on a page as a fresh user gesture, but only for input that
+/// reaches the page: a shortcut the key router takes or a click an earlier intercept consumes is
+/// neither (Chrome's `DownloadRequestLimiter` resets only on input sent to the renderer). A page
+/// draws in its own child window over its cmux window.
 @MainActor @Suite(.serialized) struct CEFLinkClickTrackerTests {
     @MainActor final class Harness {
         let tap = InputEventTap()
@@ -16,6 +19,8 @@ import Testing
                             backing: .buffered, defer: false)
         var gestures: [Int32] = []
         var targetReads = 0
+        /// Events an intercept after the tracker heard.
+        var heardAfter = 0
 
         init() {
             for window in [host, page] {
@@ -36,10 +41,13 @@ import Testing
             for window in [page, host] { window.orderOut(nil) }
         }
 
-        /// Dispatches `event` through the tap's three stages, as the application object does.
-        func dispatch(_ event: NSEvent) {
+        /// Dispatches `event` through the tap's three stages, as the application object does
+        /// (`CmuxApplication.route`): a key the key router takes (`routerTakes`) reaches no intercept
+        /// and no after-dispatch observer.
+        func dispatch(_ event: NSEvent, routerTakes: Bool = false) {
             tap.dispatching {
                 tap.deliverObserve(event)
+                guard !routerTakes else { return }
                 _ = tap.deliverIntercepts(event)
                 tap.deliverAfterDispatch(event)
             }
@@ -58,19 +66,78 @@ import Testing
         }
     }
 
-    @Test func recordingIsOneObserverOfButtonsAndKeysAndNoMonitor() {
+    @Test func recordingIsOneInterceptOfButtonsAndKeysAndNoMonitor() {
         let harness = Harness()
         defer { harness.close() }
         #expect(harness.tracker.isRecording)
-        #expect(harness.tap.subscriberCount(.button, stage: .observe) == 1)
-        #expect(harness.tap.subscriberCount(.key, stage: .observe) == 1)
+        #expect(harness.tap.subscriberCount(.button, stage: .intercept) == 1)
+        #expect(harness.tap.subscriberCount(.key, stage: .intercept) == 1)
         for eventClass in InputEventClass.allCases {
-            #expect(harness.tap.subscriberCount(eventClass, stage: .intercept) == 0, "the tracker never consumes")
+            #expect(harness.tap.subscriberCount(eventClass, stage: .observe) == 0, "nothing before the key router")
+            #expect(harness.tap.subscriberCount(eventClass, stage: .afterDispatch) == 0)
         }
         #expect(harness.tap.globalMonitorCount == 0)
-        // A second start (every tab registration asks) adds nothing.
+        // A second start with the same tap (every tab registration asks) adds nothing.
         harness.tracker.startRecordingClicks(input: harness.tap) { [] }
-        #expect(harness.tap.subscriberCount(.button, stage: .observe) == 1)
+        #expect(harness.tap.subscriberCount(.button, stage: .intercept) == 1)
+    }
+
+    @Test func theTrackerNeverConsumes() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let after = harness.tap.subscribe(class: [.button, .key], phase: .intercept(order: InputEventTap.InterceptOrder(rawValue: 2000))) { _ in
+            harness.heardAfter += 1
+            return .pass
+        }
+        harness.dispatch(try harness.mouse(.leftMouseDown, in: harness.page))
+        harness.dispatch(try harness.key(.keyDown, in: harness.page))
+        #expect(harness.gestures == [7, 7])
+        #expect(harness.heardAfter == 2,"an intercept after the tracker still gets every event")
+        after.cancel()
+    }
+
+    @Test func aKeyTheRouterTakesIsNoGesture() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        // A cmux shortcut (Cmd-T) pressed while a page has focus: the key router takes it, the page never gets it.
+        harness.dispatch(try harness.key(.keyDown, in: harness.page), routerTakes: true)
+        #expect(harness.gestures.isEmpty, "a shortcut does not reset the page's automatic-download count")
+        #expect(harness.targetReads == 0)
+    }
+
+    @Test func inputAnEarlierInterceptConsumesIsNoGestureAndNoClick() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        // A modal picker's click over a page, and a key it takes.
+        let modal = harness.tap.subscribe(class: [.button, .key], phase: .intercept(order: .modal)) { _ in .consume }
+        harness.dispatch(try harness.mouse(.leftMouseDown, in: harness.page))
+        harness.dispatch(try harness.key(.keyDown, in: harness.page))
+        #expect(harness.gestures.isEmpty)
+        // A layout intercept consumes a mouse-up: it is no link click.
+        modal.cancel()
+        let layout = harness.tap.subscribe(class: .button, phase: .intercept(order: .layout)) { event in
+            event.type == .leftMouseUp ? .consume : .pass
+        }
+        harness.dispatch(try harness.mouse(.leftMouseUp, in: harness.page, flags: .command))
+        #expect(harness.tracker.clicks.isEmpty)
+        #expect(harness.gestures.isEmpty)
+        layout.cancel()
+    }
+
+    @Test func startingWithASecondTapMovesTheSubscription() throws {
+        let harness = Harness()
+        defer { harness.close() }
+        let second = InputEventTap()
+        harness.tracker.startRecordingClicks(input: second) { [harness] in
+            [CEFClickTarget(browser: 7, hostWindow: ObjectIdentifier(harness.host), frame: harness.page.frame)]
+        }
+        #expect(harness.tap.subscriberCount(.button, stage: .intercept) == 0)
+        #expect(second.subscriberCount(.button, stage: .intercept) == 1)
+        harness.dispatch(try harness.mouse(.leftMouseDown, in: harness.page))
+        #expect(harness.gestures.isEmpty, "the first tap is no longer heard")
+        let down = try harness.mouse(.leftMouseDown, in: harness.page)
+        second.dispatching { _ = second.deliverIntercepts(down) }
+        #expect(harness.gestures == [7], "the second tap's events reach the tracker")
     }
 
     @Test func aMouseUpOnAPageRecordsItsGestureAndAPressReportsAUserGesture() throws {
@@ -105,16 +172,39 @@ import Testing
         for type in skipped { #expect(!CEFLinkClickTracker.records(type)) }
     }
 
-    @Test func theRuntimeKeepsTheFirstInputTap() throws {
+    /// A later engine's tap replaces the runtime's: link clicks and swipes that already hear the first
+    /// tap move to it, so a second AppServices in one process is not left deaf.
+    @Test func theRuntimeHearsTheNewestTap() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-input-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
         let nothing: @convention(c) () -> Int = { 0 }
         let shim = try CEFShimLibrary.resolving { _ in unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self) }
         let runtime = CEFRuntime(shim: shim, storage: CEFProfileStorage(root: root))
         let first = InputEventTap()
+        let second = InputEventTap()
         #expect(runtime.input == nil)
         runtime.attachInput(first)
-        runtime.attachInput(InputEventTap())
-        #expect(runtime.input === first)
+        // A tab registered: link clicks and swipes hear the first tap.
+        runtime.windowRequests.linkClicks.startRecordingClicks(input: first) { [] }
+        runtime.swipeNavigation.start(input: first)
+        runtime.attachInput(second)
+        #expect(runtime.input === second)
+        #expect(first.subscriberCount(.button, stage: .intercept) == 0)
+        #expect(first.subscriberCount(.scroll, stage: .intercept) == 0)
+        #expect(second.subscriberCount(.button, stage: .intercept) == 1)
+        #expect(second.subscriberCount(.key, stage: .intercept) == 1)
+        #expect(second.subscriberCount(.scroll, stage: .intercept) == 1)
+        runtime.attachInput(second)
+        #expect(second.subscriberCount(.button, stage: .intercept) == 1, "the same tap again adds nothing")
+    }
+
+    /// Each engine gives the process-wide runtime its tap; the newest one is heard.
+    @Test func eachEngineGivesTheRuntimeItsTap() {
+        let first = InputEventTap()
+        let second = InputEventTap()
+        _ = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: first)
+        #expect(CEFRuntime.shared.input === first)
+        _ = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: second)
+        #expect(CEFRuntime.shared.input === second)
     }
 }

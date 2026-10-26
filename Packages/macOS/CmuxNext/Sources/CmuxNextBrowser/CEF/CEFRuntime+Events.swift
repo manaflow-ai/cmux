@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import Foundation
 import os
 
@@ -229,7 +230,16 @@ extension CEFRuntime {
         signInCallbacks.attached(tab)
     }
 
-    /// Link clicks and swipes start hearing the app's input tap (once; later calls do nothing).
+    /// Gives the runtime `tap`, the input tap of the engine made now. It replaces the one before:
+    /// link clicks and swipes that already hear a tap move to this one, so the newest engine's tap is
+    /// always the one heard.
+    func attachInput(_ tap: InputEventTap) {
+        guard tap !== input else { return }
+        input = tap
+        if windowRequests.linkClicks.isRecording || swipeNavigation.isStarted { startInput() }
+    }
+
+    /// Link clicks and swipes hear `input` (a call with the tap they already hear does nothing).
     private func startInput() {
         guard let input else {
             if !reportedMissingInput {

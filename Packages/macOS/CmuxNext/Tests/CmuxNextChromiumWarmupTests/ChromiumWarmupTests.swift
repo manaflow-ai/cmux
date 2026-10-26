@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 @testable import CmuxNextChromiumWarmup
+import CmuxNextInput
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
 import CmuxNextWakeupsTestSupport
@@ -19,7 +20,7 @@ import Testing
     let clock = Clock()
     let input = FakeInputTap()
 
-    func warmup(engine: any ChromiumWarmupEngine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()),
+    func warmup(engine: any ChromiumWarmupEngine = CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap()),
                 trackingMenu: @escaping @MainActor () -> Bool = { false }) -> ChromiumWarmup {
         let clock = clock
         // A manual clock nobody advances: no deadline fires, so a test's wait ends only when it says.

@@ -46,13 +46,12 @@ public final class CEFEngine: BrowserEngine {
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
     ///     nil (tests, fixtures): a queue of the engine's own.
-    ///   - input: The app's input tap, which page link clicks and swipes hear; nil for an engine that
-    ///     gives none (a test's).
+    ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap).
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
                             contextMenus: BrowserContextMenuBuilder = .shared,
-                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap? = nil) {
+                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
                   lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines, input: input)
     }
@@ -67,20 +66,20 @@ public final class CEFEngine: BrowserEngine {
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
     ///     nil (tests, fixtures): a queue of the engine's own.
-    ///   - input: The app's input tap, which page link clicks and swipes hear (the process-wide
-    ///     runtime keeps the first one given); nil for an engine that gives none (a test's).
+    ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap). The
+    ///     process-wide runtime hears the tap of the engine made last.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
-                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap? = nil) {
+                waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
-        if let input { CEFRuntime.shared.attachInput(input) }
+        CEFRuntime.shared.attachInput(input)
     }
 
     public var availability: BrowserEngineAvailability {
