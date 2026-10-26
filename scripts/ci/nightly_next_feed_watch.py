@@ -356,11 +356,17 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     if not tip:
         return "unchanged"
     if tip == published_sha:
+        # The branch has not moved past what the release already carries, so a
+        # build would be dispatched for a commit the promotion then ignores.
+        # The feed's age is reported, not diagnosed: on a branch that has been
+        # quiet for an hour an old newest item is exactly what a correct feed
+        # looks like, and this check cannot tell that from a publication that
+        # never reached a path. Only the alarm, which compares the feed against
+        # the pushes waiting behind it, can, and nothing here covers the case
+        # where the tip is published and a feed path still lags.
         if feed_unknown or feed is None:
-            return "unchanged: the tip is published but its feed could not be read"
-        if (now - feed).total_seconds() >= minutes * 60:
-            return "unchanged: the tip is published but the feed is behind the release"
-        return "unchanged"
+            return "unchanged: the tip is published and its feed could not be read"
+        return f"unchanged: the tip is published, feed newest {feed.isoformat()}"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.recent_runs(name, run_branch, now)
               if is_active_delivery_run(name, run_branch, run) and carries_tip(run, tip, tip_landed)]

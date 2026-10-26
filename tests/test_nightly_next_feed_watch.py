@@ -329,20 +329,32 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertTrue(self.guard(gh, published_sha=self.TIP).startswith("unchanged"))
         self.assertEqual(gh.dispatched, [])
 
-    def test_a_published_tip_behind_its_feed_says_so_instead_of_just_unchanged(self):
-        """Nothing here covers that case; a bare "unchanged" hid it.
-
-        A build cannot fix it, because the promotion ignores a request that
+    def test_a_published_tip_reports_its_feed_age_without_diagnosing_it(self):
+        """A build cannot fix this case: the promotion ignores a request that
         does not move the branch forward, and the alarm does not raise it,
-        because no push is waiting.
+        because no push is waiting. So the run names it instead of reporting a
+        bare "unchanged" -- but it reports the age, it does not call the feed
+        behind. On a branch quiet for two hours an old newest item is exactly
+        what a correct feed looks like, and this check cannot tell that from a
+        publication that never reached a path.
         """
         gh = self.Gh(self, [])
+        feed = NOW - dt.timedelta(minutes=90)
         self.assertEqual(self.guard(gh, published_sha=self.TIP),
-                         "unchanged: the tip is published but the feed is behind the release")
+                         f"unchanged: the tip is published, feed newest {feed.isoformat()}")
+        # A feed published ten minutes after the tip landed is current, and a
+        # quiet hour later it must not be described any differently.
+        current = watch.starvation_dispatch(
+            self.Gh(self, []), NOW, feed=NOW - dt.timedelta(minutes=26), published_sha=self.TIP,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
+        self.assertEqual(current,
+                         f"unchanged: the tip is published, "
+                         f"feed newest {(NOW - dt.timedelta(minutes=26)).isoformat()}")
+        self.assertNotIn("behind", current)
         unreadable = watch.starvation_dispatch(
             self.Gh(self, []), NOW, feed=None, published_sha=self.TIP, branch="feat-cmux-next",
             workflow="nightly-next-tick.yml", ref="main", feed_unknown=True)
-        self.assertEqual(unreadable, "unchanged: the tip is published but its feed could not be read")
+        self.assertEqual(unreadable, "unchanged: the tip is published and its feed could not be read")
         self.assertEqual(gh.dispatched, [])
 
     def test_a_stale_feed_with_no_active_run_builds_the_tip(self):
@@ -414,7 +426,7 @@ class StarvationGuardTests(unittest.TestCase):
             watch.starvation_dispatch(quiet, NOW, feed=None, published_sha=self.TIP,
                                       branch="feat-cmux-next", workflow="nightly-next-tick.yml",
                                       ref="main", feed_unknown=True),
-            "unchanged: the tip is published but its feed could not be read")
+            "unchanged: the tip is published and its feed could not be read")
         self.assertEqual(quiet.dispatched, [])
 
     def test_the_guard_never_cancels_a_run(self):
