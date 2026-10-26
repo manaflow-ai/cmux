@@ -69,10 +69,11 @@ import Testing
         #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen }, "the dividers stay in the screen")
         let host = try #require(w.root.context.hosts["p2"])
         let before = host.frame
-        w.pan(at: try w.center("p2"), events: 5, dx: -4)
+        let point = try w.center("p2")
+        w.pan(at: point, events: 5, dx: -4)
         #expect(w.screen.stripContainer.translation == 0 && w.screen.stripContainer.translationSets == 0)
         #expect(host.frame.minX < before.minX - 1, "the CPU path moves the host's frame")
-        w.scroll(at: try w.center("p2"), phase: .ended)
+        w.scroll(at: point, phase: .ended)
         w.settle()
     }
 
@@ -117,7 +118,8 @@ import Testing
 
     @Test func aClickDuringThePanHitsThePaneUnderThePointer() throws {
         let w = Window(renderServer: true)
-        w.pan(at: try w.center("p2"), events: 50, dx: -4)
+        let start = try w.center("p2")
+        w.pan(at: start, events: 50, dx: -4)
         let shown = try #require(w.root.frame(of: "p2"))
         let host = try #require(w.root.context.hosts["p2"])
         // Left of where p2 is laid out, inside where it shows: only the translation puts p2 there.
@@ -133,7 +135,8 @@ import Testing
         let w = Window(renderServer: true, modifier: .noModifier) { pane in
             pane == "top" ? PaneHorizontalScrollClaimTests.TableView() : NSView()
         }
-        w.pan(at: try w.center("p2"), events: 50, dx: -4, command: false)
+        let start = try w.center("p2")
+        w.pan(at: start, events: 50, dx: -4, command: false)
         let top = try #require(w.root.frame(of: "top"))
         // `top` shows 200 pt left of where it is laid out: shown at 250 pt it is laid out at 450, its right half.
         let right = w.root.convert(CGPoint(x: top.minX + 450, y: top.midY), to: nil)
