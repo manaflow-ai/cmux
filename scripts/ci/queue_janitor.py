@@ -2931,8 +2931,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # (starved_labels.py) annotates them and keeps one issue per label.
         snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
         if unread:
-            # Read from every run but these: their demand is missing, so no starved-label issue is closed
-            # as recovered on this sweep (starved_labels.py), and readers can tell the inventory is partial.
+            # Read from every run but these: their jobs are missing, so a label one of them is running on
+            # can look starved and one it waits on can look recovered. No starved-label issue is opened,
+            # updated or closed on this sweep (starved_labels.py), and readers can tell it is partial.
+            snapshot["starved"] = []
             snapshot["starved_incomplete"] = True
             snapshot[UNREAD_RUNS_KEY] = sorted(unread)
         # Warm affinity on: which root runner kept a build of which main

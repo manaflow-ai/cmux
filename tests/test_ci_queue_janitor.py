@@ -1516,6 +1516,37 @@ class TransientFailureTests(unittest.TestCase):
             self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
         self.assertEqual(len(calls), 2)
 
+    def test_a_partial_inventory_asserts_no_starved_label(self):
+        # The unreadable run holds the only running job on a fleet label; another run's job queued there
+        # would read as starved. Nothing is asserted from a partial inventory, and nothing is closed.
+        label = "glaeda-side-std-xcode-26.6"
+        running = make_run(branch="running")
+        waiting = make_run(status="queued", age=120, branch="waiting")
+        runs = {r["id"]: dict(r) for r in (running, waiting)}
+        jobs = {running["id"]: [{"status": "in_progress", "name": "compile", "labels": [label], "created_at": iso(90),
+                                 "started_at": iso(1), "runner_name": "mini-1"}],
+                waiting["id"]: [{"status": "queued", "name": "compile", "labels": [label], "created_at": iso(100)}]}
+        fake = FakeGitHub(runs, jobs)
+        fake.unreadable_jobs = {running["id"]}
+        fake.completed_runs = lambda workflow, since: []
+        with tempfile.TemporaryDirectory() as temp:
+            load = Path(temp) / "load.json"
+            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(load),
+                    "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                    mock.patch("builtins.print"):
+                janitor.main(argv)
+            snapshot = json.loads(load.read_text())
+        self.assertEqual(snapshot["starved"], [])
+        self.assertIs(snapshot["starved_incomplete"], True)
+        plan = janitor.starved_labels.plan_issues(snapshot["starved"], [
+            {"number": 5, "title": janitor.starved_labels.issue_title(label), "updated_at": iso(60)}],
+            incomplete=True)
+        self.assertEqual((plan.open, plan.update, plan.close), ([], [], []))
+
     def test_a_rate_limit_still_ends_the_sweep(self):
         run = make_run(status="queued", branch="limited")
 
