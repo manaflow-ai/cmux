@@ -238,11 +238,47 @@ import Testing
 /// process, and its presence drops the deadline call.
 @MainActor
 @Suite(.serialized) struct CEFResizeFenceShimTests {
-    nonisolated(unsafe) static var fenceCalls: [(browser: Int32, fence: UInt32, frames: UInt32)] = []
+    @Test func aForkWithTheFenceGetsNoDeadlineCall() throws {
+        FenceSpy.calls = []
+        let ca = CEFResizeFencesTests.FakeCA()
+        let fences = CEFResizeFences(commit: ca.commit)
+        let fork = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
+        #expect(fork.setResizeSync == nil)
+        let resizeFence = try #require(fork.resizeFence)
+        let view = NSView(frame: .zero)
+        ca.place(view, in: NSObject())
+        #expect(resizeFence.fences.join(view, browser: 9, setFence: resizeFence.set))
+        #expect(FenceSpy.calls.map(\.browser) == [9])
+        #expect(FenceSpy.calls.map(\.frames) == [2])
+        #expect(FenceSpy.calls.map(\.fence) == ca.made)
+    }
+
+    @Test func anOlderForkKeepsTheDeadlineCall() throws {
+        let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
+        let fork = try #require(CEFLayerHosting.Fork(shim: try FenceSpy.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI - 1, fences: fences))
+        #expect(fork.resizeFence == nil)
+        #expect(fork.setResizeSync != nil)
+    }
+
+    /// A Mach port name means nothing in the Chromium Host's process.
+    @Test func hostModeHasNoFence() throws {
+        let shim = try FenceSpy.shim(hostExports: ["cmux_shim_browser_set_resize_fence"])
+        #expect(shim.browserSetResizeFence == nil)
+        let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
+        let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
+        #expect(fork.resizeFence == nil)
+        #expect(fork.setResizeSync != nil)
+    }
+}
+
+/// A shim whose every function does nothing, but for `cmux_shim_browser_set_resize_fence`, which
+/// records its calls and takes the fence.
+private nonisolated enum FenceSpy {
+    nonisolated(unsafe) static var calls: [(browser: Int32, fence: UInt32, frames: UInt32)] = []
 
     static func shim(hostExports: Set<String>? = nil) throws -> CEFShimLibrary {
         let setFence: @convention(c) (Int32, UInt32, UInt32) -> Int32 = { browser, fence, frames in
-            CEFResizeFenceShimTests.fenceCalls.append((browser, fence, frames))
+            FenceSpy.calls.append((browser, fence, frames))
             return 1
         }
         let nothing: @convention(c) () -> Int = { 0 }
@@ -253,37 +289,5 @@ import Testing
         }
         if let hostExports { return try CEFShimLibrary.resolving(symbol, hostExports: hostExports) }
         return try CEFShimLibrary.resolving(symbol)
-    }
-
-    @Test func aForkWithTheFenceGetsNoDeadlineCall() throws {
-        Self.fenceCalls = []
-        let ca = CEFResizeFencesTests.FakeCA()
-        let fences = CEFResizeFences(commit: ca.commit)
-        let fork = try #require(CEFLayerHosting.Fork(shim: try Self.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
-        #expect(fork.setResizeSync == nil)
-        let resizeFence = try #require(fork.resizeFence)
-        let view = NSView(frame: .zero)
-        ca.place(view, in: NSObject())
-        #expect(resizeFence.fences.join(view, browser: 9, setFence: resizeFence.set))
-        #expect(Self.fenceCalls.map(\.browser) == [9])
-        #expect(Self.fenceCalls.map(\.frames) == [2])
-        #expect(Self.fenceCalls.map(\.fence) == ca.made)
-    }
-
-    @Test func anOlderForkKeepsTheDeadlineCall() throws {
-        let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
-        let fork = try #require(CEFLayerHosting.Fork(shim: try Self.shim(), apiVersion: CEFLayerHosting.resizeFenceForkAPI - 1, fences: fences))
-        #expect(fork.resizeFence == nil)
-        #expect(fork.setResizeSync != nil)
-    }
-
-    /// A Mach port name means nothing in the Chromium Host's process.
-    @Test func hostModeHasNoFence() throws {
-        let shim = try Self.shim(hostExports: ["cmux_shim_browser_set_resize_fence"])
-        #expect(shim.browserSetResizeFence == nil)
-        let fences = CEFResizeFences(commit: CEFResizeFencesTests.FakeCA().commit)
-        let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.resizeFenceForkAPI, fences: fences))
-        #expect(fork.resizeFence == nil)
-        #expect(fork.setResizeSync != nil)
     }
 }
