@@ -18,12 +18,19 @@ enum UpdateHandlers {
                     arguments: ["setting": .string("announcements.enabled"), "on": .bool(on)], origin: invocation.origin))
             })
         }
-        // Not tracked for `action.run wait`: a feed fetch can outlast the 2 s
-        // control deadline. `updates.check` / `updates.status` carry the result.
-        registry.bind("palette.checkForUpdates", run: { _ in updater.checkForUpdates() })
+        // A CLI run answers the feed's result (current and newest build) or the check's failure
+        // (``checkResult(_:)``); a menu or palette run reads it on the notice card.
+        registry.bind("palette.checkForUpdates", run: { [weak registry] _ in
+            updater.checkForUpdates()
+            guard let registry, registry.isCapturingWork else { return }
+            registry.track(result: checkResult(updater))
+        })
         for id: ActionID in ["palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
             registry.bind(id, unavailable: { updater.installUnavailableReason }, invoke: { [weak registry] _ in
-                do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
+                do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)); return }
+                // A CLI run answers once the update installs, or with why nothing installs (``installResult``).
+                guard let registry, registry.isCapturingWork else { return }
+                registry.track(result: installResult(updater))
             })
         }
         // The pulled-build banner's Roll Back: the same stores, and the same question as updates.rollback.
