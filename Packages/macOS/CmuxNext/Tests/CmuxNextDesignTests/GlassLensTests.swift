@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextDesignTokens
 
 /// The glass mode pages draw and the theme that carries it (plans/cmux-next/glass-lens-DESIGN.md):
 /// the Debug choice `glass.lens` unless Reduce Transparency or Low Power Mode make it plain, sent as `glass`

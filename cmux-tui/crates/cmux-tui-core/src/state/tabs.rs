@@ -125,11 +125,85 @@ impl Mux {
                     frontend || update.owner.is_none(),
                     "bad request: owner applies only to frontend browser tabs"
                 );
+                let mut update = update;
+                // tab-attention-v1: a browser tab's new mark records the page
+                // it was set on, so only a later page clears it.
+                if matches!(update.attention, Some(Some(_))) {
+                    update.attention_page = state
+                        .surfaces
+                        .get(&surface)
+                        .and_then(|runtime| runtime.as_browser())
+                        .map(|browser| browser.url())
+                        .filter(|url| !url.is_empty());
+                }
                 edit.tab_state.push((tab.clone(), update));
                 edit.result = StripResult::Tab(tab);
                 Ok(())
             })?;
         Ok(commit)
+    }
+
+    /// `tab-attention-v1`: a browser tab now on `page` drops an attention
+    /// mark set on another page, since the page the agent asked the person to
+    /// act on is gone (the person confirmed, logged in, or left). One read
+    /// when the tab holds no such mark; otherwise a commit that decides again
+    /// in its own transaction (a mark set on `page` meanwhile stays) and
+    /// restates the tab when it cleared one.
+    pub(crate) fn clear_attention_after_navigation(
+        &self,
+        actor: &Actor,
+        surface: SurfaceId,
+        page: &str,
+    ) {
+        if page.is_empty() {
+            return;
+        }
+        let Some(tab) = self.with_state(|state| {
+            state.resource_indexes.tab_ids.get(&surface).map(|id| id.as_str().to_string())
+        }) else {
+            return;
+        };
+        let marked = self.personal_state_read(|connection| {
+            crate::state::tab_state_store::tab_has_attention_off_page(connection, &tab, page)
+        });
+        if !matches!(marked, Ok(true)) {
+            return;
+        }
+        let fingerprint = serde_json::json!({
+            "operation": "tab.attention.navigated",
+            "tab": tab,
+            "nonce": crate::workspace_registry::new_uuid_v4(),
+        });
+        let result = self.commit_state(
+            &WorkspaceMutation::local("cmux-tui-tab-attention", actor.clone()),
+            "tab.attention.navigated",
+            &fingerprint,
+            None,
+            StateEffects::PRESENTATION,
+            |transaction, state| {
+                // A late callback for a page the tab has already left clears
+                // nothing: the mark may be the newer page's, set since.
+                let current = state
+                    .surfaces
+                    .get(&surface)
+                    .and_then(|runtime| runtime.as_browser())
+                    .map(|browser| browser.url());
+                let cleared = current.as_deref() == Some(page)
+                    && crate::state::tab_state_store::clear_attention_off_page(
+                        transaction,
+                        &tab,
+                        page,
+                    )?;
+                let restated: &[String] = if cleared { std::slice::from_ref(&tab) } else { &[] };
+                let changes = crate::state::values::fresh_upserts(transaction, &[], &[], restated)?;
+                Ok(StateChanges::new(serde_json::json!({"tab": tab, "cleared": cleared}), changes))
+            },
+        );
+        if let Err(error) = result {
+            eprintln!(
+                "cmux-tui: clearing the attention mark of {tab} after navigation failed: {error:#}"
+            );
+        }
     }
 
     /// Store the owner (hosting app's install id) of a frontend-rendered

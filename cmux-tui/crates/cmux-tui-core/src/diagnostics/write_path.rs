@@ -57,6 +57,8 @@ impl WritePathStats {
             effect_intent_batches: self.effect_intent_batches.load(Ordering::Relaxed),
             request_effect_commits: self.request_effect_commits.load(Ordering::Relaxed),
             writer_registry_locks: WRITER_REGISTRY_LOCKS.load(Ordering::Relaxed),
+            wal_commits: 0,
+            wal_synced_commits: 0,
         }
     }
 }
@@ -80,4 +82,9 @@ pub struct WritePathSnapshot {
     /// Registry or state lock acquisitions on a journal writer thread,
     /// process-wide. Always zero; any other value is a lock-order defect.
     pub writer_registry_locks: u64,
+    /// Registry commits written to the WAL (`synchronous=NORMAL`).
+    pub wal_commits: u64,
+    /// Of those, the commits the WAL syncer has flushed to disk
+    /// (`workspace_registry::wal_durability`); it trails by at most one flush.
+    pub wal_synced_commits: u64,
 }

@@ -6,7 +6,15 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
-import { categories, filterApps, listedInStore, parseRoute, type StoreLayout, type StoreTab } from "./model";
+import {
+  categories,
+  filterApps,
+  listedInStore,
+  parseRoute,
+  type CardStyle,
+  type StoreLayout,
+  type StoreTab,
+} from "./model";
 import {
   AppsOps,
   OPEN_ACTION,
@@ -30,6 +38,8 @@ export type DetailStatus = "idle" | "loading" | "ready" | "not-found" | "error";
 export interface AppsSnapshot {
   tab: StoreTab;
   layout: StoreLayout;
+  /** The Discover card style (`card=`); `standard` unless a DEV route asks for another. */
+  card: CardStyle;
   query: string;
   category?: string;
   catalog: CatalogApp[];
@@ -93,6 +103,7 @@ export class AppsStore {
     this.snapshot = {
       tab: route.tab,
       layout: route.layout,
+      card: route.card,
       query: "",
       catalog: [],
       visible: [],
@@ -284,6 +295,7 @@ export class AppsStore {
     const route = parseRoute(hash);
     this.setTab(route.tab);
     if (route.layout !== this.snapshot.layout) this.set({ layout: route.layout });
+    if (route.card !== this.snapshot.card) this.set({ card: route.card });
     if (route.app !== this.snapshot.selection) void this.select(route.app);
   }
 

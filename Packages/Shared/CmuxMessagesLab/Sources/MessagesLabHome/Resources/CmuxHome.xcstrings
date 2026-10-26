@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.menu.openLink": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Link"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح الرابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori link"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn link"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Link öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir le lien"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne lenke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz link"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir link"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть ссылку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantıyı Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити посилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开链接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟連結"
+          }
+        }
+      }
+    },
+    "home.menu.copyLinkAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Link Address"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نسخ عنوان الرابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiraj adresu linka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér linkadresse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Linkadresse kopieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar dirección del enlace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier l’adresse du lien"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia indirizzo link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リンクアドレスをコピー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លងអាសយដ្ឋានតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "링크 주소 복사"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier lenkeadresse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiuj adres linku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar endereço do link"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скопировать адрес ссылки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกที่อยู่ลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bağlantı Adresini Kopyala"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювати адресу посилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép địa chỉ liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷贝链接地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拷貝連結位址"
+          }
+        }
+      }
+    },
     "home.message.copyLink": {
       "extractionState": "manual",
       "localizations": {
@@ -5834,1216 +6096,6 @@
         }
       }
     },
-    "home.turn.steps": {
-      "comment": "Chief running indicator: finished steps of other kinds in one row (count is 2 or more).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld step"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld steps"
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة"
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوتان"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوات"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة"
-                }
-              }
-            }
-          }
-        },
-        "bs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld korak"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld koraka"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld koraka"
-                }
-              }
-            }
-          }
-        },
-        "da": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trin"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trin"
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld Schritt"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld Schritte"
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld paso"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld de pasos"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld pasos"
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld étape"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld d’étapes"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld étapes"
-                }
-              }
-            }
-          }
-        },
-        "it": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld passaggio"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld passaggi"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld passaggi"
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個のステップ"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個のステップ"
-                }
-              }
-            }
-          }
-        },
-        "km": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ជំហាន"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ជំហាន"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld단계"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld단계"
-                }
-              }
-            }
-          }
-        },
-        "nb": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trinn"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trinn"
-                }
-              }
-            }
-          }
-        },
-        "pl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld krok"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld kroki"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld kroków"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld kroku"
-                }
-              }
-            }
-          }
-        },
-        "pt-BR": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld etapa"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld de etapas"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld etapas"
-                }
-              }
-            }
-          }
-        },
-        "ru": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld шаг"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld шага"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld шагов"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld шага"
-                }
-              }
-            }
-          }
-        },
-        "th": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ขั้นตอน"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ขั้นตอน"
-                }
-              }
-            }
-          }
-        },
-        "tr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld adım"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld adım"
-                }
-              }
-            }
-          }
-        },
-        "uk": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld крок"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld кроки"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld кроків"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld кроку"
-                }
-              }
-            }
-          }
-        },
-        "vi": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld bước"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld bước"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 个步骤"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 个步骤"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個步驟"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個步驟"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "home.turn.moreSteps": {
-      "comment": "Chief running indicator: more finished steps after a folded group, e.g. \"Ran 3 commands · 2 more steps\" (count is 2 or more).",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld more step"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "%lld more steps"
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة أخرى"
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة أخرى"
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوتان أخريان"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوات أخرى"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة أخرى"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld خطوة أخرى"
-                }
-              }
-            }
-          }
-        },
-        "bs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "još %lld korak"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "još %lld koraka"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "još %lld koraka"
-                }
-              }
-            }
-          }
-        },
-        "da": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trin mere"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trin mere"
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld weiterer Schritt"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld weitere Schritte"
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld paso más"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld de pasos más"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld pasos más"
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld étape de plus"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld d’étapes de plus"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld étapes de plus"
-                }
-              }
-            }
-          }
-        },
-        "it": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "altro %lld passaggio"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "altri %lld passaggi"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "altri %lld passaggi"
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "他 %lld 個のステップ"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "他 %lld 個のステップ"
-                }
-              }
-            }
-          }
-        },
-        "km": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ជំហានទៀត"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld ជំហានទៀត"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld단계 더"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld단계 더"
-                }
-              }
-            }
-          }
-        },
-        "nb": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trinn til"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld trinn til"
-                }
-              }
-            }
-          }
-        },
-        "pl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Jeszcze %lld krok"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Jeszcze %lld kroki"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Jeszcze %lld kroków"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Jeszcze %lld kroku"
-                }
-              }
-            }
-          }
-        },
-        "pt-BR": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "mais %lld etapa"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "mais %lld de etapas"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "mais %lld etapas"
-                }
-              }
-            }
-          }
-        },
-        "ru": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ещё %lld шаг"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ещё %lld шага"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ещё %lld шагов"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ещё %lld шага"
-                }
-              }
-            }
-          }
-        },
-        "th": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "อีก %lld ขั้นตอน"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "อีก %lld ขั้นตอน"
-                }
-              }
-            }
-          }
-        },
-        "tr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld adım daha"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld adım daha"
-                }
-              }
-            }
-          }
-        },
-        "uk": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ще %lld крок"
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ще %lld кроки"
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ще %lld кроків"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ще %lld кроку"
-                }
-              }
-            }
-          }
-        },
-        "vi": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "thêm %lld bước"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "thêm %lld bước"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "另外 %lld 个步骤"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "另外 %lld 个步骤"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "另外 %lld 個步驟"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "另外 %lld 個步驟"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "home.plan.steps": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plan · %lld steps"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الخطة · %lld خطوات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld koraka"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld trin"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld Schritte"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld pasos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld étapes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Piano · %lld passaggi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "プラン · %lld ステップ"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផែនការ · %lld ជំហាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "계획 · %lld단계"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld trinn"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld kroków"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plano · %lld etapas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "План · шагов: %lld"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แผน · %lld ขั้นตอน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %lld adım"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "План · кроків: %lld"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kế hoạch · %lld bước"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "计划 · %lld 个步骤"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "計畫 · %lld 個步驟"
-          }
-        }
-      }
-    },
-    "home.plan.stepsActive": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plan · %1$lld steps, %2$lld active"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الخطة · %1$lld خطوات، %2$lld نشطة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld koraka, %2$lld aktivno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld trin, %2$lld aktive"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld Schritte, %2$lld aktiv"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld pasos, %2$lld activos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld étapes, %2$lld actives"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Piano · %1$lld passaggi, %2$lld attivi"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "プラン · %1$lld ステップ、%2$lld 件進行中"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផែនការ · %1$lld ជំហាន, %2$lld សកម្ម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "계획 · %1$lld단계, %2$lld개 진행 중"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld trinn, %2$lld aktive"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld kroków, aktywne: %2$lld"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plano · %1$lld etapas, %2$lld ativas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "План · шагов: %1$lld, активных: %2$lld"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แผน · %1$lld ขั้นตอน, กำลังทำ %2$lld"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Plan · %1$lld adım, %2$lld etkin"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "План · кроків: %1$lld, активних: %2$lld"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kế hoạch · %1$lld bước, %2$lld đang chạy"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "计划 · %1$lld 个步骤，%2$lld 个进行中"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "計畫 · %1$lld 個步驟，%2$lld 個進行中"
-          }
-        }
-      }
-    },
     "home.plan.state.working": {
       "extractionState": "manual",
       "localizations": {
@@ -8481,6 +7533,28 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "儲存為…"
+          }
+        }
+      }
+    },
+    "home.plan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        }
+      }
+    },
+    "home.plan.activeCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan · %lld active"
           }
         }
       }
