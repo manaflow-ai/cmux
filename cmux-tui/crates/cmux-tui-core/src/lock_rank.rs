@@ -12,9 +12,22 @@
 //! of the ranks up to `Mux::state` are counted in every build: lock
 //! admission never makes a thread wait while it holds one
 //! ([`HeldRank::may_yield`]).
+//!
+//! Debug and test builds also time a contended [`RankedMutex::lock`]: the
+//! lock is tried first and only a failed try reads the clock, and a wait of
+//! `cmux_threads::LOCK_WAIT_BUDGET` (2 ms) or more on a thread that
+//! disallows blocking records a `lock-wait` site at the caller
+//! (`cmux_threads::lock_wait::note_timed_lock_wait`), read with
+//! `cmux_threads::blocking::snapshot`. Chromium times only the contended
+//! path the same way: base/synchronization/lock_impl.h (`LockImpl::Lock`
+//! tries first) and base/synchronization/lock_metrics_recorder.h.
 
 use std::ops::{Deref, DerefMut};
+#[cfg(debug_assertions)]
+use std::panic::Location;
 use std::sync::{LockResult, Mutex, MutexGuard, PoisonError, TryLockError, TryLockResult};
+#[cfg(debug_assertions)]
+use std::time::Instant;
 
 /// Rank of a ranked lock. A thread acquires ranks in ascending order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -300,13 +313,44 @@ impl<T> RankedMutex<T> {
     pub(crate) fn lock(&self) -> LockResult<RankedGuard<'_, T>> {
         let (rank, name) = self.rank();
         let wait = HeldRank::acquire(rank, name);
-        match self.inner.lock() {
+        match self.lock_timed() {
             Ok(guard) => Ok(RankedGuard { guard, _held: wait.held() }),
             Err(poison) => Err(PoisonError::new(RankedGuard {
                 guard: poison.into_inner(),
                 _held: wait.held(),
             })),
         }
+    }
+
+    /// The inner lock, tried first; a contended wait is timed
+    /// ([`Self::wait_timed`]).
+    #[cfg(debug_assertions)]
+    #[track_caller]
+    #[inline]
+    fn lock_timed(&self) -> LockResult<MutexGuard<'_, T>> {
+        match self.inner.try_lock() {
+            Ok(guard) => Ok(guard),
+            Err(TryLockError::Poisoned(poison)) => Err(poison),
+            Err(TryLockError::WouldBlock) => self.wait_timed(Location::caller()),
+        }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    fn lock_timed(&self) -> LockResult<MutexGuard<'_, T>> {
+        self.inner.lock()
+    }
+
+    /// Waits for the inner lock after a failed try and reports the wait for
+    /// `site`. The report never panics, so it may run with the guard taken.
+    #[cfg(debug_assertions)]
+    #[cold]
+    #[inline(never)]
+    fn wait_timed(&self, site: &'static Location<'static>) -> LockResult<MutexGuard<'_, T>> {
+        let since = Instant::now();
+        let locked = self.inner.lock();
+        cmux_threads::lock_wait::note_timed_lock_wait(since.elapsed(), site);
+        locked
     }
 
     #[inline]
@@ -344,5 +388,66 @@ impl<T> DerefMut for RankedGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
         &mut self.guard
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod tests {
+    use super::{LockRank, RankedMutex};
+    use cmux_threads::{BlockingKind, BlockingMode, ThreadQos};
+    use std::sync::{Arc, mpsc};
+    use std::time::Duration;
+
+    /// The `file:line` of a lock call; `lock` returns it from the line it
+    /// locks on.
+    type Site = (&'static str, u32);
+
+    /// Holds a ranked mutex for `hold` while a thread that disallows
+    /// blocking, in panic mode, locks it with `lock`. Returns the count of
+    /// `lock-wait` records at the site `lock` reports.
+    fn lock_wait_count_after_hold(hold: Duration, lock: fn(&RankedMutex<u32>) -> Site) -> u64 {
+        let mutex = Arc::new(RankedMutex::new(LockRank::Leaf, "test.leaf", 0_u32));
+        let guard = mutex.lock().expect("holder lock");
+        let (started_tx, started_rx) = mpsc::channel();
+        let waiter = cmux_threads::spawn("lock-rank-waiter", ThreadQos::UserInitiated, {
+            let mutex = Arc::clone(&mutex);
+            move || {
+                cmux_threads::with_blocking_disallowed(|| {
+                    cmux_threads::blocking::with_mode(BlockingMode::Panic, || {
+                        started_tx.send(()).expect("signal start");
+                        lock(&mutex)
+                    })
+                })
+            }
+        })
+        .expect("spawn waiter");
+        cmux_threads::checked::sync::recv(&started_rx).expect("waiter started");
+        cmux_threads::checked::sync::sleep(hold);
+        drop(guard);
+        let (file, line) = cmux_threads::checked::sync::join(waiter).expect("waiter");
+        cmux_threads::blocking::snapshot()
+            .site(file, line)
+            .filter(|site| site.kinds.contains(BlockingKind::LockWait))
+            .map_or(0, |site| site.count)
+    }
+
+    #[test]
+    fn five_ms_holder_records_one_lock_wait_site_without_panic() {
+        let count = lock_wait_count_after_hold(Duration::from_millis(5), |mutex| {
+            let (site, guard) = ((file!(), line!()), mutex.lock().expect("waiter lock"));
+            drop(guard);
+            site
+        });
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn tenth_ms_holder_records_no_lock_wait_site() {
+        let count = lock_wait_count_after_hold(Duration::from_micros(100), |mutex| {
+            let (site, guard) = ((file!(), line!()), mutex.lock().expect("waiter lock"));
+            drop(guard);
+            site
+        });
+        assert_eq!(count, 0);
     }
 }
