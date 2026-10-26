@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 
@@ -9,6 +10,13 @@ public import Foundation
 /// share one render. Rendering runs in the injected generator, off the main
 /// actor; only tiles a grid shows ask, so a folder of thousands of files
 /// renders a screenful.
+///
+/// It is an ``AsyncMemoryConsumer`` (Chrome's async consumer,
+/// base/memory_coordinator/async_memory_consumer_registration.h): its owner
+/// registers it with `AsyncMemoryConsumerRegistration`, and the memory
+/// limit's calls run on this actor. The limit scales the capacity; a release
+/// drops the least recently used thumbnails down to it, and at the critical
+/// limit the movie lengths too. A tile asked for after a release renders again.
 ///
 /// ```swift
 /// let cache = ThumbnailCache(capacity: 600)
@@ -25,11 +33,18 @@ public actor ThumbnailCache {
     private struct Entry {
         var image: CGImage?
         var used: UInt64
+        /// The image's pixel bytes (bytes per row times height); 0 for none.
+        var bytes: Int
     }
 
     private let generator: any ThumbnailGenerating
-    private let capacity: Int
+    /// Thumbnails kept at the full memory limit.
+    private let maxCapacity: Int
+    /// Thumbnails kept now: `maxCapacity` scaled by the memory limit (0 at critical: none kept).
+    private var capacity: Int
     private var images: [Key: Entry] = [:]
+    /// The pixel bytes of `images`, kept on every insert and removal.
+    private var storedBytes = 0
     private var renders: [Key: Task<CGImage?, Never>] = [:]
     private var durations: [String: TimeInterval?] = [:]
     private var clock: UInt64 = 0
@@ -39,10 +54,12 @@ public actor ThumbnailCache {
     /// Makes a cache.
     ///
     /// - Parameters:
-    ///   - capacity: thumbnails kept (default 600, about four screens of large tiles).
+    ///   - capacity: thumbnails kept at the full memory limit (default 600, about four screens of
+    ///     large tiles).
     ///   - generator: what draws them (default Quick Look).
     public init(capacity: Int = 600, generator: any ThumbnailGenerating = QuickLookThumbnailGenerator()) {
-        self.capacity = max(1, capacity)
+        maxCapacity = max(1, capacity)
+        self.capacity = maxCapacity
         self.generator = generator
     }
 
@@ -68,8 +85,12 @@ public actor ThumbnailCache {
         renderCount += 1
         let image = await render.value
         renders[key] = nil
+        // At the critical memory limit nothing is kept: the tile still gets its picture.
+        guard capacity > 0 else { return image }
         clock += 1
-        images[key] = Entry(image: image, used: clock)
+        let bytes = image.map(Self.bytes(of:)) ?? 0
+        storedBytes += bytes - (images[key]?.bytes ?? 0)
+        images[key] = Entry(image: image, used: clock, bytes: bytes)
         evictIfNeeded()
         return image
     }
@@ -94,24 +115,74 @@ public actor ThumbnailCache {
         if let known = durations[key] { return known }
         let seconds = await generator.duration(for: item.url)
         durations[key] = seconds
-        if durations.count > capacity * 4 { durations.removeAll(keepingCapacity: true) }
+        if durations.count > maxCapacity * 4 { durations.removeAll(keepingCapacity: true) }
         return seconds
     }
 
     /// Drops every cached thumbnail (memory pressure).
     public func removeAll() {
         images.removeAll()
+        storedBytes = 0
         durations.removeAll()
     }
 
     /// The number of thumbnails held.
     public var count: Int { images.count }
 
+    /// The pixel bytes of the thumbnails held.
+    public var bytes: Int { storedBytes }
+
     private func evictIfNeeded() {
         guard images.count > capacity else { return }
         // Drop the oldest eighth at once so a scroll does not evict one per render.
-        let drop = max(1, images.count - capacity + capacity / 8)
-        let oldest = images.sorted { $0.value.used < $1.value.used }.prefix(drop).map(\.key)
-        for key in oldest { images[key] = nil }
+        dropOldest(max(1, images.count - capacity + capacity / 8))
+    }
+
+    /// Drops the `count` least recently used thumbnails.
+    private func dropOldest(_ count: Int) {
+        guard count > 0 else { return }
+        let oldest = images.sorted { $0.value.used < $1.value.used }.prefix(count).map(\.key)
+        for key in oldest { storedBytes -= images.removeValue(forKey: key)?.bytes ?? 0 }
+    }
+
+    nonisolated private static func bytes(of image: CGImage) -> Int { image.bytesPerRow * image.height }
+}
+
+extension ThumbnailCache: AsyncMemoryConsumer {
+    /// Large (hundreds of tiles of up to a few hundred KB each), lossless (a tile renders again)
+    /// and expensive to make again (a Quick Look render each), so warning pressure leaves it whole
+    /// and critical pressure empties it.
+    nonisolated public static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .large,
+        dataAccess: .none,
+        retention: .lossless,
+        recreateCost: .expensive,
+        releaseCPUCost: .low,
+        isStateful: true,
+        supportsMemoryLimit: true
+    )
+
+    /// The consumer's name in the memory report.
+    nonisolated public static let memoryConsumerName = "file-grid-thumbnails"
+
+    /// Scales how many thumbnails it keeps from now on. Frees nothing: the next render drops the
+    /// oldest past the new capacity.
+    public func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
+        capacity = limit.scale(maxCapacity)
+        return memoryUsage
+    }
+
+    /// Drops the least recently used thumbnails down to what `limit` keeps; at the critical limit
+    /// every thumbnail and every movie length.
+    public func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
+        capacity = limit.scale(maxCapacity)
+        dropOldest(images.count - capacity)
+        if limit.isCritical { durations.removeAll() }
+        return memoryUsage
+    }
+
+    /// Thumbnail pixel bytes; the entries are the thumbnails and the movie lengths.
+    private var memoryUsage: MemoryUsage {
+        MemoryUsage(footprintBytes: storedBytes, entries: images.count + durations.count)
     }
 }

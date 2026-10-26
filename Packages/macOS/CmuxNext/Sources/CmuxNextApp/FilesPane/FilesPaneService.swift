@@ -30,7 +30,9 @@ final class FilesPaneService: InternalPageProvider {
 
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
-    private let icons = FileIconProvider()
+    /// Icons and thumbnails for every Files tab; with `memoryFileHomeCaches` a memory consumer
+    /// held to a share of the image cache budget.
+    private let icons: FileIconProvider
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)
     private var volumeWatch: [Task<Void, Never>] = []
@@ -53,6 +55,9 @@ final class FilesPaneService: InternalPageProvider {
 
     init(services: AppServices) {
         self.services = services
+        let memory = AppMemoryConsumers(services: services)
+        icons = FileIconProvider(thumbnailBytes: memory.filesThumbnailBytes)
+        if let registry = memory.fileCacheRegistry { icons.registerMemoryConsumer(with: registry) }
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in

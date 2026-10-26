@@ -7,9 +7,11 @@
 // package name order, so parallel changes add lines and do not edit the same ones. It is its own type,
 // not an AppServices extension, so these lines never grow the AppServices god type.
 
+import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextFeatures
+import CmuxNextFileGrid
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
@@ -56,9 +58,39 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
+        registerAppBundleImages()  // CmuxNextApps (p07-memory-059)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// `memoryFileHomeCaches` (default off): the registry the Files, Screenshots and app bundle image
+    /// caches register with, nil while the feature is off (p07-memory-059). Lazy services (the Files
+    /// pane, the Screenshots pages) take it when they are made.
+    var fileCacheRegistry: (any MemoryConsumerRegistry)? {
+        services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
+    }
+
+    /// `memoryFileHomeCaches`: the Files pane's thumbnail pixel bytes, a quarter of the Mac's image
+    /// cache budget (32 MiB at 16 GB); nil (a count bound alone, as before) while the feature is off.
+    var filesThumbnailBytes: Int? {
+        fileCacheRegistry == nil ? nil : SubsystemBudget.forThisMac(gpuResidentAvailable: false).imageCacheBytes / 4
+    }
+
+    /// `memoryFileHomeCaches`: the grid thumbnail cache of the Screenshots pages as an asynchronous
+    /// consumer (its state stays on its actor); its owner keeps the registration. Nil while the
+    /// feature is off.
+    func registerFileGridThumbnails(_ cache: ThumbnailCache) -> AsyncMemoryConsumerRegistration? {
+        fileCacheRegistry.map {
+            AsyncMemoryConsumerRegistration(name: ThumbnailCache.memoryConsumerName, traits: ThumbnailCache.memoryTraits,
+                                            consumer: cache, registry: $0)
+        }
+    }
+
+    /// `memoryFileHomeCaches`: the decoded app bundle images are one lossless consumer.
+    private func registerAppBundleImages() {
+        guard let registry = fileCacheRegistry else { return }
+        AppBundleImageCache.shared.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
