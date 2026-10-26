@@ -26,8 +26,16 @@ Phases (each prints PERF-RENDERERS lines):
 The run stops (exit 1) when the first tab or 3 tabs in a row show no title in time (the .test
 mapping is not active: not a Debug or bench dev build), and exits 1 when any tab was not timed.
 
-Usage (a fleet GUI mini, never a laptop; a tagged DEV build):
-  bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30] [--out FILE.json]
+The app starts through bench_launch.BenchApp (the lab's bench env, a scratch config, an empty
+saved session for the tag) and ends with its tag. new_tab_ms percentiles (p50/p95/p99) are
+scripts/perf-lab/perf_stats.py's (linear interpolation). --out FILE.json is the report; --out DIR
+(the lab runner's folder) also gets one cmux-perf-result/v1 file per series through
+BenchApp.record (browser_engine_bench_report.py, `renderer_sharing.*`, story renderer-sharing)
+and the report as DIR/bench-renderer-sharing.json.
+
+Usage (a fleet GUI mini, never a laptop; a tagged DEV build, Debug or bench config):
+  bench_renderer_sharing.py --app BUNDLE [--tabs 100] [--sites 20] [--heap-mb 20] [--settle 30]
+      [--out FILE.json | --out DIR]
 """
 from __future__ import annotations
 
@@ -37,7 +45,6 @@ import json
 import os
 import re
 import resource
-import shutil
 import signal
 import statistics
 import sys
@@ -45,8 +52,10 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
+import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, webkit_pids)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+import browser_engine_bench_report as results  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
 
 PAGE = """<!doctype html><html><head><meta charset=utf-8><title>site {site} tab {tab}</title></head><body>
 <h1>Renderer sharing bench: site {site}, tab {tab}</h1>{article}
@@ -111,11 +120,6 @@ def renderer_map(sock: str) -> dict:
     return {"owners": owners, "report": report}
 
 
-def percentile(values, q):
-    values = sorted(v for v in values if v is not None)
-    return values[min(len(values) - 1, int(len(values) * q))] if values else None
-
-
 def chrome_soft_limit(memory_gb: float) -> int:
     """Chrome's soft renderer limit on this Mac (render_process_host_impl.cc GetMaxRendererProcessCount):
     physical memory / 2 / 85 MB, clamped to [3, half the process limit] (82 when that is unknown)."""
@@ -124,7 +128,7 @@ def chrome_soft_limit(memory_gb: float) -> int:
     return min(max(3, int(memory_gb * 1024 / 2 / 85)), max(3, platform))
 
 
-def main():
+def parse(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--tabs", type=int, default=100)
@@ -133,8 +137,29 @@ def main():
     parser.add_argument("--settle", type=float, default=30)
     parser.add_argument("--load-timeout", type=float, default=30, help="seconds a new tab may take to show its title")
     parser.add_argument("--cef-switches", default="", help="more Chromium switches, colon-separated (Debug builds only)")
-    parser.add_argument("--out")
-    args = parser.parse_args()
+    parser.add_argument("--out", help="the report file (.json), or the lab runner's folder for the result-v1 files "
+                                      "and bench-renderer-sharing.json")
+    parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    args = parser.parse_args(argv)
+    if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
+        parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    return args
+
+
+def new_tab_summary(times):
+    """The report's `new_tab_ms` row over the timed tabs: p50/p95/p99 (perf_stats.pct, whole ms), max, mean, timed."""
+    return {"p50": results.pct(times, 0.5, None), "p95": results.pct(times, 0.95, None),
+            "p99": results.pct(times, 0.99, None),
+            "max": max(times) if times else None, "mean": round(statistics.mean(times)) if times else None,
+            "timed": len(times)}
+
+
+def main(argv=None):
+    args = parse(argv)
+    report_path, results_dir = results.out_paths(args.out, "bench-renderer-sharing.json")
     if sys.platform != "darwin":
         raise SystemExit("bench-renderer-sharing: macOS only (run it on a fleet GUI mini)")
     memory_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30
@@ -165,7 +190,15 @@ def main():
     # The fleet worker finds every process of the step by this marker, also those the app starts.
     if os.environ.get("CI_JOB_DIR"):
         extra["CI_JOB_DIR"] = os.environ["CI_JOB_DIR"]
-    pid, sock, scratch = bm.launch(bundle, config, extra)
+    bench = BenchApp(bundle, out=results_dir, env=extra, config=config, window=(40, 40, 1400, 900),
+                     build_config=args.build_config, perf_session=args.session)
+    bm._foreign_webkit = bm.webkit_pids()  # the app is this script's child (bench_memory.webkit_is_apps)
+    try:
+        bench.launch()
+    except BaseException:
+        bench.stop()
+        raise
+    pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
     report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),
               "chrome_soft_limit": limit, "switches": switches, "opened": [], "new_tab_ms": []}
@@ -216,8 +249,7 @@ def main():
             "tabs_per_renderer": {str(n): sharing.count(n) for n in sorted(set(sharing))},
             "max_tabs_in_one_renderer": max(sharing) if sharing else 0,
             "shared_mb": round(sum(p.get("memory_bytes", 0) for p in shared) / 2**20, 1),
-            "new_tab_ms": {"p50": percentile(times, 0.5), "p95": percentile(times, 0.95), "max": max(times) if times else None,
-                           "mean": round(statistics.mean(times)) if times else None, "timed": len(times)},
+            "new_tab_ms": new_tab_summary(times),
             "kinds": {k: {"n": v["count"], "footprint_mb": v["footprint_mb"]} for k, v in kinds.items()},
         }
         report["settled"] = result
@@ -227,25 +259,25 @@ def main():
               f"app_footprint_mb={result['app_footprint_mb']} total_footprint_mb={result['total_footprint_mb']} "
               f"shared_mb={result['shared_mb']} tabs_per_renderer={json.dumps(result['tabs_per_renderer'])} "
               f"max_tabs_in_one_renderer={result['max_tabs_in_one_renderer']} new_tab_p50_ms={result['new_tab_ms']['p50']} "
-              f"new_tab_p95_ms={result['new_tab_ms']['p95']} new_tab_max_ms={result['new_tab_ms']['max']}", flush=True)
+              f"new_tab_p95_ms={result['new_tab_ms']['p95']} new_tab_p99_ms={result['new_tab_ms']['p99']} "
+              f"new_tab_max_ms={result['new_tab_ms']['max']}", flush=True)
         for kind, entry in result["kinds"].items():
             print(f"PERF-RENDERERS-KIND kind={kind} n={entry['n']} footprint_mb={entry['footprint_mb']}")
         if len(times) < args.tabs:
             print(f"bench-renderer-sharing: only {len(times)} of {args.tabs} tabs were timed", file=sys.stderr)
             status = 1
+        if results_dir:  # a finished run; a tab that never opened is a missed one
+            attempts = report["new_tab_ms"] + [None] * (args.tabs - len(report["new_tab_ms"]))
+            report["results_v1"] = results.record_all(bench, results.renderer_sharing_series(
+                attempts, result["renderers"], result["tab_renderers"], sample, session=args.session))
     finally:
         # A cancelled step has seconds before SIGKILL: end the bundle's processes at once.
-        if not stopping["signal"]:
-            try:
-                bm.App(bundle, sock).run("quit")
-                bm.wait_gone(pid, 20)
-            except Exception as error:  # noqa: BLE001  the quit failed; the processes are ended below
-                print(f"   quit: {error}", file=sys.stderr)
-        bm.end_bundle(bundle)
-        if args.out:
-            with open(args.out, "w") as handle:
+        if stopping["signal"]:
+            bm.end_bundle(bundle)
+        bench.stop()  # quits the app (when it still runs) and ends its tag
+        if report_path:
+            with open(report_path, "w") as handle:
                 json.dump(report, handle, indent=1)
-        shutil.rmtree(scratch, ignore_errors=True)
         bp.wipe_state(bundle)
     sys.exit(status)
 

@@ -51,8 +51,16 @@ Per mode:
            the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
 
-Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
+A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
+answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
+they are not shipping latencies. `build` in the report is the bundle's config.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
+
+Percentiles (n/p50/p95/p99/max) are scripts/perf-lab/perf_stats.py's (linear interpolation) over the raw values:
+the page reports each event's delta, never its own summary. Every series is also one cmux-perf-result/v1 file in
+--out through BenchApp.record (browser_engine_bench_report.py): `chromium_host.<session>.<mode>.<metric>` in story
+chromium-host (key and click to paint and to the next animation frame, frame intervals, long frames, pump share);
+the report lists them under `results_v1`.
 
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
@@ -61,19 +69,33 @@ import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, t
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, RecordError, build_config, tag_of  # noqa: E402
+import browser_engine_bench_report as results  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--app", required=True)
-parser.add_argument("--out", required=True)
-parser.add_argument("--count", type=int, default=60)
-parser.add_argument("--modes", default="inproc,helper")
-parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
-parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
-parser.add_argument("--pump-seconds", type=float, default=10.0)
-parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
-opts = parser.parse_args()
-os.makedirs(opts.out, exist_ok=True)
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--count", type=int, default=60)
+    parser.add_argument("--modes", default="inproc,helper")
+    parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
+    parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
+    parser.add_argument("--pump-seconds", type=float, default=10.0)
+    parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+    parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    parser.add_argument("--session", choices=["light"], default="light",
+                        help="result-v1 session of the run (--stress adds the stress session's pump share)")
+    parser.add_argument("--story", default=results.CHROMIUM_HOST_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    args = parser.parse_args(argv)
+    if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
+        parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    return args
+
+
+opts = None  # parse()'s options, set by __main__
 
 PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 <style>html,body{margin:0;height:100%;background:#204080;color:#fff;font:16px system-ui}
@@ -102,9 +124,9 @@ function sample(list, paint, e) {
 }
 addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); return; } document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e); }, true);
 addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
-function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
-function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
+// Raw deltas only: the bench takes every percentile from perf_stats.
+const raw = list => list.map(v => +v.toFixed(2));
+function report() { document.title = 'probe ' + JSON.stringify({key_raw: raw(S.key), click_raw: raw(S.click), raf_raw: raw(S.raf), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
 window.__pace = function(ms) {
   S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
@@ -322,26 +344,36 @@ def wait(check, seconds, step=0.1):
     return None
 
 
+# {mode: {metric: per-event values, None for a lost event}}: drive()'s raw series for result-v1
+# (browser_engine_bench_report.chromium_host_series).
+SAMPLES = {}
+
+
+def paint_deltas(sent, painted):
+    """Each sent event's send-to-paint ms, matched in order; None for each event past the last paint (lost)."""
+    painted = painted or []
+    n = min(len(sent), len(painted))
+    return [p - s for s, p in zip(sent[:n], painted[:n])] + [None] * (len(sent) - n)
+
+
 def paired(sent, painted):
     """Send-to-paint percentiles (ms) of events matched in order; None when the page reported none. Only as many as
     painted; a count below len(sent) means events were lost and the pairs may be shifted (the row says so)."""
     if not painted:
         return None
-    n = min(len(sent), len(painted))
-    out = percentiles([p - s for s, p in zip(sent[:n], painted[:n])])
+    out = results.percentiles(paint_deltas(sent, painted))
     out["sent"] = len(sent)
     return out
 
 
-def percentiles(values):
-    if not values:
-        return None
-    s = sorted(values)
-    at = lambda q: round(s[round(q * (len(s) - 1))], 3)
-    return {"n": len(s), "p50": at(0.5), "p95": at(0.95), "p99": at(0.99), "max": round(s[-1], 3)}
+def padded(values, expected):
+    """`values` with a None for each of the `expected` events that gave none (a missed run in result-v1)."""
+    values = list(values or [])
+    return values + [None] * max(0, expected - len(values))
 
 
 def main():
+    os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
     json.dump(TUNABLES, open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
@@ -351,8 +383,13 @@ def main():
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
-    app = BenchApp(opts.app, out=opts.out, env=env)
+    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session)
     APP_LOG["path"] = app.log_path
+    try:
+        RESULT["build"] = build_config(app.app, app.binary, opts.build_config)
+    except RecordError as error:
+        RESULT["build"] = None
+        RESULT["notes"].append(str(error))
     ok = True
     try:
         app.launch()
@@ -377,6 +414,9 @@ def main():
         RESULT["error"] = error.reason
         ok = False
     finally:
+        if app.features is not None and SAMPLES:  # a launch that answered features.list and measured a mode
+            RESULT["results_v1"] = results.record_all(app, results.chromium_host_series(
+                SAMPLES, RESULT["modes"], session=opts.session, story=opts.story))
         for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
             with open(path, "w") as out:
                 json.dump(RESULT, out, indent=2)
@@ -407,27 +447,35 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
         if i == 0:
             row["first_key_reply"] = reply
         time.sleep(1 / 30)  # test harness: one key per two frames, so samples do not share a frame
-    stats = wait(lambda: (probe_stats(title_of()) or {}).get("key", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
+    stats = wait(lambda: len((probe_stats(title_of()) or {}).get("key_raw") or []) >= opts.count and probe_stats(title_of()), 10)
     stats = stats or probe_stats(title_of()) or {}
     # key_to_raf_ms: from the page's handler to the frame (in-page clock). key_to_paint_ms: from cmux's send to that
     # frame, one wall clock at both ends; matched in order (n says how many keys arrived).
-    row["key_to_raf_ms"] = stats.get("key")
+    samples = SAMPLES.setdefault(mode, {})
+    samples["key_to_raf"] = padded(stats.get("key_raw"), opts.count)
+    samples["key_to_paint"] = paint_deltas(key_sent, stats.get("key_paint"))
+    row["key_to_raf_ms"] = results.percentiles(stats.get("key_raw") or [])
     row["key_to_paint_ms"] = paired(key_sent, stats.get("key_paint"))
     click_sent = []
     for i in range(opts.count):
         click_sent.append(time.time() * 1000)
         rpc("debug.mouse", {**mouse_target, **click_point("b")})
         time.sleep(1 / 30)  # test harness: as above
-    stats = wait(lambda: (probe_stats(title_of()) or {}).get("click", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
+    stats = wait(lambda: len((probe_stats(title_of()) or {}).get("click_raw") or []) >= opts.count and probe_stats(title_of()), 10)
     stats = stats or probe_stats(title_of()) or {}
-    row["click_to_raf_ms"] = stats.get("click")
-    # The first click focused the field: it is not in click_sent.
-    row["click_to_paint_ms"] = paired(click_sent, (stats.get("click_paint") or [])[-len(click_sent):])
+    # The first click focused the field: it is not in click_sent, so only the last clicks are this run's.
+    clicks = (stats.get("click_raw") or [])[-len(click_sent):]
+    click_paint = (stats.get("click_paint") or [])[-len(click_sent):]
+    samples["click_to_raf"] = padded(clicks, opts.count)
+    samples["click_to_paint"] = paint_deltas(click_sent, click_paint)
+    row["click_to_raf_ms"] = results.percentiles(clicks)
+    row["click_to_paint_ms"] = paired(click_sent, click_paint)
     # Pacing: the key `p` starts a 3 s animation in the page; the page records its frame intervals.
     rpc("debug.key", {**key_target, "key": "p"})
     time.sleep(3.6)  # test harness: the page animates for 3 s
     raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
-    row["raf_ms"] = percentiles(raw)
+    samples["raf_interval"] = raw
+    row["raf_ms"] = results.percentiles(raw)
     if raw and RESULT.get("refresh_hz"):
         period = 1000 / RESULT["refresh_hz"]
         row["long_frames"] = sum(1 for v in raw if v > 1.5 * period)
@@ -656,7 +704,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
     section 4 of the design): rows say so instead of testing."""
     rows = {}
-    stats = lambda: probe_stats(title()) or {}
+    page_state = lambda: probe_stats(title()) or {}
     counters = lambda: rpc("debug.chromium_host.measure", {"op": "input"}) or {}
 
     def front_ok():
@@ -665,10 +713,10 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 
     # 1. Typing and the caret: the field holds what was typed, has the focus, and the caret is at its end.
     rpc("debug.mouse", click_point("t"))
-    before = stats().get("field") or 0
+    before = page_state().get("field") or 0
     for _ in range(5):
         rpc("debug.key", {"key": "a"})
-    after = wait(lambda: (lambda st: st if (st.get("field") or 0) >= before + 5 else None)(stats()), 5) or stats()
+    after = wait(lambda: (lambda st: st if (st.get("field") or 0) >= before + 5 else None)(page_state()), 5) or page_state()
     rows["typing"] = {"field_before": before, "field_after": after.get("field"), "active": after.get("active"),
                       "has_focus": after.get("has_focus"), "caret": after.get("caret")}
     rows["typing"]["pass"] = (after.get("field") or 0) >= before + 5 and after.get("active") == "t" and \
@@ -677,12 +725,12 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     # 2. Focus out of the page (a click on the left pane) and back (a click on the page): one blur, one focus.
     # run_helper opened the page with focus before it was hosted, so on fork API 30 that first focus went through
     # emulation: has_focus_out must still be False once the page is detached (the host turns emulation off).
-    start = stats()
+    start = page_state()
     left = min(borders, key=lambda b: b[0])
     rpc("debug.mouse", {"x": left[0] + left[2] / 2, "y": left[1] + left[3] / 2})
-    out = wait(lambda: (lambda st: st if (st.get("blur") or 0) > (start.get("blur") or 0) else None)(stats()), 5) or stats()
+    out = wait(lambda: (lambda st: st if (st.get("blur") or 0) > (start.get("blur") or 0) else None)(page_state()), 5) or page_state()
     rpc("debug.mouse", click_point("t"))
-    back = wait(lambda: (lambda st: st if (st.get("focus") or 0) > (out.get("focus") or 0) else None)(stats()), 5) or stats()
+    back = wait(lambda: (lambda st: st if (st.get("focus") or 0) > (out.get("focus") or 0) else None)(page_state()), 5) or page_state()
     rows["focus_moves"] = {"blur": (out.get("blur") or 0) - (start.get("blur") or 0),
                            "focus": (back.get("focus") or 0) - (out.get("focus") or 0),
                            "has_focus_out": out.get("has_focus"), "has_focus_back": back.get("has_focus")}
@@ -690,13 +738,13 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         out.get("has_focus") is False and back.get("has_focus") is True
 
     # 3. Copy and paste through cmux's Edit menu (Cmd-A, Cmd-C, Delete, Cmd-V): the field's text comes back.
-    typed = stats().get("field") or 0
+    typed = page_state().get("field") or 0
     rpc("debug.key", {"key": "a", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "c", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "delete"})
-    cleared = wait(lambda: (lambda st: st if st.get("field") == 0 else None)(stats()), 5) or stats()
+    cleared = wait(lambda: (lambda st: st if st.get("field") == 0 else None)(page_state()), 5) or page_state()
     rpc("debug.key", {"key": "v", "modifiers": ["cmd"]})
-    pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(stats()), 5) or stats()
+    pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(page_state()), 5) or page_state()
     rows["copy_paste"] = {"typed": typed, "cleared": cleared.get("field"), "pasted": pasted.get("field")}
     rows["copy_paste"]["pass"] = typed > 0 and cleared.get("field") == 0 and pasted.get("field") == typed
 
@@ -707,7 +755,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         action()
         time.sleep(1.5)  # test harness: the UI opens (a menu, a dialog, a panel)
         end_counters = counters()
-        out = {"front_is_host": not front_ok(), "page": {k: stats().get(k) for k in ("dialogs", "menus")},
+        out = {"front_is_host": not front_ok(), "page": {k: page_state().get(k) for k in ("dialogs", "menus")},
                "activations": (end_counters.get("activations") or 0) - (start_counters.get("activations") or 0),
                "key_windows": (end_counters.get("key_windows") or 0) - (start_counters.get("key_windows") or 0)}
         out["pass"] = not out["front_is_host"] and out["activations"] == 0 and out["key_windows"] == 0
@@ -823,4 +871,5 @@ def run_lifetime(app, url):
 
 
 if __name__ == "__main__":
+    opts = parse()
     sys.exit(main())
