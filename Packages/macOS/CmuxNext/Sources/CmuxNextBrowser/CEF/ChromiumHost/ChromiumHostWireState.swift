@@ -40,9 +40,22 @@ nonisolated final class ChromiumHostWireState: Sendable {
         }
     }
 
+    /// Returns once the reader thread has closed its descriptor: at once when
+    /// it has, else when ``readFrames(fd:into:)`` closes it.
+    func readerEnded() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let ended = wire.withLock { wire -> Bool in
+                guard wire.readFD >= 0 else { return true }
+                wire.readerEndWaiters.append(continuation)
+                return false
+            }
+            if ended { continuation.resume() }
+        }
+    }
+
     /// The reader thread: blocking reads until EOF or a broken frame, frames
-    /// into `continuation`; then closes its descriptor under the lock and
-    /// finishes the stream.
+    /// into `continuation`; then closes its descriptor under the lock, wakes
+    /// ``readerEnded()`` and finishes the stream.
     func readFrames(fd: Int32, into continuation: AsyncStream<ChromiumHostFrame>.Continuation) {
         var buffer: [UInt8] = []
         var chunk = [UInt8](repeating: 0, count: 64 * 1024)
@@ -70,18 +83,24 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 buffer.removeFirst(start)
             }
         }
-        wire.withLock { wire in
+        let waiters = wire.withLock { wire -> [CheckedContinuation<Void, Never>] in
             Darwin.close(wire.readFD)
             wire.readFD = -1
+            let waiters = wire.readerEndWaiters
+            wire.readerEndWaiters = []
+            return waiters
         }
+        for waiter in waiters { waiter.resume() }
         if protocolError.load(ordering: .acquiring) { close() }
         continuation.finish()
     }
 }
 
-/// The two descriptors of a connection, -1 once closed.
+/// The two descriptors of a connection, -1 once closed, and the callers of
+/// ``ChromiumHostWireState/readerEnded()`` waiting for the reader to close its own.
 nonisolated struct ChromiumHostWire: Sendable {
     var readFD: Int32
     var writeFD: Int32
+    var readerEndWaiters: [CheckedContinuation<Void, Never>] = []
 }
 #endif

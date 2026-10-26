@@ -57,6 +57,8 @@ public final class ChromiumHostSession {
     private let policy: ChromiumHostRestartPolicy
     private let now: () -> ContinuousClock.Instant
     private let quitLimit: Duration
+    /// Told each connection the session opens (tests await its reader's end).
+    private let connected: (ChromiumHostConnection) -> Void
     private var connection: ChromiumHostConnection?
     private var startedAt: ContinuousClock.Instant?
     private var isFirstStart = true
@@ -79,17 +81,20 @@ public final class ChromiumHostSession {
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
         quitLimit = ChromiumHostFrame.quitLimit
+        connected = { _ in }
         wireView()
     }
 
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
          policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
-         quitLimit: Duration = ChromiumHostFrame.quitLimit) {
+         quitLimit: Duration = ChromiumHostFrame.quitLimit,
+         connected: @escaping (ChromiumHostConnection) -> Void = { _ in }) {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
         self.now = now
         self.quitLimit = quitLimit
+        self.connected = connected
         wireView()
     }
 
@@ -231,6 +236,7 @@ public final class ChromiumHostSession {
         }
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         self.connection = connection
+        connected(connection)
         pid = handle.pid
         phase = .starting
         startedAt = now()

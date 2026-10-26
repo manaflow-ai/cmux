@@ -93,6 +93,12 @@ nonisolated final class ChromiumHostConnection: Sendable {
         state.close()
     }
 
+    /// Returns once the reader thread has closed its descriptor (its last
+    /// step before it ends); at once when it has.
+    func readerEnded() async {
+        await state.readerEnded()
+    }
+
     /// The connection ended because the host broke the wire (a bad frame, a
     /// flood of frames, a full send buffer), not because the host closed it.
     var endedByProtocolError: Bool { state.endedByProtocolError }

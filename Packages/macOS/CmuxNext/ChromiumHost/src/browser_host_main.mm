@@ -166,6 +166,10 @@ uint32_t g_activations = 0;
 uint32_t g_key_windows = 0;
 // The focus cmux last sent (kFocus), applied when the browser exists.
 bool g_page_focused = false;
+// Emulation.setFocusEmulationEnabled(true) is in effect: set before the page
+// was detached (OnAfterCreated, or kFocus while hosting is pending), cleared
+// by SetPageFocused once the fork's embedder-active state takes over.
+bool g_focus_emulated = false;
 
 // Ends the process kQuitLimitSeconds after the first call, if it has not
 // ended by then. Any thread: the reader arms it at EOF, the UI thread at kQuit.
@@ -488,12 +492,15 @@ void SetPageFocused(bool focused) {
   // caret, focus rings, document.hasFocus()) while no AppKit window becomes
   // key. Focus emulation alone moves only the document's focus: keys sent
   // with SendKeyEvent did not reach the field (cmux20-bench, 2026-10-25).
+  bool emulate = focused;
   if (g_detached && g_set_embedder_active && g_set_embedder_active(g_browser->GetIdentifier(), focused ? 1 : 0)) {
-    return;
+    if (!g_focus_emulated) return;
+    emulate = false;  // the page was focused through emulation before it was detached
   }
   CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
-  params->SetBool("enabled", focused);
+  params->SetBool("enabled", emulate);
   g_browser->GetHost()->ExecuteDevToolsMethod(0, "Emulation.setFocusEmulationEnabled", params);
+  g_focus_emulated = emulate;
 }
 
 void SendStats(uint32_t seq) {

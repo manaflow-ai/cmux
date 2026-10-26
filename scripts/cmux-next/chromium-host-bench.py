@@ -650,8 +650,8 @@ def bounded(rows, name, run):
 
 
 def input_rows(rpc, url, title, click_point, borders, host_pid):
-    """The host page's input paths, each a pass/fail row (the page's focus is DevTools focus emulation, its window
-    never key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
+    """The host page's input paths, each a pass/fail row (the page's focus is the fork's embedder-active state on fork
+    API 30, DevTools focus emulation below it; no host window is ever key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
     cmux's Edit menu, and Chromium's own native UI (context menu, <select>, alert, file picker) with the frontmost
     pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
     section 4 of the design): rows say so instead of testing."""
@@ -675,6 +675,8 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         after.get("has_focus") is True and after.get("caret") == after.get("field")
 
     # 2. Focus out of the page (a click on the left pane) and back (a click on the page): one blur, one focus.
+    # run_helper opened the page with focus before it was hosted, so on fork API 30 that first focus went through
+    # emulation: has_focus_out must still be False once the page is detached (the host turns emulation off).
     start = stats()
     left = min(borders, key=lambda b: b[0])
     rpc("debug.mouse", {"x": left[0] + left[2] / 2, "y": left[1] + left[3] / 2})

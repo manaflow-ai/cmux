@@ -469,7 +469,9 @@ import Testing
     // (a connection dropped without close() is ChromiumHostProcessTests.aConnectionDroppedWithoutCloseEndsTheWire).
     @Test(.timeLimit(.minutes(1))) func aClosedSessionFreesItsReaderThreadAndDescriptors() async throws {
         let launcher = FakeLauncher()
-        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now })
+        let connections = Connections()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          connected: { connections.all.append($0) })
         session.open("https://a.example/")
         let host = try await nextLaunch(launcher)
         let opened = host.sessionFDs.map(Self.identity(of:))
@@ -480,17 +482,18 @@ import Testing
         _ = try #require(await frame(.quit, in: host.wire.frames))
         launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
         try await until("idle") { session.phase == .idle }
-        // The reader thread closes its descriptor as its last step before it returns, so a closed
-        // read descriptor means the thread has ended. No signal crosses from that thread to the test:
-        // this checks each 10 ms, bounded by the test's limit.
-        let deadline = ContinuousClock.now + .seconds(10)
-        var stillOpen = host.sessionFDs
-        while !stillOpen.isEmpty, ContinuousClock.now < deadline {
-            // A number the system gave to another file since (another test) is closed for this check.
-            stillOpen = zip(host.sessionFDs, opened).filter { fd, was in Self.identity(of: fd) == was }.map(\.0)
-            if !stillOpen.isEmpty { try await Task.sleep(for: .milliseconds(10)) } // bound of a test wait
-        }
+        let connection = try #require(connections.all.first)
+        #expect(connections.all.count == 1)
+        // The reader thread closes its descriptor as its last step before it returns.
+        await connection.readerEnded()
+        // A number the system gave to another file since (another test) is closed for this check.
+        let stillOpen = zip(host.sessionFDs, opened).filter { fd, was in Self.identity(of: fd) == was }.map(\.0)
         #expect(stillOpen.isEmpty)
+    }
+
+    /// The connections a session opened, in order.
+    final class Connections {
+        var all: [ChromiumHostConnection] = []
     }
 
     @Test func restartPolicy() {

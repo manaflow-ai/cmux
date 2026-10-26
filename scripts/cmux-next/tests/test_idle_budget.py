@@ -38,6 +38,11 @@ class IdleBudgetTests(unittest.TestCase):
                          "cef-extension")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/x --type=utility --utility-sub-type=n"), "cef-utility")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper"), "cef-helper")
+        # The Chromium Host is a second executable of the app (Contents/MacOS), not the app.
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host --framework=/x/Chromium Embedded Framework.framework"),
+                         "cef-host")
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux Chromium Host"), "cef-host")
+        # Older builds' Chromium Host app in Contents/Frameworks.
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Chromium Host.app/Contents/MacOS/cmux Chromium Host --x"),
                          "cef-host")
         # A --type process outside a Helper app is not a Chromium helper: the app binary is the app.

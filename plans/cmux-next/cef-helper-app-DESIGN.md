@@ -188,12 +188,21 @@ emulation in process is not a substitute: the page view then has no text input c
   frame. The fork's exports are bound from the framework's own image (`dlopen(RTLD_NOLOAD)` + `dlsym`):
   `cef_load_library` opens it `RTLD_LOCAL`, so `RTLD_DEFAULT` found nothing and every host exited 66. Chromium's log
   goes to `<root cache>/chromium-host.log` (warnings and fatal messages; `debug.chromium_host` `log_file`).
-  The host window must stay ordered in and visible: the fork's tracker hides the page when its parent window is not
-  visible, and observes the parent's occlusion state (a covered window throttles the renderer), so the prototype puts
-  it at the floating level, click-through, with no pixels. The page window is an `addChildWindow` child of the host's
-  window, never of cmux's. It is never key (the host is not the active app), so keys reach the page only through
-  forwarding (PL-cef-layer, 2026-10-23).
-- cmux: `S/ChromiumHost/` (`ChromiumHostFrame`, `ChromiumHostConnection`, `ChromiumHostLauncher`, `ChromiumHostSession`,
+  Fork API 30 (`cmux_browser_set_detached_hosting`, `cmux_browser_set_embedder_active`, bound when the fork exports
+  them): once layer hosting has taken the page, the host calls `cmux_browser_set_detached_hosting(id, 1)`. The page
+  window then leaves the host's window and never orders in, so no window of the host can become key, and the page's
+  focus is `cmux_browser_set_embedder_active(id, 0|1)` on each `focus` frame: Chromium sees its page window become or
+  resign key (Views focus on the web contents, so keys reach the page, with the caret, focus rings and
+  `document.hasFocus()`), while no AppKit window becomes key. A focus that came before the page was detached went
+  through focus emulation (below); the first focus change after detaching turns that emulation off.
+  Below API 30 (or when the fork refuses detaching) the host window must stay ordered in and visible: the fork's
+  tracker hides the page when its parent window is not visible, and observes the parent's occlusion state (a covered
+  window throttles the renderer), so the prototype puts it at the floating level, click-through, with no pixels. The
+  page window is then an `addChildWindow` child of the host's window, never of cmux's. It is never key (the host is
+  not the active app), so keys reach the page only through forwarding (PL-cef-layer, 2026-10-23), and the page's
+  focus is DevTools focus emulation (`Emulation.setFocusEmulationEnabled`).
+- cmux: `S/ChromiumHost/` (`ChromiumHostFrame`, `ChromiumHostConnection`, `ChromiumHostWireState` (the connection's
+  descriptors under one `Mutex`, held by its reader thread), `ChromiumHostLauncher`, `ChromiumHostSession`,
   `ChromiumHostPageView`, `ChromiumHostRestartPolicy`, `ChromiumHostConfiguration`, `ChromiumHostPrototype`), and
   `debug.chromium_host` / `debug.chromium_host.measure` (wired in `A/AppDelegate.swift`, DEBUG).
 - Forwarded: mouse (move, down, up, exit, buttons, click count), wheel (pixel deltas), keys (down, up, flags changed,
@@ -204,7 +213,9 @@ emulation in process is not a substitute: the page view then has no text input c
   before reap, a host that stops reading ends the connection without blocking the sender; this test found that macOS
   ignores `MSG_DONTWAIT` on Unix sockets), `ChromiumHostSessionTests` (a host that ends restarts
   with the last committed URL and shows no stale context, also with frames of the dead host still buffered; a second
-  quick end stays ended; a host that could not start stays ended; a host closed on purpose does not restart).
+  quick end stays ended; a host that could not start stays ended; a host closed on purpose does not restart and frees
+  its reader thread and descriptors), `ChromiumHostDefaultOffTests` (the toggle is off by default and no host starts
+  while it is off).
   `ChromiumHostPrototype` closes the session when the page view leaves its window (its pane closed) and when the
   tunable goes off.
 - Bench: `scripts/cmux-next/chromium-host-bench.py` (same probe page in process and in the host; key and click to the
@@ -221,8 +232,10 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 The host stays off by default (`browserHost.helperPrototype`, Debug builds only; `ChromiumHostDefaultOffTests`): every
 Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
 with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
-The page's focus is DevTools focus emulation (`Emulation.setFocusEmulationEnabled`), never `CefBrowserHost::SetFocus`,
-which activates the host's window and app (cmux's bundle id).
+The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
+(`Emulation.setFocusEmulationEnabled`) only below API 30 or before the page is detached; never
+`CefBrowserHost::SetFocus`, which activates the host's window and app (cmux's bundle id). The `addChildWindow` layout
+with an ordered-in, floating host window likewise applies only below API 30.
 
 | Gap in the prototype | Slice that fixes it |
 |---|---|
