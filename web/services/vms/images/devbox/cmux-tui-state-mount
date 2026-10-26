@@ -96,8 +96,11 @@ grow_if_needed() {
   # A failed fallocate can leave the file partly extended. Shrink it back so a
   # later resize cannot absorb blocks the root headroom check never approved;
   # the filesystem inside still ends at current_bytes.
+  # If that shrink fails too, the extra blocks are already the image's; the next
+  # resize puts them to use rather than deferring the daemon over them.
   (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE") || {
-    truncate -s "$current_bytes" "$STATE_IMAGE" 2>/dev/null || true
+    truncate -s "$current_bytes" "$STATE_IMAGE" 2>/dev/null ||
+      echo "cmux-tui-state-mount: could not shrink the state image back to ${current_bytes} bytes" >&2
     return 1
   }
   losetup -c "$loop_device" || return 1

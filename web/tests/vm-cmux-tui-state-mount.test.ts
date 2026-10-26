@@ -29,8 +29,10 @@ type Disk = {
   readonly rootFreeKb: number;
   /** Current size of the state image in bytes. */
   readonly imageBytes?: number;
-  /** Makes the growth allocation fail, as on a disk that filled after the headroom check. */
+  /** Makes the growth allocation fail part way, as on a disk that filled after the headroom check. */
   readonly fallocateFails?: boolean;
+  /** Makes the rollback of a failed allocation fail too. */
+  readonly truncateFails?: boolean;
 };
 
 function stub(bin: string, name: string, body: string): void {
@@ -39,7 +41,7 @@ function stub(bin: string, name: string, body: string): void {
   chmodSync(file, 0o755);
 }
 
-async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; truncatedTo: string | null }> {
+async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; finalImageBytes: number }> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-state-mount-"));
   scratchDirs.push(root);
   const bin = path.join(root, "bin");
@@ -51,14 +53,27 @@ async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: s
   writeFileSync(path.join(varLib, "cmux-tui-state.ext4"), "");
 
   const grewMarker = path.join(root, "grew");
+  // The image's size lives in a sidecar file that the stat, fallocate and
+  // truncate stubs share, so a test sees what the helper left behind.
+  const sizeFile = JSON.stringify(path.join(root, "image-size"));
+  const initialBytes = disk.imageBytes ?? 1024 * 1024 * 1024;
+  writeFileSync(path.join(root, "image-size"), `${initialBytes}\n`);
   stub(bin, "mountpoint", "exit 0");
   stub(bin, "flock", "exit 0");
   stub(bin, "findmnt", "echo /dev/loop7");
   stub(bin, "losetup", "exit 0");
   stub(bin, "resize2fs", "exit 0");
-  stub(bin, "stat", `echo ${disk.imageBytes ?? 1024 * 1024 * 1024}`);
-  stub(bin, "fallocate", disk.fallocateFails ? "exit 1" : `: > ${JSON.stringify(grewMarker)}`);
-  stub(bin, "truncate", `echo "$@" > ${JSON.stringify(path.join(root, "truncated"))}`);
+  stub(bin, "stat", `cat ${sizeFile}`);
+  // fallocate -l BYTES FILE; a failing one extends the file by 1 MiB first.
+  stub(
+    bin,
+    "fallocate",
+    disk.fallocateFails
+      ? `echo $(($(cat ${sizeFile}) + 1048576)) > ${sizeFile}; exit 1`
+      : `echo "$2" > ${sizeFile}; : > ${JSON.stringify(grewMarker)}`,
+  );
+  // truncate -s BYTES FILE
+  stub(bin, "truncate", disk.truncateFails ? "exit 1" : `echo "$2" > ${sizeFile}`);
   stub(
     bin,
     "df",
@@ -81,12 +96,11 @@ async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: s
   const result = await runChild("/bin/sh", [helper, "ensure", home, "cmux"], {
     env: { PATH: `${bin}:/usr/bin:/bin` },
   });
-  const truncated = path.join(root, "truncated");
   return {
     status: result.status,
     stderr: result.stderr,
     grew: existsSync(grewMarker),
-    truncatedTo: existsSync(truncated) ? readFileSync(truncated, "utf8").trim() : null,
+    finalImageBytes: Number(readFileSync(path.join(root, "image-size"), "utf8").trim()),
   };
 }
 
@@ -116,12 +130,28 @@ describe("cmux-tui state mount on a full disk", () => {
     const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(true);
+    expect(result.finalImageBytes).toBe(2 * 1024 * 1024 * 1024);
   }, TEST_TIMEOUT_MS);
 
   test("a failed growth allocation is undone and the daemon still starts", async () => {
     const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, fallocateFails: true });
     expect(result.status).toBe(0);
-    expect(result.truncatedTo).toContain(`-s ${1024 * 1024 * 1024}`);
+    expect(result.finalImageBytes).toBe(1024 * 1024 * 1024);
+    expect(result.stderr).toContain("continuing with 65536KiB free");
+  }, TEST_TIMEOUT_MS);
+
+  test("a rollback that fails is logged and the daemon still starts", async () => {
+    // The extra blocks are already allocated to the image either way; deferring
+    // the daemon over them would bring back the unreachable machine.
+    const result = await runEnsure({
+      stateFreeKb: 64 * 1024,
+      rootFreeKb: 8 * 1024 * 1024,
+      fallocateFails: true,
+      truncateFails: true,
+    });
+    expect(result.status).toBe(0);
+    expect(result.finalImageBytes).toBe(1024 * 1024 * 1024 + 1024 * 1024);
+    expect(result.stderr).toContain("could not shrink the state image back");
     expect(result.stderr).toContain("continuing with 65536KiB free");
   }, TEST_TIMEOUT_MS);
 

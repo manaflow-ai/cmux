@@ -68,7 +68,7 @@ struct CloudTreeMachineRowContent: View {
     /// machine answering, so the row says so while there is room to recover.
     var statusSymbol: String? {
         if machine.freeAccess == .expired { return "lock.fill" }
-        return lowDiskWarning != nil ? Self.lowDiskSymbol : nil
+        return metrics.lowDiskFreeMb != nil ? Self.lowDiskSymbol : nil
     }
 
     static let lowDiskSymbol = "exclamationmark.triangle.fill"
