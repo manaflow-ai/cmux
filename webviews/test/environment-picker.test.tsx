@@ -119,6 +119,7 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     peers: status.peers.map((peer) => peer.name),
     peerKinds: peerKindsFromStatus(relayedStatus),
     peerConnected: peerConnectedFromStatus(relayedStatus),
+    peerStatus: (await import("../src/agent-session/acpmux/chatUnavailable")).peerStatusFromStatus(relayedStatus),
     onRefreshMachines: () => refreshes++,
     localName: "cosmic-gray",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
@@ -220,17 +221,36 @@ test("each remote machine shows whether it is connected, read again as the list 
   expect(states).toEqual([
     null,
     ["true", t("composer.envConnected")],
-    ["false", t("composer.envNotConnected")],
+    ["false", t("composer.envOffline")],
     // A Cloud chat's host acpmux does not list: nothing is known, so nothing is claimed.
     null,
   ]);
 });
 
-test("previews off: the row keeps its plain Computer menu", async () => {
-  await mount(false);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: cosmic-gray`);
+test("explicit daemon states render and run only their corresponding machine action", async () => {
+  const calls = await mount(true, {
+    peerStatus: {
+      "gpu-box": { state: "paused", connected: false },
+      "cloud-1": { state: "connected", connected: true, outdated: true },
+    },
+    onMachineAction: (machine: string, action: string) => calls.push(["machine", machine, action]),
+  });
   await openPicker();
-  expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  const paused = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "gpu-box")!;
+  const outdated = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "cloud-1")!;
+  expect(paused.querySelector(".acpmux-env-status")?.getAttribute("data-status")).toBe("paused");
+  expect(paused.querySelector(".acpmux-env-status-text")?.textContent).toBe(t("composer.envPaused"));
+  expect(outdated.querySelector(".acpmux-env-status")?.getAttribute("data-status")).toBe("needsUpdate");
+  expect(outdated.querySelector(".acpmux-env-status-text")?.textContent).toBe(t("composer.envNeedsUpdate"));
+  await act(async () => paused.querySelector<HTMLButtonElement>(".acpmux-env-status-action")!.click());
+  expect(calls).toContainEqual(["machine", "gpu-box", "resume"]);
+});
+
+test("ordinary composer uses the shared searchable machine picker", async () => {
+  await mount(false);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: cosmic-gray`);
+  await openPicker();
+  expect(doc().querySelector(".acpmux-env-popover")).not.toBeNull();
 });
 
 test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1–9, defaulting to this computer", async () => {
@@ -259,14 +279,16 @@ test("previews on: one list in Local, SSH and Cloud sections, numbered ⌥⌘1�
   ]);
   // New Cloud Machine and Open Cloud… close the Cloud section, the first with what one
   // gives; New environment, last, holds SSH….
-  expect(rows().slice(-3)).toEqual(newRows());
+  expect(rows().slice(-4)).toEqual(newRows());
   expect(newRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
     t("composer.newCloudMachine"),
     t("composer.openCloud"),
+    t("composer.pairWithTicket"),
     t("composer.connectSSH"),
   ]);
   expect(newRows()[0]!.querySelector(".acpmux-env-detail")?.textContent).toBe(t("composer.newCloudMachineDetail"));
   expect(newRows().map((row) => row.querySelector(".acpmux-env-row")!.getAttribute("data-section"))).toEqual([
+    null,
     null,
     null,
     t("composer.newEnvironment"),
@@ -294,8 +316,8 @@ test("the search field filters by name and section, keeping each machine's short
   await openPicker();
   await type("cloud");
   const shown = machineRows();
-  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
-  expect(newRows()).toHaveLength(3);
+  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envOffline")}⌥⌘3`, "build-cloud⌥⌘4"]);
+  expect(newRows()).toHaveLength(4);
 });
 
 test("⌥⌘2 in the composer picks the second environment and its folder there", async () => {
@@ -316,7 +338,7 @@ test("⌥⌘ digits do nothing while focus is outside the composer", async () =>
 
 test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, the Cloud page and the connect flow", async () => {
   const calls = await mount(true);
-  for (const index of [0, 1, 2]) {
+  for (const index of [0, 1, 2, 3]) {
     await openPicker();
     await act(async () => newRows()[index]!.click());
     expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
@@ -324,6 +346,7 @@ test("New Cloud Machine, Open Cloud… and SSH… open the host's create flow, t
   expect(calls).toEqual([
     ["connect", "cloud"],
     ["connect", "cloudPage"],
+    ["connect", "pair"],
     ["connect", "ssh"],
   ]);
 });
@@ -335,6 +358,7 @@ test("each connect choice runs its own host action", async () => {
     ssh: "remote.connect",
     cloud: "newCloudMachine",
     cloudPage: "palette.openCloudPane",
+    pair: "device.add",
     move: "cloudMove",
     bringBack: "cloudBringBack",
   });
@@ -565,4 +589,64 @@ test("New Tab, previews on: a slower worktree reply doesn't replace a newer choi
   await act(async () => replies[1]!("/Users/you/wt/app-blue-fox"));
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(folderName()).toContain("fox");
+});
+
+test("a peer and native Cloud machine with one id keep separate picker rows and targets", async () => {
+  const actions: unknown[][] = [];
+  await mount(false, {
+    machines: [{ id: "gpu-box", label: "Native Cloud", kind: "cloud", native: true, status: "paused" }],
+    onMachineAction: (...args: unknown[]) => {
+      actions.push(args);
+    },
+  });
+  await openPicker();
+  expect(machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toContain("gpu-box");
+  const cloud = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "Native Cloud");
+  expect(!!cloud).toBe(true);
+  await act(async () => cloud!.click());
+  expect(actions).toEqual([["gpu-box", "resume", "cloud", true]]);
+});
+
+test("a native Cloud context can select a peer with the same raw id", async () => {
+  const peers: string[] = [];
+  await mount(false, {
+    summary: { sessionId: "", harness: "claude", host: "gpu-box", hostKind: "cloud" },
+    machines: [{ id: "gpu-box", label: "Native Cloud", kind: "cloud", native: true }],
+    onComputer: (id: string) => peers.push(id),
+  });
+  expect(computerButton()?.textContent).toContain("Native Cloud");
+  await openPicker();
+  const peer = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "gpu-box");
+  expect(!!peer).toBe(true);
+  await act(async () => peer!.click());
+  expect(peers).toEqual(["gpu-box"]);
+  expect(computerButton()?.textContent).toContain("gpu-box");
+});
+
+test("an unlisted selected peer stays distinct from a native machine with its id", async () => {
+  await mount(false, {
+    summary: { sessionId: "", harness: "claude", peer: "gpu-box", host: "gpu-box" },
+    sessions: [],
+    peers: [],
+    machines: [{ id: "gpu-box", label: "Native Cloud", kind: "cloud", native: true }],
+  });
+  expect(computerButton()?.textContent).toContain("gpu-box");
+  await openPicker();
+  const names = machineRows().map((row) => row.querySelector(".acpmux-menu-label")?.textContent);
+  expect(names).toContain("gpu-box");
+  expect(names).toContain("Native Cloud");
+});
+
+test("selecting a same-id peer never assigns a native Cloud folder to it", async () => {
+  const calls = await mount(false, {
+    summary: { sessionId: "", harness: "claude", host: "gpu-box", hostKind: "cloud", cwd: "/native/only" },
+    sessions: [],
+    machines: [{ id: "gpu-box", label: "Native Cloud", kind: "cloud", native: true }],
+  });
+  await openPicker();
+  const peer = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "gpu-box");
+  expect(!!peer).toBe(true);
+  await act(async () => peer!.click());
+  expect(calls.filter((call) => call[0] === "project")).toEqual([]);
+  expect(folderName()).not.toContain("only");
 });
