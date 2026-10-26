@@ -173,7 +173,7 @@ cmux-orchestrator-1 (Linux, no build):
 | | sha | open hits | escaped | settled |
 |---|---|---|---|---|
 | before | `12685b2d219` (perf/chrome-parity) | 43 | 0 | 0 |
-| after | `HEAD_SHA` (cp/p06-scheduler-205) | 0 | 1 | 7 |
+| after | `6340ec3455c` (cp/p06-scheduler-205) | 0 | 1 | 7 |
 
 **Not measured yet, so 205 is not done and the API is not frozen.** The test phase on one fleet GUI host with the
 input grant, both sides on the same host and session, at the base sha and at the head sha, records here with both
