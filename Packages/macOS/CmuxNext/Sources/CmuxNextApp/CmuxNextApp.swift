@@ -43,7 +43,7 @@ public struct CmuxNextApp {
         // This process's only environment writes, then the freeze: a write
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
-        // Pure launch work (action catalog, string tables) overlaps AppKit's start.
+        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
@@ -100,6 +100,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        LaunchWarmup.postAfterStartup(on: order.startup) // login shell env and palette strings (p08-startup-034)
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))

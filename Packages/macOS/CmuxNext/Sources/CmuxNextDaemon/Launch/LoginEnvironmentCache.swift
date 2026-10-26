@@ -5,13 +5,18 @@ import Foundation
 /// Capturing it runs `$SHELL -l -i`, which takes 5-17 s on some setups, so
 /// nothing that connects the app waits for it:
 ///
+/// - `start()` (the launch's afterStartup post,
+///   `DaemonLauncher.postLoginEnvironmentCapture`) runs the capture at its
+///   caller's priority, so a launch with a remembered copy spawns no shell
+///   before startup completes.
 /// - `immediate()` (starting the daemon) never waits. It returns this
 ///   launch's capture when it has finished, else the copy remembered from
 ///   the last launch (`LoginEnvironmentStore`), else nil (the app's own
-///   environment, as when a capture fails).
+///   environment, as when a capture fails) and starts the capture at once
+///   (`.userInitiated`): a cold daemon with nothing remembered needs it now.
 /// - `value()` (each new terminal's `env`) returns the same without waiting
-///   when there is one, else waits for the capture, which gives up after
-///   `waitTimeout` so a terminal never waits longer than that.
+///   when there is one, else starts the capture at once and waits for it;
+///   it gives up after `waitTimeout` so a terminal never waits longer.
 ///
 /// Every successful capture is remembered for the next launch. When the
 /// first one times out, a second one runs in the background with
@@ -47,23 +52,26 @@ actor LoginEnvironmentCache {
         self.refreshTimeout = refreshTimeout
     }
 
-    /// Starts the capture now (at the top of `main`).
-    func start() { _ = capturing() }
+    /// Starts the capture now at the caller's priority (the afterStartup
+    /// post's `.utility`); a capture already started is kept.
+    func start() { _ = capturing(priority: nil) }
 
     /// The environment for a new terminal: this launch's capture or the
-    /// remembered copy at once, else the capture (nil when it failed).
+    /// remembered copy at once, else the capture (nil when it failed),
+    /// started now when it has not been.
     func value() async -> [String: String]? {
-        let task = capturing()
         if let known = known() { return known }
-        _ = await task.value
+        _ = await capturing(priority: .userInitiated).value
         return captured
     }
 
     /// The environment for starting the daemon, without waiting for the
-    /// login shell: this launch's capture or the remembered copy, else nil.
+    /// login shell: this launch's capture or the remembered copy, else nil,
+    /// and then the capture starts at once for the terminals that follow.
     func immediate() -> [String: String]? {
-        _ = capturing()
-        return known()
+        if let known = known() { return known }
+        _ = capturing(priority: .userInitiated)
+        return nil
     }
 
     private func known() -> [String: String]? {
@@ -72,11 +80,12 @@ actor LoginEnvironmentCache {
         return remembered ?? nil
     }
 
-    private func capturing() -> Task<[String: String]?, Never> {
+    /// The capture, started at `priority` (nil: the caller's) when it has not been.
+    private func capturing(priority: TaskPriority?) -> Task<[String: String]?, Never> {
         if let task { return task }
         let capture = capture
         let waitTimeout = waitTimeout
-        let task = Task { [self] () -> [String: String]? in
+        let task = Task(priority: priority) { [self] () -> [String: String]? in
             guard let environment = await capture(waitTimeout) else {
                 refreshInBackground()
                 return nil
