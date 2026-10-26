@@ -1,4 +1,10 @@
 //! Coordination for all sandbox filesystem transactions in this daemon and uid.
+//!
+//! The lock inode is owner-write-only (0200), so a capability-free sandbox
+//! cannot open it for reading or writing through bwrap's read-only root. The
+//! G1 precondition is that this private lock directory is never under a
+//! writable root; G1 also keeps `--cap-drop ALL`, so the sandbox cannot use
+//! DAC override. Real tools may still use flock(2) on their own descriptors.
 use super::*;
 
 use std::sync::{Mutex, MutexGuard, TryLockError};
@@ -19,6 +25,9 @@ impl Drop for Guard<'_> {
 
 // The directory must be private and outside the policy's writable roots, so a
 // sandbox cannot unlink/replace the coordination inode while another holds it.
+fn valid_lock(info: &stat, uid: uid_t) -> bool {
+    info.st_uid == uid && info.st_mode & (S_IFMT | 0o777) == S_IFREG | 0o200 && info.st_nlink == 1
+}
 pub(super) fn open(policy: &WritePolicy) -> Result<OwnedFd> {
     use std::os::unix::fs::DirBuilderExt;
     let uid = unsafe { getuid() };
@@ -50,11 +59,11 @@ pub(super) fn open(policy: &WritePolicy) -> Result<OwnedFd> {
     let file = open_at(
         dir.as_raw_fd(),
         "acpmux-linux-sandbox.lock",
-        O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK,
-        0o600,
+        O_CREAT | O_WRONLY | O_NOFOLLOW | O_NONBLOCK,
+        0o200,
     )?;
     let info = stat(file.as_raw_fd())?;
-    if info.st_uid != uid || info.st_mode & (S_IFMT | 0o077) != S_IFREG || info.st_nlink != 1 {
+    if !valid_lock(&info, uid) {
         return Err(EACCES);
     }
     Ok(file)
@@ -147,7 +156,7 @@ mod tests {
             return;
         }
         let path = format!("/tmp/acpmux-lock-mode-{}", std::process::id());
-        let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o600).unwrap();
+        let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o200).unwrap();
         let info = stat(file.as_raw_fd()).unwrap();
         assert_eq!(info.st_mode & (S_IFMT | 0o777), S_IFREG | 0o200);
         drop(file);
@@ -160,7 +169,7 @@ mod tests {
         let path = format!("/tmp/acpmux-lock-preexisting-{}", std::process::id());
         let file = open_at(AT_FDCWD, &path, O_CREAT | O_EXCL | O_RDWR, 0o600).unwrap();
         let info = stat(file.as_raw_fd()).unwrap();
-        assert_eq!(info.st_mode & 0o777, 0o200);
+        assert!(!valid_lock(&info, unsafe { getuid() }));
         drop(file);
         let _ = std::fs::remove_file(path);
     }
