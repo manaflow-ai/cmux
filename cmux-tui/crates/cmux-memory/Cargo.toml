@@ -5,10 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Daemon memory budgets from installed RAM (and, with p07-memory-042, the pressure sources and consumer registry): std and libc only, for cmux-tui-core and acpmux"
+description = "Memory pressure and memory consumers for cmux's Rust processes (the daemon and acpmux): one kernel pressure source per process and a consumer registry, after Chrome's base/memory_coordinator"
 
 [lints]
 workspace = true
 
-[dependencies]
+# A leaf crate: libc only, so acpmux (which depends on neither cmux-tui-core
+# nor cmux-tui-platform) can use it. No tokio.
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
