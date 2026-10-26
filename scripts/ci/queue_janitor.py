@@ -157,6 +157,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import http.client
 import io
 import json
 import os
@@ -2558,7 +2559,9 @@ class GitHub:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
             raise _Transient(str(error.reason)) from error
-        except (TimeoutError, ConnectionError) as error:
+        except (http.client.HTTPException, OSError) as error:
+            # A dropped or truncated response, opening it or reading it: IncompleteRead, BadStatusLine,
+            # RemoteDisconnected, a reset or a timeout.
             raise _Transient(repr(error)) from error
 
     def note_rate_limit(self, headers: Any) -> None:
@@ -2836,8 +2839,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         runs = github.in_flight_runs()
         jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
-        # A run whose jobs could not be read is left for the next sweep: no decision on it, and the
-        # snapshot below is still written from every other run.
+        # A run whose jobs could not be read: the snapshot below is still written from every other run,
+        # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
+        # misjudges the others too (a newer run at the same head, the pool's wait p90).
         runs = [run for run in runs if run["id"] not in unread]
         # Category e: a suspect whose evidence the in-flight jobs lack gets a
         # few completed runs of its own workflow listed (evidence_queries()),
@@ -2940,6 +2944,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
                 print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+    if unread:
+        # Nothing is acted on, so the pending re-runs an earlier sweep left are carried forward as they were.
+        if snapshot is not None and args.pool_load and pending is not None:
+            snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
+            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
+                   f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n"
+                   f"\n_{render_rate_limits(github.rate_limits)}_\n")
+        print(summary)
+        if args.summary:
+            with args.summary.open("a", encoding="utf-8") as handle:
+                handle.write(summary)
+        return 0
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

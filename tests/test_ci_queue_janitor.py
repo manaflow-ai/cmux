@@ -996,7 +996,8 @@ class OrphanPlanTests(unittest.TestCase):
 class FakeGitHub(janitor.GitHub):
     """Routes janitor API calls to in-memory runs; records every call."""
 
-    def __init__(self, runs, jobs=None, *, refuse_cancel=(), ignore_cancel=(), refuse_force=()):
+    def __init__(self, runs, jobs=None, *, refuse_cancel=(), ignore_cancel=(), refuse_force=(),
+                 unreadable_branches=()):
         super().__init__("token", "manaflow-ai/cmux")
         self.runs = runs
         self.job_map = jobs or {}
@@ -1017,8 +1018,9 @@ class FakeGitHub(janitor.GitHub):
         self.prs = {}
         # Branch -> head sha (GET /branches/<branch>); a branch missing here answers 404.
         self.branches = {}
-        # Run ids whose job listing fails as a 502 would after its retries.
+        # Run ids, and runs of these branches, whose job listing fails as a 502 would after its retries.
         self.unreadable_jobs = set()
+        self.unreadable_branches = set(unreadable_branches)
 
     def request(self, method, path, body=None, *, app_only=False):
         self.calls += 1
@@ -1068,7 +1070,7 @@ class FakeGitHub(janitor.GitHub):
         parts = path.split("?", 1)[0].split("/")
         run_id = int(parts[3])
         if method == "GET" and parts[-1] == "jobs":
-            if run_id in self.unreadable_jobs:
+            if run_id in self.unreadable_jobs or self.runs.get(run_id, {}).get("head_branch") in self.unreadable_branches:
                 raise RuntimeError(f"GET /actions/runs/{run_id}/jobs failed (502)")
             return {"jobs": self.job_map.get(run_id, [])}
         if method == "POST" and parts[-1] == "rerun-failed-jobs":
@@ -1228,6 +1230,20 @@ class OrphanSweepTests(unittest.TestCase):
         # The lost assignment goes first; the ghost waits for the next sweep.
         self.assertEqual(fake.posts(), [[str(stuck["id"]), "cancel"]])
         self.assertIn("orphan cap of 1", text)
+
+    def test_an_unreadable_run_writes_the_snapshot_and_cancels_nothing(self):
+        # A full sweep cancels the ghost (test_orphan_minutes_comes_from_the_environment()); with one run's
+        # job listing failing it writes the snapshot and decides nothing.
+        for unreadable, posts in (((), True), (("ci/macos26-app-host-repair",), False)):
+            with self.subTest(unreadable=unreadable), tempfile.TemporaryDirectory() as out:
+                load = Path(out) / "load.json"
+                code, fake, text, _ = self.sweep("--pool-load", str(load), unreadable_branches=unreadable)
+                self.assertEqual(code, 0)
+                self.assertEqual(bool(fake.posts()), posts)
+                snapshot = json.loads(load.read_text())
+                self.assertEqual(len(snapshot.get(janitor.UNREAD_RUNS_KEY, [])), 0 if posts else 1)
+                if not posts:
+                    self.assertIn("this sweep decided nothing", text)
 
     def test_orphan_minutes_comes_from_the_environment(self):
         with mock.patch.dict("os.environ", {"ORPHAN_MINUTES": "600"}):
@@ -1435,27 +1451,70 @@ class TransientFailureTests(unittest.TestCase):
                 github.request("POST", "/graphql", {"query": "{ viewer { login } }"})
             self.assertEqual(sent, ["POST", "POST"])
 
-    def test_one_unreadable_run_is_skipped_and_the_snapshot_is_still_written(self):
+    def test_one_unreadable_run_still_writes_the_snapshot_and_the_sweep_decides_nothing(self):
         unreadable = make_run(status="queued", branch="unreadable")
         started = make_run(branch="started")
-        runs = {r["id"]: dict(r) for r in (unreadable, started)}
-        fake = FakeGitHub(runs, {unreadable["id"]: mac_jobs(queued=1), started["id"]: mac_jobs(queued=1)})
-        fake.unreadable_jobs = {unreadable["id"]}
-        with tempfile.TemporaryDirectory() as temp:
-            load = Path(temp) / "load.json"
-            argv = ["--repo", "manaflow-ai/cmux", "--dry-run", "--pool-load", str(load),
-                    "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
-            with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
-                    mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
-                    mock.patch.object(janitor, "utc_now", lambda: NOW), \
-                    mock.patch("builtins.print"):
-                self.assertEqual(janitor.main(argv), 0)
-            self.assertTrue(load.exists())
-            snapshot = json.loads(load.read_text())
-        self.assertIn("generated_at", snapshot)
-        self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [unreadable["id"]])
-        listed = {int(path.split("/")[-2]) for method, path in fake.log if path.split("?")[0].endswith("/jobs")}
-        self.assertEqual(listed, {unreadable["id"], started["id"]})
+        # A queued run so old a full sweep cancels it as an orphan.
+        stuck = make_run(status="queued", age=340, branch="ci/stuck")
+        runs = {r["id"]: dict(r) for r in (unreadable, started, stuck)}
+        fake = FakeGitHub(runs, {unreadable["id"]: mac_jobs(queued=1), started["id"]: mac_jobs(queued=1),
+                                 stuck["id"]: [linux_job(age=330), orphan_job(age=220)]})
+        pending = [{"run_id": 99, "attempt": 1, "cancelled_at": iso(5)}]
+        fake.snapshots = [{"generated_at": iso(10), janitor.LOST_RERUNS_KEY: pending}]
+        for unreadable_ids, decides in (({unreadable["id"]}, False),):
+            fake.unreadable_jobs = unreadable_ids
+            fake.log.clear()
+            with self.subTest(unreadable=unreadable_ids), tempfile.TemporaryDirectory() as temp:
+                load = Path(temp) / "load.json"
+                argv = ["--repo", "manaflow-ai/cmux", "--pool-load", str(load),
+                        "--summary", str(Path(temp) / "summary.md"), "--workflows-dir", str(Path(temp) / "none")]
+                with mock.patch.object(janitor, "GitHub", lambda token, repo, fallback_token="": fake), \
+                        mock.patch.object(janitor, "previous_lost_reruns", lambda github: list(pending)), \
+                        mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), \
+                        mock.patch.object(janitor.time, "sleep", lambda _: None), \
+                        mock.patch.object(janitor, "utc_now", lambda: NOW), \
+                        mock.patch("builtins.print"):
+                    janitor.main(argv)
+                snapshot = json.loads(load.read_text())
+                self.assertIn("generated_at", snapshot)
+                if decides:
+                    self.assertNotIn(janitor.UNREAD_RUNS_KEY, snapshot)
+                    self.assertTrue(any(method == "POST" for method, _ in fake.log))
+                    continue
+                self.assertEqual(snapshot[janitor.UNREAD_RUNS_KEY], [unreadable["id"]])
+                # No cancel, re-run or orphan cancel on a partial inventory; the pending re-run waits.
+                self.assertEqual([path for method, path in fake.log if method == "POST" and path != "/graphql"], [])
+                self.assertEqual(snapshot[janitor.LOST_RERUNS_KEY], pending)
+
+    def test_a_dropped_or_truncated_response_is_made_again(self):
+        import http.client
+        github = janitor.GitHub("t", "manaflow-ai/cmux")
+        for error in (http.client.IncompleteRead(b"{"), http.client.BadStatusLine(""),
+                      http.client.RemoteDisconnected("closed"), TimeoutError("timed out")):
+            urlopen, sent = self.urlopen([error])
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                    mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+                self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+                self.assertEqual(len(sent), 2)
+        # Truncated while reading the body, not while opening it.
+        import email.message
+
+        class Truncated(io.BytesIO):
+            headers = email.message.Message()
+
+            def read(self, *args):
+                raise http.client.IncompleteRead(b"{")
+
+        calls = []
+
+        def urlopen(request, timeout=30):
+            calls.append(1)
+            return Truncated(b"") if len(calls) == 1 else self.urlopen([])[0](request)
+        with mock.patch.object(janitor.urllib.request, "urlopen", urlopen), \
+                mock.patch.object(janitor.time, "sleep", lambda _: None), mock.patch("builtins.print"):
+            self.assertEqual(github.request("GET", "/repos/manaflow-ai/cmux/actions/runs/1/jobs"), {"ok": True})
+        self.assertEqual(len(calls), 2)
 
     def test_a_rate_limit_still_ends_the_sweep(self):
         run = make_run(status="queued", branch="limited")
