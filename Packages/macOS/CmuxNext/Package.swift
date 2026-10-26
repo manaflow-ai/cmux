@@ -1,6 +1,9 @@
 // swift-tools-version: 6.2
 
 import PackageDescription
+#if os(Linux)
+import Foundation
+#endif
 
 // Umbrella package for the cmux-next app (plans/cmux-next/shell.md).
 // The Xcode target `cmux-next` compiles only App/main.swift and links the
@@ -50,8 +53,10 @@ import PackageDescription
 //   CmuxNextOracle -> system frameworks only (the refactor oracle's facet providers, the one immutable list the
 //     composition root builds and the snapshot capture; Control serves it as debug.oracle.snapshot;
 //     every source is under DEBUG || CMUX_BENCH_HOOKS, so Release builds an empty module; p15-oracle.md section 3A)
-//   CmuxNextInput -> InputCore, Wakeups (the one input tap: typed subscriptions by class, phase and window;
-//     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C))
+//   CmuxNextInput -> InputCore, Signposts, Wakeups (the one input tap: typed subscriptions by class, phase and window;
+//     globalObserve; p04-input.md section 3 (A); PointerFrameConsumer.post(NSEvent) into Wakeups, (C);
+//     InputLatencyTracker, Chrome's EventLatency over CommitBoundary and PresentationClock, the input.latency signpost,
+//     and its sendEvent wiring, (I))
 //   CmuxNextIPC -> CmuxNextWireDigest (the app-daemon wire; its bindings are built from cmux-tui/spec by
 //     CmuxNextWireGenPlugin running the host tool CmuxNextWireGen, which shares that digest; p05-ipc.md section 3.3)
 //   CmuxNextWireDigest -> nothing (FNV-1a 64, the schema digest CmuxNextIPC and CmuxNextWireGen share)
@@ -1447,7 +1452,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextHangReportsTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore",
+            dependencies: ["CmuxNextCompat", "CmuxNextHangReports", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeups",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1623,20 +1628,24 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextInput",
             // CmuxNextCompat: MemoryPressureEvents for IntentPrewarmService (p04-input-043).
-            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
+            // CmuxNextSignposts: InputLatencyTracker's input.latency events and the key.frame and key.scroll_frame
+            // intervals its slots carry (p04-input-004, 005).
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The debug.input control method and its JSON (Control and Settings, which sit above the tap's
         // consumers: CmuxNextSettings depends on CmuxNextDesign, which subscribes to the tap).
         .target(
             name: "CmuxNextInputDiagnostics",
-            dependencies: ["CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings"],
+            // Wakeups: the input-turn hop recorder (MainJobGateDiagnostics) answers action `hops`.
+            dependencies: ["CmuxNextInput", "CmuxNextInputCore", "CmuxNextControl", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextInputTests",
             dependencies: ["CmuxNextCompat", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextInputDiagnostics",
-                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+                           "CmuxNextControl", "CmuxNextSettings", "CmuxNextSignposts", "CmuxNextWakeups",
+                           "CmuxNextWakeupsTestSupport", .product(name: "Atomics", package: "swift-atomics")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1846,6 +1855,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Pane hosts and render-server motion without the App (plans/cmux-next/rendering-DESIGN.md R2).
+        // RemoteLayer: RenderMotionSpikeTests clips a CALayerHost.
+        .testTarget(
+            name: "CmuxNextLayoutTests",
+            dependencies: ["CmuxNextDesign", "CmuxNextLayout", "CmuxNextRemoteLayer"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Browser tab hibernation policy (Memory Saver): which hidden pages freeze or are
         // discarded and when, from facts the App's BrowserHibernation coordinator feeds it
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
@@ -1942,7 +1958,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextSettingsTests",
             // Compat for the blocking detector (ConfigFileWatcherNoWaitTests).
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -2133,6 +2150,34 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]
+
+/// Linux SwiftPM copies an `.xcstrings` catalog into the bundle as JSON that Foundation cannot read.
+/// In the Linux mode (`CMUX_SWIFTPM_TARGET_LINUX=1`, plans/cmux-next/chrome-parity/p15-oracle.md H),
+/// a target with a catalog takes the tables scripts/cmux-next/linux/compile-xcstrings.py compiled
+/// from it, linked into its folder as `LinuxStringTables/<lang>.lproj/<table>.strings`; without
+/// them the build stops on that missing folder. macOS compiles the catalogs itself.
+func addLinuxStringTables(to targets: [Target]) {
+#if os(Linux)
+    let files = FileManager.default
+    for target in targets {
+        let parent: String
+        switch target.type {
+        case .regular, .executable: parent = "Sources"
+        case .test: parent = "Tests"
+        default: continue
+        }
+        let folder = Context.packageDirectory + "/" + (target.path ?? parent + "/" + target.name)
+        let hasCatalog = files.enumerator(atPath: folder)?.contains { ($0 as? String)?.hasSuffix(".xcstrings") == true }
+        if hasCatalog == true {
+            target.resources = (target.resources ?? []) + [.process("LinuxStringTables")]
+        }
+    }
+#endif
+}
+
+if Context.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    addLinuxStringTables(to: packageTargets)
+}
 
 let package = Package(
     name: "CmuxNext",

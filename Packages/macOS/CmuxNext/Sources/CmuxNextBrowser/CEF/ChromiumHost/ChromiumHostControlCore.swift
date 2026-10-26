@@ -44,6 +44,10 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var endDelivered = false
         var lastToken: UInt32 = 0
         var replies: [UInt32: CheckedContinuation<Reply, Never>] = [:]
+        /// Tokens of posts whose ACK goes to the mirror on main.
+        var acks: Set<UInt32> = []
+        /// The mirror refused a frame: nothing read after it runs.
+        var refused = false
 
         /// Why nothing can be sent, if so.
         var unwritable: ChromiumHostControlEnd? { endReason ?? (rejectWrites ? .peerClosed : nil) }
@@ -59,12 +63,14 @@ nonisolated final class ChromiumHostControlCore: Sendable {
 
     private let options: ChromiumHostControlChannel.Options
     private let post: ChromiumHostControlChannel.MainPost
-    private let onMessages: @MainActor @Sendable ([ChromiumHostControlMessage]) -> Void
+    /// This connection's mirror: it takes the MIRROR and ACK frames of each batch on main.
+    let mirror = ChromiumHostMirror()
+    private let onMessages: @MainActor @Sendable (ChromiumHostControlBatch) -> Void
     private let onEnd: @MainActor @Sendable (ChromiumHostControlEnd) -> Void
     private let state: Mutex<State>
 
     init(fd: Int32, options: ChromiumHostControlChannel.Options, post: @escaping ChromiumHostControlChannel.MainPost,
-         onMessages: @escaping @MainActor @Sendable ([ChromiumHostControlMessage]) -> Void,
+         onMessages: @escaping @MainActor @Sendable (ChromiumHostControlBatch) -> Void,
          onEnd: @escaping @MainActor @Sendable (ChromiumHostControlEnd) -> Void) {
         self.options = options
         self.post = post
@@ -111,8 +117,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                 payloads.closeAll()
                 return .hostGone(reason)
             }
-            state.lastToken = state.lastToken == UInt32.max ? 1 : state.lastToken + 1
-            let token = state.lastToken
+            let token = Self.nextTokenLocked(&state)
             var tokened = message
             tokened.token = token
             tokened.isReply = false
@@ -128,6 +133,30 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             return nil
         }
         if let failure { continuation.resume(returning: .failure(failure)) }
+    }
+
+    /// Sends `message` under a fresh token whose ACK joins the main-thread
+    /// batch (for the mirror); the token, or nil when nothing was sent.
+    func sendAwaitingAck(_ message: ChromiumHostControlMessage) -> UInt32? {
+        let shared = message.sharedFieldIndices()
+        // Made before the lock, as in ChromiumHostControlChannel.send.
+        guard let payloads = ChromiumHostSharedPayloads(message, sharing: shared) else { return nil }
+        return state.withLock { state -> UInt32? in
+            guard state.unwritable == nil else {
+                payloads.closeAll()
+                return nil
+            }
+            var tokened = message
+            tokened.token = Self.nextTokenLocked(&state)
+            tokened.isReply = false
+            guard let frame = tokened.encoded(sharing: shared) else {
+                payloads.closeAll()
+                return nil
+            }
+            guard Self.sendLocked(&state, frame, fds: message.fds, payloads: payloads, stateKey: nil) else { return nil }
+            state.acks.insert(tokened.token)
+            return tokened.token
+        }
     }
 
     func end(_ reason: ChromiumHostControlEnd) {
@@ -217,6 +246,7 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             state.readerDone = true
             let waiters = Array(state.replies.values)
             state.replies = [:]
+            state.acks = []
             return (waiters, state.endReason ?? .closed, Self.claimDrain(&state))
         }
         for waiter in waiters { waiter.resume(returning: .failure(.hostGone(reason))) }
@@ -269,14 +299,13 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var decoded = ChromiumHostControlMessage.decode(buffer[start...], fds: &fds)
         while case .frame(let message, let consumed) = decoded {
             start += consumed
-            if message.isReply {
-                if let waiter = state.withLock({ $0.replies.removeValue(forKey: message.token) }) {
-                    waiter.resume(returning: .success(message))
-                } else {
-                    for received in message.fds { Darwin.close(received) }
-                    failure = .malformed  // a reply to no request
-                }
+            if message.isReply, let waiter = state.withLock({ $0.replies.removeValue(forKey: message.token) }) {
+                waiter.resume(returning: .success(message))
+            } else if message.isReply, !state.withLock({ ChromiumHostMirror.isAck(message, awaited: &$0.acks) }) {
+                for received in message.fds { Darwin.close(received) }
+                failure = .malformed  // a reply to no request
             } else {
+                // An ACK of a post joins the batch, in order, for the mirror.
                 let bytes = message.payloadByteCount
                 let (claimed, full) = state.withLock { state -> (Bool, Bool) in
                     state.inbox.append(message)
@@ -313,7 +342,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
     /// stopped, the end; a reader paused at the inbox limit reads again.
     @MainActor private func drain() {
         let (batch, end) = state.withLock { state -> ([ChromiumHostControlMessage], ChromiumHostControlEnd?) in
-            let batch = state.inbox
+            let batch = state.refused ? [] : state.inbox
+            for received in state.refused ? state.inbox.flatMap(\.fds) : [] { Darwin.close(received) }
             state.inbox = []
             state.inboxBytes = 0
             state.drainPosted = false
@@ -325,8 +355,24 @@ nonisolated final class ChromiumHostControlCore: Sendable {
             state.endDelivered = true
             return (batch, state.endReason ?? .closed)
         }
-        if !batch.isEmpty { onMessages(batch) }
-        if let end { onEnd(end) }
+        if !batch.isEmpty { handOver(batch) }
+        if let end {
+            mirror.hostEnded()
+            onEnd(end)
+        }
+    }
+
+    /// One onMessages call per drain; a malformed MIRROR or ACK ends the
+    /// connection, and no message from it on runs.
+    @MainActor private func handOver(_ messages: [ChromiumHostControlMessage]) {
+        let batch = ChromiumHostControlBatch(messages, mirror: mirror)
+        if batch.hasMessages { onMessages(batch) }
+        guard let bad = batch.finish() else { return }
+        for received in messages[bad...].flatMap(\.fds) { Darwin.close(received) }
+        state.withLock { state -> Void in
+            state.refused = true
+            Self.endLocked(&state, .malformed)
+        }
     }
 
     // MARK: Under the lock
@@ -400,32 +446,16 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         wake(state.wakeWrite)
     }
 
+    private static func nextTokenLocked(_ state: inout State) -> UInt32 {
+        state.lastToken = state.lastToken == UInt32.max ? 1 : state.lastToken + 1
+        return state.lastToken
+    }
+
     /// True when the caller must post a drain (none is posted yet).
     private static func claimDrain(_ state: inout State) -> Bool {
         guard !state.drainPosted else { return false }
         state.drainPosted = true
         return true
-    }
-
-    /// One byte on the non-blocking wake pipe; a full pipe already holds a wake.
-    private static func wake(_ wakeWrite: Int32) {
-        guard wakeWrite >= 0 else { return }
-        var byte: UInt8 = 1
-        _ = Darwin.write(wakeWrite, &byte, 1)
-    }
-
-    private static func drainWakePipe(_ wakeRead: Int32) {
-        var bytes = [UInt8](repeating: 0, count: 64)
-        while bytes.withUnsafeMutableBytes({ Darwin.read(wakeRead, $0.baseAddress, $0.count) }) > 0 {}
-    }
-
-    /// Milliseconds until `deadline`, rounded up, at least 0.
-    private static func milliseconds(until deadline: ContinuousClock.Instant) -> Int32 {
-        let left = deadline - ContinuousClock.now
-        guard left > .zero else { return 0 }
-        let (seconds, attoseconds) = left.components
-        let attosecondsPerMillisecond: Int64 = 1_000_000_000_000_000
-        return Int32(clamping: seconds * 1000 + (attoseconds + attosecondsPerMillisecond - 1) / attosecondsPerMillisecond)
     }
 }
 #endif

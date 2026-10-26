@@ -2056,13 +2056,16 @@ repositories.
 
 #### p14-energy-117 acpmux freezes idle harnesses of hidden sessions
 - Files: `cmux-tui/crates/acpmux/src/hub/freeze.rs`, `cmux-tui/crates/acpmux/src/hub/idle.rs`,
-  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`.
+  `cmux-tui/crates/acpmux/src/config/pool.rs`, `cmux-tui/crates/acpmux/src/server/visibility.rs`,
+  `scripts/cmux-next/idle-budget.json`.
 - Change: op `_acpmux/visibility {session, visible}`. An attached-but-hidden session with no turn, no pending
   permission, no running background task or terminal tool for freezeAfterSeconds (300, 30 in saver) gets its harness
   process group SIGSTOPped; prompt, show, permission or inbound request does SIGCONT before anything is forwarded. In
   saver, pool.park and no new pool entries on battery. Status shows `frozen`. With PL-acpmux.
 - Acceptance: fake process controller + paused clock: hidden idle 300 s -> 1 stop; prompt -> cont before request bytes;
-  a running background task blocks the freeze; show thaws in the same turn.
+  a running background task blocks the freeze; show thaws in the same turn; idle-budget.json's agent-idle
+  `agent-harness.hidden_wakeups_max` goes from null (reported, IDLE-BUDGET-NOT-JUDGED since 103) to 0, so --gate
+  judges D14's hidden harness.
 - Test phase: `cargo test -p acpmux freeze`; agent-idle: hidden pane harness 0 wakeups.
 - Size M. Depends: 070, 103.
 
