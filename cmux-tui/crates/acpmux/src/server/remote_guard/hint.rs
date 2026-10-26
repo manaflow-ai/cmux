@@ -676,7 +676,7 @@ newlines')"#
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
         assert_eq!(data["try"], "acpmux host update gcp-codex-lane-1");
-        assert_eq!(data["then"], "acpmux new --host gcp-codex-lane-1 -m claude hi");
+        assert_eq!(data["then"], "acpmux new --host=gcp-codex-lane-1 -m claude hi");
         assert!(e.message.contains("972843ddd"), "{}", e.message);
         assert!(e.message.contains("`acpmux host update gcp-codex-lane-1`"), "{}", e.message);
         // A folder named, a peer that says how it served us, or one of this build: as before.
