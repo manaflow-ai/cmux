@@ -34,6 +34,19 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
+/// `trace-start`, `trace-stop` and `trace-status` (server/trace_control.rs):
+/// owner only, refused before `call` reads a parameter.
+pub(super) fn trace_control(
+    mux: &Arc<Mux>,
+    client: u64,
+    call: impl FnOnce() -> anyhow::Result<super::trace_control::Call>,
+) -> anyhow::Result<Value> {
+    if !mux.control_clients.is_unix(client) {
+        anyhow::bail!("trace control requires a trusted local connection");
+    }
+    Ok(super::trace_control::run_live(mux, call()?))
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     machine_metadata: bool,

@@ -4767,6 +4767,26 @@ class TerminalResumeCommandRequest:
 
 
 @dataclass(frozen=True)
+class TraceStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-start/request'
+    categories: Union[List[str], None, MissingType] = field(default=MISSING)
+    keys: Union[bool, MissingType] = field(default=MISSING)
+    extra: Mapping[str, Any] = field(default_factory=dict, metadata={'cmux_extra': True})
+
+
+@dataclass(frozen=True)
+class TraceStatusRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-status/request'
+    pass
+
+
+@dataclass(frozen=True)
+class TraceStopRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/trace-stop/request'
+    pass
+
+
+@dataclass(frozen=True)
 class UndoLayoutRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/undo-layout/request'
     pane: Id
@@ -6481,6 +6501,9 @@ __all__ = [
     'TerminalReadRangeRequest',
     'TerminalResourcesRequest',
     'TerminalResumeCommandRequest',
+    'TraceStartRequest',
+    'TraceStatusRequest',
+    'TraceStopRequest',
     'UndoLayoutRequest',
     'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',

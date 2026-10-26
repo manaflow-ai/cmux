@@ -239,6 +239,15 @@ pub(super) fn terminal_placement_for_runtime(
 /// Return one representative for each content runtime plus every nonterminal
 /// surface. Runtime-wide mutations must not repeat host I/O or render work for
 /// every terminal view, and catalog-only terminals still need those updates.
+impl Mux {
+    /// One surface per content runtime ([`unique_surface_runtimes`]), taken
+    /// under the state lock and returned without it: for runtime-wide work
+    /// that does host I/O (`trace-start` reaching every terminal host).
+    pub(crate) fn surface_runtimes(&self) -> Vec<Arc<Surface>> {
+        unique_surface_runtimes(&self.state.lock().unwrap())
+    }
+}
+
 pub(super) fn unique_surface_runtimes(state: &State) -> Vec<Arc<Surface>> {
     let mut seen_terminals = HashSet::new();
     state

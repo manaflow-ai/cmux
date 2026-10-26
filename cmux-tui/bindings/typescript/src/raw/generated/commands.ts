@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 144f5216217589ce8e98bb77d79b3a5ea7b758bca61c192dfd1e42a9293e1c24. */
+/* cmux-tui mux protocol 12, IR a498af7ade2f5f7a0bbbb23e4382ca6a6693b8d3310c6fc2b659210f320983d3. */
 
 
 import type * as T from "./types.js";
@@ -2651,6 +2651,27 @@ export interface TerminalResumeCommandRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface TraceStartRequest extends CmuxRequestBase {
+  cmd: "trace-start";
+  "categories"?: (Array<string>) | null;
+  "keys"?: boolean;
+  [key: string]: unknown;
+}
+export type TraceStartResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface TraceStatusRequest extends CmuxRequestBase {
+  cmd: "trace-status";
+}
+export type TraceStatusResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface TraceStopRequest extends CmuxRequestBase {
+  cmd: "trace-stop";
+}
+export type TraceStopResult = T.JsonValue;
+
 /** Protocol v9; authority: control. */
 export interface UndoLayoutRequest extends CmuxRequestBase {
   cmd: "undo-layout";
@@ -3139,6 +3160,9 @@ export type CmuxRequest =
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
   | TerminalResumeCommandRequest
+  | TraceStartRequest
+  | TraceStatusRequest
+  | TraceStopRequest
   | UndoLayoutRequest
   | UngroupScreenGroupRequest
   | UngroupTabGroupRequest
@@ -5252,6 +5276,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "resume-command";
+    stream: null;
+  };
+  "trace-start": {
+    request: TraceStartRequest;
+    result: TraceStartResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "trace-status": {
+    request: TraceStatusRequest;
+    result: TraceStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "trace-stop": {
+    request: TraceStopRequest;
+    result: TraceStopResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "undo-layout": {

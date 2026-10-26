@@ -707,8 +707,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "2472922908d2ea0616f93c094a0421cb8bff39775c1c008cbfed48c0a5021a1e",
-      "size": 78355
+      "sha256": "fe02be972502bb0d0b2119cf3a974d2a6fdd740b114baca62bacbd91e8734104",
+      "size": 78979
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1357,8 +1357,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "056a742a2329974123b008a6a79431edec0af1a2ef4c740ff56b064e1808f0ea",
-      "size": 67823
+      "sha256": "231b6e02b38d3b59206dad18b9cc121109263ac755187879d78ab9efa4d336cd",
+      "size": 68381
     },
     {
       "path": "GetBlobRequest.java",
@@ -2112,7 +2112,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "5c4d557c7c555116155de7f425b8825e5eccc6c6a0509777345f89c3eed39bca",
+      "sha256": "6a8c107ee51f25a07dd16881d13f94094565e8553c593d7b6fa1c14abda9b6eb",
       "size": 7486
     },
     {
@@ -3186,6 +3186,21 @@
       "size": 2869
     },
     {
+      "path": "TraceStartRequest.java",
+      "sha256": "150a07926f99eca8e26bd2df3948c6831f0f0da63e109847a2cba367e3fb242a",
+      "size": 3646
+    },
+    {
+      "path": "TraceStatusRequest.java",
+      "sha256": "4aae9ba2779926a5fb82a4ebaeaebd4a01c09ae33226d2fd24d0e2f773b6b455",
+      "size": 1354
+    },
+    {
+      "path": "TraceStopRequest.java",
+      "sha256": "be5c3358c8f51a9ab40c45db2709e8c63c80882bf9484f9bd73c37028d527540",
+      "size": 1336
+    },
+    {
       "path": "Tree.java",
       "sha256": "0df79544b10131b2d317ecd9d565271c00cc357346de24d21844c387cba7774d",
       "size": 5571
@@ -3412,7 +3427,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "144f5216217589ce8e98bb77d79b3a5ea7b758bca61c192dfd1e42a9293e1c24",
+  "ir_sha256": "a498af7ade2f5f7a0bbbb23e4382ca6a6693b8d3310c6fc2b659210f320983d3",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

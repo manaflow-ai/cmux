@@ -114,6 +114,12 @@ impl HolderService {
         self.link.lock().recover_poison().link.clone().filter(|link| link.is_open())
     }
 
+    /// The open link, for trace control (`server/trace_control.rs`): a
+    /// holder that does not run is not started for a trace.
+    pub(crate) fn trace_link(&self) -> Option<Arc<HolderLink>> {
+        self.open_link()
+    }
+
     /// [`Self::link`]; with `launch` false a holder that does not run is not
     /// started (a restart only asks whether one kept terminals).
     fn link_or_launch(self: &Arc<Self>, launch: bool) -> io::Result<Arc<HolderLink>> {

@@ -105,8 +105,12 @@ use test_pty::{
 };
 #[cfg(any(unix, windows))]
 mod clipboard_read;
+#[cfg(any(unix, windows))]
+mod host_trace;
 #[cfg(all(unix, test))]
 pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
+#[cfg(any(unix, windows))]
+pub(crate) use host_trace::HostTraceSent;
 #[cfg(any(unix, windows))]
 mod host_frames;
 #[cfg(any(unix, windows))]

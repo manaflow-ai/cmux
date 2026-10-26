@@ -146,6 +146,7 @@ indexes are fatal.
 | 25 | `ClipboardReadCancel` | host to owner | `CLIPBOARD_READ` | `token:u64`; the host refused that open read itself |
 | 26 | `PtyCustody` | host to owner | owner token, `FLAG_PTY_CUSTODY` | `version:u16=1, child_pid:u32, session_id:u32`, PTY master attached as `SCM_RIGHTS` |
 | 27 | `LaunchAdopt` | parent to host | private pipe | adopt-launch layout |
+| 28 | `TraceControlAck` | host to client | response | `outcome:u8` (0 traced, 1 not initialized, 2 already recording, 3 not recording), `recording:u8, pid:u32, recording_bytes:u64, records_dropped:u64`, then the recording ring's path as UTF-8 (empty when none) |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes; a nonzero request id asks a supporting host for `InputAck` |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -159,6 +160,14 @@ indexes are fatal.
 | 110 | `Activate` | launch owner to host | `ADMIN` | empty |
 | 111 | `Detach` | daemon owner to host | `ADMIN` | empty |
 | 112 | `ClipboardReadReply` | owner to host | `CLIPBOARD_READ` | `token:u64, outcome:u8` (0 refused, 1 granted), text blob |
+| 113 | `TraceControl` | daemon owner to host | `ADMIN` | `op:u8` (1 start, 2 stop, 3 status), `categories:u64` (0 unless start); no path |
+
+`TraceControl` (the daemon's `trace-start`, `trace-stop` and `trace-status`)
+needs a nonzero request id and is answered by `TraceControlAck`. The host
+records into `trace/` beside its discovery record. Hosts that predate it end
+the connection on the unknown kind, so the daemon sends it only when the host
+record advertises `supports_trace_control`, which records before version 4
+must not set.
 
 OSC 52 clipboard reads are denied by default. While a `CLIPBOARD_READ` owner
 connection is attached, the host defers each program read and sends

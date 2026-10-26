@@ -17,12 +17,14 @@
 mod service;
 mod sink;
 mod terminal;
+mod trace;
 
 pub(crate) use service::HolderService;
 #[cfg(not(test))]
 pub(crate) use service::prepare_in_background;
 pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
+pub(crate) use trace::HolderTrace;
 
 /// New session-owned terminals run on the holder.
 pub(crate) fn enabled() -> bool {

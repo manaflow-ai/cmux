@@ -100,6 +100,7 @@ pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
 pub mod tailnet;
+mod trace_control;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

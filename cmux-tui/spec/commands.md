@@ -675,6 +675,55 @@ stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
 
+### trace-start, trace-stop, trace-status
+
+| Field | Value |
+| --- | --- |
+| name | `trace-start`, `trace-stop`, `trace-status` |
+| status | implemented |
+| since | protocol 12 |
+
+Start, stop or report a trace recording (plans/cmux-next/trace.md, "Release
+trace ring v1") in the daemon and every child it reaches: the holder when its
+link granted `TRACE_CONTROL`, every live terminal host whose record advertises
+`supports_trace_control` (terminal-host.md, `TraceControl`), and acpmux when it
+runs (`_acpmux/trace`; acpmux is never started for a trace). Owner only: any
+client that is not on the trusted local socket gets `trace control requires a
+trusted local connection` before a parameter is read.
+
+Params of `trace-start`: `{categories?: array<string>|null, keys?: bool}`.
+`categories` are category names (`frame`, `daemon`, ...); omitted, every
+recording category. `key` records per-key records and needs `keys: true`.
+No parameter is a path or a command: the daemon records into `trace/` under its
+state root, a terminal host into `trace/` beside its discovery record, acpmux
+into `$ACPMUX_HOME/trace`. A start the daemon refuses (one runs) is not
+forwarded. Hosts past the 128 MiB total cap of recording rings are not asked.
+
+Result:
+
+```text
+object{
+  op:"start"|"stop"|"status",
+  recording:bool,
+  categories?:array<string>, keys?:bool,
+  processes:array<object{
+    role:"daemon"|"holder"|"terminal-host"|"acpmux",
+    pid:uint32|null,
+    state:"recording"|"idle"|"forwarded"|"untraced"|"unanswered"|"error",
+    recording_path?:string|null, recording_bytes?:uint64, records_dropped?:uint64,
+    reason?:"holder_untraced"|"host_untraced"|"over_total_cap",
+    error?:string
+  }>,
+  bytes_by_role:object<string,uint64>,
+  total_bytes:uint64,
+  total_cap_bytes:uint64
+}
+```
+
+Errors: `trace control requires a trusted local connection`, `unknown trace
+category ...`, `the key category records per-key records: ask for it with keys:
+true`.
+
 ### browser-host-provider
 
 | Field | Value |

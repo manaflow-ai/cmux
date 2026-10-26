@@ -228,6 +228,7 @@ mod split_respawn;
 mod tab_column;
 mod tab_park;
 mod tab_restart;
+mod trace_control;
 mod websocket_listener;
 #[cfg(test)]
 use cmd_subscribe::subscribed_event_json;
@@ -784,6 +785,13 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
+    /// Start a trace recording in the daemon, the holder, every terminal host
+    /// and acpmux (server/trace_control.rs). Owner only; no path parameter.
+    TraceStart(trace_control::StartParams),
+    /// Stop it everywhere.
+    TraceStop,
+    /// Every process's trace state, ring paths and bytes.
+    TraceStatus,
     /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory(command_history::SetParams),
     ListTerminalCommands(command_history::ListParams),

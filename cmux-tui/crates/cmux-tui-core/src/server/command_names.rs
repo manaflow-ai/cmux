@@ -150,6 +150,9 @@ command_table! {
     TerminalClipboardReply => "terminal-clipboard-reply", TerminalIo;
     PasteImage => "paste-image", TerminalIo;
     ServerStats => "server-stats", Query;
+    TraceStart => "trace-start", Other;
+    TraceStop => "trace-stop", Other;
+    TraceStatus => "trace-status", Other;
     SetTerminalCommandHistory => "set-terminal-command-history", TerminalIo;
     ListTerminalCommands => "list-terminal-commands", Query;
     DeleteTerminalCommands => "delete-terminal-commands", TerminalIo;
