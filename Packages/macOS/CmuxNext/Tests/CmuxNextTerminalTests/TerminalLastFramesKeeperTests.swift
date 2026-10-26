@@ -4,9 +4,9 @@ import IOSurface
 import Testing
 
 /// Evicted terminals' last frames under the app-wide hidden frame list (p03-rendering-099,
-/// `memoryHiddenFrameLRU`): the warm set's capacity bounds nothing, each stored frame is one unlocked
-/// frame of the list, a reader locks it, the list's eviction drops it, and a frame that leaves the
-/// store on its own leaves the list.
+/// `memoryHiddenFrameLRU`): each stored frame is one unlocked frame of the list, a reader locks it,
+/// the list's eviction drops it, a frame that leaves the store on its own leaves the list, and the
+/// warm set's capacity stays the upper bound.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct TerminalLastFramesKeeperTests {
     private func frame() throws -> TerminalLastFrame {
@@ -21,12 +21,12 @@ struct TerminalLastFramesKeeperTests {
         frames.evict(key, atOnce: false, showsOutput: true) { made }
     }
 
-    @Test func theListNotTheCapacityDecidesWhichFramesStay() throws {
+    @Test func theListsEvictionDropsAStoredFrame() throws {
         let keeper = FakeKeeper()
-        let frames = TerminalLastFrames(capacity: 2)
+        let frames = TerminalLastFrames(capacity: 8)
         frames.keeper = keeper
         for key in ["t0", "t1", "t2", "t3"] { try store(key, in: frames) }
-        #expect(frames.count == 4, "the warm set's capacity still dropped frames")
+        #expect(frames.count == 4)
         #expect(keeper.unlocked == ["t0", "t1", "t2", "t3"].map { TerminalLastFrames.frameID($0) })
         #expect(frames.report["dropped"] == nil)
 
@@ -34,6 +34,26 @@ struct TerminalLastFramesKeeperTests {
         #expect(frames["t1"] == nil, "the list's eviction left the frame stored")
         #expect(frames.count == 3)
         #expect(frames.report["dropped"] == 1)
+    }
+
+    /// A warning lowers the warm set's capacity to 6 while the list, purged once at the warning,
+    /// takes frames again up to its soft limit: the capacity still bounds them.
+    @Test func theWarmSetsCapacityStillBoundsFramesKeptWhileTheWarningLasts() throws {
+        let keeper = FakeKeeper()
+        let frames = TerminalLastFrames(capacity: 24)
+        frames.keeper = keeper
+        frames.setCapacity(6)
+        for index in 0..<10 { try store("t\(index)", in: frames) }
+        #expect(frames.count == 6, "a keeper lifted the warm set's bound")
+        #expect(frames["t0"] == nil)
+        #expect(keeper.unlocked == (4..<10).map { TerminalLastFrames.frameID("t\($0)") },
+                "a frame the bound dropped stayed in the list")
+        #expect(frames.report["dropped"] == 4)
+
+        frames.setCapacity(0)
+        try store("none", in: frames)
+        #expect(frames["none"] == nil, "a capacity of 0 kept a frame")
+        #expect(frames.report["evicted_at_once"] == 1)
     }
 
     @Test func aFrameThatLeavesTheStoreLeavesTheList() throws {

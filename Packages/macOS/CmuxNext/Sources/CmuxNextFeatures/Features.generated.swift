@@ -291,12 +291,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// Hidden browser panes' pages and evicted terminals' last frames share one app-wide list: shown frames stay, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.
+    /// Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.
     public static let memoryHiddenFrameLRU = Feature(
         index: 17,
         name: "memoryHiddenFrameLRU",
         owner: "PL-memory",
-        description: "Hidden browser panes' pages and evicted terminals' last frames share one app-wide list: shown frames stay, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.",
+        description: "Evicted terminals' last frames share one app-wide list: a frame being read stays, the least recently hidden goes first past a limit set from the Mac's memory, a frame hidden 5 min goes, and a memory warning drops every hidden one.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

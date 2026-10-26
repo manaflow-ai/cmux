@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 
-/// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past ``capacity``, or
-/// kept as the app-wide ``keeper`` says (`memoryHiddenFrameLRU`).
+/// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past ``capacity``, and
+/// with a ``keeper`` (`memoryHiddenFrameLRU`) also dropped when the app-wide list evicts them.
 ///
 /// The bound is the warm set's terminal capacity (`WarmSetBudget`: 24 at most, 6 at warning, none
 /// at critical). A change of the bound frees nothing at once: it bounds the next frame kept, which
@@ -20,9 +20,10 @@ public import CmuxNextCompat
 /// only while a hover card renders it (a new surface takes it only after it left the store), and the
 /// reader makes the pages volatile again when it ends.
 ///
-/// With a ``keeper`` (the App's `HiddenFrameLRU`, `memoryHiddenFrameLRU`) the warm set's capacity
-/// bounds nothing here: each kept frame is one unlocked frame of the app-wide list, locked while a
-/// reader holds it, and the list evicts it (its soft limit, its 5 min cull, memory pressure). A frame
+/// With a ``keeper`` (the App's `HiddenFrameLRU`, `memoryHiddenFrameLRU`) each kept frame is also one
+/// unlocked frame of the app-wide list, locked while a reader holds it, and the list may drop it
+/// sooner (its soft limit, its 5 min cull, a memory warning). The warm set's capacity stays the upper
+/// bound: the list never keeps more than it allows (6 at warning, none at a capacity of 0). A frame
 /// that leaves the store on its own leaves the list too.
 ///
 /// Registered (`memoryTerminalLastFrames`), it is one lossless memory consumer (a dropped frame only
@@ -63,8 +64,8 @@ public final class TerminalLastFrames {
     /// The limit the memory coordinator gave last; at the critical limit no frame is kept.
     public private(set) var memoryLimit: MemoryLimit = .default
     private var memoryRegistration: MemoryConsumerRegistration?
-    /// The app-wide list of hidden frames that decides which frames stay; nil: ``capacity`` does.
-    /// Set once at launch, before any frame is kept.
+    /// The app-wide list of hidden frames that may drop frames under ``capacity``; nil: only
+    /// ``capacity`` bounds. Set once at launch, before any frame is kept.
     public var keeper: (any HiddenFrameKeeper)?
 
     /// - Parameter capacity: How many frames it keeps (the warm set's terminal capacity).
@@ -100,13 +101,10 @@ public final class TerminalLastFrames {
             guard let self, let frame else { return }
             self.frameDidChange(frame, for: key, event: event)
         }
-        if let keeper {
-            keeper.add(Self.frameID(key), locked: !frame.isVolatile) { [weak self, weak frame] in
-                guard let self, let frame, self.frames[key] === frame else { return }
-                self.remove(key)
-                self.note("dropped")
-            }
-            return 0
+        keeper?.add(Self.frameID(key), locked: !frame.isVolatile) { [weak self, weak frame] in
+            guard let self, let frame, self.frames[key] === frame else { return }
+            self.remove(key)
+            self.note("dropped")
         }
         var dropped = 0
         while order.count > keptCapacity {
@@ -153,9 +151,8 @@ public final class TerminalLastFrames {
     /// `debug.surfaces` last_frames: the outcome counts and the frames stored now.
     public var report: [String: Int] { outcomes.merging(["stored": count]) { $1 } }
 
-    /// None at the critical memory limit; else the warm set's capacity, or no bound of its own
-    /// with a ``keeper``.
-    private var keptCapacity: Int { memoryLimit.isCritical ? 0 : keeper == nil ? capacity : .max }
+    /// The warm set's capacity, or none at the critical memory limit.
+    private var keptCapacity: Int { memoryLimit.isCritical ? 0 : capacity }
 
     /// A terminal's frame in the app-wide list.
     static func frameID(_ key: String) -> HiddenFrameID { HiddenFrameID(kind: .terminal, key: key) }
@@ -202,7 +199,7 @@ extension TerminalLastFrames: MemoryConsumer {
     /// at a time until the slice expires. Only the critical limit reaches it with work to do: it
     /// honors no partial limit.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
-        let kept = slice.limit.isCritical ? 0 : keeper == nil ? capacity : .max
+        let kept = slice.limit.isCritical ? 0 : capacity
         while order.count > kept {
             if slice.isExpired { return .more }
             dropOldest()

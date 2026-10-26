@@ -88,8 +88,8 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryHiddenFrameLRU` (default off): evicted terminals' last frames are frames of the app-wide hidden
-    /// frame list, which decides which stay; the list registers itself with the coordinator as it is built
-    /// (p03-rendering-099). Chromium's page panes join it through the engine (`makeChromiumSlot`).
+    /// frame list, which decides which stay under the warm set's capacity; the list registers itself with the
+    /// coordinator as it is built (p03-rendering-099).
     private func registerHiddenFrames() {
         guard let frames = services.hiddenFrames else { return }
         services.cache.lastFrames.keeper = frames
