@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// Keeps a window's app overlays above its content child windows.
 ///
@@ -60,6 +61,8 @@ final class WindowOverlayLayer {
     /// A `cef.geometry` slice is open: work inside it takes no slice of its own (``inGeometrySlice(_:_:)``).
     private var geometrySliceOpen = false
     private var observers: [any NSObjectProtocol] = []
+    /// The window's own move, resize, screen and full screen notices (`WindowEvents`).
+    private var geometrySubscriptions: [EventSubscription] = []
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
     private var isTornDown = false
@@ -104,22 +107,18 @@ final class WindowOverlayLayer {
         // Any move or resize source (drag, an Accessibility client such as
         // Rectangle, a display, Space or fullscreen change): the overlay
         // follows, and every Chromium page re-applies its geometry now and
-        // once more after the layout pass that the change schedules.
-        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification,
-                     NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification,
-                     NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification,
-                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
-            observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.parentGeometryDidChange() } // main-proof: observer on queue: .main
-            })
+        // once more after the layout pass that the change schedules. Through
+        // the window's one WindowEvents, in the post's own turn.
+        let events = WindowEvents.of(window)
+        geometrySubscriptions = Self.geometryNotices.map { name in
+            events.subscribe(name, owner: "WindowOverlayLayer.geometry") { [weak self] in self?.parentGeometryDidChange() }
         }
         // A page window appears (the fork shows it inactive and adds it as a
         // child), moves, or takes key: check the order at once.
-        for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification,
-                     NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification] {
+        for (name, moved) in Self.pageWindowNotices {
+            // raw-observer-allow: the handler needs the sender, a page window the CEF fork adds unannounced; WindowEvents and AppEvents hand none
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let child = note.object as? NSWindow
-                let moved = note.name == NSWindow.didMoveNotification || note.name == NSWindow.didResizeNotification
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
                     guard let self, let child, child !== self.window, child.parent === self.window else { return }
                     self.evaluate()
@@ -131,12 +130,21 @@ final class WindowOverlayLayer {
         }
     }
 
+    /// The window's own notices after which its geometry may differ (drag, a display, Space or full screen change).
+    // raw-observer-allow: names the window's one WindowEvents subscribes to (recipe R-notif); no observer of its own
+    private static let geometryNotices: [Notification.Name] = [NSWindow.didResizeNotification, NSWindow.didMoveNotification, NSWindow.didEndLiveResizeNotification, NSWindow.didChangeBackingPropertiesNotification, NSWindow.didChangeScreenNotification, NSWindow.didChangeOcclusionStateNotification, NSWindow.didDeminiaturizeNotification, NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification]
+    /// The notices of any window that may be one of this window's page windows, and whether each moves its frame.
+    // raw-observer-allow: names for the sender-carrying page-window observers above; AppEvents hands no sender
+    private static let pageWindowNotices: [(Notification.Name, Bool)] = [(NSWindow.didChangeOcclusionStateNotification, false), (NSWindow.didMoveNotification, true), (NSWindow.didResizeNotification, true), (NSWindow.didBecomeKeyNotification, false)]
+
     func teardown() {
         isTornDown = true
         sidebarResizeArea = nil
         catchers.teardown()
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
+        geometrySubscriptions.forEach { $0.cancel() }
+        geometrySubscriptions.removeAll()
         for plane in planes { (plane.home as? LayoutRootView)?.returnPlaneHome() }
         planes.removeAll()
         WindowOverlayHost.existingHost(for: window)?.setPlanesWantPanel(false)
