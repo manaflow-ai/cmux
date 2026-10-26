@@ -11,11 +11,13 @@
      "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "WORK_P95_MS"}},
     {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.max_step", "unit": "unitless", "better": "lower",
      "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "JUMP_PT"}},
-    {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.(jumps|late_frames|failed)", "unit": "count", "better": "lower"}
+    {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.(jumps|late_frames|failed)", "unit": "count", "better": "lower"},
+    {"name": "sidebar_drag\\.light\\.harness\\.failed", "unit": "count", "better": "lower"}
   ],
   "repeats": 3,
   "seconds": 90,
-  "needs": ["debug:debug.sidebar_rows", "debug:debug.mouse", "debug:debug.window_record", "debug:debug.toast"],
+  "needs": ["debug:debug.sidebar_rows", "debug:debug.mouse", "debug:debug.window_record", "debug:debug.toast",
+            "debug:debug.key"],
   "owner": "a590",
   "component": "Sidebar>Drag"
 }

@@ -51,8 +51,7 @@ CHIP = "Apple M4 Pro"
 HOST = pr.Host(fingerprint="e" * 64, host_class=store.host_class(chip=CHIP, memory_gb=24, display_hz=120), chip=CHIP,
                macos="26.1", macos_build="25B78", display_hz=120)
 BUILD = pr.Build(sha=SHA, config="bench", measure_version=2)
-SCENARIOS = ("1-row-into-pinned", "2-tile-into-list", "3-group-into-pinned", "4-autoscroll-across",
-             "5-refusal-springs-back")
+SCENARIOS = report.DRAG_SCENARIOS
 
 
 # The private percentiles the benches had before the migration (R8: old and new on one fixed vector).
@@ -147,11 +146,41 @@ class SeriesTests(unittest.TestCase):
         stress = report.drag_series("4-autoscroll-across", drag_result(), [1.0], session="stress")
         self.assertEqual({s.story for s in stress}, {"sidebar-drag-stress"})
 
-    def test_drag_live_counts_ffi_calls_per_drag_and_failed_steps(self):
+    def test_drag_live_counts_ffi_calls_off_contract_and_failed_steps(self):
         steps = [("a", "PASS"), ("b", "FAIL"), ("c", "SKIP"), ("d", "FAIL")]
         series = {s.metric: s.samples for s in report.drag_live_series(steps, [2, 2, 3])}
-        self.assertEqual(series, {"sidebar_drag_live.ffi_calls_per_drag": [2, 2, 3], "sidebar_drag_live.failed_steps": [2]})
+        self.assertEqual(series, {"sidebar_drag_live.ffi_calls_off_contract": [0, 0, 1], "sidebar_drag_live.failed_steps": [2]})
         self.assertEqual([s.metric for s in report.drag_live_series([], [])], ["sidebar_drag_live.failed_steps"])
+
+    def test_drag_live_fewer_ffi_calls_read_as_worse_not_better(self):
+        """A lost drop (1 call) or an unmirrored drag (0) is as far from the contract as an extra call: lower is
+        better holds on either side of two."""
+        off = {calls: report.drag_live_series([], [calls])[0].samples for calls in (0, 1, 2, 3)}
+        self.assertEqual(off, {0: [2], 1: [1], 2: [0], 3: [1]})
+
+    def test_drag_run_of_a_stopped_harness_shows_failed_proofs(self):
+        """fail_harness stopped the run after scenario 1: the run says harness failed and each wanted scenario
+        that ran no check is failed, not missing."""
+        checks = {"1-row-into-pinned": drag_result(), "harness": {"ok": False, "error": "no window"}}
+        series = {s.metric: s.samples for s in report.drag_run_series(checks, {"1-row-into-pinned": [1.0]}, {"1", "2", "5"})}
+        self.assertEqual(series["sidebar_drag.light.harness.failed"], [1])
+        self.assertEqual(series["sidebar_drag.light.1-row-into-pinned.failed"], [0])
+        self.assertEqual(series["sidebar_drag.light.2-tile-into-list.failed"], [1])
+        self.assertEqual(series["sidebar_drag.light.5-refusal-springs-back.failed"], [1])
+        self.assertNotIn("sidebar_drag.light.3-group-into-pinned.failed", series, "not wanted: not written")
+        self.assertEqual(report.missing_scenarios(checks, {"1", "2", "5"}), ["2-tile-into-list", "5-refusal-springs-back"])
+
+    def test_drag_run_of_a_clean_run_has_harness_failed_zero(self):
+        checks = {name: drag_result() for name in SCENARIOS}
+        series = {s.metric: s.samples for s in report.drag_run_series(checks, {}, set("12345"), session="stress")}
+        self.assertEqual(series["sidebar_drag.stress.harness.failed"], [0])
+        self.assertEqual({m: v for m, v in series.items() if m.endswith(".failed") and "harness" not in m},
+                         {f"sidebar_drag.stress.{name}.failed": [0] for name in SCENARIOS})
+        self.assertEqual(report.missing_scenarios(checks, set("12345")), [])
+
+    def test_drag_scenario_names_are_the_record_script_ones(self):
+        source = (HERE / "sidebar-v2-drag-record.py").read_text()
+        self.assertEqual(tuple(re.findall(r'record\("([0-9]-[a-z-]+)"', source)), SCENARIOS)
 
 
 class StoryTests(unittest.TestCase):
@@ -170,7 +199,22 @@ class StoryTests(unittest.TestCase):
             series = [entry for i, name in enumerate(SCENARIOS)
                       for entry in report.drag_series(name, drag_result(ok=i != 1, recorded=i != 2), [1.0], session)]
             self.check_claimed(report.drag_story(session), series)
+            stopped = report.drag_run_series({"harness": {"ok": False}}, {}, set("12345"), session)
+            self.check_claimed(report.drag_story(session), stopped)
         self.check_claimed("sidebar-drag-live", report.drag_live_series([("a", "FAIL")], [2]))
+
+    def test_needs_name_every_debug_method_the_script_calls(self):
+        """The lab admits a build only with every method the story's script calls (catalog.py `needs`); the
+        teardown's debug.quit is BenchApp's. sidebar-drag skips sidebar_wheel (stress only) and window_snapshot
+        (--setup-only)."""
+        conditional = {"sidebar-drag": {"debug.sidebar_wheel", "debug.window_snapshot"},
+                       "sidebar-drag-stress": {"debug.window_snapshot"}, "sidebar-drag-live": {"debug.quit"}}
+        for story_id, script in (("sidebar-drag", "sidebar-v2-drag-record.py"),
+                                 ("sidebar-drag-stress", "sidebar-v2-drag-record.py"),
+                                 ("sidebar-drag-live", "sidebar-v2-drag-live.py")):
+            called = set(re.findall(r'rpc\("(debug\.[a-z_]+)"', (HERE / script).read_text()))
+            needs = {n.split(":", 1)[1] for n in story(story_id)["needs"] if n.startswith("debug:")}
+            self.assertEqual(called - conditional[story_id] - needs, set(), story_id)
 
     RUNNER = ["--app", "/x/cmux DEV t.app", "--tag", "t", "--out", "/x/out"]  # what the story runner adds
 

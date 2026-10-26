@@ -16,11 +16,17 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
 import bench_launch  # noqa: E402
-from new_tab_bench_report import RecordError, Series, pct, perf_result, perf_stats, record_all, write_all  # noqa: E402,F401
+from new_tab_bench_report import Series, pct, perf_result, record_all, write_all  # noqa: E402
 
 SIDEBAR_DOC_STORY = "sidebar-doc"
 SIDEBAR_DRAG_STORY = "sidebar-drag"
 SIDEBAR_DRAG_LIVE_STORY = "sidebar-drag-live"
+
+# sidebar-v2-drag-record.py's scenarios: --scenarios names them by their number (the name's first character).
+DRAG_SCENARIOS = ("1-row-into-pinned", "2-tile-into-list", "3-group-into-pinned", "4-autoscroll-across",
+                  "5-refusal-springs-back")
+# The FFI calls of one held drag in sidebar-v2-drag-live.py: one drag_begin and one intent (the drop).
+FFI_CALLS_PER_DRAG = 2
 
 # sidebar-doc-bench.py's timed requests, in its report's order; each one's series name.
 DOC_REQUESTS = ("workspace.create", "workspace.place", "workspace_group.update", "sidebar.move")
@@ -84,10 +90,34 @@ def drag_series(scenario, result, work, session="light", story=None):
     ]
 
 
+def drag_run_series(checks, work, wanted, session="light", story=None):
+    """One sidebar-v2-drag-record.py run: drag_series for each checked scenario, `failed` = 1 for each wanted
+    scenario (its number in `wanted`) that has no check (the harness stopped first, or its setup was not met), and
+    `sidebar_drag.<session>.harness.failed` (1 when fail_harness stopped the run). A run cut short so shows as
+    failed proofs in the lab, not as missing data."""
+    story = story or drag_story(session)
+    harness = checks.get("harness")
+    out = [Series(story, f"sidebar_drag.{session}.harness.failed", "count", "none", session,
+                  [1 if harness and not harness.get("ok") else 0])]
+    for name in DRAG_SCENARIOS:
+        if name in checks:
+            out += drag_series(name, checks[name], work.get(name, []), session, story)
+        elif name[0] in wanted:
+            out += drag_series(name, {"ok": False, "recorded": False}, [], session, story)
+    return out
+
+
+def missing_scenarios(checks, wanted):
+    """The wanted scenarios of sidebar-v2-drag-record.py that ran no check."""
+    return [name for name in DRAG_SCENARIOS if name[0] in wanted and name not in checks]
+
+
 def drag_live_series(results, ffi_calls, session="light", story=SIDEBAR_DRAG_LIVE_STORY):
-    """sidebar-v2-drag-live.py: its steps [(step, PASS|FAIL|SKIP)] and the FFI calls of each held drag (two when the
-    drag begins once and drops once). `failed_steps` counts the FAILs, so a broken proof shows in the lab."""
-    out = [Series(story, "sidebar_drag_live.ffi_calls_per_drag", "count", "none", session, list(ffi_calls))] \
-        if ffi_calls else []
+    """sidebar-v2-drag-live.py: its steps [(step, PASS|FAIL|SKIP)] and the FFI calls of each held drag.
+    `ffi_calls_off_contract` is each drag's distance from FFI_CALLS_PER_DRAG (0 when right), so a lost drop (fewer
+    calls) reads as a regression as much as an extra call. `failed_steps` counts the FAILs, so a broken proof shows
+    in the lab."""
+    off = [abs(calls - FFI_CALLS_PER_DRAG) for calls in ffi_calls]
+    out = [Series(story, "sidebar_drag_live.ffi_calls_off_contract", "count", "none", session, off)] if off else []
     failed = sum(1 for _, state in results if state == "FAIL")
     return out + [Series(story, "sidebar_drag_live.failed_steps", "count", "none", session, [failed])]

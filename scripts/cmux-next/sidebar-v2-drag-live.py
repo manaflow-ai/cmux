@@ -31,7 +31,7 @@ header): one drop behavior for every section. Exit 1 when any step FAILs.
 
 The steps and the FFI calls of each held drag are also written as
 cmux-perf-result/v1 in --out (story sidebar-drag-live:
-`sidebar_drag_live.ffi_calls_per_drag` and `sidebar_drag_live.failed_steps`,
+`sidebar_drag_live.ffi_calls_off_contract` and `sidebar_drag_live.failed_steps`,
 sidebar_bench_report.py).
 """
 import argparse, json, os, re, socket, subprocess, sys, time, urllib.parse
@@ -234,7 +234,8 @@ def drag(frm, to, label, indicator=None):
     calls_during = {k: during.get(k, 0) - before.get(k, 0) for k in set(during) | set(before) if during.get(k, 0) != before.get(k, 0)}
     calls_drop = {k: after.get(k, 0) - during.get(k, 0) for k in set(after) | set(during) if after.get(k, 0) != during.get(k, 0)}
     per_drag = calls_during.get("drag_begin", 0) + calls_during.get("intent", 0) + calls_drop.get("drag_begin", 0) + calls_drop.get("intent", 0)
-    record(f"{label}: ffi calls per drag == 2", per_drag == 2 and set(calls_during) <= {"drag_begin"},
+    record(f"{label}: ffi calls per drag == {results.FFI_CALLS_PER_DRAG}",
+           per_drag == results.FFI_CALLS_PER_DRAG and set(calls_during) <= {"drag_begin"},
            f"during the held drag {calls_during}, at the drop {calls_drop}")
     FFI_CALLS.append(per_drag)
     return per_drag
@@ -797,14 +798,18 @@ def main(argv=None):
             record("long list keeps its first visible row on screen", False, f"setup: base={base} made={len(made)}")
     except FocusedDone:
         pass  # `--only`: the focused steps ran
+    except BaseException as error:
+        record("the run finished", False, f"stopped by {error!r}")  # failed_steps counts it
+        raise
     finally:
-        refusals = toast().get("refusals")
-        print("refusals:", refusals, flush=True)
+        try:
+            print("refusals:", toast().get("refusals"), flush=True)
+        except Exception as error:  # the stop and the results still run
+            print("refusals: unreadable", repr(error), flush=True)
         LAUNCHER.stop()  # debug.quit, then the tag's daemons and terminal hosts (tag_teardown.py)
-    failed = [step for step, state in RESULTS if state == "FAIL"]
-    print("summary:", json.dumps(RESULTS), flush=True)
-    record_results()  # after the stop: the features are the last launch's snapshot
-    return 1 if failed else 0
+        print("summary:", json.dumps(RESULTS), flush=True)
+        record_results()  # after the stop: the features are the last launch's snapshot
+    return 1 if any(state == "FAIL" for _, state in RESULTS) else 0
 
 
 if __name__ == "__main__":

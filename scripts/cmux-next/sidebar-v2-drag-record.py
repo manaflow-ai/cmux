@@ -38,7 +38,9 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
 
 Each checked scenario is also written as cmux-perf-result/v1 next to
 CHECKS.json (story sidebar-drag, or sidebar-drag-stress with --stress;
-`sidebar_drag.<session>.<scenario>.<metric>`, sidebar_bench_report.py).
+`sidebar_drag.<session>.<scenario>.<metric>`, sidebar_bench_report.py); a
+wanted scenario that ran no check writes `failed` 1, and a stopped harness
+writes `sidebar_drag.<session>.harness.failed` 1.
 """
 import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
@@ -424,10 +426,11 @@ def launch():
 
 
 def record_results():
-    """Each checked scenario as cmux-perf-result/v1 in --out (BenchApp.record); record_all prints why one was not."""
-    session = results.drag_session(opts.stress)
-    series = [entry for name, result in CHECKS.items() if name != "harness"
-              for entry in results.drag_series(name, result, WORK.get(name, []), session, opts.story)]
+    """The run as cmux-perf-result/v1 in --out (BenchApp.record): each checked scenario, a failure for each wanted
+    one that ran no check and the harness failure (drag_run_series); record_all prints why one was not written."""
+    if opts.setup_only:
+        return  # a setup dump measures nothing
+    series = results.drag_run_series(CHECKS, WORK, WANTED, results.drag_session(opts.stress), opts.story)
     for key, where in results.record_all(LAUNCHER, series).items():
         if not where.startswith("not recorded"):
             print(f"result-v1 {key}: {where}", flush=True)
@@ -584,7 +587,10 @@ def main(argv=None):
         LAUNCHER.stop()
         print("PTYs in use at the end:", ptys_in_use(), flush=True)
         record_results()  # after the stop: the features are the launch's snapshot
-    return 0 if CHECKS and all(c["ok"] for c in CHECKS.values()) else 1
+    missing = results.missing_scenarios(CHECKS, WANTED)
+    if missing:
+        print("FAIL scenarios that ran no check:", ", ".join(missing), flush=True)
+    return 0 if CHECKS and all(c["ok"] for c in CHECKS.values()) and not missing else 1
 
 
 if __name__ == "__main__":
