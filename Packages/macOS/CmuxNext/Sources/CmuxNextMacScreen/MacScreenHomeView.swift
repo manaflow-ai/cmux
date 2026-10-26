@@ -100,6 +100,7 @@ final class MacScreenHomeView: MacScreenThemedView {
         if abs(columnWidth.constant - target) > 0.5 { columnWidth.constant = target }
         // Wrapping labels learn their width from one pass and report their height to the next.
         for _ in 0..<4 {
+            // sync-layout: fitLines below reads each wrapping label's laid-out width.
             column.layoutSubtreeIfNeeded()
             var changed = false
             for case let label as MacScreenText in views(under: column) where label.fitLines() { changed = true }
