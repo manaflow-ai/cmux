@@ -433,10 +433,9 @@ mod tests {
     fn regression_mount_aliases_and_plan_refusal() {
         let f = Fixture::new();
         let p = f.create_paths();
-        assert_eq!(
-            resolve_missing(&p.home.join(".claude")),
-            fs::canonicalize(p.home.join(".claude")).unwrap()
-        );
+        let resolved_claude = resolve_missing(&p.home.join(".claude")).unwrap();
+        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
+        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
         let memory = p.claude_project.join("memory");
         let info = format!(
             "1 0 8:1 / / rw - ext4 /dev/root rw\n2 1 8:1 {} /alias rw - ext4 /dev/root rw\n",
