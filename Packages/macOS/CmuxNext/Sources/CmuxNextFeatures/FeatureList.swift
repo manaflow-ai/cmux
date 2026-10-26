@@ -12,7 +12,8 @@ import Atomics
 ///    be disabled")
 /// 3. local Labs and Debug overrides, DEV and NIGHTLY only
 /// 4. the signed remote document, already filtered by safe mode
-/// 5. the Nightly field-trial arm
+/// 5. the field-trial arm (``FieldTrials`` keeps only the studies of this
+///    build's channel: Nightly unless a study names another)
 /// 6. the channel default
 public nonisolated final class FeatureList: Sendable {
     public let registry: FeatureRegistry
@@ -125,9 +126,7 @@ public nonisolated final class FeatureList: Sendable {
         if overrides.environmentEnabled.contains(name) { return Feature.Resolution(isEnabled: true, source: .environment) }
         if let value = local?.localOverride(for: feature) { return Feature.Resolution(isEnabled: value, source: .local) }
         if let value = overrides.remote[name] { return Feature.Resolution(isEnabled: value, source: .remote) }
-        if channel.allowsFieldTrials, let value = overrides.fieldTrial[name] {
-            return Feature.Resolution(isEnabled: value, source: .fieldTrial)
-        }
+        if let value = overrides.fieldTrial[name] { return Feature.Resolution(isEnabled: value, source: .fieldTrial) }
         return Feature.Resolution(isEnabled: feature.defaults.value(for: channel), source: .channelDefault)
     }
 }
