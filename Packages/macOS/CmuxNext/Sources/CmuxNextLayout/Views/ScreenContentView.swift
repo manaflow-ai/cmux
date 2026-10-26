@@ -87,8 +87,12 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
-    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    /// Layout motion the CPU step does not own has not ended yet: a user pan of this screen stepped the
+    /// layout (`applyPresentation`), or render-server springs run (``renderSpringsInFlight``).
     var userMotionActive = false
+    /// Render-server spring calls of this screen's panes and dividers that have not landed
+    /// (`ScreenContentView+RenderMotion.swift`).
+    var renderSpringsInFlight = 0
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
