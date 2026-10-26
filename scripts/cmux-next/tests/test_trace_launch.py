@@ -4,18 +4,23 @@
 1. The launch fixture (trace_fixtures.write_launch_fixture: launch.mark signposts, the app's StartupTrace file, a
    daemon startup trace on a clock 2 s off, a Chromium `--trace-startup` file cut inside an event, main-thread
    samples, watchdog records) builds a summary with the milestones, a critical path between them, the top main-thread
-   frames before the first frame and every main-thread turn of 4 ms or more; SUMMARY.txt prints them.
-2. The startup files merge on one clock (the trace's clock rule): a file on CLOCK_UPTIME_RAW stays put, a file whose
-   shared launch marks are off moves by them, a file with no shared mark outside the window is named; each file's
-   threads get their own named tracks, never a sampled OS thread's.
+   frames before the first frame and every main-thread turn of 4 ms or more; SUMMARY.txt prints them. A step's tasks
+   are the app's main-thread top-level slices only: never a lane job's background thread, a nested child or a
+   Chromium file's thread of the same process. Watchdog records the drain lost are counted and warned about.
+2. The startup files merge on one clock (the trace's clock rule), against the time each launch mark names (process
+   start + its ms), not the signpost's emission: a file on CLOCK_UPTIME_RAW stays put even when its `daemon.*` marks
+   were emitted late (the identify reply hands them over), a file whose shared launch marks are off moves by them, a
+   file with no shared mark outside the window is named; each file's threads get their own named tracks, never a
+   sampled OS thread's.
 3. A cut file (StartupTrace's 64 KiB chunks after a crash, a killed Chromium) gives its whole events; a B with no E
    ends at the file's last time.
 4. Existing scenarios are unchanged: a stress or light recording has no launch section, and --scenario still takes
    stress-storm and light-storm (default stress-storm).
 5. The record path: the measured launch's window runs inside BenchApp.launch's on_start (no socket call into the
    launching app), the priming launch quits keeping its sessions and the measured one restores them, StartupTrace
-   is switched on, the watchdog threshold is 4 ms and no DevTools port is opened; launch-cold stops the bundle and
-   refuses the run when `sudo -n purge` needs a password.
+   is switched on, the watchdog threshold is 4 ms and no DevTools port is opened; only the launched pid's
+   `launch.mark` ends the window; the stop dumps the StartupTrace file (`debug.startup_trace`) before the app quits;
+   launch-cold stops the bundle and refuses the run when `sudo -n purge` needs a password.
 
 Runs on any OS with no app, GUI session or Xcode (the recorders and BenchApp are stand-ins).
 
@@ -59,10 +64,10 @@ def read(path):
         return f.read()
 
 
-def built(case, scenario="launch-warm"):
+def built(case, scenario="launch-warm", **fixture):
     out = tempfile.mkdtemp(prefix="trace-launch-")
     case.addClassCleanup(shutil.rmtree, out, True)
-    fixtures.write_launch_fixture(out, scenario=scenario)
+    fixtures.write_launch_fixture(out, scenario=scenario, **fixture)
     with mock.patch.object(trace, "note", lambda text: None):
         return out, trace.build(out)
 
@@ -89,7 +94,8 @@ class LaunchSummary(unittest.TestCase):
         self.assertEqual(dfl["ms"], 130.0)
         self.assertEqual(dfl["main_cpu_ms"], 2.0)  # two 1 ms samples of SessionStore.restore()
         self.assertEqual(dfl["frames"][0]["frame"], "AppDelegate.applicationDidFinishLaunching")
-        self.assertEqual(dfl["tasks"][0], {"task": "SessionRestore", "ms": 115.0})  # B/E made a slice
+        # B/E made a slice; its nested child and the lane job's background thread are not main-thread steps' work.
+        self.assertEqual(dfl["tasks"], [{"task": "SessionRestore", "ms": 115.0}])
         # daemon.* marks are not on the main thread's path.
         self.assertNotIn("daemon.socket_bound", {s["from"] for s in self.launch["critical_path"]})
         self.assertEqual([s for s in self.launch["critical_path"] if s.get("longest")][0]["to"], "startup_complete")
@@ -119,7 +125,8 @@ class LaunchSummary(unittest.TestCase):
         self.assertIn("Critical path", text)
         self.assertIn("* first_window_frame_committed -> startup_complete: 660.0 ms", text)
         self.assertIn("Top 10 main-thread frames before first_window_frame_committed", text)
-        self.assertIn("Main-thread turns of 4 ms or more (2):", text)
+        self.assertIn("Main-thread turns of 4 ms or more (2; watchdog records dropped 0):", text)
+        self.assertNotIn("WARNING: the watchdog ring dropped", text)
         self.assertIn("startup-cef.json: chromium, 2 events, TRUNCATED", text)
 
     def test_files_on_one_clock(self):
@@ -148,6 +155,37 @@ class LaunchSummary(unittest.TestCase):
         _, summary = built(type(self), "launch-cold")
         self.assertEqual(summary["launch"]["temperature"], "cold")
 
+    def test_late_daemon_marks_on_the_right_clock(self):
+        # The daemon's file is on CLOCK_UPTIME_RAW; its `daemon.*` signposts came DAEMON_MARK_DELAY_MS late.
+        _, summary = built(type(self), daemon_skew_us=0.0)
+        daemon = summary["sources"]["startup_files"]["startup-daemon.json"]
+        self.assertEqual(daemon["offset_us"], 0.0)
+        self.assertIsNone(daemon["warning"])
+
+    def test_dropped_watchdog_records_warn(self):
+        out, summary = built(type(self), hangs_dropped=3)
+        self.assertEqual(summary["launch"]["hangs_dropped"], 3)
+        text = read(os.path.join(out, "SUMMARY.txt"))
+        self.assertIn("watchdog records dropped 3", text)
+        self.assertIn("WARNING: the watchdog ring dropped its 3 oldest record(s)", text)
+
+    def test_chromium_threads_of_the_app_process_are_not_main_work(self):
+        # CEF's browser process is the app: its `--trace-startup` file has CrBrowserMain and IO threads in the app pid.
+        out = tempfile.mkdtemp(prefix="trace-launch-")
+        self.addCleanup(shutil.rmtree, out, True)
+        fixtures.write_launch_fixture(out)
+        with open(os.path.join(out, "startup", "startup-cef-browser.json"), "w") as f:
+            json.dump({"traceEvents": [
+                {"ph": "M", "pid": fixtures.LAUNCH_PID, "tid": 31, "name": "thread_name",
+                 "args": {"name": "Chrome_IOThread"}},
+                {"ph": "X", "pid": fixtures.LAUNCH_PID, "tid": 31, "name": "ChromeIO.task", "ts": AT(51), "dur": 125_000.0},
+                {"ph": "X", "pid": fixtures.LAUNCH_PID, "tid": fixtures.LAUNCH_MAIN_TID, "name": "CrBrowser.task",
+                 "ts": AT(51), "dur": 126_000.0}]}, f)
+        with mock.patch.object(trace, "note", lambda text: None):
+            launch = trace.build(out)["launch"]
+        tasks = {t["task"] for step in launch["critical_path"] for t in step["tasks"]}
+        self.assertEqual(tasks, {"SessionRestore"})
+
 
 class StartupFiles(unittest.TestCase):
     def write(self, text):
@@ -174,6 +212,29 @@ class StartupFiles(unittest.TestCase):
         self.assertEqual((begun["ph"], begun["dur"], begun["args"]["unfinished"]), ("X", 40.0, True))
         self.assertEqual(trace.read_trace_file(self.write("garbage")), ([], True))
         self.assertEqual(trace.read_trace_file("/nonexistent/startup.json"), ([], False))
+
+    def test_mark_times_name_the_mark_not_the_emission(self):
+        marks = {"main_start": {"ms": 30.0, "at_us": 10_030_000.0},
+                 "daemon.socket_bound": {"ms": 120.0, "at_us": 10_200_000.0}}  # handed over 80 ms late
+        self.assertEqual(trace.launch_process_start(marks), 10_000_000.0)
+        self.assertEqual(trace.launch_mark_times(marks)["daemon.socket_bound"], 10_120_000.0)
+        self.assertEqual(trace.launch_mark_times({}), {})
+
+    def test_top_level_slices(self):
+        parent = {"ph": "X", "pid": 1, "tid": 1, "name": "p", "ts": 0.0, "dur": 100.0}
+        child = {"ph": "X", "pid": 1, "tid": 1, "name": "c", "ts": 10.0, "dur": 20.0}
+        other = {"ph": "X", "pid": 1, "tid": 2, "name": "o", "ts": 10.0, "dur": 20.0}
+        after = {"ph": "X", "pid": 1, "tid": 1, "name": "a", "ts": 100.0, "dur": 5.0}
+        self.assertEqual([e["name"] for e in trace.top_level([child, after, parent, other])], ["p", "o", "a"])
+
+    def test_main_tracks(self):
+        named = [{"ph": "M", "pid": 1, "tid": 3, "name": "thread_name", "args": {"name": "Main Thread"}},
+                 {"ph": "X", "pid": 1, "tid": 4, "name": "job", "ts": 1.0, "dur": 1.0}]
+        self.assertEqual(trace.startup_main_tracks(named), {(1, 3)})
+        turned = [{"ph": "X", "pid": 1, "tid": 5, "cat": "main_turn", "name": "main.turn", "ts": 1.0, "dur": 9.0}]
+        self.assertEqual(trace.startup_main_tracks(turned), {(1, 5)})
+        marked = [{"ph": "i", "pid": 1, "tid": 6, "name": "mark", "ts": 1.0, "args": {"mark": "main_start"}}]
+        self.assertEqual(trace.startup_main_tracks(marked), {(1, 6)})
 
     def test_clock_rule(self):
         same = [{"ph": "i", "name": "main_start", "ts": 1000.0 + 300}]
@@ -251,16 +312,25 @@ class FakeBench:
         return {}
 
     def stop(self):
+        self.calls.append(("app-stop", None))
         if self.process:
             self.process.end()
 
 
 class FakeStream:
     def __init__(self):
-        self.marks = {}
+        self.marks, self.pid = {}, None
 
     def watch_mark(self, name):
         return self.marks.setdefault(name, threading.Event())
+
+    def watch_pid(self, pid):
+        self.pid = pid
+
+    def stop(self):
+        pass
+
+    kill = stop
 
 
 class RecordPath(unittest.TestCase):
@@ -284,7 +354,8 @@ class RecordPath(unittest.TestCase):
         # The xctrace recorder (its start is the stand-in below): a sample recorder would start /usr/bin/sample.
         rec = trace.Recording(opts, self.out, meta, trace.Stages(meta, log=lambda text: None), "/x/cmux DEV fixture.app",
                               "xctrace")
-        app = types.SimpleNamespace(bench=self.bench, rpc=self.bench.rpc,
+        app = types.SimpleNamespace(bench=self.bench, rpc=self.bench.rpc, probe=os.path.join(self.out, "typing.csv"),
+                                    startup_dir=os.path.join(self.out, "startup"),
                                     startup_env=lambda seconds: {"CMUX_TRACE_STARTUP": f"{seconds:g}"})
 
         def start_recorders():
@@ -312,6 +383,32 @@ class RecordPath(unittest.TestCase):
         self.assertLess(meta["launch"]["spawned_us"], meta["window_end_us"])
         self.assertEqual(meta["scenario_label"], "launch-warm-key-unknown")
         self.assertEqual(meta["errors"], [])
+        self.assertEqual(self.stream.pid, 1002)  # the window's marks are the measured launch's own
+
+    def test_stop_dumps_the_startup_trace_before_the_app_quits(self):
+        rec, app = self.recording("launch-warm")
+        with mock.patch.object(trace, "TraceApp", lambda *args: app), \
+                mock.patch.object(trace, "ps_snapshot", lambda bundle: []):
+            rec.launch_window()
+            rec.stop()
+            rec.stop_app()
+        methods = [method for method, _ in self.bench.calls]
+        self.assertIn("debug.startup_trace", methods)
+        self.assertLess(methods.index("debug.startup_trace"), methods.index("app-stop"))
+        self.assertLess(methods.index("debug.startup_trace"), methods.index("debug.hangs"))
+        self.assertEqual(rec.meta["errors"], [])
+        self.assertTrue(rec.hangs.from_start)
+
+    def test_single_drain_counts_records_lost_before_the_first(self):
+        replies = iter([{"records": [{"sequence": 6}, {"sequence": 7}]}, {"records": [{"sequence": 9}]}])
+        drain = trace.HangDrain(lambda *args, **kwargs: next(replies), os.path.join(self.out, "h.json"), from_start=True)
+        drain.drain()
+        self.assertEqual(drain.gaps, 5)  # sequences 1 to 5 left the ring before the drain
+        drain.drain()
+        self.assertEqual(drain.gaps, 6)
+        periodic = trace.HangDrain(lambda *args, **kwargs: {"records": [{"sequence": 6}]}, os.path.join(self.out, "p.json"))
+        periodic.drain()
+        self.assertEqual(periodic.gaps, 0)  # a storm's drain starts mid-run: what came before is not its window's
 
     def test_cold_refuses_without_purge(self):
         rec, app = self.recording("launch-cold")
@@ -349,9 +446,27 @@ class RecordPath(unittest.TestCase):
     def test_signpost_stream_sees_the_mark(self):
         stream = trace.SignpostStream(os.path.join(self.out, "s.ndjson"))
         complete = stream.watch_mark("startup_complete")
-        stream._saw(json.dumps({"signpostName": "launch.mark", "eventMessage": "first_idle ms=12.0"}))
+        stream._saw(json.dumps({"signpostName": "launch.mark", "processID": 7, "eventMessage": "first_idle ms=12.0"}))
+        stream.watch_pid(7)
         self.assertFalse(complete.is_set())
-        stream._saw(json.dumps({"signpostName": "launch.mark", "eventMessage": "startup_complete ms=900.0"}))
+        stream._saw(json.dumps({"signpostName": "launch.mark", "processID": 7, "eventMessage": "startup_complete ms=900.0"}))
+        self.assertTrue(complete.is_set())
+
+    def test_another_apps_mark_does_not_end_the_window(self):
+        stream = trace.SignpostStream(os.path.join(self.out, "s.ndjson"))
+        complete = stream.watch_mark("startup_complete")
+        other = json.dumps({"signpostName": "launch.mark", "processID": 99, "eventMessage": "startup_complete ms=5.0"})
+        stream._saw(other)  # before the spawn: the pid is not known yet
+        stream.watch_pid(7)
+        stream._saw(other)
+        self.assertFalse(complete.is_set())
+
+    def test_this_apps_mark_before_watch_pid_counts(self):
+        stream = trace.SignpostStream(os.path.join(self.out, "s.ndjson"))
+        complete = stream.watch_mark("startup_complete")
+        stream._saw(json.dumps({"signpostName": "launch.mark", "processID": 7, "eventMessage": "startup_complete ms=5.0"}))
+        self.assertFalse(complete.is_set())
+        stream.watch_pid(7)
         self.assertTrue(complete.is_set())
 
 

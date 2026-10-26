@@ -43,10 +43,12 @@ Scenarios (record --scenario):
                  (CMUX_TRACE_STARTUP, Chrome Trace Event JSON on CLOCK_UPTIME_RAW) into DIR/startup/, where the
                  daemon's and Chromium's `--trace-startup` files go too (p08-startup 099); they are merged on their
                  own tracks (a file whose events fall outside the window is moved by the launch marks it shares with
-                 the signposts, as the Chromium trace's clock check does). No DevTools port: Chromium's start is not
-                 delayed by a CDP client. Watchdog stalls from 4 ms (or --hang-ms when lower), drained once at the end
-                 so no socket call lands on the main thread during the launch. --seconds is the longest wait for
-                 `startup_complete` after the spawn
+                 the signposts, at the times the marks name, as the Chromium trace's clock check does). No DevTools
+                 port: Chromium's start is not delayed by a CDP client. Watchdog stalls from 4 ms (or --hang-ms when
+                 lower), drained once at the end so no socket call lands on the main thread during the launch (records
+                 the ring dropped before the drain are counted and warned about). The window ends at the launched
+                 pid's own `startup_complete` mark; --seconds is the longest wait for it after the spawn. The stop
+                 dumps the StartupTrace file (`debug.startup_trace`) before the app quits
   launch-cold   the same after a reboot's state: the priming launch's app, daemon, hosts and agents are stopped (SIGTERM
                  by exact PID, the bundle's own processes) and `sudo -n purge` empties the file cache; a host where
                  purge needs a password refuses the run (`purge-refused`), never a cold label on a warm launch
@@ -223,6 +225,7 @@ LAUNCH_S = 180 + 10 + 60  # BenchApp.launch: 180 s for the socket, 10 s for a cr
 PRIME_QUIT_S = RPC_SHORT_S + 30 + 15  # the priming app's debug.quit, its exit, then its exit after SIGTERM
 COLD_STOP_S = 15 + 5  # the bundle's processes after SIGTERM (kqueue NOTE_EXIT), then after SIGKILL
 PURGE_S = 120  # `sudo -n purge`
+STARTUP_TRACE_CLOSE_S = 5  # debug.startup_trace's reply to the app's StartupTrace file read back whole
 
 # Each stage of a recording has a bound. A stage that passes it ends loudly, its cleanup (`on_abort`) stops what
 # it started, and the trace and summary are still written from what was recorded (job 7 on 2026-10-23 sat silent
@@ -254,6 +257,7 @@ STAGE_BOUNDS_S = {
     "driver-stop": 30 + 30 + STAGE_MARGIN_S,   # the typist's and the storm's joins
     "wrap-stop": WRAP_STOP_S + STAGE_MARGIN_S,  # WrappedCommand.stop; its cleanup is the group's SIGKILL
     "teardown-rpc": RPC_S + STAGE_MARGIN_S,  # debug.frames stop, debug.timings
+    "startup-trace": RPC_S + STARTUP_TRACE_CLOSE_S + STAGE_MARGIN_S,  # debug.startup_trace, then the file closed
     "window-state": RPC_SHORT_S + STAGE_MARGIN_S,  # debug.window_list at the window's end
     # Tracing.end, then IO.read of at most a 128 MB buffer; every call bounded (not measured). A cut drops the
     # DevTools socket (no process of ours) and loses only the Chromium events.
@@ -476,24 +480,39 @@ class SignpostStream:
     def __init__(self, path):
         self.path, self.proc, self.reader, self.file = path, None, None, None
         self.attached = threading.Event()
-        self.marks = {}  # launch mark name -> Event, set by the reader when the app's `launch.mark` event names it
+        self.marks = {}  # launch mark name -> Event, set by the reader when the watched app's `launch.mark` names it
+        self.seen = collections.defaultdict(set)  # launch mark name -> the pids whose `launch.mark` named it
+        self.pid = None  # the launched app's pid (`watch_pid`): the subsystem is every cmux-next app's on the host
 
     def watch_mark(self, name):
-        """An Event the reader sets when a `launch.mark` signpost for the launch mark `name` arrives (LaunchSignposts
-        message `<name> ms=<ms>`): a launch scenario waits on the stream it records, with no socket call into the
-        launching app. Call before the launch."""
+        """An Event the reader sets when the watched app's `launch.mark` signpost for the launch mark `name` arrives
+        (LaunchSignposts message `<name> ms=<ms>`): a launch scenario waits on the stream it records, with no socket
+        call into the launching app. Call before the launch; `watch_pid` names the app at its spawn."""
         return self.marks.setdefault(name, threading.Event())
+
+    def watch_pid(self, pid):
+        """Scopes the watched marks to `pid` (another tag's app, a nightly or another job's app shares the
+        subsystem). A mark the reader saw from `pid` before this call still counts: the reader records the pid before
+        it reads `self.pid`, and this sets `self.pid` before it reads what the reader recorded."""
+        self.pid = pid
+        for name, event in self.marks.items():
+            if pid in self.seen.get(name, ()):
+                event.set()
 
     def _saw(self, line):
         if '"launch.mark"' not in line or not self.marks:
             return
         try:
-            message = json.loads(line).get("eventMessage") or ""
+            event = json.loads(line)
         except json.JSONDecodeError:
             return
-        event = self.marks.get(message.split(" ", 1)[0])
-        if event:
-            event.set()
+        name = (event.get("eventMessage") or "").split(" ", 1)[0]
+        if name not in self.marks:
+            return
+        pid = event.get("processID")
+        self.seen[name].add(pid)
+        if self.pid is not None and pid == self.pid:
+            self.marks[name].set()
 
     def start(self, timeout=LOG_ATTACH_S, hold=contextlib.nullcontext):
         timebase = signposts_lib.local_timebase()
@@ -706,11 +725,13 @@ class FileFollower:
 
 class HangDrain(threading.Thread):
     """Drains the app's watchdog ring (`debug.hangs`, 128 records) every second by sequence, so a long run loses
-    none; counts sequence gaps (records the ring dropped before a drain)."""
+    none; counts sequence gaps (records the ring dropped before a drain). `from_start`: the drain reads an app
+    whose watchdog it has drained since the app's start (the ring's sequence starts at 1), so records missing below the
+    first kept sequence are dropped ones too (a launch scenario's single drain after the launch)."""
 
-    def __init__(self, rpc, path):
+    def __init__(self, rpc, path, from_start=False):
         super().__init__(name="hangs", daemon=True)
-        self.rpc, self.path = rpc, path
+        self.rpc, self.path, self.from_start = rpc, path, from_start
         self.records, self.after, self.gaps = [], 0, 0
         self.stop_flag = threading.Event()
 
@@ -720,7 +741,7 @@ class HangDrain(threading.Thread):
             return reply
         for record in reply.get("records") or []:
             sequence = int(record.get("sequence") or 0)
-            if self.after and sequence > self.after + 1:
+            if (self.after or self.from_start) and sequence > self.after + 1:
                 self.gaps += sequence - self.after - 1
             self.after = max(self.after, sequence)
             self.records.append(record)
@@ -1331,6 +1352,7 @@ class Recording:
             reaches the launching app's main thread until the launch is over."""
             meta["app_pid"] = process.pid
             meta["launch"]["spawned_us"] = uptime_us()
+            self.signposts.watch_pid(process.pid)  # only this launch's marks end its window
             if self.recorder == "sample":
                 self.sampler = self.sampler or Sampler(self.out)
                 self.sampler.start([(process.pid, "app")], opts.seconds + LAUNCH_SETTLE_S, hold=stages.hold)
@@ -1352,8 +1374,9 @@ class Recording:
         self.install_signals()
         self.rpc = self.app.rpc
         meta.update(tag=bench.tag, launched_env=bench.launched_env)
-        # One drain at the stop (`stop-hangs`), after the launch: the ring holds the launch's turns over the threshold.
-        self.hangs = HangDrain(self.rpc, os.path.join(self.out, "hangs.json"))
+        # One drain at the stop (`stop-hangs`), after the launch: the ring holds the launch's last 128 turns over the
+        # threshold, and the records it dropped before them count as dropped.
+        self.hangs = HangDrain(self.rpc, os.path.join(self.out, "hangs.json"), from_start=True)
         with stages.run("window-state"):
             meta["window_state"] = window_state(self.rpc)
         meta["scenario_label"] = scenario_label(opts.scenario, [meta.get("window_state") or {}])
@@ -1606,6 +1629,9 @@ class Recording:
                 meta["sources"]["chromium"] = chromium.stop()
                 note(f"chromium trace saved: {os.path.getsize(chromium.path) / 1e6:.0f} MB" if os.path.exists(chromium.path)
                      else "chromium trace: nothing saved")
+        if self.app and self.rpc and meta.get("launch") and meta.get("window_start_us"):
+            with stages.run("startup-trace"):
+                self.dump_startup_trace()
         for name, source in (("hangs", self.hangs), ("spans", self.spans), ("sampler", self.sampler),
                              ("signposts", self.signposts)):
             if source:
@@ -1627,6 +1653,23 @@ class Recording:
             meta["key_to_frame_ms"] = pct([float(r["contents_ms"]) for r in complete])
             with stages.run("teardown-rpc"):
                 meta["timings"] = self.rpc("debug.timings", timeout=RPC_S)
+
+    def dump_startup_trace(self):
+        """Closes the measured launch's StartupTrace file before the app quits: its deadline (--seconds + the settle)
+        comes long after the window, and the file holds only whole 64 KiB chunks until then. `debug.startup_trace`
+        (p08-startup 004) writes the rest and closes it; the window is over, so the call touches no launch turn."""
+        path = os.path.join(self.app.startup_dir, STARTUP_APP_FILE)
+        reply = self.rpc("debug.startup_trace", timeout=RPC_S)
+        self.meta["sources"]["startup_trace"] = reply
+        if not isinstance(reply, dict) or reply.get("error"):
+            self.warn(f"debug.startup_trace failed ({json.dumps(reply)[:200]}): {STARTUP_APP_FILE} keeps only the "
+                      "chunks the app flushed")
+            return
+        deadline = time.monotonic() + STARTUP_TRACE_CLOSE_S
+        while read_trace_file(path)[1] and time.monotonic() < deadline:  # the dump may finish off its reply's turn
+            time.sleep(0.1)
+        if read_trace_file(path)[1]:
+            self.warn(f"{STARTUP_APP_FILE} is not closed {STARTUP_TRACE_CLOSE_S:g} s after debug.startup_trace")
 
     def stop_app(self):
         """Quits the app this run launched (unless --keep), or after a wrapped command that had to be stopped,
@@ -2616,16 +2659,31 @@ def launch_marks(signposts, app_pid):
     return marks
 
 
-def startup_clock(events, signpost_at, window, prefix=""):
+def launch_process_start(marks):
+    """The app's process start on CLOCK_UPTIME_RAW from its launch marks: each mark is emitted at or after the time it
+    names (`at_us - ms`, a mark handed over from another thread later), so the earliest bound is the start."""
+    return min((m["at_us"] - m["ms"] * 1000 for m in marks.values()), default=None)
+
+
+def launch_mark_times(marks):
+    """{mark: the CLOCK_UPTIME_RAW us the mark names}: process start + its ms, not the signpost's emission time (the
+    app emits the daemon's `daemon.*` marks when an identify reply hands them over, well after the daemon reached
+    them)."""
+    start = launch_process_start(marks)
+    return {} if start is None else {name: start + mark["ms"] * 1000 for name, mark in marks.items()}
+
+
+def startup_clock(events, mark_at, window, prefix=""):
     """(offset_us, how, warning) for one startup file, by the trace's clock rule: every source is CLOCK_UPTIME_RAW in
     us (StartupTrace writes it; Chromium's TimeTicks is mach_absolute_time), checked rather than assumed. The launch
-    marks a file shares with the signposts (instants of the same mark) give the offset: 0 within 1 ms (the same
-    clock), else their median, as the Chromium trace's clock_sync check does. A daemon file's marks are the app's
-    `daemon.<mark>` (`prefix`: the app maps the daemon's startup_marks so, p08-startup 093). A file with no shared
-    mark stays put and is named when its events fall more than 1 s outside the window."""
-    diffs = [signpost_at[prefix + mark_name(e)] - float(e["ts"]) for e in events
+    marks a file shares with the signposts (instants of the same mark, against the time the mark names:
+    launch_mark_times) give the offset: 0 within 1 ms (the same clock), else their median, as the Chromium trace's
+    clock_sync check does. A daemon file's marks are the app's `daemon.<mark>` (`prefix`: the app maps the daemon's
+    startup_marks so, p08-startup 093). A file with no shared mark stays put and is named when its events fall more
+    than 1 s outside the window."""
+    diffs = [mark_at[prefix + mark_name(e)] - float(e["ts"]) for e in events
              if e.get("ph") in INSTANT_PHASES and isinstance(e.get("ts"), (int, float))
-             and prefix + str(mark_name(e)) in signpost_at]
+             and prefix + str(mark_name(e)) in mark_at]
     if diffs:
         raw = statistics.median(diffs)
         if abs(raw) <= 1000:
@@ -2641,19 +2699,47 @@ def startup_clock(events, signpost_at, window, prefix=""):
     return 0.0, "CLOCK_UPTIME_RAW (assumed: no shared launch mark)", None
 
 
+MAIN_THREAD_NAMES = ("main", "main thread", "com.apple.main-thread")
+
+
+def startup_main_tracks(events):
+    """The (pid, tid) tracks of the app's main thread in its StartupTrace file: the thread it names main, the one its
+    main-thread turns are on, else the one its launch milestones are on (the main thread's path)."""
+    named = {(e.get("pid"), e.get("tid")) for e in events if e.get("ph") == "M" and e.get("name") == "thread_name"
+             and str((e.get("args") or {}).get("name") or "").strip().lower() in MAIN_THREAD_NAMES}
+    turns = {(e.get("pid"), e.get("tid")) for e in events if e.get("ph") == "X" and is_turn(e)}
+    if named or turns:
+        return named | turns
+    return {(e.get("pid"), e.get("tid")) for e in events
+            if e.get("ph") in INSTANT_PHASES and mark_name(e) in LAUNCH_MILESTONES}
+
+
+def top_level(slices):
+    """The X slices no other slice of their track contains (a child's time is its parent's already)."""
+    out, ends = [], {}
+    for e in sorted(slices, key=lambda e: (float(e["ts"]), -float(e.get("dur") or 0))):
+        key, end = (e.get("pid"), e.get("tid")), float(e["ts"]) + float(e.get("dur") or 0)
+        if key in ends and end <= ends[key]:
+            continue
+        ends[key] = end
+        out.append(e)
+    return out
+
+
 def startup_files(out, signposts, app_pid, window):
-    """Every startup trace in DIR/startup on the trace clock: (events, {file: info}). Process names come from the
+    """Every startup trace in DIR/startup on the trace clock: (events, {file: info}, app), where `app` is the app's
+    StartupTrace file alone: {"events": its events, "main": its main-thread tracks}. Process names come from the
     trace's roles; each thread is named `startup <source>: <thread>`."""
     folder = os.path.join(out, STARTUP_DIR)
-    signpost_at = {name: mark["at_us"] for name, mark in launch_marks(signposts, app_pid).items()}
-    events, files = [], {}
+    mark_at = launch_mark_times(launch_marks(signposts, app_pid))
+    events, files, app = [], {}, {"events": [], "main": set()}
     for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
         if not name.endswith(".json"):
             continue
         source = startup_source(name)
         raw, truncated = read_trace_file(os.path.join(folder, name))
         raw = complete_slices(raw)
-        offset, how, warning = startup_clock(raw, signpost_at, window, "daemon." if source == "daemon" else "")
+        offset, how, warning = startup_clock(raw, mark_at, window, "daemon." if source == "daemon" else "")
         named, kept = set(), []
         for e in raw:
             if e.get("ph") == "M" and e.get("name") in ("process_name", "process_sort_index", "process_labels"):
@@ -2677,10 +2763,14 @@ def startup_files(out, signposts, app_pid, window):
             kept.append({"ph": "M", "pid": pid, "tid": tid, "name": "thread_name",
                          "args": {"name": f"startup {source}"}})
         events += kept
+        if source == "app":
+            # The tracks are read before the threads are renamed `startup app: <name>` (the same pid and tid).
+            app = {"events": app["events"] + kept, "main": app["main"] | startup_main_tracks(
+                [dict(e, pid=app_pid if e.get("pid") is None else e.get("pid"), tid=e.get("tid", 0)) for e in raw])}
         files[name] = {"source": source, "events": len(kept), "truncated": truncated, "clock": how,
                        "offset_us": round(offset, 1), "warning": warning,
                        "pids": sorted({e["pid"] for e in kept if isinstance(e["pid"], int)})}
-    return events, files
+    return events, files, app
 
 
 # ---------------------------------------------------------------- launch summary
@@ -2690,11 +2780,13 @@ def is_turn(event):
     return event.get("cat") in ("turn", "main_turn", "main.turn") or str(event.get("name") or "").startswith("main.turn")
 
 
-def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stalls, startup_events):
+def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stalls, app_trace, hangs_dropped=None):
     """The launch section of the summary: milestones, the critical path between them, the top main-thread frames
-    before the first frame, and every main-thread turn of LAUNCH_TURN_MS or more."""
+    before the first frame, and every main-thread turn of LAUNCH_TURN_MS or more. `app_trace` is the app's
+    StartupTrace file (startup_files): its tasks count only on its main-thread tracks, never a lane job's background
+    thread or the Chromium `--trace-startup` file's threads of the same process."""
     marks = launch_marks(signposts, app_pid)
-    app_events = [e for e in startup_events if e.get("pid") == app_pid and e.get("ph") != "M"]
+    app_events = [e for e in app_trace["events"] if e.get("pid") == app_pid and e.get("ph") != "M"]
     instants = {}
     for e in app_events:
         if e.get("ph") in INSTANT_PHASES:
@@ -2704,7 +2796,7 @@ def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid,
     if "process_start" in instants:
         process_start, process_start_from = instants["process_start"], "startup trace"
     elif marks:
-        process_start, process_start_from = min(m["at_us"] - m["ms"] * 1000 for m in marks.values()), "launch marks"
+        process_start, process_start_from = launch_process_start(marks), "launch marks"
     else:
         process_start, process_start_from = None, "none"
     milestones = {"process_start": {"ms": 0.0, "from": process_start_from}}
@@ -2729,7 +2821,8 @@ def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid,
             return []
         return main[bisect.bisect_left(main_times, a):bisect.bisect_right(main_times, b)]
 
-    tasks = [e for e in app_events if e.get("ph") == "X" and not is_turn(e)]
+    tasks = top_level([e for e in app_events if e.get("ph") == "X" and not is_turn(e)
+                       and (e.get("pid"), e.get("tid")) in app_trace["main"]])
 
     def tasks_during(a, b, limit=3):
         overlap = collections.Counter()
@@ -2815,7 +2908,7 @@ def launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid,
         if STARTUP_COMPLETE_MARK in milestones else None,
         "critical_path": critical, "main_samples": len(main),
         "top_main_frames": top, "top_main_frames_until": FIRST_FRAME_MARK if first_frame else "the window's end",
-        "turns": rows, "turn_ms": LAUNCH_TURN_MS, "run": meta.get("launch"),
+        "turns": rows, "turn_ms": LAUNCH_TURN_MS, "run": meta.get("launch"), "hangs_dropped": hangs_dropped,
     }
 
 
@@ -2844,7 +2937,12 @@ def launch_text(launch, files):
     for row in launch.get("top_main_frames") or []:
         lines.append(f"  {row['ms']:8} / {row['self_ms']:<8} {row['frame'][:120]}")
     turns = launch.get("turns") or []
-    lines.append(f"Main-thread turns of {launch.get('turn_ms')} ms or more ({len(turns)}):")
+    dropped = launch.get("hangs_dropped")
+    lines.append(f"Main-thread turns of {launch.get('turn_ms')} ms or more ({len(turns)}; watchdog records dropped "
+                 f"{dropped}):")
+    if dropped:
+        lines.append(f"  WARNING: the watchdog ring dropped its {dropped} oldest record(s) before the drain: the "
+                     "earliest turns of the launch are missing from this list")
     for turn in turns:
         lines.append(f"  +{turn['at_ms']} ms: {turn['ms']} ms" + (f", cpu {turn['cpu_ms']} ms" if turn["cpu_ms"] is not None else "")
                      + f" [{turn['source']}]" + (f" in {turn['step']}" if turn["step"] else "")
@@ -2917,7 +3015,8 @@ def build(out):
     keep = lambda thread: roles.get(thread.get("pid"), "other") in flame_roles
     chrome, chrome_info = chromium_events(out, threads_by_pid)
     # The launch scenarios' startup traces (the app's StartupTrace, the daemon's, Chromium's), on the trace clock.
-    startup, startup_info = startup_files(out, signposts, app_pid, (meta.get("window_start_us"), meta.get("window_end_us")))
+    startup, startup_info, app_trace = startup_files(out, signposts, app_pid,
+                                                     (meta.get("window_start_us"), meta.get("window_end_us")))
     os_tids = {thread.get("tid") for _, _, thread, _ in samples} | {thread.get("tid") for _, _, thread, _, _ in states} \
         | {e.get("tid") for e in chrome} | {e.get("tid") for e in startup}
     os_tids = {t for t in os_tids if isinstance(t, int)}
@@ -3038,7 +3137,7 @@ def build(out):
     summary["key_flows"] = flow_summary(key_flows, flow_dropped, flow_gaps)
     if meta.get("scenario") in LAUNCH_SCENARIOS:
         summary["launch"] = launch_summary(meta, signposts, samples, offset_us, app_pid, threads_by_pid, stall_records,
-                                           startup)
+                                           app_trace, hangs.get("dropped"))
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
