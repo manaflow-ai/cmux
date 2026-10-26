@@ -632,6 +632,7 @@ review task "leaf Rust crate" is merged into 042; review task "kernel pressure t
 | 036a | ghostty-next pin bump for set_gpu_resident | S | normal | 036 | |
 | 037 | Hidden surfaces drop GPU residency; warm set gated | M | normal | 036a, 035, 096 | |
 | 039 | Glyph atlas sharing measurement | S | low | 014 | MQ-UNATTRIBUTED |
+| 039a | Shared glyph atlas texture in ghostty-next | M | normal | 039 | MQ-UNATTRIBUTED |
 | 040 | Cold-scrollback codec (gated) | L | normal | 112 | |
 | 041 | Compress cold scrollback (gated) | M | normal | 040, 072 | |
 | 042 | cmux-memory leaf crate: registry, macOS and Linux sources | M | normal | - | MQ-PRESSURE |
@@ -1040,6 +1041,53 @@ All IDs below are `p07-memory-NNN`.
 - Change: IOAccelerator/IOSurface bytes per added visible terminal; fix per-surface atlas if found.
 - Acceptance: atlas_bytes_per_extra_terminal recorded in memory-DESIGN.md.
 - Test: fleet exclusive.
+- Status: open, waiting on the fleet run. The measurement tool is in (`memory-report.py`), but the
+  acceptance is not met: no fleet `ATLAS` line is recorded yet, and memory-DESIGN.md (task 007) is not
+  on perf/chrome-parity. The fork fix is task 039a below, opened now from the source evidence.
+- Measurement: `memory-report.py --phases home,atlas` (fleet: `scripts/measure/memory-report.sh
+  --arg=--phases=home,atlas`; never in the same launch as `stress`, which the tool refuses: the grown
+  atlas stays grown and would inflate every STRESS terminal) prints `ATLAS ...
+  atlas_bytes_per_extra_terminal=N verdict=...`. It samples the GPU groups at 1..4 visible terminals
+  tiling the STRESS window in a 2 x 2 grid, then shows a sheet of CJK glyphs in each, then samples again
+  while the panes close (each close is checked in the topology before its sample). N is the change in
+  GPU bytes per extra terminal that the atlas growth caused: 0 when shared, `unknown` when the verdict
+  is `unmeasured` (the raw slope change is then only in `gpu_slope_change_bytes`).
+- Sheet size: the STRESS virtual display is 1x (`scripts/ci/frame-pacing/vdisplay.m` sets
+  `settings.hiDPI = 0`). At 1x and the default font a two-cell CJK glyph takes about 16 x 17 px with
+  padding (about 340 px). The tool reads the window's backing scale (`debug.pane_chrome`
+  windows[].scale) and sizes the sheet to 2 M px at that scale: 6,169 glyphs at 1x, 1,543 at 2x. That
+  passes 1024 x 1024 (1 M px) and stays inside 2048 x 2048 (4 M px), so the grayscale atlas doubles
+  twice, 512 -> 1024 -> 2048 R8, at either scale. The "did not grow" threshold is 512 KiB on one
+  terminal: two thirds of the smallest real growth of a shared texture (one doubling, 1024 x 1024 -
+  512 x 512 R8 = 768 KiB).
+- Expected from the ghostty-next source at 723c4ab9 (no fleet number yet): per surface. The CPU atlas
+  is shared: one grayscale and one color atlas per font configuration, both starting at 512 x 512
+  (`src/font/SharedGridSet.zig`, `src/font/SharedGrid.zig:92`). But each surface's swap chain has
+  `swap_chain_count = 3` frames (`src/renderer/Metal.zig:40`), and each frame has its own grayscale
+  and color `MTLTexture` copied from that atlas (`FrameState` and `syncAtlasTexture` in
+  `src/renderer/generic.zig`). So every visible terminal holds 3 copies. With the sheet above the atlas
+  grows to 2048 x 2048 R8 at 1x, and the predicted value is 3 x (4 MiB - 256 KiB) = 11.25 MiB more per
+  extra visible terminal. Hidden surfaces free their swap chain (`setVisible(false)`,
+  `generic.zig:1321`), so the cost applies only to visible terminals. Chrome uses one glyph atlas in the
+  GPU process for all renderers. Skia's `GrDrawOpAtlas`
+  (third_party/skia/src/gpu/ganesh/GrDrawOpAtlas.cpp) tracks the last use of each plot with a token, so
+  an upload never overwrites a region that a frame in flight still reads.
+- Record: copy the fleet `ATLAS` line (host, SHA, step ID) to memory-DESIGN.md section 7. If task 007
+  has not landed then, create the section 7 stub in memory-DESIGN.md with that line. Then mark 039 done.
+
+### 039a Shared glyph atlas texture in ghostty-next (opened from 039's source evidence)
+- Files: ghostty-next `src/renderer/generic.zig` (FrameState, syncAtlasTexture), `src/renderer/Metal.zig`,
+  `src/font/SharedGrid.zig`; the ghostty-next submodule pointer in cmux.
+- Change: one grayscale and one color atlas `MTLTexture` per atlas per device, shared by every surface,
+  in place of the per-frame copies in each surface's 3-frame swap chain. Uploads track use the way
+  Skia's `GrDrawOpAtlas` does: each region records the token of the last frame that drew from it, and a
+  frame in flight never sees a region overwritten (a grow makes a new texture; the old one is freed when
+  the last frame that read it completes).
+- Acceptance: the fleet `ATLAS` line reads `verdict=shared` with `atlas_bytes_per_extra_terminal` near
+  0, against about 11.25 MiB before; no glyph corruption with 4 visible terminals drawing the 039 sheet.
+- Test: ghostty-next renderer tests for the use tokens; fleet exclusive `memory-report.sh
+  --arg=--phases=home,atlas` before and after.
+- Depends on: 039's fleet run confirming `verdict=per_surface` (the source already predicts it).
 
 ### 040 Cold-scrollback codec (gated by 112)
 - Files: cmux-tui/crates/ghostty-vt/src/cold_pages.rs, lib.rs, tests/cold_pages.rs.
