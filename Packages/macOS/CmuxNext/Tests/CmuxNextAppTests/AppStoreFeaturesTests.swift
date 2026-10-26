@@ -69,7 +69,7 @@ import Testing
             "appearance.ultraCompact": .appearance, "appearance.calm": .appearance,
             "appearance.brailleStatus": .appearance, "appearance.runningCommands": .appearance,
             "chief.suggestedTasks": .chief, "chief.githubFeed": .chief, "chat.needsYou": .chief,
-            "editor.splitDiff": .editor, "editor.minimap": .editor, "editor.chatMinimap": .editor,
+            "editor.splitDiff": .editor, "editor.minimap": .editor,
             "devices.phoneAccess": .devices, "devices.globalHotKey": .devices,
         ]
         let bridge = SettingsAppFeatures(settings: { nil })
@@ -129,20 +129,6 @@ import Testing
         try await bridge.set(paintings, on: false)
         #expect(settings.fileRoot.value(at: ["appearance", "background"]) == nil)
         #expect(!bridge.isOn(paintings))
-    }
-
-    @Test func theChatMinimapCardFollowsAnOldSavedToggle() async throws {
-        let (settings, home) = try await Self.make("{\"agentPane\":{\"display\":{\"minimap\":true}}}")
-        defer { try? FileManager.default.removeItem(at: home) }
-        let bridge = SettingsAppFeatures(settings: { settings })
-        let minimap = try Self.feature("editor.chatMinimap")
-        #expect(bridge.isOn(minimap))
-        try await bridge.set(minimap, on: false)
-        #expect(!bridge.isOn(minimap))
-        #expect(settings.fileRoot.value(at: minimap.path) == nil)
-        try await bridge.set(minimap, on: true)
-        #expect(bridge.isOn(minimap))
-        #expect(settings.fileRoot.value(at: minimap.path) == .string("full"))
     }
 
     /// Chief in Sidebar: listed once the sidebar binds its side, on while the layout shows the

@@ -124,13 +124,6 @@ extension AppFeature {
                        name: t("store.feature.minimap.name", "Editor Minimap"),
                        summary: t("store.feature.minimap.summary", "A small map of the whole file beside the editor."),
                        keywords: ["editor", "overview", "scroll", "code"]),
-            // Leo, 2026-10-22: "addng in the app store the vscode-like minimap situation". The agent
-            // chat's full-height map (webviews threadMinimap/ScrollMap.tsx) in place of the prompt rail.
-            AppFeature(id: "editor.chatMinimap", setting: "agentPane.display.minimap", on: .choice("full"),
-                       category: .editor, preview: .window(.pane, .agentChat),
-                       name: t("store.feature.chatMinimap.name", "Chat Minimap"),
-                       summary: t("store.feature.chatMinimap.summary", "A map of the whole agent chat down its edge, with a box for what is on screen."),
-                       keywords: ["minimap", "chat", "agent", "overview", "scroll", "vscode"]),
             AppFeature(id: "devices.phoneAccess", setting: "phone.allowConnections", on: .toggle,
                        category: .devices, preview: .window(.pane, .mobilePair),
                        name: t("store.feature.phoneAccess.name", "Phone Access"),
