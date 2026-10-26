@@ -27,14 +27,16 @@ struct StartupTemperatureTests {
         #expect(StartupTemperature.Thresholds.chrome == StartupTemperature.Thresholds(warmBelow: 5, coldFrom: 3_500))
     }
 
-    @Test(arguments: [
-        (UInt64(0), StartupTemperature.warm),
+    nonisolated static let chromeBounds: [(UInt64, StartupTemperature)] = [
+        (0, .warm),
         (4, .warm),
         (5, .lukewarm),
         (3_499, .lukewarm),
         (3_500, .cold),
         (40_000, .cold),
-    ])
+    ]
+
+    @Test(arguments: chromeBounds)
     func chromesBoundsSplitThePageIns(pageIns: UInt64, expected: StartupTemperature) {
         #expect(StartupTemperature.Thresholds.chrome.classify(pageIns: pageIns) == expected)
     }
