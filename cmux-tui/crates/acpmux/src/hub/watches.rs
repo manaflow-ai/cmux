@@ -170,8 +170,12 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
 }
 async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
     let watches = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.watches.clone();
+    let mut ordered: Vec<_> = watches.into_values().filter(|w| w.active).collect();
+    // Watches with local sources are reconciled before peer-only watches, so a
+    // slow remote cannot postpone an unrelated local wake.
+    ordered.sort_by_key(|w| w.sessions.iter().all(|key| key.contains('/')));
     let mut retry_needed = false;
-    for mut w in watches.into_values().filter(|w| w.active) {
+    for mut w in ordered {
         let old = json!(w);
         let mut lines = Vec::new();
         let mut resolved = false;
@@ -195,12 +199,15 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
             }
             let checkpoint = w.cursors.get(&key).cloned();
             let collected = if key.contains('/') {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
+                match tokio::time::timeout(
+                    std::time::Duration::from_millis(250),
                     watch_events::collect(hub, &mut w, &key),
                 )
                 .await
-                .map_err(|_| RpcError::internal("peer watch read timed out"))?
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(RpcError::internal("peer watch read timed out")),
+                }
             } else {
                 watch_events::collect(hub, &mut w, &key).await
             };
