@@ -72,6 +72,11 @@ Pass --vdisplay-hold=SECONDS longer than the run (the helper ends itself after 1
 
 Usage: every-action-sweep.py --app APP --tag TAG --out DIR [--json PATH] [--sessions light,stress] [--repeat 3]
        [--only id,id] [--limit N] [--shard K/N] [--settle 0.5] [--no-interactions] [--keep]
+       every-action-sweep.py --plan-only --catalog ACTION_LIST.json --out DIR [--json PATH] [--sessions ...] [--only ...]
+--plan-only launches nothing (Linux too): it writes what each session would do with each action of the catalog (an
+action.list reply; every run saves its live one as OUT/action-list.json): the skip and its kind, or the entrypoint,
+context, arguments, setup steps, expectation, toggle and undo. Diff two checkouts' plans to show a refactor of the
+sweep's setup changed nothing.
 A sharded run (--shard K/N) times the interactions in shard 1 only; merge the shards' JSON with
 --merge OUT/every-action.json SHARD.json... (writes the merged JSON and the ranked markdown). A SHARD may also be the
 step log of a failed step (the EVERY-ACTION-REPORT lines it printed).
@@ -105,10 +110,14 @@ else:
     MERGE = None
 
 parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-parser.add_argument("--app", required=True)
-parser.add_argument("--tag", required=True)
+parser.add_argument("--app", help="the tagged app (required unless --plan-only)")
+parser.add_argument("--tag", help="the app's tag (required unless --plan-only)")
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
+parser.add_argument("--plan-only", action="store_true",
+                    help="no app: write each action's plan per session (OUT/every-action-plan.json, or --json) from --catalog")
+parser.add_argument("--catalog", help="an action.list reply ({\"actions\": [...]}) for --plan-only; every run writes the live "
+                                      "one to OUT/action-list.json")
 # Every session of a whole-catalog run: a coverage verdict needs both (an action light cannot set up STRESS may cover).
 SESSIONS = ("light", "stress")
 parser.add_argument("--sessions", default=",".join(SESSIONS))
@@ -124,6 +133,12 @@ parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALU
                     help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
                          "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
 opts = parser.parse_args()
+if opts.plan_only:
+    if not opts.catalog:
+        parser.error("--plan-only needs --catalog (an action.list reply, e.g. OUT/action-list.json of a run)")
+    opts.app, opts.tag = opts.app or "-", opts.tag or "plan-only"
+elif not (opts.app and opts.tag):
+    parser.error("--app and --tag are required (unless --plan-only)")
 
 OUT = os.path.abspath(opts.out)
 os.makedirs(OUT, exist_ok=True)
@@ -168,9 +183,14 @@ REPORT_LINE = "EVERY-ACTION-REPORT"
 REPORT_LINE_CHARS = 4000
 
 
+# CACurrentMediaTime's and NSEvent timestamps' clock. Linux has none and no app to time: --plan-only and the
+# tests import the module there.
+UPTIME_CLOCK = getattr(time, "CLOCK_UPTIME_RAW", time.CLOCK_MONOTONIC)
+
+
 def uptime():
-    """CLOCK_UPTIME_RAW seconds: CACurrentMediaTime's and NSEvent timestamps' clock."""
-    return time.clock_gettime(time.CLOCK_UPTIME_RAW)
+    """UPTIME_CLOCK seconds."""
+    return time.clock_gettime(UPTIME_CLOCK)
 
 
 def note(text):
@@ -653,6 +673,11 @@ def checked(ident):
     return ident in EXPECT or ident in EXPECT_BY_ENTRY
 
 
+def toggles(ident):
+    """True when the restore runs `ident` again to put back what it turned on or off (TOGGLES, never a checked action)."""
+    return bool(re.search(TOGGLES, ident)) and not checked(ident)
+
+
 def neighbor(cell, other, direction):
     """True when `other` (a pane's [x, y, w, h], window points from the top left) lies beside `cell` toward
     `direction`: past its edge that way, overlapping it across."""
@@ -695,14 +720,15 @@ def skip(reason, kind):
     return {"skipped": reason, "skip_kind": kind}
 
 
-def argument_values(action, base):
-    """Values for required arguments, or (None, skip) with the typed skip (``skip``)."""
+def argument_values(action, base, fixtures=ARGUMENT_FIXTURES):
+    """Values for required arguments, or (None, skip) with the typed skip (``skip``). `fixtures` is ARGUMENT_FIXTURES
+    (--plan-only passes placeholders that read no app)."""
     values = {}
     for argument in action.get("arguments") or []:
         if not argument.get("required"):
             continue
         kind, name = argument.get("kind"), argument.get("name")
-        fixture = ARGUMENT_FIXTURES.get((action["id"], name))
+        fixture = fixtures.get((action["id"], name))
         if fixture:
             value, why = fixture(base)
             if value is None:
@@ -774,6 +800,7 @@ class Sweep:
         self.app, self.session, self.stress_module = app, session, stress_module
         self.rows, self.interactions = [], []
         self.base = {}
+        self.fixtures = ARGUMENT_FIXTURES  # argument_values()'s fixtures (plan_only() puts placeholders here)
         self.builder = None
         # The closed-history ids just before the measured input (mark_closed); restore() reopens only newer ones.
         self.closed_mark = None
@@ -1398,7 +1425,7 @@ class Sweep:
             return None, {"skipped": f"needs context the sweep does not set up: {', '.join(missing)}", "skip_kind": "gap"}
         kinds = [CONTEXT_SETUP[k] for k in action.get("requires") or [] if CONTEXT_SETUP.get(k)]
         context = "omnibar" if "omnibar" in kinds else (kinds[0] if kinds else None)
-        args, skipped = argument_values(action, self.base)
+        args, skipped = argument_values(action, self.base, self.fixtures)
         if args is None:
             return None, skipped  # no value the action accepts: a missing fixture, or the session's state
         return {"context": context, "args": args, "key": key_of(action) if not args else None}, None
@@ -1414,7 +1441,7 @@ class Sweep:
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
         samples, errors, checks, drifts = [], [], [], []
-        toggled = bool(re.search(TOGGLES, ident)) and not checked(ident)
+        toggled = toggles(ident)
 
         def ready():
             """(start pane, None, None) when the session can take this sample now, else (None, why, skip_kind). Every
@@ -2313,6 +2340,68 @@ def markdown(report):
     return "\n".join(lines) + "\n"
 
 
+def selected(actions):
+    """The actions of the catalog (sorted by id) this run offers: --only, then --shard, then --limit."""
+    only = {a for a in opts.only.split(",") if a}
+    if only:
+        actions = [a for a in actions if a["id"] in only]
+    if opts.shard:
+        ks, n = opts.shard.split("/")
+        picks = {int(k) - 1 for k in ks.split(",")}
+        actions = [a for index, a in enumerate(actions) if index % int(n) in picks]
+    if opts.limit:
+        actions = actions[:opts.limit]
+    return actions
+
+
+# What --plan-only binds an argument to that only a live app knows: a target names the base field the run fills
+# (BASE_TARGETS), an argument fixture names itself (ARGUMENT_FIXTURES may read the app, history.open does).
+PLAN_BASE = {field: f"<base.{field}>" for field in BASE_TARGETS.values()}
+PLAN_FIXTURES = {key: (lambda base, key=key: (f"<fixture {key[0]}.{key[1]}>", None)) for key in ARGUMENT_FIXTURES}
+
+
+def plan_row(sweep, action):
+    """One action's plan in `sweep`'s session as run_action() takes it, read with no app: the --plan-only row. A run
+    can still skip a planned row for the session's state (no tab of the context's kind, no neighbor pane that way)."""
+    ident = action["id"]
+    plan, skipped = sweep.plan(action)
+    if not plan:
+        return {"id": ident, **skipped}
+    entries = ["key", "action"] if plan["key"] else ["action"]
+    row = {"id": ident, "entry": entries[0], "context": plan["context"], "args": plan["args"],
+           "key": list(plan["key"]) if plan["key"] else None,
+           "expect": {entry: expectation(ident, entry) for entry in entries if expectation(ident, entry)},
+           "prepare": [[step, args] for step, args in PREPARE.get(ident, ())], "toggled": toggles(ident)}
+    for name, value in (("direction", DIRECTIONS.get(ident)), ("undo", list(UNDO[ident]) if ident in UNDO else None),
+                        ("expected_refusal", EXPECTED_REFUSALS.get(ident))):
+        if value:
+            row[name] = value
+    if sweep.session == "light" and re.match(WINDOW_CLOSERS, ident):
+        row["last"] = True  # runs after the interactions, then the app relaunches (Sweep.run)
+    return row
+
+
+def plan_only():
+    """--plan-only: each session's plan of every selected action of --catalog, with no app, as JSON with sorted keys,
+    so the plans of two checkouts diff line by line."""
+    try:
+        with open(opts.catalog) as f:
+            actions = sorted(json.load(f)["actions"], key=lambda a: a["id"])
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(f"every-action: --catalog {opts.catalog} is not an action.list reply: {error!r}")
+    actions = selected(actions)
+    plan = {"actions": len(actions), "sessions": []}
+    for name in [s for s in opts.sessions.split(",") if s]:
+        sweep = Sweep(None, name, None)
+        sweep.base, sweep.fixtures = dict(PLAN_BASE), PLAN_FIXTURES
+        plan["sessions"].append({"name": name, "rows": [plan_row(sweep, action) for action in actions]})
+    path = opts.json or os.path.join(OUT, "every-action-plan.json")
+    with open(path, "w") as f:
+        json.dump(plan, f, indent=1, sort_keys=True)
+        f.write("\n")
+    note(f"every-action: wrote the plan of {len(actions)} actions to {path}")
+
+
 def main():
     if opts.write_gaps and (opts.only or opts.limit or opts.shard or {s for s in opts.sessions.split(",") if s} != set(SESSIONS)):
         raise SystemExit("every-action: --write-gaps needs a whole-catalog run (no --only, --limit, --shard or --sessions): "
@@ -2330,18 +2419,14 @@ def main():
            "app": opts.app, "tag": opts.tag, "signposts": SIGNPOSTS.live, "load": os.getloadavg()}
     note(f"every-action: env {json.dumps(env)}")
     listed = rpc("action.list") or {}
+    with open(os.path.join(OUT, "action-list.json"), "w") as f:
+        json.dump(listed, f, indent=1)  # the catalog this run planned from: --plan-only --catalog replays it
     actions = sorted(listed.get("actions") or [], key=lambda a: a["id"])
     DESTRUCTIVE.update(a["id"] for a in actions if a.get("destructive"))
     only = {a for a in opts.only.split(",") if a}
-    if only:
-        actions = [a for a in actions if a["id"] in only]
+    actions = selected(actions)
     if opts.shard:
-        ks, n = opts.shard.split("/")
-        picks = {int(k) - 1 for k in ks.split(",")}
-        actions = [a for index, a in enumerate(actions) if index % int(n) in picks]
         env["shard"] = opts.shard
-    if opts.limit:
-        actions = actions[:opts.limit]
     if only or opts.limit:
         env["partial"] = True  # no derived-coverage verdict: not every action was offered
     if {s for s in opts.sessions.split(",") if s} != set(SESSIONS):
@@ -2683,6 +2768,8 @@ def merge(out, paths):
 if __name__ == "__main__":
     if MERGE:
         merge(*MERGE)
+    elif opts.plan_only:
+        plan_only()
     else:
         # A cmux-ci timeout or cancel (SIGTERM, SIGHUP) raises SystemExit, so main()'s finally quits the app and ends
         # the tag's daemons (App.stop) instead of leaving them holding PTYs on the host.
