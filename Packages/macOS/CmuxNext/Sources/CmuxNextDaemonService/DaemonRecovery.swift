@@ -28,6 +28,8 @@ public final class DaemonRecovery {
     private nonisolated let restartsUnresponsive = Mutex<@Sendable () -> Bool>({ true })
     @ObservationIgnored private var launcher: DaemonLauncher?
     @ObservationIgnored private var watch: UnresponsiveOwnerWatch?
+    /// Follows ``restartsUnresponsiveOwner`` for ``watch``: until the next `attach` or `detach`.
+    @ObservationIgnored private var toggleFollow: Task<Void, Never>?
     @ObservationIgnored private var wake: RetryWake?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
 
@@ -56,6 +58,14 @@ public final class DaemonRecovery {
             await self?.restartUnresponsive(claim) ?? false
         })
         self.watch = watch
+        // The toggle's changes reach the watch as they happen, not only when it next reads it: off
+        // ends a streak at once (Element is Equatable: a value equal to the last one wakes nothing).
+        toggleFollow?.cancel()
+        let toggle = ObservationStream({ [weak self] in self?.restartsUnresponsiveOwner() ?? false })
+        // task-owner: follows the toggle for this watch; the next attach and detach cancel it
+        toggleFollow = Task { [weak watch] in
+            for await on in toggle { watch?.toggled(on: on) }
+        }
         launcher.ensureOutcome.follow(watch)
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
@@ -70,6 +80,8 @@ public final class DaemonRecovery {
     /// Ends the automatic restart: the service shut its connection down (`shutdownConnection`), so
     /// nothing may start an owner again behind it. A later `attach` follows the launcher afresh.
     func detach() {
+        toggleFollow?.cancel()
+        toggleFollow = nil
         watch?.stop()
         watch = nil
     }
