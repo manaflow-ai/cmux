@@ -136,3 +136,52 @@ async fn close_after_the_wait_was_planned_skips_it() {
     let entry = last_entry(&hub, &session, "s/t1").unwrap();
     assert_eq!(entry["retryable"], false, "{entry}");
 }
+
+/// Sends a prompt as a subagent retry does, with `prompt_id`.
+fn send(
+    hub: &Arc<Hub>,
+    session: &Arc<Session>,
+    prompt_id: &str,
+) -> tokio::task::JoinHandle<Result<Value, RpcError>> {
+    let (hub, session) = (hub.clone(), session.clone());
+    let opts = PromptOptions { prompt_id: Some(prompt_id.to_owned()), ..PromptOptions::default() };
+    let blocks = vec![json!({"type": "text", "text": "Resume it"})];
+    tokio::spawn(async move { hub.prompt_with(&session, blocks, "acpmux", false, opts).await })
+}
+
+/// A sent retry prompt (`fire_wait` records it) about to start while Claude Code runs a turn of
+/// its own: it waits for that turn's end, then starts.
+#[tokio::test]
+async fn a_retry_prompt_waits_out_claudes_own_turn_at_its_start() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let key = (session.id.clone(), "subagent-retry-t1-1".to_owned());
+    hub.subagent_retries.lock().sent.insert(key.clone(), false);
+    session.harness_turn.store(true, Ordering::SeqCst);
+    let sent = send(&hub, &session, &key.1);
+    settle().await;
+    assert!(!sent.is_finished(), "it started inside Claude Code's own turn");
+    assert!(session.turn().is_none());
+    // That turn's `result`.
+    session.harness_turn.store(false, Ordering::SeqCst);
+    hub.append(&session, "mux", "test_tick", json!({}));
+    sent.await.unwrap().expect("it ran once that turn ended");
+    // Another prompt never waits.
+    session.harness_turn.store(true, Ordering::SeqCst);
+    send(&hub, &session, "p-person").await.unwrap().expect("a person's prompt runs");
+}
+
+/// A retry skipped while its prompt waits to start is refused there.
+#[tokio::test]
+async fn a_retry_prompt_skipped_while_it_waits_to_start_is_refused() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    let key = (session.id.clone(), "subagent-retry-t1-1".to_owned());
+    hub.subagent_retries.lock().sent.insert(key.clone(), false);
+    session.harness_turn.store(true, Ordering::SeqCst);
+    let sent = send(&hub, &session, &key.1);
+    settle().await;
+    hub.subagent_retries.lock().sent.insert(key, true);
+    hub.append(&session, "mux", "test_tick", json!({}));
+    let refused = sent.await.unwrap().unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
+    assert!(session.turn().is_none());
+}

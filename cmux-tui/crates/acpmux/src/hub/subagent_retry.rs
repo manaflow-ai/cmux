@@ -84,6 +84,9 @@ struct Sub {
     /// Attempts fired at it so far.
     attempts: usize,
     failed: Option<Failure>,
+    /// The agent id of a resume only Claude Code's raw `task_started` showed (the translator
+    /// forgot the agent): its raw `task_notification` then ends it here.
+    raw_agent: Option<String>,
 }
 
 #[derive(Clone)]
@@ -192,6 +195,11 @@ impl Hub {
     /// it): names, resumes, ends and failures of the chat's own subagents.
     pub(super) fn observe_subagents(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
         let _steps = self.subagent_retries.steps();
+        self.observe_entries(session, events);
+    }
+
+    /// [`Hub::observe_subagents`] under `steps`.
+    fn observe_entries(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
         // A chat that closes retries nothing more: close took its retries under `steps`.
         if closing(session) {
             return;
@@ -214,6 +222,8 @@ impl Hub {
                         let new = !subs.contains_key(id);
                         let sub = subs.entry(id.to_owned()).or_default();
                         sub.name = name.map(str::to_owned).or(sub.name.take());
+                        // The translator knows it: its updates end it.
+                        sub.raw_agent = None;
                         let name = sub.name.clone();
                         // It runs again: resumed.
                         if let Some(f) = sub.failed.take() {
@@ -273,26 +283,86 @@ impl Hub {
         }
     }
 
-    /// Claude Code's raw `task_started` for a failed subagent's agent id (SendMessage's resume):
-    /// it runs again, also when the translator no longer knew the agent to say so.
-    pub(super) fn observe_task_started(&self, session: &Arc<Session>, line: &Value) {
-        let Some(task) = line.get("task_id").and_then(Value::as_str).filter(|t| !t.is_empty())
-        else {
-            return;
-        };
+    /// Claude Code's raw task lines. A `task_started` for a failed subagent's agent id is
+    /// SendMessage's resume: it runs again, also when the translator forgot the agent and says
+    /// nothing. For such a forgotten one, its later `task_notification` ends it here: failed
+    /// (retried again when transient), or completed.
+    pub(super) fn observe_task_line(self: &Arc<Self>, session: &Arc<Session>, line: &Value) {
+        let text = |k: &str| line.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
+        let (Some(subtype), Some(task)) = (text("subtype"), text("task_id")) else { return };
         let _steps = self.subagent_retries.steps();
-        let resumed: Vec<(String, Failure)> = {
-            let mut all = self.subagent_retries.lock();
-            let Some(subs) = all.subs.get_mut(&session.id) else { return };
-            subs.iter_mut()
-                .filter_map(|(id, s)| {
-                    let failed = s.failed.take_if(|f| f.agent_id == task)?;
-                    Some((id.clone(), failed))
-                })
-                .collect()
-        };
-        for (id, failure) in resumed {
-            self.skip_wait(session, &id, failure, "resumed", "running", false);
+        match subtype {
+            "task_started" => {
+                let resumed: Vec<(String, Failure)> = {
+                    let mut all = self.subagent_retries.lock();
+                    let Some(subs) = all.subs.get_mut(&session.id) else { return };
+                    subs.iter_mut()
+                        .filter_map(|(id, s)| {
+                            let failed = s.failed.take_if(|f| f.agent_id == task)?;
+                            // Until the translator says it runs (`observe_entries`).
+                            s.raw_agent = Some(task.to_owned());
+                            Some((id.clone(), failed))
+                        })
+                        .collect()
+                };
+                for (id, failure) in resumed {
+                    self.skip_wait(session, &id, failure, "resumed", "running", false);
+                }
+            }
+            "task_notification" => {
+                let ended = {
+                    let mut all = self.subagent_retries.lock();
+                    let Some(subs) = all.subs.get_mut(&session.id) else { return };
+                    let id = subs.iter().find(|(_, s)| s.raw_agent.as_deref() == Some(task));
+                    let Some(id) = id.map(|(id, _)| id.clone()) else { return };
+                    let sub = subs.get_mut(&id).expect("found above");
+                    sub.raw_agent = None;
+                    (id, sub.name.clone())
+                };
+                let (id, name) = ended;
+                let state = match text("status") {
+                    Some("failed") => "failed",
+                    Some("completed") => "completed",
+                    _ => "cancelled",
+                };
+                let error = text("summary").unwrap_or_default();
+                let transient =
+                    state == "failed" && super::turn_errors::transient_cause(error).is_some();
+                let none = Failure {
+                    agent_id: task.to_owned(),
+                    error: String::new(),
+                    reason: "",
+                    at: 0,
+                    idle: true,
+                    wait: None,
+                };
+                // Its end, as the translator would have said it.
+                self.log_entry(session, &id, &none, state, Value::Null, transient);
+                let entry = json!({"id": id, "parent": null, "state": state, "task": name,
+                    "agentId": task, "error": error});
+                self.observe_entries(session, &[entry]);
+            }
+            _ => {}
+        }
+    }
+
+    /// A subagent retry's prompt about to start (`turns.rs`, holding the chat's turn slot):
+    /// while Claude Code runs a turn of its own (one it started for a task notification after
+    /// the prompt was queued), the prompt waits for that turn's end rather than land in it. It
+    /// rechecks at each of the hub's records and goes on at that turn's `result` or the host's
+    /// exit, when the retry is skipped (`Hub::start_turn` then refuses it) or when the chat
+    /// closes. Any other prompt goes on at once.
+    pub(super) async fn hold_retry_start(&self, session: &Session, prompt_id: &str) {
+        let key = (session.id.clone(), prompt_id.to_owned());
+        let mut events = self.events.subscribe();
+        loop {
+            let pending = self.subagent_retries.lock().sent.get(&key) == Some(&false);
+            if !pending || !session.harness_turn.load(Ordering::SeqCst) || closing(session) {
+                return;
+            }
+            if let Err(tokio::sync::broadcast::error::RecvError::Closed) = events.recv().await {
+                return;
+            }
         }
     }
 

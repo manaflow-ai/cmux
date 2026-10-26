@@ -152,11 +152,13 @@ impl Hub {
                             tap_session.harness_turn.store(true, Ordering::SeqCst);
                         } else if method.starts_with("claude.result") {
                             tap_session.harness_turn.store(false, Ordering::SeqCst);
-                        } else if method == "claude.system.task_started"
+                        } else if (method == "claude.system.task_started"
+                            || method == "claude.system.task_notification")
                             && let Some(line) = params.as_ref()
                         {
-                            // SendMessage's resume of a failed subagent (`subagent_retry.rs`).
-                            tap_hub.observe_task_started(&tap_session, line);
+                            // A failed subagent's resume, and its end when only these lines
+                            // show it (`subagent_retry.rs`).
+                            tap_hub.observe_task_line(&tap_session, line);
                         }
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
