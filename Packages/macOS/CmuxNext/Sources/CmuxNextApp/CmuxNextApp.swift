@@ -101,6 +101,7 @@ public struct CmuxNextApp {
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         environment.browserLaunchPictures = BrowserLaunchPictures(state: state, work: work)  // browser pages' (p08-startup-043)
         environment.browserLaunchPictures?.prefetch { DebugTimings.markLaunch($0) }
+        environment.windowPictures = WindowPictureStore(state: state, work: work)  // the windows' (p08-startup-057)
         relaunchWake.begin(on: work)
         // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
         // in memory before them, never read on the thread that asks first (p02-threads-122).
@@ -130,7 +131,6 @@ public struct CmuxNextApp {
         // The front window's picture for the first frame, read and decoded on the files lane (p08-startup-058);
         // which window is front comes from the launch snapshot, read there only when a picture was saved.
         let snapshot = prestart.map { (session: $0.launcher.configuration.session, state: $0.launcher.configuration.stateDirectory) }
-        environment.windowPictures = WindowPictureStore(state: state, work: work)
         environment.windowPictures?.prefetchFront({ snapshot.flatMap { Self.frontSavedWindow(session: $0.session, stateDirectory: $0.state) } },
                                                   mark: { DebugTimings.markLaunch($0) })
         // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.

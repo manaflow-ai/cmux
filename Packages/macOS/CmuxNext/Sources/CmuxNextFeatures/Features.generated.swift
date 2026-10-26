@@ -1023,9 +1023,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// At quit each open window (never incognito, full screen, another Space or capture-hidden) is saved as one private HEIC per profile with its frame, theme and layout meta; Secure Input panes are filled. Off deletes them.
+    public static let savedWindowPicture = Feature(
+        index: 59,
+        name: "savedWindowPicture",
+        owner: "Performance Lead",
+        description: "At quit each open window (never incognito, full screen, another Space or capture-hidden) is saved as one private HEIC per profile with its frame, theme and layout meta; Secure Input panes are filled. Off deletes them.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["launch-cold", "launch-warm"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.
     public static let sentryHandlersFirst = Feature(
-        index: 59,
+        index: 60,
         name: "sentryHandlersFirst",
         owner: "Performance Lead",
         description: "Sentry starts at launch with every integration as before (crash handlers, sessions, network breadcrumbs), but its app-hang reports stay paused until startup completes; the main-thread watchdog reports launch hangs.",
@@ -1042,7 +1059,7 @@ nonisolated extension Feature {
 
     /// The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).
     public static let sidebarRowsNearViewport = Feature(
-        index: 60,
+        index: 61,
         name: "sidebarRowsNearViewport",
         owner: "a590",
         description: "The sidebar keeps only the workspace rows on screen observed, and maps a row that changed off screen once when it scrolls back near (at once when it comes on screen).",
@@ -1059,7 +1076,7 @@ nonisolated extension Feature {
 
     /// A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.
     public static let stripPanResampling = Feature(
-        index: 61,
+        index: 62,
         name: "stripPanResampling",
         owner: "PL-motion-core",
         description: "A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.",
@@ -1076,7 +1093,7 @@ nonisolated extension Feature {
 
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 62,
+        index: 63,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -1093,7 +1110,7 @@ nonisolated extension Feature {
 
     /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
     public static let terminalGPURelease = Feature(
-        index: 63,
+        index: 64,
         name: "terminalGPURelease",
         owner: "PL-memory",
         description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
@@ -1110,7 +1127,7 @@ nonisolated extension Feature {
 
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
     public static let terminalPointerFrames = Feature(
-        index: 64,
+        index: 65,
         name: "terminalPointerFrames",
         owner: "PL-ghostty",
         description: "Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.",
@@ -1127,7 +1144,7 @@ nonisolated extension Feature {
 
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 65,
+        index: 66,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -1144,7 +1161,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 66,
+        index: 67,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -1297,6 +1314,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,
+        .savedWindowPicture,
         .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,
@@ -1372,6 +1390,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,
+        .savedWindowPicture,
         .sentryHandlersFirst,
         .sidebarRowsNearViewport,
         .stripPanResampling,

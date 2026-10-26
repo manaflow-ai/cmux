@@ -152,6 +152,12 @@ public final class TerminalLaunchFrames {
     /// Saves the frames of `sessions` on screen, by tab key, replacing the last quit's. A bare
     /// prompt too: it is what the pane showed.
     public func save(_ sessions: [String: TerminalSession]) async {
+        await save(images: await frames(of: sessions))
+    }
+
+    /// The frames of `sessions` on screen now, by tab key, at their surface's point size: what ``save(_:)``
+    /// saves. The quit takes them once, for these and for the window pictures (`WindowPictureStore`).
+    public func frames(of sessions: [String: TerminalSession]) async -> [String: NSImage] {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
@@ -159,11 +165,11 @@ public final class TerminalLaunchFrames {
                   let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
-        await save(images: frames)
+        return frames
     }
 
     /// Replaces the saved frames with `images` (by tab key, at their point size).
-    func save(images: [String: NSImage]) async {
+    public func save(images: [String: NSImage]) async {
         guard let directory else { return }
         // NSImage stays on the main actor; the JPEG encode and the writes run detached.
         var frames: [String: CGImage] = [:]

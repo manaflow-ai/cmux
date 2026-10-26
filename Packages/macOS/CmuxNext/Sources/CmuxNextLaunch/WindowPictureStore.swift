@@ -1,75 +1,122 @@
-public import CmuxNextDesign
-public import CmuxNextWakeups
+public import AppKit
 import CmuxNextCompat
-public import CoreGraphics
-public import Foundation
+public import CmuxNextWakeups
+import ImageIO
+import UniformTypeIdentifiers
 
-/// The windows' pictures from the last quit, one per window (p08-startup-057 writes them), and the launch's read of
-/// the front window's (p08-startup-058), which the first frame shows until the live window is built under it
-/// (p08-startup-059). Chrome does this on Android (`StartupPaintPreview`,
-/// chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java): only the first
-/// restored tab gets its capture, read and decoded off the UI thread before it is shown.
+/// One picture per window, saved at quit, that the next launch shows as the window's first frame (p08-startup 3C,
+/// tasks 058 and 059 read it). Chrome does this on Android: the restored tab's saved capture is its first frame
+/// until the live page paints (`StartupPaintPreview`,
+/// chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java).
 ///
-/// A window's picture is `<window id>.heic` beside its meta `<window id>.json` (`WindowPictureMeta` decodes it),
-/// in `window-pictures` of the tag's state directory. The save writes the meta last, so a quit that ends between
-/// the two leaves a picture the launch never reads.
+/// The quit takes each window's picture on the main thread (``capture(_:hiding:)``: the root view as AppKit draws
+/// it, without the window's backdrop, which the launch shows live under the picture) and hands it here as a
+/// ``Shot`` with the panes' own pictures (terminal frames, agent pages, browser pages: AppKit draws none of them)
+/// and the regions that must show only the theme background (a Secure Input pane, a withheld page). Composing,
+/// the HEIC encode and the writes run on the files lane.
 ///
-/// The launch reads only the front window's picture, on the files lane from the app's `main`
-/// (``prefetchFront(_:mark:)``): which window that is comes from the daemon's launch snapshot (the window order
-/// it saved), asked only once the folder holds a picture, so a launch with no picture reads nothing more than the
-/// folder. The image is decoded there (`LaunchFileReader.image(at:maximumBytes:)` creates it with
-/// `kCGImageSourceShouldCacheImmediately`), so the main thread gets pixels ready to draw. The first frame asks with
-/// ``takeFront()`` and never waits; the picture is handed out once and dropped at startup complete when nobody took
-/// it (``drop()``; a decoded window picture is tens of MB).
+/// On disk: `<profile>/<window>.heic` and its ``WindowPictureMeta`` `<window>.json` (written last, so a quit that
+/// ends between them leaves a picture no launch reads), mode 0600 in folders of mode 0700. A save replaces the
+/// whole set. A window that is incognito, full screen, on another Space, not on screen or hidden from screen
+/// capture is never written (``Eligibility``).
 ///
 /// ```swift
-/// let pictures = WindowPictureStore(state: stateDirectory, work: work)
-/// pictures.prefetchFront({ frontWindowID() }) { DebugTimings.markLaunch($0) }
-/// order.startup.whenComplete { _ in pictures.drop() }
-/// let front = pictures.takeFront()   // at the first window's frame
+/// let store = WindowPictureStore(state: stateDirectory, work: work)
+/// // At quit, on main: one draw per window, the panes' pictures the quit took already.
+/// let shot = WindowPictureStore.shot(of: window, root: root, backdrop: root.backdropView, sidebar: root.sidebar,
+///                                    panes: [.init(key: tab, area: pane.contentHost, content: .picture(frame, of: surface))],
+///                                    facts: facts)
+/// await store.save([shot].compactMap { $0 })   // composed, encoded and written on the files lane
 /// ```
 @MainActor
 public final class WindowPictureStore {
     /// The folder of the saved pictures in the tag's state directory.
     public static let directoryName = "window-pictures"
-    /// A larger picture file is not read.
-    nonisolated static let maximumBytes = 32 << 20
-    /// A larger meta file is not read.
-    nonisolated static let maximumMetaBytes = 64 << 10
+    /// The most windows one save writes.
+    nonisolated static let maximumWindows = 32
     nonisolated static let pictureExtension = "heic"
     nonisolated static let metaExtension = "json"
 
-    /// The front window's picture from the last quit, decoded.
-    public nonisolated struct FrontPicture: Sendable {
-        /// The window it pictures (the snapshot's window record id).
-        public let windowID: String
-        /// The window's pixels.
-        public let image: CGImage
-        /// The meta file's bytes as the quit wrote them, which the launch matches before it shows the picture.
-        public let meta: Data
+    /// Whether a window may leave a picture on disk at all.
+    public nonisolated struct Eligibility: Sendable, Equatable {
+        public var incognito: Bool
+        /// Ordered in and not minimized.
+        public var onScreen: Bool
+        public var onActiveSpace: Bool
+        public var fullScreen: Bool
+        /// `NSWindow.sharingType == .none`: the person asked that it never be captured.
+        public var hiddenFromCapture: Bool
 
-        public init(windowID: String, image: CGImage, meta: Data) {
-            (self.windowID, self.image, self.meta) = (windowID, image, meta)
+        public init(incognito: Bool, onScreen: Bool, onActiveSpace: Bool, fullScreen: Bool, hiddenFromCapture: Bool) {
+            (self.incognito, self.onScreen, self.onActiveSpace) = (incognito, onScreen, onActiveSpace)
+            (self.fullScreen, self.hiddenFromCapture) = (fullScreen, hiddenFromCapture)
+        }
+
+        /// `window`'s facts now; `incognito` is the app's (an incognito window looks like any other to AppKit).
+        @MainActor public init(window: NSWindow, incognito: Bool) {
+            self.init(incognito: incognito, onScreen: window.isVisible && !window.isMiniaturized,
+                      onActiveSpace: window.isOnActiveSpace, fullScreen: window.styleMask.contains(.fullScreen),
+                      hiddenFromCapture: window.sharingType == .none)
+        }
+
+        /// A full-screen window or one on another Space opens elsewhere than its picture would show; the others
+        /// must never reach the disk.
+        public var allowsPicture: Bool { !incognito && onScreen && onActiveSpace && !fullScreen && !hiddenFromCapture }
+    }
+
+    /// An opaque color, 0...1 components (the theme background of the fills).
+    public nonisolated struct Color: Sendable, Equatable {
+        public var red: Double, green: Double, blue: Double
+
+        public init(red: Double, green: Double, blue: Double) {
+            (self.red, self.green, self.blue) = (red, green, blue)
+        }
+    }
+
+    /// A pane's own picture, drawn at its frame over the root view's drawing.
+    public nonisolated struct Layer: Sendable {
+        public let image: CGImage
+        /// In points from the window content's top-left corner.
+        public let frame: CGRect
+
+        public init(image: CGImage, frame: CGRect) {
+            (self.image, self.frame) = (image, frame)
+        }
+    }
+
+    /// One window at quit, as the main thread captured it; composed and encoded on the files lane.
+    public nonisolated struct Shot: Sendable {
+        public let eligibility: Eligibility
+        /// The root view as AppKit drew it, without the backdrop (``capture(_:hiding:)``).
+        public let base: CGImage
+        /// The root view's size in points (`base` is at the window's backing scale).
+        public let size: CGSize
+        /// The panes' own pictures, in order.
+        public let layers: [Layer]
+        /// Regions filled with `background` over everything else: content that must never reach the disk.
+        public let fills: [CGRect]
+        public let background: Color
+        public let meta: WindowPictureMeta
+
+        public init(eligibility: Eligibility, base: CGImage, size: CGSize, layers: [Layer], fills: [CGRect],
+                    background: Color, meta: WindowPictureMeta) {
+            (self.eligibility, self.base, self.size, self.layers) = (eligibility, base, size, layers)
+            (self.fills, self.background, self.meta) = (fills, background, meta)
         }
     }
 
     let directory: URL?
     private let work: BackgroundWork
-    private let reader: LaunchFileReader
-    /// The launch read of the front picture; nil before it starts, once taken and once dropped.
-    private var read: LaunchRead<FrontPicture?>?
-    /// The read was taken or dropped: ``prefetchFront(_:mark:)`` starts no new one.
-    private var ended = false
-    private var mark: @Sendable (String) -> Void = { _ in }
+    private let encode: @Sendable (CGImage) -> Data?
 
     /// - Parameters:
-    ///   - directory: The saved pictures' folder; nil keeps none and reads none.
-    ///   - work: The app's blocking-work lanes: the read and decode run on its files lane.
-    ///   - reader: Reads the files; default from disk (tests record where it runs, or hold it).
-    public init(directory: URL?, work: BackgroundWork, reader: LaunchFileReader = LaunchFileReader()) {
+    ///   - directory: The saved pictures' folder; nil keeps none.
+    ///   - work: The app's blocking-work lanes: composing, the encode and the writes run on its files lane.
+    ///   - encode: Encodes a composed picture; default HEIC (tests record where it runs).
+    public init(directory: URL?, work: BackgroundWork, encode: @escaping @Sendable (CGImage) -> Data? = { WindowPictureStore.heic($0) }) {
         self.directory = directory
         self.work = work
-        self.reader = reader
+        self.encode = encode
     }
 
     /// The pictures in `state`, the tag's state directory (beside its launch snapshot).
@@ -77,76 +124,114 @@ public final class WindowPictureStore {
         self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), work: work)
     }
 
-    /// Starts reading and decoding the front window's picture on the files lane at once; a later call does nothing.
-    ///
-    /// - Parameters:
-    ///   - front: The id of the window the launch shows first, from the launch snapshot's window order. It runs on
-    ///     the lane, only when the folder holds a picture; nil reads no picture.
-    ///   - mark: Records the launch marks `launch_picture_decoded` (on the lane, when the picture is decoded),
-    ///     `launch_picture_missed` (the first frame asked before the read ended) and `launch_picture_dropped`
-    ///     (nobody took it by startup complete).
-    public func prefetchFront(_ front: @escaping @Sendable () -> String?, mark: @escaping @Sendable (String) -> Void = { _ in }) {
-        guard let directory, read == nil, !ended else { return }
-        self.mark = mark
-        let reader = reader
-        read = LaunchRead<FrontPicture?>(on: work, dropped: .some(nil)) {
-            let picture = Self.readFront(in: directory, front: front, reader)
-            if picture != nil { mark("launch_picture_decoded") }
-            return picture
+    /// `root` as AppKit draws it now, at its window's backing scale, with `backdrop` (the window's material and
+    /// tint) left out: transparent where only the backdrop showed. Layers AppKit does not draw (Metal terminals,
+    /// Chromium pages) come out as what lies under them; the quit draws the panes' own pictures over them.
+    /// The backdrop is shown again before this returns, in the same turn, so no frame shows it hidden.
+    public static func capture(_ root: NSView, hiding backdrop: NSView?) -> CGImage? {
+        let bounds = root.bounds
+        guard bounds.width > 0, bounds.height > 0, let rep = root.bitmapImageRepForCachingDisplay(in: bounds) else { return nil }
+        let hides = backdrop.map { !$0.isHidden && $0.isDescendant(of: root) } ?? false
+        if hides { backdrop?.isHidden = true }
+        root.cacheDisplay(in: bounds, to: rep)
+        if hides { backdrop?.isHidden = false }
+        return rep.cgImage
+    }
+
+    /// Replaces the saved pictures with `shots`' (only the ones their ``Eligibility`` allows); with none, the
+    /// folder goes.
+    public func save(_ shots: [Shot]) async {
+        guard let directory else { return }
+        let encode = encode
+        _ = try? await work.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.write(shots, to: directory, encode: encode) }
+    }
+
+    /// Deletes every saved picture (the feature off, Clear Browsing Data, a profile deleted).
+    public func removeAll() async {
+        await save([])
+    }
+
+    /// Composes, encodes and writes `shots` by profile, replacing whatever the folder held.
+    nonisolated static func write(_ shots: [Shot], to directory: URL, encode: (CGImage) -> Data?) {
+        var byProfile: [String: [(meta: WindowPictureMeta, data: Data)]] = [:]
+        var windows: Set<String> = []
+        for shot in shots where shot.eligibility.allowsPicture && isFileSafe(shot.meta.window) && isFileSafe(shot.meta.profile) {
+            guard windows.count < maximumWindows, !windows.contains(shot.meta.window),
+                  let picture = compose(shot), let data = encode(picture) else { continue }
+            windows.insert(shot.meta.window)
+            byProfile[shot.meta.profile, default: []].append((shot.meta, data))
+        }
+        let manager = FileManager.checked
+        try? manager.removeItem(at: directory)
+        guard !byProfile.isEmpty else { return }
+        for (profile, files) in byProfile {
+            let folder = directory.appending(path: profile, directoryHint: .isDirectory)
+            guard (try? manager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])) != nil else { continue }
+            try? manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            for file in files {
+                guard let meta = try? encoder.encode(file.meta),
+                      writePrivate(file.data, to: folder.appending(path: "\(file.meta.window).\(pictureExtension)")) else { continue }
+                // The meta last: a picture without one is never shown.
+                _ = writePrivate(meta, to: folder.appending(path: "\(file.meta.window).\(metaExtension)"))
+            }
         }
     }
 
-    /// The front window's picture, at once and never waiting: nil while the read runs (the window shows what it
-    /// shows with no picture), when the last quit saved none of that window, or once handed out or dropped.
-    public func takeFront() -> FrontPicture? {
-        guard let read else { return nil }
-        guard let result = read.value else {
-            mark("launch_picture_missed")
-            return nil
+    /// The window's picture: `base` with each layer drawn at its frame, then the fills over them, at `base`'s
+    /// pixel size. Transparent where only the backdrop showed.
+    nonisolated static func compose(_ shot: Shot) -> CGImage? {
+        let base = shot.base
+        guard base.width > 0, base.height > 0, shot.size.width > 0, shot.size.height > 0,
+              let context = canvas(width: base.width, height: base.height, space: base.colorSpace) else { return nil }
+        let scale = CGFloat(base.width) / shot.size.width
+        let height = CGFloat(base.height)
+        // Points from the top-left corner to pixels from the bottom-left one (Core Graphics).
+        func pixels(_ rect: CGRect) -> CGRect {
+            CGRect(x: rect.minX * scale, y: height - rect.maxY * scale, width: rect.width * scale, height: rect.height * scale)
         }
-        end()
-        return result
+        context.draw(base, in: CGRect(x: 0, y: 0, width: base.width, height: base.height))
+        for layer in shot.layers where layer.frame.width > 0 && layer.frame.height > 0 {
+            context.draw(layer.image, in: pixels(layer.frame))
+        }
+        let fill = shot.background
+        context.setFillColor(CGColor(red: fill.red, green: fill.green, blue: fill.blue, alpha: 1))
+        for rect in shot.fills where rect.width > 0 && rect.height > 0 { context.fill(pixels(rect)) }
+        return context.makeImage()
     }
 
-    /// The front window's picture once the read has ended (the caller suspends; no thread waits), without
-    /// handing it out: the first window orders in on it (p08-startup-059). Nil when there is none, or it was
-    /// taken or dropped.
-    public func frontFinished() async -> FrontPicture? {
-        guard let read else { return nil }
-        return await read.finished()
+    /// An 8-bit RGBA canvas in `space` (the window's colors), or in sRGB when `space` is not one an 8-bit RGBA
+    /// context takes (an extended-range or non-RGB space).
+    nonisolated static func canvas(width: Int, height: Int, space: CGColorSpace?) -> CGContext? {
+        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        if let space, space.model == .rgb,
+           let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: info) {
+            return context
+        }
+        guard let sRGB = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        return CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: sRGB, bitmapInfo: info)
     }
 
-    /// Drops the read's picture when nobody took it; later asks get none.
-    public func drop() {
-        guard !ended else { return }
-        if let result = read?.value, result != nil { mark("launch_picture_dropped") }
-        end()
+    /// `image` as HEIC (alpha kept: the launch shows the live backdrop through it); nil where ImageIO has no HEIC
+    /// encoder.
+    public nonisolated static func heic(_ image: CGImage, quality: Double = 0.75) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.heic.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard blockingImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
 
-    private func end() {
-        read = nil
-        ended = true
+    /// Writes `data` atomically with mode 0600; whether it was written.
+    private nonisolated static func writePrivate(_ data: Data, to url: URL) -> Bool {
+        guard (try? data.blockingWrite(to: url, options: [.atomic])) != nil else { return false }
+        try? FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return true
     }
 
-    /// The front window's picture under `directory`, decoded: nil when the folder holds no picture (then `front`
-    /// is not asked), when `front` names none or a window with no meta or picture, or when the picture does not
-    /// decode.
-    nonisolated static func readFront(in directory: URL, front: () -> String?, _ reader: LaunchFileReader) -> FrontPicture? {
-        let names = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
-        guard names.contains(where: { $0.hasSuffix(".\(metaExtension)") }),
-              let windowID = front(), isFileSafe(windowID), names.contains(metaName(windowID)), names.contains(pictureName(windowID)),
-              let meta = reader.data(at: directory.appending(path: metaName(windowID)), maximumBytes: maximumMetaBytes),
-              let image = reader.image(at: directory.appending(path: pictureName(windowID)), maximumBytes: maximumBytes)
-        else { return nil }
-        return FrontPicture(windowID: windowID, image: image, meta: meta)
-    }
-
-    nonisolated static func pictureName(_ windowID: String) -> String { "\(windowID).\(pictureExtension)" }
-    nonisolated static func metaName(_ windowID: String) -> String { "\(windowID).\(metaExtension)" }
-
-    /// Window ids are lowercase UUIDs; anything else never becomes a path.
-    nonisolated static func isFileSafe(_ windowID: String) -> Bool {
-        !windowID.isEmpty && windowID.count <= 128
-            && windowID.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
+    /// Window and profile ids are UUIDs or slugs; anything else never becomes a path.
+    nonisolated static func isFileSafe(_ id: String) -> Bool {
+        !id.isEmpty && id.count <= 128 && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
     }
 }
