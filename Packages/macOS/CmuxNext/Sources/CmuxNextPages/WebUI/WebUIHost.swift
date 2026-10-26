@@ -23,9 +23,10 @@ public final class WebUIHost {
     public let openPanel: MadeAheadOpenPanel?
     /// The live page views, for the debug verbs and the key dispatcher.
     public let registry: PageRegistry
-    /// The shared web content processes of the WebKit pages that ask for them
-    /// (``PageEngineOptions/sharesWebKitProcess``, the agent pages).
-    public let processGroups: WebProcessGroups
+    /// The shared web content processes of the WebKit pages (``WebProcessGroups/membership(of:options:)``:
+    /// the agent pages, and with `webKitPageProcessGroups` every page of a sharing group). Nil: every
+    /// WebKit page starts a process of its own, as before the groups (a test host that reads no groups).
+    public let processGroups: WebProcessGroups?
     /// Every page's Active, Hidden, Frozen and Discarded states (p13-webui.md 3.C), fed by the tab
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
@@ -86,13 +87,14 @@ public final class WebUIHost {
     ///   - registry: Where opened views are listed (the app passes ``PageRegistry/processWide``
     ///     until p13-webui-010; a test leaves the default, its own registry).
     ///   - clock: The Chromium deadline's clock.
-    ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
+    ///   - processGroups: The shared WebKit processes, sized by the composition root
+    ///     (`SubsystemBudget.webProcessPagesPerGroup`); nil: none (``processGroups``).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
     ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     ///   - retirer: Ends closed pages after the close's turn (the app's is on `AppServices.mainDeadlines`).
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
-                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
+                clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups? = nil,
                 startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil,
                 retirer: PageRetirer = PageRetirer()) {
         self.chromium = chromium
@@ -129,8 +131,6 @@ public final class WebUIHost {
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
         if lifecycle != nil { view.crash.groups = crashGroups }
-        // The view joined processGroups (PageWebView(request:...) passes them on these terms).
-        view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
@@ -169,11 +169,11 @@ public final class WebUIHost {
     /// A configuration in the process pool and data store of the grouped WebKit pages
     /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the
     /// pool's one-time font listing (R81) then run before the first grouped page opens, and that
-    /// page can use the warm-up's web content process.
+    /// page can use the warm-up's web content process. Without groups the store is the warm-up's own.
     public func groupedWebKitConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.processPool = PageProcessPool.forNewView
-        configuration.websiteDataStore = processGroups.dataStore
+        configuration.websiteDataStore = processGroups?.dataStore ?? .nonPersistent()
         return configuration
     }
 
