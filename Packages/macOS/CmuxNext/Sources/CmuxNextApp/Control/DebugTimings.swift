@@ -57,7 +57,9 @@ enum DebugTimings {
     private nonisolated static let liveContentFrameMarks: Set<String> = ["first_terminal_frame", "agent_pane.painted", "agent_pane.newtab_painted"]
 
     /// Records a launch mark (milliseconds since process start) once per
-    /// name, from any thread.
+    /// name, from any thread. The first record of a name goes to
+    /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
+    /// bench's pipe when one was passed.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         _ = recordLaunchMark(name, at: date)
     }

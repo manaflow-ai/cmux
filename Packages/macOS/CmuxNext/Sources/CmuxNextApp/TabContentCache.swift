@@ -85,6 +85,12 @@ final class TabContentCache {
     /// No Chromium page is being created any more (ChromiumWarmup's spare window).
     var onPagesSettled: (@MainActor () -> Void)?
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
+    /// Each tab's visibility node, weakly (`node(for:)`).
+    private var tabNodes: [String: WeakTabNode] = [:]
+    /// `tabNodes` drops its released nodes when it reaches this many entries.
+    private var tabNodesPruneAt = 64
+    /// The parent of tab nodes that no pane has selected: hidden, so they are.
+    private let unselectedTabs = VisibilityNode(root: "tabs.unselected", own: .hidden)
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
     /// Restored browser tabs start as `DeferredBrowserTab` (nothing loads)
@@ -418,6 +424,7 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
+        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -474,6 +481,31 @@ final class TabContentCache {
         pageThumbnailVersions[key] = nil
         shownPages.remove(key)
         presentationChanges.notify(changed: [key])
+    }
+
+    // MARK: Visibility
+
+    /// Tab `key`'s node in the visibility tree (p06-scheduler.md B): visible while the tab is selected
+    /// in a visible pane (`PaneController.selectTabNode`), else hidden. Keyed by tab, as its surface
+    /// is, so a tab moved to another pane keeps its node, and a closed tab's content going
+    /// (`release`) leaves it.
+    ///
+    /// The cache holds nodes weakly: a node lives while the pane that selects its tab holds it, or a
+    /// follower does. Hold the node for as long as you subscribe to it. A tab that nothing holds gets
+    /// a new hidden node, which is its true state: no pane selects it.
+    func node(for key: String) -> VisibilityNode {
+        if let node = tabNodes[key]?.node { return node }
+        let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
+        tabNodes[key] = WeakTabNode(node: node)
+        if tabNodes.count >= tabNodesPruneAt {
+            tabNodes = tabNodes.filter { $0.value.node != nil }
+            tabNodesPruneAt = max(64, tabNodes.count * 2)
+        }
+        return node
+    }
+
+    private struct WeakTabNode {
+        weak var node: VisibilityNode?
     }
 }
 

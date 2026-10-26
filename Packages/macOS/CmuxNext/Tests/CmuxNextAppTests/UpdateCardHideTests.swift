@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -39,7 +40,8 @@ import Testing
                                            build: "100", minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: EmptyFeed()),
-                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false,
+                                     work: BackgroundWork(label: "test.updater"))
         updater.announcementsFetch = false
         updater.start()
         return updater
