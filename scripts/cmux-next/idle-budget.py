@@ -21,6 +21,10 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
+  minimized     the light session with its window minimized (minimizeWindow)
+  light-hidden and minimized run in shipping mode (SHIPPING_ENV) and name every main-thread wake source above
+  0.1/s in HIDDEN-WAKE lines (owner, per_s, top frame; `hidden_wake_sources`), from the wakeup ledger, the main
+  run loop's repeating timer fires and the run-loop callouts of a `/usr/bin/sample` of the main thread.
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -41,7 +45,8 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 [...]
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
-kind, a Markdown table, and --json with every sample.
+kind, for a hidden session `HIDDEN-WAKE {json}` per source and one `HIDDEN-WAKE-TOTAL {json}` with sha and host,
+a Markdown table, and --json with every sample.
 """
 import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
 
@@ -143,7 +148,7 @@ def read_rpc(app, method, params=None):
 def measure(app, instance, seconds):
     """Counters of every process of the app over `seconds` with no input."""
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
-    ledger0 = read_rpc(app, "debug.wakeups")
+    ledger0 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters0 = app_counters(app)
     pids = process_set(instance)
     first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
@@ -190,6 +195,8 @@ def measure(app, instance, seconds):
         result["app_counter_rates"] = rates
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
+        if ledger0.get("main_run_loop"):
+            result["main_run_loop_timer_fires"] = timer_fires(ledger0["main_run_loop"], ledger1["main_run_loop"], elapsed)
     return result
 
 
@@ -220,36 +227,252 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
-def sample_threads(pid, seconds, path):
-    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
-    never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
+def run_sample(pid, seconds, path):
+    """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it never runs
+    inside the measured window); its text, "" when it failed."""
     try:
         subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
                        timeout=seconds + 60)
-        text = open(path, errors="replace").read()
+        return open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
-        return {}
-    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+        return ""
+
+
+WAIT_SYMBOLS = ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait", "__select", "__ulock_wait",
+                "start_wqthread", "thread_start", "_pthread_start")
+THREAD_HEAD_RE = re.compile(r"\s{4}(\d+) Thread_\d+(.*)")
+FRAME_RE = re.compile(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)")
+
+
+def call_graph(text):
+    """The `Call graph:` part of a `/usr/bin/sample` report."""
+    return text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+
+
+def threads_from_sample(text):
+    """Per thread of a `/usr/bin/sample` report, the frames with the most samples outside the wait."""
     threads_out = {}
     current = None
-    for line in graph.splitlines():
-        head = re.match(r"\s{4}(\d+) Thread_\d+(.*)", line)
+    for line in call_graph(text).splitlines():
+        head = THREAD_HEAD_RE.match(line)
         if head:
             name = head.group(2).strip(" :") or "thread"
             current = {"samples": int(head.group(1)), "frames": {}}
             threads_out[f"{name} ({head.group(1)})"] = current
             continue
-        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
+        frame = FRAME_RE.match(line)
         if current is not None and frame:
             count, symbol, image = int(frame.group(1)), frame.group(2), frame.group(3)
-            if any(wait in symbol for wait in ("mach_msg", "__psynch_cvwait", "__workq_kernreturn", "kevent", "__semwait",
-                                                "__select", "__ulock_wait", "start_wqthread", "thread_start", "_pthread_start")):
+            if any(wait in symbol for wait in WAIT_SYMBOLS):
                 continue
             key = f"{symbol} ({image})"
             current["frames"][key] = max(current["frames"].get(key, 0), count)
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
+
+
+# ---------------------------------------------------------------------------------------------------------
+# Hidden main wakes (p14-energy-095): who wakes the main thread while no window can be seen
+
+# CFRunLoop's callout trampolines (CoreFoundation CFRunLoop.c: __CFRunLoopDoTimer, __CFRunLoopDoSources0,
+# __CFRunLoopDoSource1, _dispatch_main_queue_callback_4CF, __CFRunLoopDoBlocks, __CFRunLoopDoObservers), the frame
+# below __CFRunLoopRun that says why the main thread is awake. A timer, a source, a main-queue item or a block wakes
+# the run loop; observers run on every wake one of those causes, so they are listed but never counted as a cause.
+# Chromium's MessagePumpCFRunLoopBase (base/message_loop/message_pump_apple.mm) has the same split: a timer and a
+# work source wake it, observers only bracket the loop.
+RUN_LOOP_CALLOUTS = {
+    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__": "timer",
+    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__": "source0",
+    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE1_PERFORM_FUNCTION__": "source1",
+    "__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__": "main-queue",
+    "__CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__": "block",
+    "__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__": "observer",
+}
+WAKE_CAUSES = ("timer", "source0", "source1", "main-queue", "block")
+# Images whose frames do not name an owner: the OS frameworks and the runtime. The first frame below a callout in
+# any other image (the app binary, its frameworks, Sentry, Chromium, WebKit) names the owner.
+SYSTEM_IMAGES = {"CoreFoundation", "Foundation", "AppKit", "HIToolbox", "SkyLight", "QuartzCore", "CoreGraphics",
+                 "CoreText", "CFNetwork", "IOKit", "Security", "Metal", "CoreVideo", "CoreDisplay", "ViewBridge",
+                 "SwiftUI", "SwiftUICore", "AttributeGraph", "Combine", "Observation", "CoreServices",
+                 "LaunchServices", "AE", "CarbonCore", "RunningBoardServices", "BackBoardServices",
+                 "UIFoundation", "IOSurface", "ColorSync", "ImageIO", "CoreImage", "dyld"}
+# Trampolines skipped when a callout has no owner frame: its owner is then the first OS frame that does the work.
+TRAMPOLINE_IMAGES = {"CoreFoundation", "Foundation", "libdispatch.dylib", "libobjc.A.dylib"}
+
+
+SWIFT_THUNKS = ("thunk for ", "reabstraction thunk", "partial apply for ", "@objc ", "merged ")
+
+
+def is_system_image(image):
+    return image in SYSTEM_IMAGES or image.startswith("lib")
+
+
+def names_no_owner(node):
+    """True for a frame that can not name an owner: an OS image, or a Swift thunk with a frame below it."""
+    return is_system_image(node["image"]) or (node["symbol"].startswith(SWIFT_THUNKS) and bool(node["children"]))
+
+
+def main_thread_tree(text):
+    """The main thread's call tree in a `/usr/bin/sample` report, nested {symbol, image, count, children} (the thread
+    on com.apple.main-thread, else the first thread); None when the report has no thread."""
+    order = []
+    stack = []
+    for line in call_graph(text).splitlines():
+        head = THREAD_HEAD_RE.match(line)
+        if head:
+            thread = {"symbol": head.group(2).strip(" :") or "thread", "image": "", "count": int(head.group(1)),
+                      "children": []}
+            order.append(thread)
+            stack = [(-1, thread)]
+            continue
+        frame = FRAME_RE.match(line)
+        if not stack or not frame:
+            continue
+        depth = frame.start(1)
+        node = {"symbol": frame.group(2), "image": frame.group(3), "count": int(frame.group(1)), "children": []}
+        while len(stack) > 1 and stack[-1][0] >= depth:
+            stack.pop()
+        stack[-1][1]["children"].append(node)
+        stack.append((depth, node))
+    main = [thread for thread in order if "com.apple.main-thread" in thread["symbol"]]
+    return (main or order or [None])[0]
+
+
+def owner_name(node):
+    return f"{node['symbol'][:120]} ({node['image']})"
+
+
+def unowned(node):
+    """Samples of `node` that no owner frame below it takes (an owner frame takes all of its own samples)."""
+    if not names_no_owner(node):
+        return 0
+    return node["count"] - sum(child["count"] - unowned(child) for child in node["children"])
+
+
+def system_owner(callout):
+    """The owner of a callout's samples that have no owner frame: the first frame on their heaviest path that is not
+    a run-loop, dispatch or runtime trampoline (a WebKit timer, an AppKit event handler)."""
+    node = callout
+    while node["children"]:
+        heaviest = max(node["children"], key=unowned)
+        if unowned(heaviest) == 0:
+            break
+        node = heaviest
+        if node["image"] not in TRAMPOLINE_IMAGES:
+            break
+    return owner_name(node)
+
+
+def callout_owners(tree):
+    """{(kind, owner): samples} of the main thread: for each outermost run-loop callout, every first frame below it
+    in a non-system image is an owner with its samples; the callout's other samples go to its system owner."""
+    out = {}
+
+    def add(key, count):
+        out[key] = out.get(key, 0) + count
+
+    pending = [tree] if tree else []
+    while pending:
+        node = pending.pop()
+        kind = RUN_LOOP_CALLOUTS.get(node["symbol"])
+        if not kind:
+            pending.extend(node["children"])
+            continue
+        below = list(node["children"])
+        while below:
+            child = below.pop()
+            if names_no_owner(child):
+                below.extend(child["children"])
+            else:
+                add((kind, owner_name(child)), child["count"])
+        rest = unowned(node)
+        if rest > 0:
+            add((kind, system_owner(node)), rest)
+    return out
+
+
+def main_callouts_from_sample(text):
+    """[{kind, owner, samples}] of the main thread's run-loop callouts in a `/usr/bin/sample` report, most first."""
+    rows = [{"kind": kind, "owner": owner, "samples": count}
+            for (kind, owner), count in callout_owners(main_thread_tree(text)).items()]
+    return sorted(rows, key=lambda r: (-r["samples"], r["kind"], r["owner"]))
+
+
+def timer_fires(before, after, elapsed):
+    """Fires per second of each repeating main run-loop timer between two `CFCopyDescription`s of the main run loop
+    (debug.wakeups `run_loop`): its next fire date advances one interval per fire. One-shot timers (interval 0) have
+    no count here; the sample's timer callouts name them. A fire the run loop skipped (App Nap) counts as a fire, so
+    the rate is an upper bound."""
+    def repeating(description):
+        found = {}
+        for valid, interval, fire, callout in TIMER_RE.findall(description or ""):
+            if valid == "Yes" and float(interval) > 0:
+                found.setdefault((callout.strip()[:160], float(interval)), set()).add(float(fire))
+        return {key: sorted(fires) for key, fires in found.items()}
+
+    first, last = repeating(before), repeating(after)
+    out = []
+    for (callout, interval), fires1 in last.items():
+        fires0 = first.get((callout, interval))
+        if not fires0 or len(fires0) != len(fires1) or elapsed <= 0:
+            continue
+        fired = sum(max(0, round((f1 - f0) / interval)) for f0, f1 in zip(fires0, fires1))
+        if fired:
+            out.append({"callout": callout, "interval_s": interval, "timers": len(fires1),
+                        "per_s": round(fired / elapsed, 3)})
+    return sorted(out, key=lambda t: (-t["per_s"], t["callout"]))
+
+
+HIDDEN_WAKE_FLOOR = 0.1  # per second: every main wake source above it is named
+
+
+def hidden_wake_sources(result, floor=HIDDEN_WAKE_FLOOR):
+    """The main thread's wake sources of a hidden session, each {owner, kind, per_s, top, basis}:
+
+    - basis `ledger`: a wakeup ledger owner (DemandTimer, FrameScheduler, Backoff; any thread), its count in the
+      window;
+    - basis `run-loop-timer`: a repeating main run-loop timer, its fires in the window (`timer_fires`);
+    - basis `sample-share`: a run-loop callout's owner in the `/usr/bin/sample` of the main thread after the window.
+      per_s is the window's main wakes/s times the owner's share of the wake-cause samples. Samples measure time,
+      so a long callout reads high and a short one low; the other two bases are counts.
+
+    The same source can show under two bases (a ledger DemandTimer is also a main run-loop timer callout). Sources
+    at or below `floor` per second are dropped; sample owners are kept when the window has no main wake count
+    (per_s None). Observers are not causes and come back apart, with their samples."""
+    sources = []
+    for entry in (result.get("ledger") or {}).get("owners") or []:
+        sources.append({"owner": f"{entry['owner']}:{entry['reason']}", "kind": "ledger", "per_s": entry["per_s"],
+                        "top": None, "basis": "ledger"})
+    for timer in result.get("main_run_loop_timer_fires") or []:
+        sources.append({"owner": timer["callout"], "kind": "timer", "per_s": timer["per_s"], "top": timer["callout"],
+                        "basis": "run-loop-timer", "interval_s": timer["interval_s"]})
+    callouts = result.get("main_callouts") or []
+    causes = [c for c in callouts if c["kind"] in WAKE_CAUSES]
+    total = sum(c["samples"] for c in causes)
+    main_wakes = result.get("main_wakes_per_s")
+    for entry in causes:
+        share = entry["samples"] / total
+        per_s = round(main_wakes * share, 3) if isinstance(main_wakes, (int, float)) else None
+        sources.append({"owner": entry["owner"], "kind": entry["kind"], "per_s": per_s, "top": entry["owner"],
+                        "basis": "sample-share", "samples": entry["samples"], "share": round(share, 4)})
+    kept = sorted((s for s in sources if s["per_s"] is None or s["per_s"] > floor), key=lambda s: -(s["per_s"] or 0))
+    observers = [c for c in callouts if c["kind"] == "observer"][:10]
+    return {"main_wakes_per_s": main_wakes, "cause_samples": total, "sources": kept, "observers": observers}
+
+
+def hidden_wake_lines(session, report, build_sha, host):
+    """The `HIDDEN-WAKE {json}` lines of one hidden session for the Q9 slots (one per source, most first), then one
+    `HIDDEN-WAKE-TOTAL {json}` line with the build sha and host."""
+    lines = []
+    for source in report["sources"]:
+        lines.append("HIDDEN-WAKE " + json.dumps({"session": session, **source}))
+    for observer in report["observers"]:
+        lines.append("HIDDEN-WAKE-OBSERVER " + json.dumps({"session": session, **observer}))
+    lines.append("HIDDEN-WAKE-TOTAL " + json.dumps({
+        "session": session, "sha": build_sha, "host": host, "main_wakes_per_s": report["main_wakes_per_s"],
+        "cause_samples": report["cause_samples"], "sources": len(report["sources"]), "floor_per_s": HIDDEN_WAKE_FLOOR}))
+    return lines
 
 
 def app_counters(app):
@@ -412,14 +635,37 @@ def build_stress(app, static=False):
 BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}  # BenchApp's default config
 # The sessions: light (the launch window: one terminal, Home's pages in Chromium by default), light-webkit (the
 # same with `browser.defaultEngine: webkit`, so no Chromium runs at all), light-hidden (the app hidden: no window
-# can be seen), stress (STRESS, its busy terminals stopped).
+# can be seen), minimized (the light session with its window minimized), stress (STRESS, its busy terminals
+# stopped). `hidden_wake` sessions run in shipping mode and print HIDDEN-WAKE lines (`hidden_wake_sources`).
 SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
-    "light-hidden": {"hide": True},
+    "light-hidden": {"hide": True, "hidden_wake": True},
+    "minimized": {"minimize": True, "hidden_wake": True},
     "stress": {},
     "stress-static": {},
 }
+
+
+# Shipping measurement mode (p14-energy-100): the app draws as a shipping build does, not as an automation launch
+# (CMUX_NEXT_BENCH_SHIPPING_DRAW: WindowDrawPolicy's isAutomationLaunch and rendersWhenCovered false), with Sentry
+# (CrashReportingPolicy.devOptInKey) and hang reports (HangReportsController.devOptInKey) started, so the hidden
+# main wakes measured are the ones a person's app has.
+SHIPPING_ENV = {"CMUX_NEXT_BENCH_SHIPPING_DRAW": "1", "CMUX_NEXT_DEV_SENTRY": "1", "CMUX_NEXT_DEV_HANG_REPORTS": "1"}
+
+
+def session_env(session):
+    """The launch environment a session adds to BenchApp's (shipping mode for the hidden-wake sessions)."""
+    return dict(SHIPPING_ENV) if SESSIONS[session].get("hidden_wake") else {}
+
+
+def build_sha_of(app_path):
+    """The commit the app was built from (bench_launch.build_sha), None when the bundle names none."""
+    from bench_launch import RecordError, build_sha
+    try:
+        return build_sha(app_path)
+    except RecordError:
+        return None
 
 
 def fresh_session(app):
@@ -483,7 +729,8 @@ def main():
     for session in [s for s in opts.sessions.split(",") if s]:
         if session not in SESSIONS:
             raise SystemExit(f"idle-budget: unknown session {session} (one of {', '.join(SESSIONS)})")
-        app = BenchApp(opts.app, out=os.path.join(out, session), config=SESSIONS[session].get("config"))
+        app = BenchApp(opts.app, out=os.path.join(out, session), config=SESSIONS[session].get("config"),
+                       env=session_env(session))
         try:
             entry = {"fresh_session": fresh_session(app)}
             app.launch()
@@ -492,6 +739,11 @@ def main():
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("minimize"):
+                entry["minimize"] = app.rpc("action.run", {"action": "minimizeWindow", "focus": False,
+                                                           "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("hidden_wake"):
+                entry["shipping_env"] = sorted(SHIPPING_ENV)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
@@ -499,7 +751,9 @@ def main():
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
-                result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                text = run_sample(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                result["sample"] = threads_from_sample(text)
+                result["main_callouts"] = main_callouts_from_sample(text)
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
@@ -517,10 +771,16 @@ def main():
             for timer in result.get("main_run_loop_timers") or []:
                 if timer["interval_s"] > 0:
                     print(f"IDLE-BUDGET-MAIN-TIMER {session} every {timer['interval_s']:g} s: {timer['callout']}", flush=True)
-            for name, entry in (result.get("sample") or {}).items():
-                top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
+            for name, sampled in (result.get("sample") or {}).items():
+                top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
+            if SESSIONS[session].get("hidden_wake"):
+                hidden = hidden_wake_sources(result)
+                hidden.update({"sha": build_sha_of(opts.app), "host": machine["host"]})
+                entry["hidden_wake"] = hidden
+                for line in hidden_wake_lines(session, hidden, hidden["sha"], hidden["host"]):
+                    print(line, flush=True)
             for name, field, value, limit in overs:
                 print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
             all_overs += [(session, *o) for o in overs]

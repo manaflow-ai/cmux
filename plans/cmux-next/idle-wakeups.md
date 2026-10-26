@@ -180,3 +180,52 @@ Open:
 - MainActorWorkQueue/ControlDeadline/ControlSnapshot deadlines and the UI one-shot delays still sleep in their own Tasks (reviewed `wakeup-allow`); moving them onto DemandTimer would put them in the ledger.
 - The bench's first Chromium tab can miss the 2 s control deadline on a loaded machine (cold CefInitialize); the bench waits for a renderer but that also failed twice.
 - UNVERIFIED: fully covered window, window on another Space, app hidden, audio in a hidden tab; cmux-tui remote, browser-proxy and Windows paths (compiled on CI only).
+
+## 9. Hidden main wakes (p14-energy-095)
+
+speed-of-sound-DESIGN.md sec. 5/7 measured the Release app's main thread at 107 wakes/s while the app was hidden,
+more than in view (cmux20). This section names who wakes it. No source changes here; the fixes are Q9 tasks
+(p14-energy-092 and the other Q9 slots), one per `HIDDEN-WAKE` owner.
+
+### Method
+
+`scripts/cmux-next/idle-budget.py --sessions light-hidden,minimized` launches each session in shipping mode
+(`SHIPPING_ENV`: `CMUX_NEXT_BENCH_SHIPPING_DRAW=1`, `CMUX_NEXT_DEV_SENTRY=1`, `CMUX_NEXT_DEV_HANG_REPORTS=1`; the
+mode of p14-energy-100), so the app draws, reports and watches hangs as a person's app does. It then hides the app
+(Show/Hide All Windows `hidden=true`) or minimizes its window (`minimizeWindow`), settles, and measures one window
+with no input. Three sources name the owners:
+
+| Basis | What it reads | Rate |
+| --- | --- | --- |
+| `ledger` | `debug.wakeups` ledger owners (DemandTimer, FrameScheduler, Backoff) at both ends of the window | count in the window (all threads) |
+| `run-loop-timer` | the main run loop's `CFCopyDescription` at both ends (`debug.wakeups` `run_loop: true`): each repeating timer's next fire date advances one interval per fire | count in the window; upper bound when App Nap skips fires |
+| `sample-share` | `/usr/bin/sample` of the app for `--sample` seconds after the window: on the main thread, each outermost CFRunLoop callout (timer, source0, source1, main queue, block) and the first frame below it outside the OS images and Swift thunks | main wakes/s x the owner's share of the callout samples (samples measure time, so this ranks; it is not a count) |
+
+Observers (`__CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__`) run on every wake that another source
+causes, so they are listed (`HIDDEN-WAKE-OBSERVER`) and never counted as a cause. This is the split Chromium's
+`MessagePumpCFRunLoopBase` makes (base/message_loop/message_pump_apple.mm: a work source and a delayed-work timer
+wake the loop, observers only bracket it); Chrome names the poster of each task the same way, by its
+`posted_from` location (base/task/common/task_annotator.cc).
+
+Output for each hidden session: one `HIDDEN-WAKE {json}` line for each source above 0.1/s (`session`, `owner`,
+`kind`, `per_s`, `top` frame, `basis`), most first; `HIDDEN-WAKE-OBSERVER` lines; and one `HIDDEN-WAKE-TOTAL` line with
+the build `sha` (`bench_launch.build_sha`), `host`, main wakes/s and the source count. The JSON report keeps them
+under `sessions.<session>.hidden_wake`.
+
+Run (Q9, a quiet fleet host, Release with bench hooks):
+
+    cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh \
+      --ref <sha> --arg=--suite=idle-budget --arg=--config=bench --arg=--sessions=light-hidden,minimized
+
+(No `--` before `--sessions`: idle-budget.py reads its options with argparse, which takes every word after
+`--` as a positional argument and would run the default sessions.)
+
+### Report
+
+Not measured yet: this task adds the attribution, and the Q9 run of the command above fills this table (sha, host,
+every `HIDDEN-WAKE` line above 0.1/s for both sessions). Until then, the 107/s figure has no named owner.
+
+| Session | sha | host | main wakes/s | owner | kind | per_s | basis |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| light-hidden | | | | | | | |
+| minimized | | | | | | | |
