@@ -8,18 +8,22 @@ import Testing
 @Suite struct AgentPageWarmupPlanTests {
     @Test func aWarmupQueuedPastTheSettleStillMakesItsPage() {
         var plan = AgentPageWarmupPlan()
-        #expect(!plan.settle(), "no page yet: nothing goes")
+        let settleDropped = plan.settle()
+        #expect(!settleDropped, "no page yet: nothing goes")
         #expect(plan.start() == true, "the afterStartup warm-up still starts; its page goes once its load ends")
         #expect(plan.pageAlive)
-        #expect(plan.loadEnded(), "the empty page goes, WebKit's setup and the pool stay")
+        let loadDropped = plan.loadEnded()
+        #expect(loadDropped, "the empty page goes, WebKit's setup and the pool stay")
         #expect(!plan.pageAlive)
     }
 
     @Test func aWarmupBeforeTheSettleKeepsItsPageUntilTheSettle() {
         var plan = AgentPageWarmupPlan()
         #expect(plan.start() == false, "made before the settle: kept for the first agent page")
-        #expect(!plan.loadEnded(), "its load ending does not drop it before the settle")
-        #expect(plan.settle())
+        let loadDropped = plan.loadEnded()
+        #expect(!loadDropped, "its load ending does not drop it before the settle")
+        let settleDropped = plan.settle()
+        #expect(settleDropped)
         #expect(!plan.pageAlive)
     }
 
@@ -33,8 +37,10 @@ import Testing
     @Test func anAgentPageLoadedDropsTheWarmupPage() {
         var plan = AgentPageWarmupPlan()
         _ = plan.start()
-        #expect(plan.agentPageLoaded())
-        #expect(!plan.settle(), "already gone")
+        let loadedDropped = plan.agentPageLoaded()
+        #expect(loadedDropped)
+        let settleDropped = plan.settle()
+        #expect(!settleDropped, "already gone")
     }
 
     @Test func theWarmupStartsOncePerRun() {

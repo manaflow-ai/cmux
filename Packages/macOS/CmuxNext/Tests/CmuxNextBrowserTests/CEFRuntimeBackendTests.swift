@@ -210,7 +210,7 @@ import Testing
             return .failure(.notEmbedded)
         }
         runtime.hostStart = CEFHostStart(supervisor: supervisor, open: { _ in
-            do { return .success(try CEFRemoteShim.make(symbol: symbol, expected: RemoteSpy.abi)) } catch { return .failure(.shim(error)) }
+            do throws(CEFShimLibrary.LoadError) { return .success(try CEFRemoteShim.make(symbol: symbol, expected: RemoteSpy.abi)) } catch { return .failure(.shim(error)) }
         }, helloDeadline: helloDeadline, clock: clock)
         return runtime
     }
