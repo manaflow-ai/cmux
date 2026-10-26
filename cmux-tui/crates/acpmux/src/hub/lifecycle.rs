@@ -479,18 +479,15 @@ impl Hub {
 
     /// A creation that failed (`new_session`) leaves no session behind, unless a stop came
     /// during it and a request after that stop reopened the session: that one is the later
-    /// request's, and its agent keeps running. Decided under the spawn lock, which every reopen
-    /// holds.
+    /// request's, and its agent keeps running. The spawn lock, which every reopen holds
+    /// (`ensure_child`), is held from the read to the end of the purge (`kill` never takes it).
     pub(super) async fn discard_failed_creation(&self, session: &Arc<Session>, created_stops: u64) {
-        if session.stops.load(Ordering::SeqCst) != created_stops {
-            let _spawning = session.spawn_lock.lock().await;
-            if session.status() != SessionStatus::Closed {
-                return;
-            }
+        let _spawning = session.spawn_lock.lock().await;
+        let reopened_since = session.stops.load(Ordering::SeqCst) != created_stops
+            && session.status() != SessionStatus::Closed;
+        if !reopened_since {
             let _ = self.kill(session, true).await;
-            return;
         }
-        let _ = self.kill(session, true).await;
     }
 
     /// A stopped session reopens for a request that came after its last stop (`ensure_child`);
