@@ -355,6 +355,16 @@ impl Hub {
         if !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
+        // MDM forces full access off (#23322, review 60): what the host kept while no daemon was
+        // attached is in the log now. A mode or option it moved to then is judged before the
+        // agent is handed out (every caller holds the spawn lock, so `child_for` waits); a later
+        // report reaches `write_mode_state` live.
+        if self.full_access_managed_off() {
+            session.floor.left_host_read.store(false, Ordering::SeqCst);
+            if self.end_if_runs_full_access(session).await != FullAccessEnd::NotInFullAccess {
+                return Ok(());
+            }
+        }
         self.append(
             session,
             "mux",

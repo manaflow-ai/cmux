@@ -43,6 +43,11 @@ pub(crate) struct FloorState {
     /// Under MDM's off, the log of the host a restart left was read back and found no full
     /// access: what this daemon keeps of it is complete from then on (`full_access_bound.rs`).
     pub(super) left_host_read: AtomicBool,
+    /// Values a `set_config_option` took whose answer carried no options: the agent runs them,
+    /// though the chat's options do not say so. Read by the full-access bound
+    /// (`FullAccessView::of_session`); the next options the harness reports replace them, and they
+    /// go when the agent exits (review 60 of #23322).
+    pub(super) asked_options: StdMutex<Vec<Value>>,
     /// The agent process holds a lasting grant a client gave it ("allow
     /// always"): Web control ends until the agent exits (`web_control.rs`).
     pub(super) harness_grant: AtomicBool,

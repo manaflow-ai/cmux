@@ -56,11 +56,13 @@ impl FullAccessView {
     pub(crate) fn of_session(session: &Session) -> Self {
         let undeclared_mode =
             session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let asked = session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let meta = session.meta();
         Self {
             mode: crate::web_modes::mode_of(&meta),
             undeclared_mode,
-            options: config_options(&meta).cloned().collect(),
+            // With the values a bare `set_config_option` answer took (`FloorState::asked_options`).
+            options: config_options(&meta).cloned().chain(asked).collect(),
             // The argv its agent started with; before any start, the creation's.
             argv: meta.spawn_argv.unwrap_or(meta.harness_argv),
         }
@@ -259,7 +261,9 @@ impl Hub {
                     mode = text(e.msg.pointer("/params/update/currentModeId")).or(mode.take());
                 }
                 ("in", "config_option_update") if its_own() => {
-                    if let Some(o) = e.msg.pointer("/params/update/configOptions") {
+                    if let Some(o) =
+                        e.msg.pointer("/params/update/configOptions").filter(|o| !o.is_null())
+                    {
                         options = Some(o.clone());
                     }
                 }
@@ -284,8 +288,20 @@ impl Hub {
                                 .or(mode.take());
                         }
                         method::SESSION_SET_CONFIG_OPTION => {
-                            if let Some(o) = res.get("configOptions") {
-                                options = Some(o.clone());
+                            // An answer without its options took the value asked (review 60).
+                            match res.get("configOptions").filter(|o| !o.is_null()) {
+                                Some(o) => options = Some(o.clone()),
+                                None => {
+                                    if let Some(asked) = asked_option(&params) {
+                                        let mut all = options
+                                            .as_ref()
+                                            .and_then(Value::as_array)
+                                            .cloned()
+                                            .unwrap_or_default();
+                                        merge_asked_option(&mut all, asked);
+                                        options = Some(Value::Array(all));
+                                    }
+                                }
                             }
                             if params.get("configId").and_then(Value::as_str) == Some("mode") {
                                 mode = text(res.get("currentModeId")).or(mode.take());
@@ -340,9 +356,10 @@ impl Hub {
             }
         }
         // What only the ended agent said goes with it: the mode it reported without declaring
-        // modes, and a full-access value of any option (the next agent reports its own, and
-        // `replay_config` skips a null).
+        // modes, the values bare answers took, and a full-access value of any option (the next
+        // agent reports its own, and `replay_config` skips a null).
         *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner()).clear();
         let scrubbed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             let mut scrubbed = false;
@@ -362,6 +379,23 @@ impl Hub {
             self.append(session, "mux", "full_access_ended", json!({"reason": "managed"}));
         }
         FullAccessEnd::Ended
+    }
+}
+
+/// The option a `set_config_option` request asks for, as an option record:
+/// `{"id": configId, "currentValue": value}`.
+pub(super) fn asked_option(params: &Value) -> Option<Value> {
+    let id = params.get("configId").and_then(Value::as_str)?;
+    let value = params.get("value").filter(|v| !v.is_null())?;
+    Some(json!({"id": id, "currentValue": value}))
+}
+
+/// Puts `asked` (`asked_option`) into `options`: the option of its id takes its value, or it is
+/// added.
+pub(super) fn merge_asked_option(options: &mut Vec<Value>, asked: Value) {
+    match options.iter_mut().find(|o| o.get("id") == asked.get("id")) {
+        Some(o) => o["currentValue"] = asked["currentValue"].clone(),
+        None => options.push(asked),
     }
 }
 

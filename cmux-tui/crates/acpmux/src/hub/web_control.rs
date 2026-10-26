@@ -124,7 +124,16 @@ impl Hub {
                                 .unwrap_or_else(|e| e.into_inner()) = v.as_str().map(str::to_owned);
                         }
                     },
-                    ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
+                    ModeWrite::ConfigOptions(v) => {
+                        // What the harness reports replaces what bare answers took.
+                        session
+                            .floor
+                            .asked_options
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .clear();
+                        m.config_options = Some(v)
+                    }
                 }
             }
             // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode

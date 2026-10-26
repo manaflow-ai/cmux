@@ -974,6 +974,9 @@ impl Hub {
             && params.get("configId").and_then(Value::as_str) == Some("mode"))
         .then(|| params.get("value").and_then(Value::as_str).map(str::to_owned))
         .flatten();
+        let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
+            .then(|| super::full_access_bound::asked_option(&params))
+            .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -1009,6 +1012,12 @@ impl Hub {
                 let mut writes = Vec::new();
                 if let Some(opts) = res.get("configOptions") {
                     writes.push(ModeWrite::ConfigOptions(opts.clone()));
+                } else if let Some(asked) = asked_option {
+                    // A bare answer took the value asked: the full-access bound reads it (review
+                    // 60 of #23322); the chat's options stay as the harness reported them.
+                    let mut kept =
+                        session.floor.asked_options.lock().unwrap_or_else(|e| e.into_inner());
+                    super::full_access_bound::merge_asked_option(&mut kept, asked);
                 }
                 // Claude Code answers a `mode` option with the mode it now runs.
                 if asked_option_mode.is_some()
