@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
+public import CmuxNextInputCore
 public import CmuxNextRemoteView
 public import Foundation
 
@@ -246,6 +247,12 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     public func sendPointer(_ event: NSEvent, at point: CGPoint) {
         guard let json = RemoteBrowserInputEncoder.pointer(event, at: point), let bytes = RemoteBrowserInputEncoder.bytes(json) else { return }
         _ = transport.sendServiceInput(bytes, mustDeliver: RemoteBrowserInputEncoder.mustDeliver(event))
+    }
+
+    public func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint) {
+        guard let json = RemoteBrowserInputEncoder.pointer(input, clickCount: clickCount, at: point),
+              let bytes = RemoteBrowserInputEncoder.bytes(json) else { return }
+        _ = transport.sendServiceInput(bytes, mustDeliver: false)
     }
 
     public func history(_ op: RemoteBrowserHistoryOp) {

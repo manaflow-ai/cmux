@@ -286,7 +286,14 @@ final class AppServices {
     /// column and row edges, both sidebars' resize edges and the DevTools divider move on a frame interval's first
     /// drag event and once more at its frame (p04-input-030). Nil while it is off: each drag event moves them.
     private(set) lazy var dragFrameInput: PointerFrameCoalescers? =
-        features.isEnabled(.pointerFrameDrags) ? PointerFrameCoalescers(tap: inputTap, mainWork: mainWork) : nil
+        features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// The windows' frame-aligned pointer input for remote panes (feature `pointerFrameRemoteInput`): remote
+    /// desktop and remote browser tabs send moves, drags and mid-gesture scrolls at most twice per frame
+    /// (p04-input-035). Nil while it is off: each event goes to the host at once.
+    private(set) lazy var remotePointerFrames: PointerFrameCoalescers? =
+        features.isEnabled(.pointerFrameRemoteInput) ? pointerFrames : nil
+    /// One coalescer per window, shared by every feature's consumers (each consumer keeps its own interval).
+    private lazy var pointerFrames = PointerFrameCoalescers(tap: inputTap, mainWork: mainWork)
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).

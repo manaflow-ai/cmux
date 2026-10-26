@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextRemoteView
+import CmuxNextInputCore
 import CmuxNextCompat
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -57,6 +58,8 @@ public final class RemoteBrowserSurfaces {
             input.view = pane.view
             pane.view.isSurface = true
             pane.view.eventTarget = input
+            // A popup's hovers and drags are frame-aligned like the page's.
+            pane.view.pointerFrames = page.pointerFrames
             pane.view.frame = CGRect(origin: .zero, size: anchor.size)
             let panel = RemoteBrowserSurfacePanel(content: pane.view)
             open[surface] = Surface(pane: pane, input: input, panel: panel, kind: kind, anchor: anchor)
@@ -116,6 +119,13 @@ public final class RemoteBrowserSurfaces {
     public func sendPointer(_ event: NSEvent, at point: CGPoint, surface: UInt32) {
         guard open[surface] != nil, let json = RemoteBrowserInputEncoder.pointer(event, at: point, surface: surface) else { return }
         send(json, RemoteBrowserInputEncoder.mustDeliver(event))
+    }
+
+    /// Sends one frame delivery of merged moves or drags at `point` to `surface` (a popup takes no wheel).
+    func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint, surface: UInt32) {
+        guard open[surface] != nil,
+              let json = RemoteBrowserInputEncoder.pointer(input, clickCount: clickCount, at: point, surface: surface) else { return }
+        send(json, false)
     }
 
     private func remove(_ surface: UInt32) {
@@ -225,6 +235,17 @@ private final class SurfaceInput: RemoteBrowserEventTarget {
             location = own.convertPoint(fromScreen: from.convertPoint(toScreen: location))
         }
         owner?.sendPointer(event, at: view.convert(location, from: nil), surface: surface)
+    }
+
+    func handlePointerFrame(_ input: PointerCoalescedInput, clickCount: Int) {
+        guard let view else { return }
+        // As `handlePointer`: a hover from another window of the app comes through the screen.
+        let record = input.latest
+        var location = NSPoint(x: record.location.x, y: record.location.y)
+        if let own = view.window, record.windowNumber != own.windowNumber {
+            location = own.convertPoint(fromScreen: NSPoint(x: record.screenLocation.x, y: record.screenLocation.y))
+        }
+        owner?.sendPointerFrame(input, clickCount: clickCount, at: view.convert(location, from: nil), surface: surface)
     }
 }
 #endif

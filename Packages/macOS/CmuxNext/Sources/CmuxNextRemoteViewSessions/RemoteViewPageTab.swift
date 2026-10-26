@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextInput
 import CmuxNextIcons
 public import CmuxNextRemoteView
 import Foundation
@@ -84,6 +85,13 @@ public final class RemoteViewPageTab: BrowserTab {
     /// The tab's session, when it streams (development path or mock).
     public var debugSession: RemoteViewPageSession? { session }
     #endif
+
+    /// The windows' frame-aligned pointer input for the desktop pane (feature `pointerFrameRemoteInput`);
+    /// a tab with no session has none.
+    public var pointerFrames: PointerFrameCoalescers? {
+        get { session?.pointerFrames }
+        set { session?.pointerFrames = newValue }
+    }
 
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

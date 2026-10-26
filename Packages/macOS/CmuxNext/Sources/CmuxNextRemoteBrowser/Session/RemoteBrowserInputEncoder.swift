@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInputCore
 public import CmuxNextRemoteView
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -56,6 +57,31 @@ public nonisolated struct RemoteBrowserInputEncoder {
         return pointer(
             type: event.type, button: appKitButton(event), clickCount: clicks, modifierFlags: event.modifierFlags, at: point,
             surface: surface)
+    }
+
+    /// One frame delivery of merged moves, drags or mid-gesture scrolls at `point`: a move at the
+    /// latest point (a drag with the press's `clickCount`), or a wheel with the summed deltas and the
+    /// merged phase. A popup `surface` takes no wheel (nil), as for single events.
+    public static func pointer(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint, surface: UInt32 = 0) -> RemoteRdJSON? {
+        let record = input.latest
+        let flags = NSEvent.ModifierFlags(rawValue: record.modifierFlags.rawValue)
+        if record.type == .scrollWheel {
+            guard surface == 0 else { return nil }
+            let phases = record.scrollPhase.appKitPhases
+            return wheel(dx: input.scrollDelta.x, dy: input.scrollDelta.y, precise: record.hasPreciseScrollingDeltas,
+                         phase: phases.phase, momentumPhase: phases.momentum, modifierFlags: flags, at: point)
+        }
+        // The AppKit button as `appKitButton` reads it: the type names left and right.
+        let move: (type: NSEvent.EventType, button: Int)
+        switch record.type {
+        case .mouseMoved: move = (.mouseMoved, 0)
+        case .leftMouseDragged: move = (.leftMouseDragged, 0)
+        case .rightMouseDragged: move = (.rightMouseDragged, 1)
+        case .otherMouseDragged: move = (.otherMouseDragged, max(2, record.buttonNumber))
+        default: return nil
+        }
+        return pointer(type: move.type, button: move.button, clickCount: move.type == .mouseMoved ? 0 : clickCount,
+                       modifierFlags: flags, at: point, surface: surface)
     }
 
     /// Whether the host must get `event` even when newer input supersedes
