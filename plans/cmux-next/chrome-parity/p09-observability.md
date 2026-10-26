@@ -1355,18 +1355,26 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 
 ### 050 In-repo CEF shim: tracing exports (no fork)
 - Files: Packages/macOS/CmuxNext/CEFShim/src/shim_tracing.mm, S/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h.
-- Change: `cmux_cef_begin_tracing(categories, buffer_kb)`, `cmux_cef_end_tracing(path, done_cb)` and
-  `cmux_cef_now_trace_us()` wrap the stock CEF API (`include/cef_trace.h`). They post to the browser UI
-  thread. The output is legacy JSON; CEF's public API has no proto end, and this reason is written in the
-  code.
+- Change: `cmux_cef_begin_tracing(categories, started_fn, ctx)`, `cmux_cef_end_tracing(path, written_fn, ctx)`
+  and `cmux_cef_now_trace_us()` wrap the stock CEF API (`include/cef_trace.h`). They post to the browser UI
+  thread, and each callback runs once (the failure value when CEF refuses or drops the request). The output
+  is legacy JSON; CEF's public API has no proto end, and this reason is written in the code.
+  - No buffer size: `CefBeginTracing` builds `TraceConfig(categories, "")`, so Chromium's default
+    record-until-full buffer applies. A set size needs the CEF fork (TraceConfig JSON
+    `trace_buffer_size_in_kb`).
+  - The written path means Chromium finished the recording, not that the file exists or is complete
+    (Chromium ignores open and write errors). The caller stats and parses it off the main thread.
 - Acceptance: The header declares the 3 functions. A Release-build embedder case writes JSON.
-- Test phase: fleet: `cmux-ci build cmux`; a shim test.
+  - Open: the embedder case is not written yet. 051's fleet Release run `cmux trace record --chromium` is
+    the first real run of these exports.
+- Test phase: fleet: `cmux-ci build cmux`; `scripts/cmux-next/test-shim-tracing-cpp.sh`.
 
 ### 051 Chromium tracing in Release (role-aware)
 - Files: S/CmuxNextBrowser/CEF/CEFShimLibrary.swift, S/CmuxNextBrowser/CEF/CEFTracing.swift, S/CmuxNextControl/Diagnostics/ControlRouter+Trace.swift.
 - Change: `trace.start chromium:true` begins tracing (toplevel, cc, viz, gpu, input, latencyInfo,
-  benchmark; 64 MB) in-process, or through the host wire TRACE_START (104) when the Chromium host is on. It
-  records the clock offset in meta.json and ends into the recording directory.
+  benchmark; Chromium's default buffer, because 050 has no buffer size on stock CEF) in-process, or
+  through the host wire TRACE_START (104) when the Chromium host is on. It records the clock offset in
+  meta.json and ends into the recording directory.
 - Acceptance: Host mode off and on both produce JSON. The offset is in meta.json. A missing host symbol
   reports unsupported.
 - Test phase: fleet Release: `cmux trace record --chromium`; trace.py shows the GPU and renderer tracks.
