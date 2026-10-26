@@ -177,11 +177,6 @@ fileprivate func cmuxVsyncIOSurfaceTimelineCallback(
 }
 #endif
 
-private struct SessionSnapshotWorkspaceSelection {
-    let workspaces: [Workspace]
-    let selectedWorkspaceIndex: Int?
-}
-
 // WorkspaceGroup, WorkspaceReorderPlanItem, WorkspaceBatchReorderError, and
 // the pure batch-reorder planning live in CmuxWorkspaces.
 
@@ -6719,17 +6714,8 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
-    /// Returns the restorable workspace projection shared by snapshot capture,
-    /// selection mapping, and autosave fingerprinting.
-    private func sessionSnapshotWorkspaceSelection() -> SessionSnapshotWorkspaceSelection {
-        let allRestorableWorkspaces = tabs.filter(\.isRestorableInSessionSnapshot)
-        let selectedRestorableWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
-            allRestorableWorkspaces.firstIndex(where: { $0.id == selectedTabId })
-        }
-        return SessionSnapshotWorkspaceSelection(
-            workspaces: allRestorableWorkspaces,
-            selectedWorkspaceIndex: selectedRestorableWorkspaceIndex
-        )
+    private var restorableSessionWorkspaces: [Workspace] {
+        tabs.filter(\.isRestorableInSessionSnapshot)
     }
 
     func sessionAutosaveFingerprint(
@@ -6757,8 +6743,7 @@ extension TabManager {
             hasher.combine(group.externalID ?? "")
             hasher.combine(group.anchorWorkspaceProvenance.rawValue)
         }
-        let workspaceSelection = sessionSnapshotWorkspaceSelection()
-        for workspace in workspaceSelection.workspaces {
+        for workspace in restorableSessionWorkspaces {
             hasher.combine(workspace.id)
             hasher.combine(workspace.groupId)
             hasher.combine(workspace.focusedPanelId)
@@ -7032,8 +7017,8 @@ extension TabManager {
         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
-        let workspaceSelection = sessionSnapshotWorkspaceSelection()
-        let workspaceSnapshots = workspaceSelection.workspaces
+        let restorableTabs = restorableSessionWorkspaces
+        let workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
@@ -7043,13 +7028,15 @@ extension TabManager {
                         downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
                 )
             }
-        let selectedWorkspaceIndex = workspaceSelection.selectedWorkspaceIndex
-        let occupiedGroupIds = Set(workspaceSelection.workspaces.compactMap(\.groupId))
+        let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
+            restorableTabs.firstIndex(where: { $0.id == selectedTabId })
+        }
+        let occupiedGroupIds = Set(restorableTabs.compactMap(\.groupId))
         // Build a per-group ordered list of restorable member IDs so we can
         // record the anchor's index (restore-stable across UUID rotation).
         let restorableMembersByGroupId: [UUID: [UUID]] = {
             var map: [UUID: [UUID]] = [:]
-            for tab in workspaceSelection.workspaces {
+            for tab in restorableTabs {
                 if let gid = tab.groupId {
                     map[gid, default: []].append(tab.id)
                 }
@@ -7091,7 +7078,7 @@ extension TabManager {
     }
 
     func sessionSnapshotWorkspaceIds() -> [UUID] {
-        sessionSnapshotWorkspaceSelection().workspaces.map(\.id)
+        restorableSessionWorkspaces.map(\.id)
     }
 
     private func releaseRestoredAwayWorkspace(_ workspace: Workspace, clearNotifications: Bool = true) {

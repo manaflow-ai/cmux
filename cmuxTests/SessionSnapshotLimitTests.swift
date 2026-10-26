@@ -26,11 +26,18 @@ struct SessionSnapshotLimitTests {
         #expect(snapshot.workspaces[selectedIndex].workspaceId == selected.id)
         #expect(snapshot.workspaces.map(\.workspaceId) == manager.tabs.map { Optional($0.id) })
 
+        #expect(manager.sessionSnapshotWorkspaceIds() == manager.tabs.map(\.id))
+        let persistedSnapshot = try JSONDecoder().decode(
+            SessionTabManagerSnapshot.self,
+            from: JSONEncoder().encode(snapshot)
+        )
+
         let restored = TabManager()
         defer { restored.closeWorkspacesForTesting() }
-        restored.restoreSessionSnapshot(snapshot)
+        restored.restoreSessionSnapshot(persistedSnapshot)
         #expect(restored.tabs.count == 130)
         #expect(restored.selectedTabId == selected.id)
+        #expect(restored.restoredSessionWorkspace(originalId: selected.id, from: persistedSnapshot)?.id == selected.id)
     }
 
     @Test func mixedRestorableTabsRetainAllWorkspacesAndShareFingerprintBoundary() {
@@ -51,7 +58,12 @@ struct SessionSnapshotLimitTests {
         #expect(snapshot.omittedWorkspaceCount == nil)
         #expect(snapshot.workspaces.last?.customTitle == "Changed at the restorable boundary")
         #expect(snapshot.workspaces.map(\.workspaceId) == manager.tabs.dropFirst().map { Optional($0.id) })
-        #expect(manager.sessionAutosaveFingerprint() != before)
+        #expect(snapshot.selectedWorkspaceIndex == 0)
+        #expect(manager.sessionSnapshotWorkspaceIds() == manager.tabs.dropFirst().map(\.id))
+        let after = manager.sessionAutosaveFingerprint()
+        #expect(after != before)
+        manager.tabs[0].setCustomTitle("Excluded login workspace")
+        #expect(manager.sessionAutosaveFingerprint() == after)
     }
 
     @Test func intermediateOmissionMetadataStillDecodes() throws {

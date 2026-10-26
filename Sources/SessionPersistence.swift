@@ -1959,10 +1959,7 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var selectedWorkspaceIndex: Int?
     var workspaces: [SessionWorkspaceSnapshot]
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
-    /// Legacy omission metadata from an intermediate snapshot format.
-    /// New snapshots do not omit workspaces, but keeping this optional field
-    /// allows those files to decode and makes the format additive.
-    var omittedWorkspaceCount: Int? = nil
+    var omittedWorkspaceCount: Int? = nil // Preserves metadata from intermediate snapshots.
 }
 
 struct SessionWindowSnapshot: Codable, Sendable {
