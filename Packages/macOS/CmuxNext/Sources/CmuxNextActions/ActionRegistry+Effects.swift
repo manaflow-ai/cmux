@@ -52,7 +52,7 @@ extension ActionRegistry {
     public func settle(_ effect: ActionEffect, of id: ActionID, _ invocation: ActionInvocation) {
         switch effect.kind {
         case .done:
-            return
+            effectExpectsFrame()
         case .applied(let confirmation):
             effectExpectsFrame()
             start(id, invocation, confirmation.send, rollback: confirmation.rollback)

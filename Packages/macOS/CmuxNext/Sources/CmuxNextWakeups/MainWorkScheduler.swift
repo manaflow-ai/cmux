@@ -49,8 +49,7 @@ public final class MainWorkScheduler {
     ///   while the link runs and handled as ``renderPassEnded(nanos:)`` handles it.
     public convenience init(budget: MainFrameBudget) {
         let meter = RenderPassMeter { [weak budget] nanos in
-            budget?.noteRenderPass(nanos: nanos)
-            budget?.noteTickRenderEnded()
+            if let budget { Self.renderPassEnded(nanos: nanos, on: budget) }
         }
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
     }
@@ -101,6 +100,11 @@ public final class MainWorkScheduler {
     ///
     /// - Parameter nanos: The pass's length.
     public func renderPassEnded(nanos: UInt64) {
+        Self.renderPassEnded(nanos: nanos, on: budget)
+    }
+
+    /// What a render pass does to `budget`, for the app's meter (made before the scheduler) and ``renderPassEnded(nanos:)``.
+    private static func renderPassEnded(nanos: UInt64, on budget: MainFrameBudget) {
         budget.noteRenderPass(nanos: nanos)
         budget.noteTickRenderEnded()
     }

@@ -50,6 +50,7 @@ extension ActionRegistry {
         }
         gated(id, invocation) { stamped in
             settle()
+            effectExpectsFrame()  // the confirmation dialog shows
             confirmationPresenter(canonical, stamped) { [weak self] asked in
                 var run = stamped.confirmed()
                 if asked { run.inputTimestamp = nil }

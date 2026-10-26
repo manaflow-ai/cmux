@@ -72,9 +72,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     /// Set once by `AppServices`: every event `sendEvent` gets is dispatched inside it, so the
     /// router, the menu gate and the action signposts read the event given to `sendEvent`, not
-    /// `currentEvent` (the last dequeued one, kept after its dispatch). When a key-down's or mouse-down's
-    /// dispatch ends, it tells the main-thread scheduler whether the turn expects a frame
-    /// (`MainWorkScheduler.noteDiscreteInput(expectsFrame:)`); other events report nothing.
+    /// `currentEvent` (the last dequeued one, kept after its dispatch). It tells the main-thread scheduler
+    /// about each discrete input and whether its turn expects a frame (`MainWorkScheduler.noteDiscreteInput(expectsFrame:)`).
     var inputDispatch: InputDispatchContext?
 
     /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
@@ -132,9 +131,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         } else {
             super.sendEvent(event)
         }
-        // A key the focused terminal took: Ghostty encodes it and wakes its renderer for the echo
-        // (Surface.keyCallback). Its `.render` action arrives in a later turn, so the frame is expected here.
-        if event.type == .keyDown, (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView { inputDispatch?.noteFrameExpected() }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).

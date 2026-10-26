@@ -24,9 +24,12 @@ public import CmuxNextWakeups
 ///   every budgeted batch yields while it waits. It never passes its own
 ///   connection's earlier requests: behind them it waits its turn like any
 ///   request, so a client that pipelines a focus change and then a key types
-///   into the surface it focused. Each input turn runs only the input queued
-///   before it, so a client that keeps injecting keys cannot hold the main
-///   thread, and input counts in the per-connection limit.
+///   into the surface it focused. Once they ran it is its connection's head
+///   and gets the next input turn, not an automation frame: the input
+///   response and the typing burst its keys start hold automation, not the
+///   keys (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``). Each input turn runs
+///   only the input queued before it, so a client that keeps injecting keys
+///   cannot hold the main thread, and input counts in the per-connection limit.
 /// - Deadlined: every request carries a deadline. One that expires while
 ///   queued fails with `timeout` and is dropped without running. Time the
 ///   main thread spends in Chromium's start does not count
@@ -97,6 +100,8 @@ public final class MainActorWorkQueue: Sendable {
         /// next input turn runs these ahead of other connections' requests.
         var urgent: [UrgentInput] = []
         var inputDrainPending = false
+        /// A drain made injected input urgent (``promoteHeadInput(of:in:)``): it asks for an input turn when it ends.
+        var inputPromoted = false
         var framePending = false
         var stats = Stats()
         var afterFrame: (@MainActor @Sendable () -> Void)?
@@ -242,6 +247,7 @@ public final class MainActorWorkQueue: Sendable {
     /// keeps injecting keys returns the main thread to the run loop (events, the commit) between.
     @MainActor
     private func drainInput() {
+        defer { scheduleInputPromoted() }
         let budget = frameSource.mainFrameBudget
         let batch = state.withLock { state -> [UrgentInput] in
             state.inputDrainPending = false
@@ -271,9 +277,33 @@ public final class MainActorWorkQueue: Sendable {
             if state.queues[urgent.connection]?.count ?? 0 == 0 {
                 state.queues[urgent.connection] = nil
                 state.ready.removeAll { $0 == urgent.connection }
+            } else {
+                Self.promoteHeadInput(of: urgent.connection, in: &state)
             }
             return item
         }
+    }
+
+    /// Makes the injected input now at the head of `connection` (its earlier requests ran) urgent: it gets the next
+    /// input turn instead of waiting for an automation frame (``scheduleInputPromoted()`` asks for the turn).
+    private static func promoteHeadInput(of connection: ControlConnectionID, in state: inout State) {
+        guard let head = state.queues[connection]?.first, head.workClass == .input,
+              !state.urgent.contains(where: { $0.item === head }) else { return }
+        state.urgent.append(UrgentInput(connection: connection, item: head))
+        state.inputPromoted = true
+    }
+
+    /// Asks for an input turn when a drain promoted injected input (``promoteHeadInput(of:in:)``) and none is pending.
+    @MainActor
+    private func scheduleInputPromoted() {
+        let schedule = state.withLock { state -> Bool in
+            guard state.inputPromoted else { return false }
+            state.inputPromoted = false
+            guard !state.inputDrainPending, !state.urgent.isEmpty else { return false }
+            state.inputDrainPending = true
+            return true
+        }
+        if schedule { frameSource.scheduleSoon { [self] in drainInput() } }
     }
 
     /// Re-arms the drain for the next frame from inside this one (main actor: no run loop hop, so
@@ -294,6 +324,7 @@ public final class MainActorWorkQueue: Sendable {
                 state.stats.pending -= 1
                 if state.queues[connection]?.count ?? 0 > 0 {
                     state.ready.append(connection)
+                    Self.promoteHeadInput(of: connection, in: &state)
                 } else {
                     state.queues[connection] = nil
                 }
@@ -305,6 +336,7 @@ public final class MainActorWorkQueue: Sendable {
 
     @MainActor
     private func drainFrame() {
+        defer { scheduleInputPromoted() }
         let clock = ContinuousClock()
         let start = clock.now
         var ran = 0
