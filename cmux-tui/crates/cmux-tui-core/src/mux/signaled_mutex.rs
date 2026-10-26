@@ -348,10 +348,10 @@ impl Mux {
     /// It first settles the receipts of earlier indeterminate registry
     /// commits that arrived since (cx-g1fa.3): their state updates and
     /// revisions land before this flow reads state.
-    #[track_caller]
     // std's LockResult shape: the poison carries the held guards, which
     // callers recover in place.
     #[allow(clippy::result_large_err)]
+    #[track_caller]
     pub(crate) fn lock_state_pinned(
         &self,
         registry: &WorkspaceRegistry,
