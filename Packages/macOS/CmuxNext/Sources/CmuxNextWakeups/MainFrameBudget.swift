@@ -30,6 +30,10 @@ import Darwin
 /// - a class that yielded to input in one frame does not yield again in the next one (a person
 ///   typing at 30 keys a second never starves the sidebar).
 ///
+/// A late frame comes first (``RenderStarvationGuard``, Chrome's `kRenderingStarved`): while a
+/// shown window's link with active frame clients is over 100 ms past its last tick, every budgeted
+/// class waits for that link's next tick, whatever the rules above say.
+///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
 /// ``MainWorkScheduler``, whose single display link opens the budget's window once per frame.
@@ -49,6 +53,8 @@ public final class MainFrameBudget {
     private let input: any InputPendingSource
     private let uptimeNanos: () -> UInt64
     private let signposts: Bool
+    /// The rendering starvation guard (nil: never starved).
+    public let starvation: RenderStarvationGuard?
     // Frame window.
     private var windowStart: UInt64 = 0
     private var windowLength: UInt64 = 16_666_667
@@ -86,10 +92,13 @@ public final class MainFrameBudget {
     ///   - input: The pending-input check (the app: ``SessionInputPending``; tests: a fake).
     ///   - board: Where the running task is published for the watchdog.
     ///   - signposts: Whether each task opens a `stall.main_task` interval (the app: true).
+    ///   - starvation: Holds budgeted work while a shown frame is late (nil: never).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
     public init(budgets: Budgets = Budgets(), input: any InputPendingSource = NoInputPending(), board: MainTaskBoard = MainTaskBoard(),
-                signposts: Bool = false, uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+                signposts: Bool = false, starvation: RenderStarvationGuard? = nil,
+                uptimeNanos: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
         self.budgets = budgets
+        self.starvation = starvation
         totalNanos = Self.nanos(budgets.total)
         passTargetNanos = Self.nanos(budgets.passTarget)
         self.input = input
@@ -150,14 +159,28 @@ public final class MainFrameBudget {
         return min(totalNanos, left)
     }
 
+    /// Whether work outside the budget that only a late frame holds back must wait now: idle
+    /// periods, CEF pump slices past one per frame, posted deadlines and the drain's automation
+    /// tail ask before they run (``RenderStarvationGuard``). False without a guard, or when the
+    /// guard only reports.
+    public var isRenderStarved: Bool {
+        guard let starvation else { return false }
+        return starvation.isStarved() && starvation.holdsWork
+    }
+
     /// Whether a task of `workClass` may start now. Unbudgeted classes always may. A budgeted one
-    /// may not while input is pending (unless it yielded last frame). Otherwise its first task of
-    /// a frame always may, then it may while its own share is left, and past that, with no input
+    /// may not while a shown frame is late (``isRenderStarved``), nor while input is pending (unless
+    /// it yielded last frame). Otherwise its first task of a frame always may, then it may while its
+    /// own share is left, and past that, with no input
     /// pending, on idle time the other classes left; never once the frame's scheduled work reached
     /// its limit (``Budgets/total``, lowered by an expensive last render pass). A refusal is
     /// counted: the caller keeps the task for the next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
+        if isRenderStarved {
+            starvation?.noteHeld(index)
+            return false
+        }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
         // older than one frame is over. Never while the link runs (its ticks own the window) and
@@ -277,6 +300,7 @@ public final class MainFrameBudget {
     /// Clears the counters (`debug.main_budget reset`).
     public func resetStats() {
         stats = Stats()
+        starvation?.resetStats()
     }
 
     private func inputPending(_ now: UInt64) -> Bool {

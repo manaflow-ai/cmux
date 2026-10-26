@@ -2,6 +2,25 @@
 // edit the feature's JSON file and rerun the script.
 
 nonisolated extension Feature {
+    /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
+    public static let renderStarvationGuard = Feature(
+        index: 0,
+        name: "renderStarvationGuard",
+        owner: "Performance Lead",
+        description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["pane-stress", "motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Every feature, by index: `registered[feature.index] == feature`.
-    public static let registered: [Feature] = []
+    public static let registered: [Feature] = [
+        .renderStarvationGuard,
+    ]
 }

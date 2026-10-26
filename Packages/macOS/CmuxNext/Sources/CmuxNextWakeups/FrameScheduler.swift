@@ -81,7 +81,8 @@ public final class FrameScheduler: NSObject {
 
     public let name: String
     public private(set) weak var window: NSWindow?
-    private let isScreenHost: Bool
+    /// The scheduler serves window-less work on a screen (``app``, the ``MainWorkScheduler``'s).
+    let isScreenHost: Bool
     private var clients: [ObjectIdentifier: FrameClient] = [:]
     /// The budgeted clients, the one that ran least recently first: a class's budget goes to them
     /// in this order, and a client that ran moves to the back, so one saturating client never
@@ -107,6 +108,11 @@ public final class FrameScheduler: NSObject {
     public private(set) var stallTimerArms = 0
     /// The last frame stall seen (debug and tests).
     public private(set) var lastStall: FrameStall?
+    /// When the clients last ticked (a link frame or a stall tick) or, idle before, activated, in
+    /// `mediaTime`'s timebase: ``RenderStarvationGuard`` measures a late frame from it.
+    public private(set) var lastTick: CFTimeInterval = 0
+    /// The late period ``RenderStarvationGuard`` saw since ``lastTick`` (stale once it moves).
+    var starvationPeriod: RenderStarvationGuard.Period?
     private var closeObserver: MainActorObservation?
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
@@ -150,6 +156,12 @@ public final class FrameScheduler: NSObject {
 
     public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
 
+    /// A frame-locked client (``MainWorkClass/frame``: a spring, an autoscroll, a drain) is ticking:
+    /// a late tick of this scheduler is a late frame.
+    public var hasActiveFrameClients: Bool {
+        clients.values.contains { $0.isActive && $0.workClass == .frame }
+    }
+
     /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
     /// clients (made on first use; dropped with the scheduler's window).
     public var input: FrameInputCoalescer {
@@ -178,7 +190,10 @@ public final class FrameScheduler: NSObject {
             lastTimestamp = nil
             link.isPaused = false
         }
-        if !stall.isScheduled { lastLinkFrame = mediaTime() }
+        if !stall.isScheduled {
+            lastLinkFrame = mediaTime()
+            lastTick = lastLinkFrame
+        }
         armStall()
     }
 
@@ -277,8 +292,11 @@ public final class FrameScheduler: NSObject {
             link?.invalidate()
             link = nil
         }
-        lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
+        let now = mediaTime()
+        lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: now)
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
+        // The clients tick now: a late frame ends here, as at a link frame.
+        lastTick = now
         deliver(timestamp: nil, refreshInterval: nil)
         guard !clients.isEmpty else { return }
         (link ?? makeLink())?.isPaused = false
@@ -288,6 +306,8 @@ public final class FrameScheduler: NSObject {
     /// One display frame (the link's tick; tests call it directly).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         lastLinkFrame = timestamp ?? mediaTime()
+        // When the tick runs on main, not the frame's vsync time: the guard measures main's lateness.
+        lastTick = mediaTime()
         stalls = 0
         deliver(timestamp: timestamp, refreshInterval: refreshInterval)
         if clients.isEmpty { pause() } else { armStall() }
