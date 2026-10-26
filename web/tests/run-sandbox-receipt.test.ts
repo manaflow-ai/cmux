@@ -125,6 +125,7 @@ describe("sandbox receipt", () => {
       `lin_api_${"g".repeat(40)}`, `dop_v1_${"1".repeat(64)}`, `hvs.${"h".repeat(24)}`, `glsa_${"i".repeat(32)}`,
       `key-${"a1".repeat(16)}`, `dapi${"b2".repeat(16)}`,
       `re_${"A1b2".repeat(8)}`, `gsk_${"c".repeat(48)}`, `xai-${"d".repeat(40)}`, `ya29.${"e".repeat(40)}`,
+      `sbp_${"0a".repeat(20)}`, `lsv2_pt_${"f".repeat(32)}`, `nfp_${"g".repeat(36)}`, `ATATT3x${"h".repeat(30)}`,
     ]) {
       expect(sandboxReply(`token ${token} end`)).toBe("token [redacted] end");
     }
@@ -227,6 +228,9 @@ describe("sandbox receipt", () => {
       expect(sandboxReply(line)).not.toContain("c2lnbmF0dXJlMTIz");
     }
     expect(sandboxReply("signal: 9")).toBe("signal: 9");
+    // A one-character value under a secret-named key is still a value.
+    expect(sandboxReply("PASSWORD: x")).toBe("PASSWORD: [redacted]");
+    expect(sandboxReply("sig: a")).toBe("sig: [redacted]");
     expect(redactReceiptValue({ "X-Amz-Signature": "a", signature: "b", "X-Goog-Credential": "c", note: "ok" }, []))
       .toEqual({ "X-Amz-Signature": "[redacted]", signature: "[redacted]", "X-Goog-Credential": "[redacted]", note: "ok" });
   });
@@ -244,6 +248,9 @@ describe("sandbox receipt", () => {
     const served = JSON.stringify({ run: view.run.error, attempt: view.attempts[0]?.error, artifacts: view.artifacts, receipt: view.receipt?.artifacts });
     expect(served).not.toContain("vm-secret-1");
     expect(served).not.toContain("abcdefghijklmnop");
+    // Never attachable, even inside the launcher's handoff window.
+    const handoff = toRunSnapshotView({ ...failing, attempts: [{ ...failing.attempts[0]!, providerWorkspaceId: "ws-1", providerTerminalId: "term-1", terminalRetainUntil: new Date(Date.now() + 60_000) }] } as RunSnapshotRow);
+    expect(handoff.attempts[0]).toMatchObject({ attachable: false, retainedUntil: null });
     const persistent = toRunSnapshotView({ ...failing, run: { ...failing.run, environment: "persistent" } } as RunSnapshotRow);
     expect(persistent.run.error).toBe(failing.run.error);
     expect(persistent.artifacts[0]?.digest).toBe("vm-secret-1");

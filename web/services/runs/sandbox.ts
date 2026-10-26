@@ -26,8 +26,9 @@ const TOKEN_SHAPES = [
   // npm, RubyGems, Postman, Databricks, HashiCorp, Doppler, Grafana, SendGrid, Twilio, Mailgun).
   /(?<![A-Za-z0-9])(?:sntry[su]_|dckr_pat_|dckr_oat_|pypi-|shp(?:at|ss|ca|pa)_|lin_(?:api|oauth)_|figd_|do[opr]_v1_|vcp_|npm_|rubygems_|PMAK-|hvs\.|hvb\.|dp\.(?:pt|st|sa|ct)\.|glsa_|glc_|SG\.)[A-Za-z0-9._=-]{16,}/g,
   // Bare-prefix API keys a coding agent is likely to print (Resend, Groq, xAI, Perplexity,
-  // Replicate, Tavily, Fireworks, Google OAuth access tokens).
-  /(?<![A-Za-z0-9])(?:re_|gsk_|xai-|pplx-|r8_|tvly-|fw_|ya29\.)[A-Za-z0-9_-]{20,}/g,
+  // Replicate, Tavily, Fireworks, Google OAuth access tokens, Supabase, LangSmith, Netlify,
+  // Atlassian, Cloudflare, Fly.io, Railway-style UUID-free tokens).
+  /(?<![A-Za-z0-9])(?:re_|gsk_|xai-|pplx-|r8_|tvly-|fw_|ya29\.|sbp_|sb_secret_|lsv2_(?:pt|sk)_|nfp_|ATATT|cfut_|fo1_)[A-Za-z0-9_-]{20,}/g,
   // Fixed-length hex tokens whose prefix alone is ordinary text (Databricks, Twilio, Mailgun).
   /(?<![A-Za-z0-9])(?:dapi[0-9a-f]{32}|SK[0-9a-f]{32}|key-[0-9a-f]{32})(?![A-Za-z0-9])/g,
   /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{30,}/g,
@@ -47,10 +48,10 @@ const TOKEN_SHAPES = [
   // npm's `_auth`, Azure SAS `sig`, and the signature and credential parameters of signed cloud URLs
   // (`X-Amz-Signature`, `X-Goog-Signature`, …), in any spacing, quoting or JSON; the key exactly
   // (`my_author` and `signal` are not one).
-  /((?<![A-Za-z0-9_-])(?:_auth|sig|x-(?:amz|goog)-(?:signature|credential|security-token))["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
+  /((?<![A-Za-z0-9_-])(?:_auth|sig|x-(?:amz|goog)-(?:signature|credential|security-token))["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
-  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
+  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
 ];
 
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */

@@ -544,6 +544,19 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("a sandbox attempt in its handoff window can't be attached", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const target = await startedAttempt(userId);
+      await repo().recordAttemptProviderHandle({ runId: target.runId, attemptId: target.attemptId, ...target.lease, providerVmId: `vm-${target.attemptId}`, providerWorkspaceId: "ws-1", providerTerminalId: "term-1" });
+      // The terminal event gives the launcher a two-minute handoff window.
+      await repo().ingestRunEvent({ runId: target.runId, attemptId: target.attemptId, ...target.lease, externalId: "end", attemptSequence: 1, kind: "attempt.succeeded", payload: {} });
+      await expect(repo().mintRunAttachTicket({ runId: target.runId, attemptId: target.attemptId, userId })).rejects.toThrow("a sandboxed run can't be attached");
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {

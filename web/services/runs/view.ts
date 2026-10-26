@@ -220,7 +220,8 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
     run,
     attempts: snapshot.attempts.map((attempt) => {
       const view = attemptView(attempt, backendProvider);
-      return sandboxed ? { ...view, error: sandboxErrorView(view.error, snapshot) } : view;
+      // A sandbox is never attached; its terminal window is only the launcher's handoff.
+      return sandboxed ? { ...view, attachable: false, retainedUntil: null, error: sandboxErrorView(view.error, snapshot) } : view;
     }),
     artifacts: snapshot.run.environment === "sandboxed"
       ? snapshot.artifacts.map((artifact) => sandboxArtifactView(artifactView(artifact), snapshot))

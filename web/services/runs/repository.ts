@@ -217,9 +217,11 @@ export async function mintRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
     if (!run || !attempt) throw new RunNotFoundError("run not found");
+    // A sandbox is never attached: its terminal window is only the launcher's handoff.
+    if (run.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run can't be attached");
     if (!attempt.terminalRetainUntil || attempt.terminalRetainUntil.getTime() <= nowAt.getTime()) {
       throw new RunAttachTicketExpiredError("the terminal attach window has expired");
     }
@@ -260,12 +262,13 @@ export async function consumeRunAttachTicket(input: {
   return cloudDb().transaction(async (tx) => {
     await lockRun(tx, input.runId);
     await lockAttempt(tx, input.runId, input.attemptId);
-    const run = (await tx.select({ id: runs.id, provider: runs.provider }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
+    const run = (await tx.select({ id: runs.id, provider: runs.provider, environment: runs.environment }).from(runs).where(and(eq(runs.id, input.runId), eq(runs.userId, input.userId))).limit(1))[0];
     const attempt = (await tx.select().from(runAttempts).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.runId, input.runId))).limit(1))[0];
     // Deliberately collapse ownership and token mismatches into not-found so a
     // caller cannot probe another tenant's retained VM handles.
     if (!run || !attempt || attempt.attachTicketHash !== hash) throw new RunAttachTicketNotFoundError("attach ticket not found");
     if (attempt.attachTicketConsumedAt) throw new RunAttachTicketReplayError("attach ticket was already consumed");
+    if (run.environment === "sandboxed") throw new RunAttachTargetUnavailableError("a sandboxed run can't be attached");
     if (!attempt.attachTicketExpiresAt || attempt.attachTicketExpiresAt.getTime() <= nowAt.getTime() || !attempt.terminalRetainUntil || attempt.terminalRetainUntil.getTime() <= nowAt.getTime()) {
       throw new RunAttachTicketExpiredError("the terminal attach window has expired");
     }
