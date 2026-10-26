@@ -61,8 +61,10 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
+    /// page thaws before it shows, whichever path showed it (``thawPage()``).
     func setEngineVisible(_ visible: Bool) {
+        if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)

@@ -21,8 +21,9 @@ package protocol PageLifecycleTarget {
     /// The page shows again running (it was hidden or frozen, not discarded): the picture kept at its
     /// hide is out of date.
     func dropHideSnapshot()
-    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory.
-    func freeze()
+    /// Hidden to frozen: no task, timer or frame runs; the page keeps its memory. Returns false when
+    /// the page refused (it shows, or its engine did not freeze it): it stays hidden.
+    func freeze() -> Bool
     /// Back to running, in the turn of the show and before the page is visible: after a freeze it
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
@@ -34,8 +35,8 @@ package protocol PageLifecycleTarget {
 
 /// A ``PageWebView`` as the lifecycle drives it. A hide keeps the page's last frame, encoded
 /// (``PageWebView/keepHideSnapshot(encoder:)``), so a discard has nothing left to ask or encode.
-/// Freeze and thaw are no-ops until p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its
-/// window); ending the engine page at the discard is p13-webui-030.
+/// Freeze and thaw are the view's (``PageWebView/freezePage()``: Chromium SetPageFrozen, WebKit
+/// hidden in its window); ending the engine page at the discard is p13-webui-030.
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
     private let encoder: PageSnapshotEncoder
@@ -72,8 +73,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func keepHideSnapshot() { view?.keepHideSnapshot(encoder: encoder) }
     package func dropHideSnapshot() { view?.hideState.drop() }
-    package func freeze() {}
-    package func thaw() {}
+    package func freeze() -> Bool { view?.freezePage() ?? false }
+    package func thaw() { view?.thawPage() }
     /// Nothing until p13-webui-030 ends the engine page: the picture and the state are kept already.
     package func discard() {}
 }
@@ -299,7 +300,7 @@ package final class PageLifecycle {
         guard var entry = entries[decision.key], entry.state != decision.state else { return }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
-            entry.target.freeze()
+            guard entry.target.freeze() else { return }
         case (.hidden, .discarded), (.frozen, .discarded):
             entry.target.discard()
         case (.frozen, .hidden):
