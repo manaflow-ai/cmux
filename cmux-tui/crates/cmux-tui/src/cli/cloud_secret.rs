@@ -284,8 +284,8 @@ fn run(command: Command, output: OutputMode) -> Result<i32, String> {
             // The account is a checked name and scope, never a value: argv is fine here.
             let status = cmux_process::Command::new("/usr/bin/security")
                 .args(["delete-generic-password", "-s", SERVICE, "-a", &account])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
+                .stdout(cmux_process::Stdio::null())
+                .stderr(cmux_process::Stdio::null())
                 .status()
                 .map_err(|e| fail(format!("cannot run security: {e}")))?;
             // 44: no such item, already gone. Anything else keeps it listed.
