@@ -8,10 +8,23 @@ public import Foundation
 public struct LaunchMarks: Sendable {
     /// Every mark so far, in order.
     public private(set) var all: [(name: String, ms: Double)] = []
+    /// The value marks (page-ins, CPU time; not times) by name, each the first value recorded.
+    public private(set) var values: [String: Double] = [:]
     /// The startup trace the marks go to, if one is attached.
     public private(set) var trace: StartupTrace?
 
     public init() {}
+
+    /// When the kernel started this process (`KERN_PROC_PID`'s start time), the zero of every mark; now when
+    /// the read fails.
+    public static let processStart: Date = {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
+        let start = info.kp_proc.p_un.__p_starttime
+        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+    }()
 
     /// Sends every later first mark to `trace` too, after a `process_start` mark at `processStart`. Call it
     /// before the first mark.
@@ -28,6 +41,13 @@ public struct LaunchMarks: Sendable {
         let ms = date.timeIntervalSince(processStart) * 1_000
         all.append((name, ms))
         return ms
+    }
+
+    /// Records the value mark `name` unless it was recorded before. Returns whether this was the first.
+    public mutating func recordValue(_ name: String, _ value: Double) -> Bool {
+        guard values[name] == nil else { return false }
+        values[name] = value
+        return true
     }
 
     /// Sends a first mark to `trace` (nil: no trace attached).

@@ -6,6 +6,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextErrorJournal
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
@@ -31,6 +32,8 @@ final class AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
+    /// `debug.startup`'s report: the launch marks, and what the first committed frame held (kept by AppDelegate).
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow })
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -155,6 +158,8 @@ final class AppControl {
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // This launch's milestones, temperature, startup tasks and first frame (bench-startup.py, startup-queue.py).
+            .mainActor("debug.startup") { [startupReport] _ in .value(try JSONValue(foundation: startupReport.report.foundationObject()) ?? .null) },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).

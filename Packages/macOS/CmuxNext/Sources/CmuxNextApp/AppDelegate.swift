@@ -211,9 +211,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
                 Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
             }
-            CATransaction.setCompletionBlock { [weak self] in
+            CATransaction.setCompletionBlock { [weak self, weak services] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
+                    #if DEBUG || CMUX_BENCH_HOOKS
+                    self?.control.startupReport.firstFrameCommitted(contentSubviews: services?.windows.active?.window?.contentView?.subviews ?? [],
+                                                                    viewsBuilt: services?.windows.controllers.flatMap(\.mountedContents).reduce(0) { $0 + $1.panes.count } ?? 0)
+                    #endif
                     self?.firstFrame.open()
                 }
             }

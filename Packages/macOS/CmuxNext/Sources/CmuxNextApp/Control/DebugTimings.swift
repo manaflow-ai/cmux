@@ -43,21 +43,12 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
-    private nonisolated static let processStart: Date = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
-        let start = info.kp_proc.p_un.__p_starttime
-        return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
-    }()
-
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
     /// bench's pipe when one was passed; and to the startup trace when one is attached.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let (ms, trace) = launchMarks.withLock { ($0.record(name, at: date, processStart: processStart), $0.trace) }
+        let (ms, trace) = launchMarks.withLock { ($0.record(name, at: date, processStart: LaunchMarks.processStart), $0.trace) }
         guard let ms else { return }
         LaunchMarkSink.shared.write(name: name, ms: ms)
         LaunchMarks.forward(name, at: date, to: trace)
@@ -66,10 +57,13 @@ enum DebugTimings {
         #endif
     }
 
+    /// The launch marks so far (`debug.startup`).
+    nonisolated static var launchMarksNow: LaunchMarks { launchMarks.withLock { $0 } }
+
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
-        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.uptimeNanos(of: processStart)) else { return nil }
-        launchMarks.withLock { $0.attach(trace, processStart: processStart) }
+        guard let trace = StartupTrace.fromEnvironment(processStartNanos: LaunchMarks.uptimeNanos(of: LaunchMarks.processStart)) else { return nil }
+        launchMarks.withLock { $0.attach(trace, processStart: LaunchMarks.processStart) }
         return trace
     }
 
