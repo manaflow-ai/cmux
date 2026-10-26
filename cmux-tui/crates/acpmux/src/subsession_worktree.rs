@@ -409,6 +409,11 @@ fn fetch_missing(
 
 /// Removes a worktree [`make_worktree`] made, and its branch.
 pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
+    remove_made(folder, worktree, false);
+}
+
+/// [`remove_worktree`], keeping its branch when `keep_branch` (it was there before).
+fn remove_made(folder: Dir<'_>, worktree: &Worktree, keep_branch: bool) {
     // A worktree this made is removed through its held folder, never by path: whatever took its
     // path (renamed in, a copy of its `.git` file), before or during the removal, is left alone.
     #[cfg(unix)]
@@ -437,7 +442,7 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(registration = %registration.path.display(), "worktree registration kept: {e}");
             return;
         }
-        if git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
+        if !keep_branch && git(folder, &["branch", "-D", &worktree.branch]).is_ok() {
             let _ = git(
                 folder,
                 &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)],
@@ -451,6 +456,9 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     }
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
+    if keep_branch {
+        return;
+    }
     let _ = git(folder, &["branch", "-D", &worktree.branch]);
     let _ = git(folder, &["config", "--unset", &format!("branch.{}.cmuxBase", worktree.branch)]);
 }
@@ -978,6 +986,35 @@ pub fn ensure_worktree(folder: &Path, name: &str, base: Option<&str>) -> Result<
     ensure_worktree_under(folder, name, base, &home()?)
 }
 
+/// [`ensure_worktree`], then `check` of the worktree: when it refuses, a worktree
+/// this call made is removed (its branch too when that is new) and the refusal
+/// returned; one that was there stays.
+pub fn ensure_checked<E>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    check: impl FnOnce(&Worktree) -> Result<(), E>,
+) -> Result<Result<Ensured, E>, String> {
+    ensure_checked_under(folder, name, base, &home()?, check)
+}
+
+/// Under the name lock, so another create of the name never finds a worktree
+/// this one is about to remove.
+fn ensure_checked_under<E>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    home: &Path,
+    check: impl FnOnce(&Worktree) -> Result<(), E>,
+) -> Result<Result<Ensured, E>, String> {
+    let ensured = ensure_worktree_under(folder, name, base, home)?;
+    let Err(refused) = check(&ensured.worktree) else { return Ok(Ok(ensured)) };
+    if ensured.reused != Some("worktree") {
+        remove_made(folder.into(), &ensured.worktree, ensured.reused == Some("branch"));
+    }
+    Ok(Err(refused))
+}
+
 type Lock = std::sync::Arc<std::sync::Mutex<()>>;
 
 /// One add or ensure at a time per worktree folder in this process: git lists a
@@ -996,6 +1033,18 @@ fn ensure_worktree_under(
     base: Option<&str>,
     home: &Path,
 ) -> Result<Ensured, String> {
+    ensure_locked(folder, name, base, home, Ok::<_, std::convert::Infallible>)?
+        .map_err(|never| match never {})
+}
+
+/// The worktree named `name`, handed to `then` while its name lock is held.
+fn ensure_locked<T>(
+    folder: &Path,
+    name: &str,
+    base: Option<&str>,
+    home: &Path,
+    then: impl FnOnce(Ensured) -> T,
+) -> Result<T, String> {
     let chosen = slug(name);
     if chosen.is_empty() {
         return Err(format!("{name:?} has no letters or digits to name a worktree"));
@@ -1022,7 +1071,7 @@ fn ensure_worktree_under(
                 .unwrap_or_else(|| root.clone());
             let worktree =
                 Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
-            return Ok(Ensured { worktree, reused: Some("worktree") });
+            return Ok(then(Ensured { worktree, reused: Some("worktree") }));
         }
         std::fs::create_dir_all(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
@@ -1071,7 +1120,7 @@ fn ensure_worktree_under(
             root_held: None,
         };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
-        return Ok(Ensured { worktree, reused });
+        return Ok(then(Ensured { worktree, reused }));
     }
     Err(format!("{} was added and removed while this ran; run it again", root.display()))
 }
@@ -1541,6 +1590,23 @@ mod tests {
         assert_eq!(back.reused, Some("branch"));
         assert_eq!(back.worktree.branch, "cmux/lane-one");
         assert_eq!(std::fs::read_to_string(w.root.join("sub/a.txt")).unwrap(), "second\n");
+    }
+
+    #[test]
+    fn a_refused_worktree_is_removed_before_another_create_of_its_name_finds_it() {
+        let (_scratch, repo, home) = repo();
+        let (r, h) = (repo.clone(), home.clone());
+        let mut other = None;
+        let refused = ensure_checked_under(&repo, "lane", None, &home, |_| {
+            // Another create of the same name, while this one's check runs.
+            other = Some(std::thread::spawn(move || ensure_worktree_under(&r, "lane", None, &h)));
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Err("refused")
+        });
+        assert!(matches!(refused, Ok(Err("refused"))));
+        let other = other.unwrap().join().unwrap().unwrap();
+        assert_eq!(other.reused, None, "the other create found the refused one's worktree");
+        assert!(other.worktree.root.join("sub/a.txt").exists(), "its worktree was removed");
     }
 
     #[test]
