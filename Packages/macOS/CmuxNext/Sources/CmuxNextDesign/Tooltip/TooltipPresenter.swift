@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextInput
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
@@ -48,11 +48,12 @@ public final class TooltipPresenter {
     private var dismissals: InputSubscription?
     /// The app going inactive puts the tooltip away (the tap carries no AppKit-defined event): held
     /// with ``dismissals``.
-    private var resignActive: MainActorObservation?
+    private var resignActive: EventSubscription?
     /// The app's input tap, set once by the App's composition root (tests set their own).
     public var inputTap: InputEventTap?
-    /// Where the app's activation notifications come from (tests post on their own).
-    var notifications: NotificationCenter = .default
+    /// The app's one fan-out of app-wide notices (`AppServices.appEvents`), set once by the App's
+    /// composition root (tests make their own on their own center); its own on the default center until then.
+    public lazy var appEvents = AppEvents(center: .default)
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
@@ -232,7 +233,7 @@ public final class TooltipPresenter {
     /// observer of the tap: it never stops the event), and for the app going inactive.
     private func watch() {
         if resignActive == nil {
-            resignActive = MainActorObservation(NSApplication.didResignActiveNotification, center: notifications) { [weak self] in
+            resignActive = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "TooltipPresenter") { [weak self] in
                 self?.dismiss()
             }
         }

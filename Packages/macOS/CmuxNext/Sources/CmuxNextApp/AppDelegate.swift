@@ -143,6 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses

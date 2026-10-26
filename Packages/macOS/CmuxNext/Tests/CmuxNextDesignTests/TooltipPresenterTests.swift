@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
@@ -13,7 +14,7 @@ import Testing
                                 notifications: NotificationCenter = NotificationCenter()) throws -> TooltipPresenter {
         let presenter = TooltipPresenter(clock: clock)
         presenter.inputTap = events.tap
-        presenter.notifications = notifications
+        presenter.appEvents = AppEvents(center: notifications)
         presenter.timing = .standard // a delay, whatever the tunables say
         #expect(!presenter.isWatching)
         presenter.enter(try #require(TooltipTracker.whole(of: view)))
