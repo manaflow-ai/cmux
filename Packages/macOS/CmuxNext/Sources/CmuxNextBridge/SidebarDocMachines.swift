@@ -62,6 +62,12 @@ public struct SidebarDocMachines {
         return store.handle(intent, model: model, drag: drag, pinTitle: pinTitle, unpinTitle: unpinTitle, undoable: undoable)
     }
 
+    /// Shows a change just sent (a new workspace's placement) in the sidebar's next rebuild
+    /// (`SidebarDocStore.reshow`), over the live workspaces now.
+    public func reshow() {
+        SidebarDocStore.current?.reshow(live: liveRefs())
+    }
+
     /// Keeps `store` current: it refreshes when the home daemon connects or starts serving the document, and it shows
     /// the live workspaces (`connectedRemotes`: the sessions of the connected remote machines) after each document or
     /// live-set change; `shown` gets the band layout it shows.

@@ -546,4 +546,5 @@ mod test_socket_path;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;
+mod workspace_create_current;
 mod workspace_name_source;

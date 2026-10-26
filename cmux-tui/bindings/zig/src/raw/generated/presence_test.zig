@@ -50,6 +50,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "detached");
     try expectExplicitNullRejected(protocol.CreateTerminalRequest, "keep");
+    try expectExplicitNullRejected(protocol.CreateWorkspaceRequest, "places_by_setting");
     try expectExplicitNullRejected(protocol.CreateWorkspaceGroupRequest, "collapsed");
     try expectExplicitNullRejected(protocol.DeleteTerminalCommandsRequest, "all");
     try expectExplicitNullRejected(protocol.FeedLocalListRequest, "unread");

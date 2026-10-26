@@ -73,6 +73,8 @@ public final class SidebarDocStore {
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
+    /// The items `shown` had at the last `show` (a remote close is a placed item that left): `reshow` changes `shown`, not this.
+    @ObservationIgnored var lastShownItems: [SidebarDocWorkspaceRef: String] = [:]
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
@@ -109,7 +111,7 @@ public final class SidebarDocStore {
     public func refresh() {
         if loading { refetchAgain = true; return }
         guard isSupported, let remote, let mirror else {
-            if isActive, !isSupported { isActive = false; shown = nil; bump() }
+            if isActive, !isSupported { isActive = false; shown = nil; lastShownItems = [:]; bump() }
             return
         }
         loading = true
