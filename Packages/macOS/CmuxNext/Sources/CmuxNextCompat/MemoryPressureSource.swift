@@ -14,4 +14,9 @@ public protocol MemoryPressureSource: Sendable {
 
     /// Stops the calls (any thread; ``MemoryPressureEvents`` calls it from its deinit).
     func cancel()
+
+    /// The level now (any thread), also before the first delivery: ``KernelMemoryPressureSource``
+    /// reads the kernel's level in ``start(delivering:)``. Updated before each delivery;
+    /// ``MemoryPressureEvents/currentLevel`` reads it.
+    var currentLevel: MemoryPressureLevel { get }
 }

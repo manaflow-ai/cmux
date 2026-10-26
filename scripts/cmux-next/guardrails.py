@@ -62,6 +62,7 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor rule's refuse and escape cases
 """
 from __future__ import annotations
 
@@ -1859,6 +1860,72 @@ RULES = (
 )
 
 
+# ---------------------------------------------------------------- input-monitor (p04-input, PL-typing)
+# One input tap (plans/cmux-next/chrome-parity/p04-input.md (A)): `CmuxApplication.sendEvent` is the only place
+# that sees raw NSEvents, and CmuxNextInput's InputEventTap hands them to typed subscriptions (class, phase,
+# window, live predicate), as Chrome routes every input through one RenderWidgetHostImpl/InputRouter
+# (components/input/input_router_impl.cc) instead of per-feature hooks. A new NSEvent monitor, or a new raw
+# event-observer closure on CmuxApplication, puts a per-event callback back beside the tap: it runs for every
+# event of the process, outside the tap's order and window scope. Local only (prepush-gate runs the guardrails
+# never under --commits or GitHub Actions; Lawrence 2026-10-23: no new CI gates). Base debt per file, as
+# action-wait: editing a line that already holds a monitor adds none.
+# The block owns its lines from here to `RULES += INPUT_RULES`.
+INPUT_TAP_MODULE = SOURCES + "CmuxNextInput/"  # the tap itself; its `globalObserve` wraps the global monitor
+INPUT_MONITOR = re.compile(r"\badd(Local|Global)MonitorForEvents\b")
+# A `var`/`let` whose declaration holds a closure type with an NSEvent parameter, anywhere after the name:
+# `var x: ((NSEvent) -> Void)?`, `((_ event: NSEvent) -> Void)?`, `[UUID: (NSEvent) -> Void]`,
+# `= [(NSEvent) -> Void]()`, `Optional<(NSEvent, () -> Void) -> Void>`. The `->` after the parameter list is what
+# makes it a closure: a tuple such as `(NSEvent, Date)?` has none. One level of nested parentheses is read.
+EVENT_PARAMETERS = r"(?:[^()]|\([^()]*\))*"
+EVENT_CLOSURE = re.compile(r"\b(?:var|let)\s+\w+\b.*?\((?:" + EVENT_PARAMETERS + r",)?\s*(?:\w+\s+)?(?:\w+\s*:\s*)?"
+                           r"(?:@\w+\s+)*(?:inout\s+)?NSEvent\b" + EVENT_PARAMETERS + r"\)\s*(?:async\s+)?"
+                           r"(?:(?:re)?throws(?:\([^()]*\))?\s+)?->")
+INPUT_MONITOR_LINE = re.compile(INPUT_MONITOR.pattern + "|" + EVENT_CLOSURE.pattern)
+INPUT_MONITOR_ALLOW = re.compile(r"//\s*input-monitor-allow:\s*\S")
+CMUX_APPLICATION_FILE = re.compile(r"(^|/)CmuxNextApp/CmuxApplication(\+\w+)?\.swift$")
+INNERMOST_BLOCK = re.compile(r"\{")  # enclosing_openers stops at the first opener: the innermost block
+CMUX_APPLICATION_SCOPE = re.compile(r"\b(class|extension)\s+CmuxApplication\b")
+
+
+def input_monitor_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """Whether line INDEX is a monitor (anywhere) or an NSEvent closure member of CmuxApplication (its file, the
+    innermost block a `class`/`extension CmuxApplication` body, not a local in a function), with the opener read."""
+    code = code_of(version.lines[index])
+    if INPUT_MONITOR.search(code):
+        return True, []
+    if not EVENT_CLOSURE.search(code) or not CMUX_APPLICATION_FILE.search(version.path):
+        return False, []
+    openers = enclosing_openers(version.lines, index, INNERMOST_BLOCK)
+    if not openers:
+        return False, []
+    opener, number = openers[0]
+    return bool(CMUX_APPLICATION_SCOPE.search(opener)), [number]
+
+
+INPUT_MONITOR_MATCHER = Matcher(INPUT_MONITOR_LINE, INPUT_MONITOR_ALLOW, input_monitor_debt)
+
+
+def input_monitor(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    return matcher_rule(INPUT_MONITOR_MATCHER)([c for c in changes if not c.path.startswith(INPUT_TAP_MODULE)], moved)
+
+
+INPUT_RULES = (
+    Rule("input-monitor", "A new NSEvent monitor (`addLocalMonitorForEvents` / `addGlobalMonitorForEvents`) outside "
+         "CmuxNextInput, or a new raw event-observer closure on CmuxApplication",
+         "a monitor runs for every event of the process beside the input tap: outside its declared order and window "
+         "scope, unmeasured, and O(monitors) per key (33 monitors before the tap; plans/cmux-next/chrome-parity/"
+         "p04-input.md (A), Chrome's one InputRouter per widget)",
+         "subscribe through CmuxNextInput's `InputEventTap.subscribe(class:phase:window:while:handler:)` (phase "
+         "`.observe`, `.intercept(order:)` or `.afterDispatch`; keep the token, it unsubscribes on deinit); core and "
+         "service packages take an `InputObserving` and read `InputEventRecord`s; other apps' events go through the "
+         "tap's `globalObserve`; never add a closure property to CmuxApplication, add a tap phase instead",
+         "// input-monitor-allow: <why the tap cannot see this event (a nested tracking loop, a modal session)>",
+         input_monitor),
+)
+RULES += INPUT_RULES
+# ---------------------------------------------------------------- end of input-monitor (p04-input, PL-typing)
+
+
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
 # detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
@@ -1874,20 +1941,46 @@ FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDi
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading. A `.wait(` preceded by `await`
-# in its statement is an async wait (Backoff.wait, a continuation), never a blocking one: see blocking_match.
+# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading; the rest (sync XPC proxies,
+# AppleScript, condition locks, asyncAndWait, LSCopy*) move to an async API. A `.wait(` or an SMAppService
+# `.unregister()` preceded by `await` in its statement is the async overload (Backoff.wait, a continuation,
+# `try await service.unregister()`), never a blocking one: see blocking_match.
+# Process launch matches any receiver chain (`try box.process.run()`, ProcessRunner.swift:74).
+# The system calls wait on another process: securityd, the AX server, mDNSResponder, the window server, lsd,
+# launchd, authd (p02-threads.md "Not seen by any rule").
+CALL_ARGS = r"\((?:[^()]|\([^()]*\))*\)"  # one argument list, one nested call deep: `.daemon(plistName: C().name)`
 RAW_BLOCKING = re.compile(
     r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
     r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
     r"|\.write\(to:|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
     r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\(|\bposix_spawnp?\(|(?<![\w.])fork\(\)"
     r"|(?P<wait>(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\))"
-    r"|\.sync\s*(\{|\(execute:)")
+    r"|\.sync\s*(\{|\(execute:)"
+    # process launch, queue and thread waits
+    r"|\btry[?!]?\s+[\w.]+\.run\(\)|(?<=[\w)\]])(?<!\bself)\.launch\(\)"
+    r"|\.waitUntilAllOperationsAreFinished\(\)|\.asyncAndWait\s*(\{|\()"
+    r"|\bpthread_(join|cond_wait|cond_timedwait)\(|\bNSConditionLock\(|\.lock\(whenCondition:"
+    # synchronous system calls
+    r"|\bSec(Item(CopyMatching|Add|Update|Delete)|TrustEvaluate(WithError)?|StaticCodeCheckValidity(WithErrors)?"
+    r"|CodeCopy\w+)\("
+    r"|\bAXUIElement(Copy\w+|PerformAction|SetAttributeValue|GetAttributeValueCount)\(|\bgetaddrinfo\("
+    r"|\bCGWindowList(Copy|Create)\w*\(|\bLSCopy\w+\("
+    r"|\.urls?ForApplications?\((withBundleIdentifier|toOpen):|\.icon\(forFiles?:"
+    r"|\b(NSWorkspace\.shared|[wW]orkspace)\.icon\(for:"
+    r"|\bSMAppService\.(mainApp|(agent|daemon|loginItem)" + CALL_ARGS + r")\.(status\b|register\(\)"
+    r"|(?P<unregister>unregister\(\)))"
+    r"|\bAuthorizationCopyRights\(|\.synchronousRemoteObjectProxyWithErrorHandler\b|\.executeAndReturnError\(")
+# Named groups whose match is the async overload when an `await` comes before it in the statement.
+AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\(")
+    r"PosixSpawn)\("
+    # the system-call seams (p02-threads-003)
+    r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
+    r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
+    r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
 # sleep holds a thread to wait for time.
 ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
@@ -1940,7 +2033,10 @@ class Prefiltered:
 
 
 BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
-                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(")
+                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(", ".run()", ".launch()",
+                 "waitUntilAll", "asyncAndWait", "pthread_", "NSConditionLock", "whenCondition", "SecItem", "SecTrust",
+                 "SecStaticCode", "SecCode", "AXUIElement", "getaddrinfo", "CGWindowList", "LSCopy", "ForApplication",
+                 "icon(", "SMAppService", "AuthorizationCopyRights", "synchronousRemoteObjectProxy", "executeAndReturnError")
 RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
 ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
@@ -1949,8 +2045,9 @@ THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DEC
 
 
 def blocking_match(scan: Prefiltered, code: str) -> bool:
-    """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
-    async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    """Whether CODE holds a blocking call SCAN names. An AWAITABLE match whose statement has an `await` before it
+    is the async overload (`try await backoff.wait(owner:)`, `try await service.unregister()`), not a blocking
+    one."""
     answer = scan.answers.get(code)
     if answer is None:
         answer = scan.answers[code] = _blocking_match(scan, code)
@@ -1960,7 +2057,8 @@ def blocking_match(scan: Prefiltered, code: str) -> bool:
 def _blocking_match(scan: Prefiltered, code: str) -> bool:
     match = scan.search(code)
     while match is not None:
-        if match.groupdict().get("wait") is None:
+        groups = match.groupdict()
+        if not any(groups.get(name) for name in AWAITABLE):
             return True
         before = code[:match.start()]
         statement = before[max((m.end() for m in STATEMENT_START.finditer(before)), default=0):]
@@ -2202,8 +2300,8 @@ def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
             BLOCKING_CONTEXT[key] = texts[(head, path)]
 
 BLOCKING_RULES = (
-    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
-         "sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process launch or wait, a "
+         "synchronous system call or a sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
          "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
          "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
          "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
@@ -2212,13 +2310,19 @@ BLOCKING_RULES = (
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
          blocking_on_main),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
-         "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
+         "`.wait()`, `.sync {`, `asyncAndWait`, `waitUntilExit()`, `readToEnd()`, `try process.run()`, sync XPC, "
+         "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
+         "LSCopy, NSWorkspace app and icon queries, SMAppService, AuthorizationCopyRights, AppleScript) instead of its "
          "checked seam",
          "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
          "main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
          "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
-         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
+         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `process.blockingRun()`, "
+         "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
+         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
+         "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
+         "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
@@ -2894,13 +2998,124 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
     return refused or refuse
 
 
+SELF_TEST_KIT = SOURCES + "CmuxNextKit/"
+SELF_TEST_APP_FILE = APP + "CmuxApplication.swift"
+SELF_TEST_MONITOR = "        token = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { $0 }\n"
+SELF_TEST_BASE = {
+    SELF_TEST_KIT + "OldMonitor.swift": "final class OldMonitor {\n    func start() {\n" + SELF_TEST_MONITOR + "    }\n}\n",
+    SELF_TEST_KIT + "Escaped.swift": "func f() {\n        // input-monitor-allow: a nested tracking loop\n" + SELF_TEST_MONITOR + "}\n",
+    SELF_TEST_APP_FILE: "final class CmuxApplication: NSApplication {\n    var inputObserver: ((NSEvent) -> Void)?\n}\n",
+}
+
+
+def _self_test_edit(path: str, old: str, new: str) -> dict[str, str]:
+    return {path: SELF_TEST_BASE[path].replace(old, new, 1)}
+
+
+SELF_TEST_CASES = (
+    # (what the push does, {path: head text}, refused)
+    ("a new local monitor", {SELF_TEST_KIT + "New.swift": "func f() {\n" + SELF_TEST_MONITOR + "}\n"}, True),
+    ("a new global monitor", {SELF_TEST_KIT + "New.swift":
+                              "func f() {\n    NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { _ in }\n}\n"},
+     True),
+    ("an escaped monitor", {SELF_TEST_KIT + "New.swift": "func f() {\n"
+                            "        // input-monitor-allow: a nested tracking loop never reaches sendEvent\n"
+                            + SELF_TEST_MONITOR + "}\n"}, False),
+    ("a monitor inside CmuxNextInput", {SOURCES + "CmuxNextInput/InputEventTap.swift":
+                                        "func f() {\n" + SELF_TEST_MONITOR + "}\n"}, False),
+    ("a monitor named only in a comment", {SELF_TEST_KIT + "New.swift": "// replaces addLocalMonitorForEvents\nfunc f() {}\n"},
+     False),
+    ("an edit of a line that already holds a monitor (base debt)",
+     _self_test_edit(SELF_TEST_KIT + "OldMonitor.swift", ".keyDown", "[.keyDown, .keyUp]"), False),
+    ("a second monitor in a file that has one",
+     _self_test_edit(SELF_TEST_KIT + "OldMonitor.swift", SELF_TEST_MONITOR, SELF_TEST_MONITOR * 2), True),
+    ("deleting the escape of an old monitor", {SELF_TEST_KIT + "Escaped.swift": "func f() {\n" + SELF_TEST_MONITOR + "}\n"},
+     True),
+    ("a new event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var keyUpObserver: ((NSEvent) -> Bool)?\n}\n"), True),
+    ("a new event closure property in a CmuxApplication extension", {APP + "CmuxApplication+Keys.swift":
+     "extension CmuxApplication {\n    static let keyHooks: [(NSEvent) -> Void] = []\n}\n"}, True),
+    ("an event closure local in a CmuxApplication method",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    func f(_ event: NSEvent) {\n        let handler: (NSEvent) -> Void = "
+                     "{ _ in }\n        handler(event)\n    }\n}\n"), False),
+    ("an event closure property on another type", {SELF_TEST_KIT + "New.swift":
+                                                   "final class Other {\n    var onKey: ((NSEvent) -> Void)?\n}\n"}, False),
+    ("a labelled event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var labelled: ((_ event: NSEvent) -> Void)?\n}\n"), True),
+    ("a dictionary of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks: [UUID: (NSEvent) -> Void] = [:]\n}\n"), True),
+    ("an inferred array of event handlers on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var hooks = [(NSEvent) -> Void]()\n}\n"), True),
+    ("an Optional<> event closure on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var scope: Optional<(NSEvent, () -> Void) -> Void>\n}\n"), True),
+    ("an event tuple property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    var lastKey: (NSEvent, Date)?\n    var pending: (NSEvent, NSWindow?)?\n}\n"),
+     False),
+    ("an escaped event closure property on CmuxApplication",
+     _self_test_edit(SELF_TEST_APP_FILE, "}\n", "    // input-monitor-allow: runModal's own loop, the tap never sees it\n"
+                     "    var modalKey: ((NSEvent) -> Bool)?\n}\n"), False),
+)
+
+
+def self_test() -> int:
+    """The input-monitor rule on SELF_TEST_CASES: each case is one commit over SELF_TEST_BASE in a scratch
+    repository, judged by check() as the hook judges a push (git only: no network, no build). Exit 1 on a wrong
+    answer."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="cmux-guardrails-self-test-") as temporary:
+        root = Path(temporary)
+        repo = root / "repository"
+        repo.mkdir()
+        (root / "gitconfig").write_text("[user]\n\tname = guardrails\n\temail = guardrails@example.com\n")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(root / "gitconfig"), HOME=str(root))
+
+        def run(*args: str) -> str:
+            return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
+                                  check=True).stdout.strip()
+
+        def commit(files: dict[str, str], message: str) -> str:
+            for relative, text in files.items():
+                path = repo / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(text)
+            run("add", "-A")
+            run("commit", "--quiet", "--no-verify", "-m", message)
+            return run("rev-parse", "HEAD")
+
+        run("init", "--quiet", "--initial-branch=self-test")
+        base = commit(SELF_TEST_BASE, "base")
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        failures = []
+        try:
+            for name, files, refused in SELF_TEST_CASES:
+                run("checkout", "--quiet", "--detach", base)
+                head = commit(files, name)
+                refusals, _ = check(repo, base, head)
+                hits = [h for rule, found in refusals if rule.id == "input-monitor" for h in found]
+                ok = bool(hits) == refused
+                print(f"  {'ok  ' if ok else 'FAIL'} {name}: {'refused' if hits else 'passes'}"
+                      + "".join(f"\n         {h.path}:{h.number}: {h.text.strip()}" for h in hits))
+                if not ok:
+                    failures.append(name)
+        finally:
+            os.environ.update(saved)
+    print(f"guardrails self-test: {'FAILED: ' + ', '.join(failures) if failures else 'ok'} "
+          f"({len(SELF_TEST_CASES) - len(failures)}/{len(SELF_TEST_CASES)} input-monitor cases)")
+    return 1 if failures else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
+    parser.add_argument("--self-test", action="store_true",
+                        help="judge the input-monitor rule's refuse and escape cases in a scratch repository")
     args = parser.parse_args(argv)
+    if args.self_test:
+        return self_test()
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

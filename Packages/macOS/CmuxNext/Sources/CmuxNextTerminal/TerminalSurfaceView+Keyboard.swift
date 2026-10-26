@@ -13,7 +13,7 @@ import GhosttyNextKit
 // (ghostty.h:1571, :1586, :1656).
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
-        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.hop("app.key.terminal") }
+        if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal() }
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }
@@ -38,16 +38,17 @@ extension TerminalSurfaceView {
 
         let hadMarkedText = markedText.length > 0
         // A key that switches the input source (for example Ctrl-Space) must
-        // not also reach the terminal. Only a key with Control, Option, Command
-        // or Fn can be such a shortcut: a plain key pays no TIS lookup (two
-        // TISCopyCurrentKeyboardInputSource calls per typed character).
-        let mayChangeInputSource = !hadMarkedText && GhosttyInput.mayChangeInputSource(event.modifierFlags)
-        let inputSourceBefore = mayChangeInputSource ? GhosttyInput.currentInputSourceID() : nil
+        // not also reach the terminal. Only a system switch key, or a chord
+        // while an input method is selected, compares the source (two Text
+        // Input Sources reads); Ctrl-C under a keyboard layout reads none.
+        let inputSources = GhosttyRuntime.shared.inputSources
+        let mayChangeInputSource = !hadMarkedText && inputSources.mayChangeSource(keyCode: event.keyCode, flags: event.modifierFlags)
+        let inputSourceBefore = mayChangeInputSource ? inputSources.currentSourceID() : nil
         lastPerformKeyEventTimestamp = nil
 
         interpretKeyEvents([translationEvent])
 
-        if mayChangeInputSource, inputSourceBefore != GhosttyInput.currentInputSourceID() {
+        if mayChangeInputSource, inputSources.sourceChanged(since: inputSourceBefore) {
             return
         }
 

@@ -95,9 +95,13 @@ public final class FrameScheduler: NSObject {
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
+    private let clock: any Clock<Duration>
+    private var madeInput: FrameInputCoalescer?
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
+    /// The link's last refresh period: a stalled frame is shown this long after it starts.
+    private var lastRefreshInterval = FrameTick.defaultRefreshInterval
     private let mediaTime: @MainActor () -> CFTimeInterval
     /// The last link frame's timestamp (or the time the clients activated): where a stall starts.
     private var lastLinkFrame: CFTimeInterval = 0
@@ -127,6 +131,7 @@ public final class FrameScheduler: NSObject {
             self.window = window
         }
         self.ledger = ledger
+        self.clock = clock
         self.makeLinkOverride = makeLink
         stall = DemandTimer(owner: "FrameScheduler.stall", clock: clock, ledger: ledger)
         super.init()
@@ -146,6 +151,15 @@ public final class FrameScheduler: NSObject {
     }
 
     public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
+
+    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
+    /// clients (made on first use; dropped with the scheduler's window).
+    public var input: FrameInputCoalescer {
+        if let madeInput { return madeInput }
+        let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
+        madeInput = made
+        return made
+    }
 
     /// A display link exists (only while clients are active).
     public var hasLink: Bool { link != nil }
@@ -193,6 +207,8 @@ public final class FrameScheduler: NSObject {
 
     /// Drops the link and every client (the window closed).
     public func invalidate() {
+        madeInput?.invalidate()
+        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
@@ -232,7 +248,8 @@ public final class FrameScheduler: NSObject {
     private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
 
     @objc private func tick(_ link: CADisplayLink) {
-        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)
+        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp,
+                     targetTimestamp: link.targetTimestamp)
     }
 
     private func armStall(after delay: Duration = FrameScheduler.stallTimeout) {
@@ -265,39 +282,50 @@ public final class FrameScheduler: NSObject {
         }
         lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
-        deliver(timestamp: nil, refreshInterval: nil)
+        deliver(timestamp: nil, refreshInterval: nil, targetTimestamp: nil)
         guard !clients.isEmpty else { return }
         (link ?? makeLink())?.isPaused = false
         armStall()
     }
 
-    /// One display frame (the link's tick; tests call it directly).
-    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
+    /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when the frame
+    /// is shown (the link's); nil is `timestamp` plus `refreshInterval` (nil: the link's last interval).
+    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil,
+                             targetTimestamp: CFTimeInterval? = nil) {
         lastLinkFrame = timestamp ?? mediaTime()
         stalls = 0
-        deliver(timestamp: timestamp, refreshInterval: refreshInterval)
+        deliver(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
         if clients.isEmpty { pause() } else { armStall() }
     }
 
-    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
+    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?, // perf-hot: 0.5ms frame-tick (every frame)
+                         targetTimestamp: CFTimeInterval?) {
         frames &+= 1
-        let now = timestamp ?? CACurrentMediaTime()
+        let now = timestamp ?? mediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
+        if let refreshInterval { lastRefreshInterval = refreshInterval }
+        // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
+        // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
-                             rawElapsed: elapsed, refreshInterval: refreshInterval)
+                             rawElapsed: elapsed, refreshInterval: refreshInterval,
+                             targetTimestamp: targetTimestamp ?? now + lastRefreshInterval, sequence: frames)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        // Clients activated during this frame tick next frame. Frame-locked clients first, every
-        // frame; then (only on the scheduler that holds the budget) the budgeted batches in class
-        // order, each only while its class may run (a held one stays active and ticks next frame:
-        // input pending, or the class's budget spent).
+        // Clients activated during this frame tick next frame. The input stage first (the window's
+        // FrameInputCoalescer), so the frame-locked clients see this frame's input; then those,
+        // every frame; then (only on the scheduler that holds the budget) the budgeted batches in
+        // class order, each only while its class may run (a held one stays active and ticks next
+        // frame: input pending, or the class's budget spent).
         let ticking = clients.values.filter(\.isActive)
         let order = budgetedOrder
         budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
-        for client in ticking where !client.workClass.isBudgeted {
+        for client in ticking where client.workClass == .input {
+            fire(client, tick)
+        }
+        for client in ticking where client.workClass == .frame {
             fire(client, tick)
         }
         guard let budget else { return }
