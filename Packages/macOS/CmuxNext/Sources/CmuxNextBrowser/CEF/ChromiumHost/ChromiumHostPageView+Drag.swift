@@ -16,6 +16,13 @@ extension ChromiumHostPageView {
         }
     }
 
+    /// The drags this page view sent through Chromium's DragTarget calls (`debug.cef`'s `page_drag`).
+    public var dragCounts: ChromiumHostDragCounts {
+        var counts = dragDestination.counts
+        counts.takesDrags = dragDestination.wire != nil
+        return counts
+    }
+
     public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         dragDestination.entered(ChromiumHostDropData(pasteboard: sender.draggingPasteboard), at: dragPoint(sender),
                                 allowed: sender.draggingSourceOperationMask, modifiers: Self.dragModifiers())

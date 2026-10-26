@@ -97,6 +97,23 @@ import Testing
         #expect(!destination.dropped(at: drop, modifiers: 0), "no drag, no drop")
     }
 
+    @Test func countsTellDragTargetDropsAndTheirAnswers() {
+        let wire = Recorder()
+        let destination = Self.destination(wire)
+        _ = destination.entered(Self.files, at: Self.at, allowed: .copy, modifiers: 0)
+        destination.answered(browser: 7, operation: 1)
+        destination.answered(browser: 8, operation: 1)
+        #expect(destination.dropped(at: Self.at, modifiers: 0))
+        destination.answered(browser: 7, operation: 1)
+        #expect(destination.counts == ChromiumHostDragCounts(enters: 1, drops: 1, answers: 1),
+                "another tab's answer and a late one are not this drag's")
+
+        let refused = Self.destination(Recorder(browser: nil))
+        _ = refused.entered(Self.files, at: Self.at, allowed: .copy, modifiers: 0)
+        #expect(!refused.dropped(at: Self.at, modifiers: 0))
+        #expect(refused.counts == ChromiumHostDragCounts(), "a refused drag sends no DragTarget call")
+    }
+
     @Test func noBrowserNoWireOrNoDataRefusesTheDrag() {
         let none = Recorder(browser: nil)
         #expect(Self.destination(none).entered(Self.files, at: Self.at, allowed: .copy, modifiers: 0) == [])
@@ -166,9 +183,11 @@ import Testing
         let page = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), inputTarget: .view)
         page.takeDrags(through: Recorder())
         #expect(Set(page.registeredDraggedTypes) == Set(ChromiumHostDropData.types))
+        #expect(page.dragCounts.takesDrags, "debug.cef's page_drag says the page view takes drags")
         page.takeDrags(through: nil)
         #expect(page.registeredDraggedTypes.isEmpty)
         #expect(page.dragDestination.wire == nil)
+        #expect(!page.dragCounts.takesDrags)
 
         // In the pane the host view takes the drag for it (CEFFileDragRelay.hostedPage).
         let behind = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 200, height: 100), inputTarget: .pageWindow)

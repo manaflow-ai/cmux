@@ -18,6 +18,18 @@ protocol ChromiumHostDragWire: AnyObject {
 /// later (DRAG_OPERATION, fork API 31's `cmux_browser_drag_target_watch`); AppKit gets the last
 /// answer at once, as `WebDragDest` returns its `_currentOperation`. Until the first answer the
 /// destination offers copy, so the drop is not refused before the page has seen the drag.
+/// What a page view's drag destination sent and heard: a drop that went through Chromium's
+/// DragTarget calls counts one enter and one drop, and the renderer's DRAG_OPERATION replies
+/// count as answers. chromium-host-bench.py's dragin row reads them to tell those drops from the
+/// DevTools relay's.
+public struct ChromiumHostDragCounts: Equatable, Sendable {
+    /// The page view takes drags (feature `chromiumHostDragIn` in host mode).
+    public var takesDrags = false
+    public var enters = 0
+    public var drops = 0
+    public var answers = 0
+}
+
 final class ChromiumHostDragDestination {
     /// The fork API whose DragTarget calls reach a detached page and report their answers (task 172).
     static let forkAPI: Int32 = 31
@@ -28,6 +40,8 @@ final class ChromiumHostDragDestination {
     private(set) var browser: Int32?
     /// What AppKit gets back: the renderer's last choice for this drag.
     private(set) var operation: NSDragOperation = []
+    /// The DragTarget enters and drops sent and the renderer's answers taken (`debug.cef`'s `page_drag`).
+    private(set) var counts = ChromiumHostDragCounts()
 
     /// The `cef_drag_operations_mask_t` bits CEF defines (copy, link, generic, private, move,
     /// delete); NSDragOperation has the same values.
@@ -41,6 +55,7 @@ final class ChromiumHostDragDestination {
         browser = target
         operation = .copy
         wire.send(.enter(data, point, allowed: Self.mask(allowed), modifiers: modifiers), browser: target)
+        counts.enters += 1
         return operation
     }
 
@@ -65,6 +80,7 @@ final class ChromiumHostDragDestination {
         guard let browser, let wire else { return false }
         end()
         wire.send(.drop(point, modifiers: modifiers), browser: browser)
+        counts.drops += 1
         return true
     }
 
@@ -73,6 +89,7 @@ final class ChromiumHostDragDestination {
     /// the drop matters to the renderer alone, so it is not kept.
     func answered(browser answering: Int32, operation answer: Int64) {
         guard answering == browser else { return }
+        counts.answers += 1
         operation = NSDragOperation(rawValue: UInt(truncatingIfNeeded: answer & Int64(Self.operationBits)))
     }
 

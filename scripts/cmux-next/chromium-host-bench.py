@@ -79,8 +79,10 @@ Per mode:
   dragin   `--modes dragin` (task 050), on an input host (real HID events) with feature chromiumHostDragIn on: a
            Chromium tab of the app's backend over a drop zone and an <input type=file>; a real drag session from
            another app (pointer-probe.swift drag-file, as from Finder) drops one file on each. Pass: the zone's drop
-           event and the input's change event have the file's name and size, and the source saw the drop taken.
-           `backend` says whether the page ran in the host (DragTarget calls) or in process (the DevTools relay).
+           event and the input's change event have the file's name and size, the source saw the drop taken, and
+           `debug.cef`'s `page_drag` counts one more DragTarget drop and at least one DRAG_OPERATION answer (the
+           page view, not the DevTools relay, took it). In process, or with a fork API below 31 (p01-process-178,
+           where the relay takes the drops), the row says not_measurable with the reason instead of passing.
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
@@ -230,6 +232,8 @@ for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEvent
 document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
 </script>"""
 DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+# ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
+DRAG_TARGET_FORK_API = 31
 
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
@@ -1136,9 +1140,22 @@ def run_dragin(rpc, url):
     expected = [[os.path.basename(path), len(DRAG_FILE_TEXT.encode())]]
     # The source sits left of the window when there is room, else at its top left corner (it floats above cmux).
     source = (max(30.0, frame.get("x", 0) - 40), top + 20)
-    # Only a host-mode page view has a page cursor (debug.cef): in process the DevTools relay takes file drags.
-    mine = [e for e in (rpc("debug.cef") or {}).get("devtools") or [] if (e.get("url") or "").startswith(url)]
-    row = {"backend": "host" if any(e.get("page_cursor") for e in mine) else "in_process"}
+
+    def page_drag():
+        # Only a host-mode page view has a page_drag (debug.cef): in process the DevTools relay takes file drags.
+        cef = rpc("debug.cef") or {}
+        mine = [e for e in cef.get("devtools") or [] if (e.get("url") or "").startswith(url)]
+        return (mine or [{}])[0].get("page_drag"), (cef.get("windows") or {}).get("fork_api")
+
+    counts, fork_api = page_drag()
+    row = {"backend": "host" if counts else "in_process", "fork_api": fork_api, "page_drag": counts}
+    if not counts:
+        row["not_measurable"] = "the tab runs in process, where the DevTools relay takes file drags: no DragTarget path"
+    elif not isinstance(fork_api, (int, float)) or fork_api < DRAG_TARGET_FORK_API:
+        row["not_measurable"] = (f"fork API {fork_api} is below {DRAG_TARGET_FORK_API} (p01-process-178): the page view "
+                                 "refuses the drag and the DevTools relay takes the drops")
+    elif not counts.get("takes_drags"):
+        row["error"] = "the page view takes no drags: feature chromiumHostDragIn is off or the pane never wired it"
     for target, field in (("zone", "dropped"), ("file", "file")):
         rect = page(f"(() => {{ const r = document.getElementById('{target}').getBoundingClientRect(); "
                     "return [r.x + r.width / 2, r.y + r.height / 2]; })()")
@@ -1150,9 +1167,17 @@ def run_dragin(rpc, url):
                                   "40", path], capture_output=True, text=True, timeout=60)
         got = wait(lambda: page(f"window.dragLog.{field}"), 5, 0.1)
         log = page("JSON.stringify(window.dragLog)")
+        before, after = counts or {}, page_drag()[0] or {}
+        # This drop went through cmux_shim_browser_drag_target_*: one more DragTarget drop, and the renderer
+        # answered the drag's enter or over through the fork's watch.
+        drag_target = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("enters", "drops", "answers")}
+        counts = after
         row[target] = {"point": point, "source": dragged.stdout.strip() or dragged.stderr.strip()[:200], "got": got, "log": log,
-                       "pass": got == expected and dragged.returncode == 0}
-    row["pass"] = all(row[t].get("pass") for t in ("zone", "file"))
+                       "drag_target": drag_target,
+                       "pass": (got == expected and dragged.returncode == 0 and drag_target["drops"] == 1
+                                and drag_target["answers"] >= 1)}
+    if "not_measurable" not in row:
+        row["pass"] = "error" not in row and all(row[t].get("pass") for t in ("zone", "file"))
     RESULT["modes"]["dragin"] = row
     return True
 
