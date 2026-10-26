@@ -2029,7 +2029,8 @@ RULES += INPUT_RULES
 STABILITY_SETTINGS = "stabilitySwiftSettings"
 PACKAGE_MANIFEST_SPEC = ":(glob)Packages/**/Package.swift"
 SWIFT_TARGET_CALL = re.compile(r"\.(?:target|executableTarget|testTarget|macro)\s*\(")
-TARGET_LITERAL_NAME = re.compile(r'\(\s*name\s*:\s*"([^"\\]+)"')
+TARGET_LITERAL_NAME = re.compile(r'^\s*name\s*:\s*"(_+)"\s*$')  # the first argument, string contents masked
+DEPENDENCY_TYPE = re.compile(r"\bDependency\b")  # Target.Dependency, written in a declared type or as a prefix
 ARGUMENT_LABEL = re.compile(r"^\s*(\w+)\s*:")
 TOP_LEVEL_CONSTANT = re.compile(r"^(?:let|var)\s+(\w+)\b[^=]*=")
 EXPRESSION_GOES_ON = frozenset("])}+.")  # a column-0 line starting with one of these continues the expression
@@ -2105,12 +2106,51 @@ def settings_carriers(codes: list[str]) -> set[str]:
     return carriers
 
 
+def masked_code(line: str) -> str:
+    """LINE without a trailing `//` comment, its string contents replaced by `_` of the same length: a column of the
+    result is the same column of LINE."""
+    if COMMENT_LINE.match(line):
+        return ""
+    out, in_string, i = [], False, 0
+    while i < len(line):
+        c = line[i]
+        if in_string:
+            step = 2 if c == "\\" else 1
+            if c == '"':
+                in_string = False
+                out.append(c)
+            else:
+                out.append("_" * len(line[i:i + step]))
+            i += step
+            continue
+        if c == '"':
+            in_string = True
+        elif line.startswith("//", i):
+            break
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def declares_dependencies(codes: list[str], index: int) -> bool:
+    """The top-level statement holding line INDEX declares Target.Dependency values (`let deps: [Target.Dependency]
+    = ...`, `func deps() -> [Target.Dependency] {`): its text before the first `=` or `{` names the type."""
+    start = index
+    while start > 0 and not (codes[start].strip() and not codes[start][0].isspace()
+                             and codes[start][0] not in EXPRESSION_GOES_ON and codes[start][0] != "#"):
+        start -= 1
+    header = re.split(r"[={]", "\n".join(codes[start:index + 1]), maxsplit=1)[0]
+    return bool(DEPENDENCY_TYPE.search(header))
+
+
 def swift_targets(text: str) -> list[SwiftTarget]:
-    """The Swift target calls of manifest TEXT with a literal name, outermost only (a `.target(name:)` dependency
-    inside another target is not one); a call with a `condition:` argument is a Target.Dependency (a target takes
-    none)."""
+    """The Swift target calls of manifest TEXT whose first argument is a literal `name:`, outermost only (a
+    `.target(name:)` dependency inside another target is not one). A Target.Dependency is not a target either: a
+    call with a `condition:` argument (a target takes none), one written `Target.Dependency.target(`, and one in a
+    top-level statement declared as Target.Dependency values."""
     lines = text.split("\n")
-    codes = [code_of(line) for line in lines]
+    codes = [masked_code(line) for line in lines]
+    raw = [line[:len(code)] for line, code in zip(lines, codes)]  # the same columns as CODES, strings kept
     carriers = settings_carriers(codes)
     targets: list[SwiftTarget] = []
     after = (-1, -1)
@@ -2125,15 +2165,19 @@ def swift_targets(text: str) -> list[SwiftTarget]:
             after = end
             last, close = end
             code_text = "\n".join(codes[index:last + 1])
-            parts = top_level_split(code_text[opener + 1:len(code_text) - len(codes[last]) + close])
+            arguments_end = len(code_text) - len(codes[last]) + close
+            parts = top_level_split(code_text[opener + 1:arguments_end])
             labelled = {m.group(1): part[m.end():] for part in parts if (m := ARGUMENT_LABEL.match(part))}
-            named = TARGET_LITERAL_NAME.search("\n".join(lines[index:last + 1]), opener)
-            if not named or "condition" in labelled:
+            named = TARGET_LITERAL_NAME.match(parts[0])
+            if (not named or "condition" in labelled or code[:call.start()].rstrip().endswith("Dependency")
+                    or declares_dependencies(codes, index)):
                 continue
+            name_start = opener + 1 + named.start(1)
+            name = "\n".join(raw[index:last + 1])[name_start:name_start + len(named.group(1))]
             shared = bool(carriers & set(IDENTIFIER.findall(labelled.get("swiftSettings", ""))))
             allowed = any(SETTINGS_ALLOW.search(lines[j])
                           for j in set(escape_window(lines, index)) | set(range(index, last + 1)))
-            targets.append(SwiftTarget(named.group(1), index, shared or allowed))
+            targets.append(SwiftTarget(name, index, shared or allowed))
     return targets
 
 
@@ -4705,6 +4749,16 @@ TARGET_SETTINGS_CASES = (
      _new_target("        .target(\n            name: \"New\",\n            dependencies: [.target(name: \"OldC\", "
                  "condition: .when(platforms: [.macOS]))],\n"
                  "            swiftSettings: uiSwiftSettings\n        ),\n"), False),
+    ("a new target over a new top-level dependency constant that names an old target",
+     _new_target("        .target(name: \"New\", dependencies: kitDeps, swiftSettings: uiSwiftSettings),\n",
+                 "let kitDeps: [Target.Dependency] = [\n    .target(name: \"Kit\"),\n]\n\n"), False),
+    ("a new top-level Target.Dependency constant that names an old target",
+     _new_target("", "let kitDep = Target.Dependency.target(name: \"Kit\")\n\n"), False),
+    ("a new target without the settings in a top-level [Target] constant",
+     _new_target("", "let extraTargets: [Target] = [\n    .target(name: \"Extra\"),\n]\n\n"), True),
+    ("a new target with a non-literal name and a product dependency",
+     _new_target("        .target(name: newName, dependencies: [.product(name: \"Kit\", package: \"x\")]),\n",
+                 "let newName = \"New\"\n\n"), False),
     ("an edit of an old target without the settings (base debt)",
      _manifest_edit(MANIFEST, ".target(name: \"OldC\"),", ".target(name: \"OldC\", path: \"Sources/OldC\"),"), False),
     ("an old target that loses the shared settings",
