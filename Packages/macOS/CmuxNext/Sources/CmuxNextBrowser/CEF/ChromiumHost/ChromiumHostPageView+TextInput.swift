@@ -89,22 +89,22 @@ extension ChromiumHostPageView: NSTextInputClient {
 
     /// Secure event input on exactly while a password field has focus here: the
     /// pushed type is password (a host that ended pushed no field), this view is
-    /// first responder, shows (not hidden, in a window) and its window is key
-    /// (``ChromiumHostPasswordInput``).
+    /// first responder of a window and that window is key
+    /// (``ChromiumHostPasswordInput``). Hiding the view takes its first
+    /// responder status (AppKit's `isHidden`), so a hidden page is a blurred one.
     func updatePasswordInput() {
-        guard textInput.state.type == .password, passwordInput.focused, !isHiddenOrHasHiddenAncestor,
-              let window else {
+        guard textInput.state.type == .password, passwordInput.focused, let window else {
             passwordInput.keyWatch = []
             passwordInput.turn(false)
             return
         }
         if passwordInput.keyWatch.isEmpty {
             let events = WindowEvents.of(window, center: passwordInput.windowCenter)
-            passwordInput.keyWatch = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-                events.subscribe(name, owner: "ChromiumHostPageView.passwordInput") { [weak self] in
-                    self?.updatePasswordInput()
-                }
-            }
+            let owner = "ChromiumHostPageView.passwordInput"
+            passwordInput.keyWatch = [
+                events.subscribe(NSWindow.didBecomeKeyNotification, owner: owner) { [weak self] in self?.updatePasswordInput() },
+                events.subscribe(NSWindow.didResignKeyNotification, owner: owner) { [weak self] in self?.updatePasswordInput() },
+            ]
         }
         passwordInput.turn(passwordInput.isKey(window))
     }
@@ -114,16 +114,6 @@ extension ChromiumHostPageView: NSTextInputClient {
     func passwordInputWindowChanged() {
         passwordInput.keyWatch = []
         if window == nil { passwordInput.focused = false }
-        updatePasswordInput()
-    }
-
-    public override func viewDidHide() {
-        super.viewDidHide()
-        updatePasswordInput()
-    }
-
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
         updatePasswordInput()
     }
 

@@ -8,8 +8,8 @@ import Testing
 
 /// p01-process-230: in host mode cmux is the frontmost process, so the page view turns on secure event input
 /// while a password field of the page has focus, as Chrome's browser process holds a
-/// `ui::ScopedPasswordInputEnabler` (ui/base/cocoa/secure_password_input.mm), and turns it off on blur, hide, a
-/// window that stops being key, a host that ends and close. The system switch is a recorder: secure input is on
+/// `ui::ScopedPasswordInputEnabler` (ui/base/cocoa/secure_password_input.mm), and turns it off on blur, hide (which
+/// blurs), a window that stops being key, a host that ends and close. The system switch is a recorder: secure input is on
 /// while its enables outnumber its disables, as `IsSecureEventInputEnabled` reads HIToolbox's count.
 @MainActor @Suite struct ChromiumHostPasswordInputTests {
     /// Counts the system switch's calls.
@@ -103,6 +103,8 @@ import Testing
         #expect(rig.calls.enableCount == rig.calls.disableCount)
     }
 
+    /// Hiding the view takes its first responder status (AppKit's `isHidden`): a hidden page is a blurred one, and
+    /// showing it again does not give the field back its focus.
     @Test func hidingThePageTurnsSecureInputOff() {
         let rig = Rig()
         defer { rig.close() }
@@ -112,11 +114,8 @@ import Testing
         rig.view.isHidden = true
         #expect(!rig.calls.isOn)
         rig.view.isHidden = false
-        #expect(rig.calls.isOn)
-        // A hidden ancestor hides the page too.
-        rig.window.contentView?.isHidden = true
         #expect(!rig.calls.isOn)
-        rig.window.contentView?.isHidden = false
+        #expect(rig.window.makeFirstResponder(rig.view))
         #expect(rig.calls.isOn)
     }
 
