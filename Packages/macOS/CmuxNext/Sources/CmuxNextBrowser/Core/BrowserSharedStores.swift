@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The browser stores both engines and the App share, constructed once by the App and passed by
@@ -21,6 +22,9 @@ public final class BrowserSharedStores {
     public let siteSettings: SiteSettingsRegistry
     /// Zoom per site and profile (``SiteZoomLevels``).
     public let siteZoom: SiteZoomLevels
+    /// The App's lanes, set with the engines' wiring: an engine's blocking system calls (a remembered
+    /// HTTP sign-in's Keychain read and write) run on their system lane. Nil (tests): none run.
+    public var lanes: (any MayBlockRunner)?
 
     /// Stores over `offTheRecord`.
     ///

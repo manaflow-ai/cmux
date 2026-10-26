@@ -12,6 +12,7 @@ import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextScreenshots
 import CmuxNextStash
+import CmuxNextWakeups
 import Foundation
 import os
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -77,20 +78,21 @@ final class HistoryPageService: HistoryPageSource {
         HistoryRestorer(services: services).copy(text)
     }
 
-    /// The app's cookie backups (WebKit tabs' agent clears), read off the
-    /// main actor: the files are decrypted with the Keychain key.
+    /// The app's cookie backups (WebKit tabs' agent clears), read on the
+    /// system lane: the files are decrypted with the Keychain key, which
+    /// waits for securityd.
     func cookieBackups() async -> [HistoryCookieBackup] {
         guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
-        return await Task.detached {
+        return (try? await services.work.run(.userVisible, mayBlock: .system) {
             backups.pruneExpired()
             return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
-        }.value
+        }) ?? []
     }
 
     /// The person confirmed: the backups go for good (an agent never gets here).
     func deleteCookieBackups(_ ids: [String]) async {
         guard let backups = services.browserHost?.driver.cookieBackups else { return }
-        let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
+        let deleted = (try? await services.work.run(.userVisible, mayBlock: .files) { ids.filter { (try? backups.remove($0)) != nil }.count }) ?? 0
         Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
     }
 
@@ -200,7 +202,7 @@ extension TabContentCache {
             let source = pages.source(for: key, url: url, isLocal: services.machines.daemon(forTab: tab).isLocal)
             let decision = RemoteViewTabPolicy().decide(record: RemoteViewTabRecord(url: url), source: source)
             let page = RemoteViewPageTab(
-                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision,
+                id: BrowserTabID(rawValue: key), engine: engine, profile: profile, url: url, decision: decision, lanes: services.work,
                 closeTab: { [weak self] in self?.pageRequests.closeTab(key) },
                 connect: { [weak self] confirmedURL in
                     // The Connect button: a person confirmed this record (view mode).

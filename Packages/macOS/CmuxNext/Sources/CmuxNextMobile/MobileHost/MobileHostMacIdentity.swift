@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CryptoKit
 public import Foundation
 import LocalAuthentication
@@ -88,7 +89,7 @@ public struct MobileHostMacIdentityStore: Sendable {
         var item: CFTypeRef?
         let search = query.merging([kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
                                     kSecUseAuthenticationContext as String: Self.noPrompt()]) { $1 }
-        let status = SecItemCopyMatching(search as CFDictionary, &item)
+        let status = blockingSecItemCopyMatching(search as CFDictionary, &item)
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
                 Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public)); using the file store")
@@ -103,7 +104,7 @@ public struct MobileHostMacIdentityStore: Sendable {
                                  kSecUseAuthenticationContext as String: Self.noPrompt(),
                                  kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
                                  kSecAttrLabel as String: "cmux iPhone host identity"]) { $1 }
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        return blockingSecItemAdd(add as CFDictionary, nil) == errSecSuccess
     }
 
     private func writeFallback(_ privateKey: Data) throws {

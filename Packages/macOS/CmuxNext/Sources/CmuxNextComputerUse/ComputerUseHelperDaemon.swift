@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 public import Observation
 import os
-import CmuxNextCompat
+public import CmuxNextCompat
 
 private let helperLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
@@ -86,6 +86,8 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private var observation: Task<Void, Never>?
     /// The helper v2 (`computerUse.driver = "upstream"`).
     @ObservationIgnored public let upstream: ComputerUseHelperV2
+    /// The app's lanes (``follow(_:lanes:disabledByPolicy:)``): the helper's signature checks run on their system lane.
+    @ObservationIgnored private var lanes: (any MayBlockRunner)?
 
     init(identity: CuaHelperIdentity = CuaHelperIdentity(),
          candidates: @escaping @Sendable () -> [URL] = { CuaHelperIdentity.installedCandidates(isDevBuild: ComputerUseHelperDaemon.isDevBuild) },
@@ -128,8 +130,11 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// Follows `computerUse.enabled`, `computerUse.driver` (and
-    /// DisabledFeatures) for the app's life.
-    public func follow(_ settings: SettingsController, disabledByPolicy: @escaping () -> Bool) {
+    /// DisabledFeatures) for the app's life. `lanes` are the app's: the helper
+    /// v2 reads acpmux's signature on their system lane.
+    public func follow(_ settings: SettingsController, lanes: any MayBlockRunner, disabledByPolicy: @escaping () -> Bool) {
+        self.lanes = lanes
+        upstream.lanes = lanes
         observation?.cancel()
         observation = Task { [weak self, weak settings] in
             guard let settings else { return }
@@ -167,7 +172,7 @@ public final class ComputerUseHelperDaemon {
         let current = generation
         guard enabled else { return stop() }
         if case .running = state { return }
-        let resolution = await Self.resolve(identity, candidates)
+        let resolution = await Self.resolve(identity, candidates, on: lanes)
         guard current == generation else { return }
         guard case .signed(let helper) = resolution else {
             helperLogger.notice("Computer Use is on, but no Developer ID signed cmux Computer Use helper is installed")
@@ -247,9 +252,13 @@ public final class ComputerUseHelperDaemon {
         ]
     }
 
-    @concurrent nonisolated static func resolve(_ identity: CuaHelperIdentity,
-                                                _ candidates: @Sendable () -> [URL]) async -> CuaHelperIdentity.Resolution {
-        identity.resolve(running: nil, installed: candidates())
+    /// The helper to start: signature checks of the candidates, on `lanes`' system lane (no helper
+    /// while the app has not wired its lanes).
+    nonisolated static func resolve(_ identity: CuaHelperIdentity, _ candidates: @escaping @Sendable () -> [URL],
+                                    on lanes: (any MayBlockRunner)?) async -> CuaHelperIdentity.Resolution {
+        let none = CuaHelperIdentity.Resolution.unavailable(.noSignedHelperInstalled)
+        guard let lanes else { return none }
+        return (try? await lanes.runSystem(.userVisible) { identity.resolve(running: nil, installed: candidates()) }) ?? none
     }
 
     public nonisolated static var isDevBuild: Bool {

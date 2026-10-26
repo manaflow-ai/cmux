@@ -62,14 +62,16 @@ public struct UpdateDropBack {
         }
     }
 
-    /// The Developer ID team of a valid signed bundle, else nil.
+    /// The Developer ID team of a valid signed bundle, else nil. The validity check, which hashes the whole
+    /// bundle, is kept per version of it (``StaticCodeValidityCache``): every rollback read checks every kept
+    /// build again. Blocks: call it on a lane.
     nonisolated static func signingTeam(of bundle: URL) -> String? {
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode)
+        guard StaticCodeValidityCache.process.isValid(bundle, flags: flags, requirement: nil) else { return nil }
         var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code,
-              SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode), nil) == errSecSuccess
-        else { return nil }
+        guard SecStaticCodeCreateWithPath(bundle as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var information: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
+        guard blockingSecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess
         else { return nil }
         return (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String
     }

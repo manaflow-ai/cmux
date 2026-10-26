@@ -174,7 +174,7 @@ extension AccountsModel {
         case .reauthenticate(let provider): return await performReauthenticate(provider)
         case .signOut(let provider): return signOut(provider)
         case .addKey(let provider): pasteTarget = provider
-        case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
+        case .deleteSavedKey(let provider): await performDeleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
         case .confirmConnect(let provider): connect(provider, confirmed: true)
         case .cancelConfirm: confirmTarget = nil
@@ -183,7 +183,7 @@ extension AccountsModel {
         case .runSetupToken: services.runClaudeSetupToken()
         case .cancelPaste: pasteTarget = nil
         case .saveKey(let provider, let secret):
-            if let error = saveKey(secret, for: provider) { return error }
+            if let error = await saveKey(secret, for: provider) { return error }
             pasteTarget = nil
         case .sendToCodeRouter(let provider, let secret):
             pasteTarget = nil

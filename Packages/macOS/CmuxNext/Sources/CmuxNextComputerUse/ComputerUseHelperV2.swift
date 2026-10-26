@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Darwin
 public import Foundation
 import os
@@ -57,19 +57,13 @@ public final class ComputerUseHelperV2 {
     private var controlLog: Task<Void, Never>?
     private var generation = 0
 
-    /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule.
-    nonisolated static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
+    /// The app's lanes (BackgroundWork), set at launch: the acpmux admission (signature reads of the
+    /// acpmux binary) runs on their system lane. Unwired, the helper admits no acpmux bridge.
+    public var lanes: (any MayBlockRunner)?
+
+    /// This app's signing team (read once, ``OwnCodeSignature``). Ad-hoc development builds have no
+    /// team and retain the same-executable-path peer rule.
+    nonisolated static var ownTeam: String? { OwnCodeSignature.current.teamIdentifier }
 
     /// The code-signing identifier read from an executable. A raced path can
     /// at worst produce a requirement the real helper does not satisfy: the
@@ -78,9 +72,19 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        guard blockingSecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
                 == errSecSuccess, let info = info as? [String: Any] else { return nil }
         return info[kSecCodeInfoIdentifier as String] as? String
+    }
+
+    /// The admission of `acpmux`'s bridges, read on `lanes`' system lane (it reads the binary's
+    /// signature); none when there is no acpmux or no lanes.
+    nonisolated static func acpmuxAdmission(of acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
+                                            on lanes: (any MayBlockRunner)?) async -> (hashes: [String], requirement: String?) {
+        let none: (hashes: [String], requirement: String?) = ([], nil)
+        guard let lanes else { return none }
+        // The helper starts for a person who turned Computer Use on, and waits for this.
+        return (try? await lanes.runSystem(.userBlocking) { acpmux().map { Self.acpmuxAdmission(executable: $0.executable) } ?? none }) ?? none
     }
 
     /// Release helpers check every bridge's live audit token against its exact
@@ -189,10 +193,7 @@ public final class ComputerUseHelperV2 {
             return
         }
         let secret = Self.makeSecret()
-        let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
-        } ?? (hashes: [], requirement: nil)
+        let admission = await Self.acpmuxAdmission(of: acpmux, on: lanes)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
                                 "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
@@ -291,7 +292,7 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
+        guard blockingSecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
               let dictionary = info as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoUnique as String] as? Data
     }

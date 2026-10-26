@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import Security
 
@@ -29,7 +30,7 @@ public struct KeychainSafeStorage: SafeStorageKeyProviding {
             kSecReturnData as String: true,
         ]
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &item)
         switch status {
         case errSecSuccess:
             // Security's reply is copied once and released here; it is not ours to zero.

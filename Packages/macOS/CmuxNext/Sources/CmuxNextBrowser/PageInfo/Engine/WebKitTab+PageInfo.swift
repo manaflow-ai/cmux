@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import Foundation
 import Security
 public import WebKit
@@ -126,24 +127,34 @@ extension WebKitTab: PageInfoProviding {
               let trust = challenge.protectionSpace.serverTrust else {
             return answer(challenge, completionHandler: completionHandler)
         }
-        // Evaluation can fetch intermediates or revocation data: never
-        // on the main thread (architecture.md 5a).
+        // Evaluation can fetch intermediates or revocation data: on the
+        // app's system lane, never on the main thread or the cooperative
+        // pool (architecture.md 5a). Without lanes (tests) WebKit decides alone.
         let box = ServerTrustBox(trust: trust)
         let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
+        guard let lanes = engine?.stores.lanes else { return completionHandler(.performDefaultHandling, nil) }
         if !excepted { completionHandler(.performDefaultHandling, nil) }
-        Task.detached { [weak self] in
-            let result = box.evaluate()
-            await MainActor.run {
-                if excepted {
-                    let trusted = result == nil
-                    completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
-                }
-                guard let activity = self?.pageInfoActivity else { return }
-                if let failure = result {
-                    activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
-                } else {
-                    activity.clearCertificateFailure()
-                }
+        // An excepted host's load waits for this answer; otherwise only Page Info reads it.
+        let priority: MayBlockPriority = excepted ? .userBlocking : .userVisible
+        // task-owner: one trust evaluation, then the answer and the Page Info record; ends with them
+        Task { [weak self] in
+            // nil: the trust evaluates.
+            let evaluated: (chain: [Data], reason: String?)?
+            do {
+                evaluated = try await lanes.runSystem(priority) { box.evaluate() }
+            } catch {
+                if excepted { completionHandler(.performDefaultHandling, nil) }
+                return
+            }
+            if excepted {
+                let trusted = evaluated == nil
+                completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
+            }
+            guard let activity = self?.pageInfoActivity else { return }
+            if let failure = evaluated {
+                activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
+            } else {
+                activity.clearCertificateFailure()
             }
         }
     }
@@ -157,7 +168,7 @@ nonisolated struct ServerTrustBox: @unchecked Sendable {
     /// nil when the trust evaluates, else the chain and the failure reason.
     func evaluate() -> (chain: [Data], reason: String?)? {
         var error: CFError?
-        guard !SecTrustEvaluateWithError(trust, &error) else { return nil }
+        guard !blockingSecTrustEvaluate(trust, &error) else { return nil }
         let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
         return (chain, error.map { CFErrorCopyDescription($0) as String })
     }

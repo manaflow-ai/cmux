@@ -100,13 +100,13 @@ public final class MockAccountsServices: AccountsServices {
     public func runClaudeSetupToken() { calls.append("setupToken") }
     public func openConsole(_ url: URL) { calls.append("console") }
 
-    public func saveKey(_ key: String, for provider: AIProvider) throws {
+    public func saveKey(_ key: String, for provider: AIProvider) async throws {
         calls.append("saveKey:\(provider.rawValue)")
         detections.removeAll { $0.provider == provider }
         detections.append(ProviderDetection(provider: provider, status: .signedIn, sources: [.cmuxKeychain]))
     }
 
-    public func deleteSavedKey(for provider: AIProvider) throws {
+    public func deleteSavedKey(for provider: AIProvider) async throws {
         calls.append("deleteKey:\(provider.rawValue)")
         detections.removeAll { $0.provider == provider }
     }

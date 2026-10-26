@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCompat
 public import Foundation
 import LocalAuthentication
 import Security
@@ -25,7 +26,7 @@ public struct SystemKeychainProbe: KeychainProbing {
             kSecUseAuthenticationContext as String: NoPromptContext.make(),
         ]
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &result)
         // Interaction-not-allowed still proves the item exists.
         return status == errSecSuccess || status == errSecInteractionNotAllowed
     }

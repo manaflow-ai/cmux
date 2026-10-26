@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Security
 
@@ -43,20 +44,20 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecReturnAttributes as String] = true
         query[kSecUseAuthenticationContext as String] = NoPromptContext.make()
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard blockingSecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
         return Set(items.compactMap { ($0[kSecAttrAccount as String] as? String).flatMap(AIProvider.init(rawValue:)) })
     }
 
     public func save(_ key: String, for provider: AIProvider) throws {
         let data = Data(key.utf8)
-        let status = SecItemUpdate(base(provider) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        let status = blockingSecItemUpdate(base(provider) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var add = base(provider)
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             add[kSecAttrLabel as String] = "cmux \(provider.displayName) API key"
-            let added = SecItemAdd(add as CFDictionary, nil)
+            let added = blockingSecItemAdd(add as CFDictionary, nil)
             guard added == errSecSuccess else { throw ProviderKeyStoreError(status: added) }
         } else if status != errSecSuccess {
             throw ProviderKeyStoreError(status: status)
@@ -68,14 +69,14 @@ public struct KeychainProviderKeyStore: ProviderKeyStoring {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw ProviderKeyStoreError(status: status) }
         return String(data: data, encoding: .utf8)
     }
 
     public func delete(for provider: AIProvider) throws {
-        let status = SecItemDelete(base(provider) as CFDictionary)
+        let status = blockingSecItemDelete(base(provider) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw ProviderKeyStoreError(status: status) }
     }
 }

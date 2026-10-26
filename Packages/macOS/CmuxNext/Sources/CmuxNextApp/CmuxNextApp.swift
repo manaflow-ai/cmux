@@ -51,6 +51,10 @@ public struct CmuxNextApp {
         let hangWatch = TraceRuntime.shared.hangWatch
         // The launch's file reads run on these lanes, never on the main thread (p08-startup 033).
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
+        // This app's signature and its bundled acpmux's check, first on the system lane: the daemon prestart,
+        // CloudService and the acpmux resolves on main then find them read (OwnCodeSignature, StaticCodeValidityCache).
+        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        work.post(.userBlocking, mayBlock: .system) { AcpmuxEnvironment.warmSignatureChecks(bundledBinDirectory: bin) }
         // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
         let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here

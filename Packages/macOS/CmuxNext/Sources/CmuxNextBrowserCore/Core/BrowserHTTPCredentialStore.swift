@@ -29,23 +29,23 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
+        guard blockingSecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
         return try? JSONDecoder().blockingDecode(BrowserHTTPRememberedLogin.self, from: data)
     }
 
     package func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) {
         guard let data = try? JSONEncoder().encode(login) else { return }
-        if SecItemUpdate(base(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
+        if blockingSecItemUpdate(base(key) as CFDictionary, [kSecValueData as String: data] as CFDictionary) == errSecItemNotFound {
             var add = base(key)
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             add[kSecAttrLabel as String] = "cmux sign-in for \(key.host)"
-            SecItemAdd(add as CFDictionary, nil)
+            _ = blockingSecItemAdd(add as CFDictionary, nil)
         }
     }
 
     package func forget(_ key: BrowserHTTPCredentialKey) {
-        SecItemDelete(base(key) as CFDictionary)
+        _ = blockingSecItemDelete(base(key) as CFDictionary)
     }
 
     package init(service: String) {

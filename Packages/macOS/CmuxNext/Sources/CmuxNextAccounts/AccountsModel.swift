@@ -242,13 +242,14 @@ public final class AccountsModel {
         return accounts.first { $0.id == id }
     }
 
-    /// Saves a pasted key to the Keychain; returns the failure text, or nil.
+    /// Saves a pasted key to the Keychain (off the main thread) and waits for it; returns the failure
+    /// text, or nil.
     @discardableResult
-    public func saveKey(_ key: String, for provider: AIProvider) -> String? {
+    public func saveKey(_ key: String, for provider: AIProvider) async -> String? {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return AccountsStrings.errorNeedsPaste }
         do {
-            try services.saveKey(trimmed, for: provider)
+            try await services.saveKey(trimmed, for: provider)
         } catch {
             return AccountsStrings.message(for: error)
         }
@@ -256,8 +257,15 @@ public final class AccountsModel {
         return nil
     }
 
+    /// Deletes the saved key (off the main thread); the rows refresh once it is gone.
     public func deleteSavedKey(for provider: AIProvider) {
-        try? services.deleteSavedKey(for: provider)
+        // task-owner: one Keychain delete and the refresh after it; ends with them
+        Task { await performDeleteSavedKey(for: provider) }
+    }
+
+    /// Deletes the saved key and waits for it.
+    public func performDeleteSavedKey(for provider: AIProvider) async {
+        try? await services.deleteSavedKey(for: provider)
         refresh()
     }
 

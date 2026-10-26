@@ -210,25 +210,24 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
+    /// DEV is ad-hoc and has no team to require. The answer is kept per
+    /// version of the file (``StaticCodeValidityCache``); the app checks its
+    /// bundled acpmux on its system lane at launch
+    /// (``AcpmuxEnvironment/warmSignatureChecks(bundledBinDirectory:)``), so a
+    /// later resolve finds it. Blocks on a miss.
     static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
-        var code: SecStaticCode?
-        let path = executable.resolvingSymlinksInPath()
-        guard SecStaticCodeCreateWithPath(path as CFURL, [], &code) == errSecSuccess, let code else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate)
-        return SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess
+        return StaticCodeValidityCache.process.isValid(executable.resolvingSymlinksInPath(), flags: flags, requirement: requirement)
     }
 
-    private static func requirement(team: String) -> SecRequirement? {
+    /// The requirement text of `team`'s Developer ID, or nil when `team` is not a plain identifier.
+    private static func requirement(team: String) -> String? {
         guard !team.isEmpty, team.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) else {
             return nil
         }
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        var requirement: SecRequirement?
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
-        return requirement
+        return "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
     }
 
     /// The check on a connected unix socket: this user, then this app's acpmux or (`allowForeign`)
@@ -249,18 +248,8 @@ nonisolated enum AcpmuxServerPeer {
         return String(app.dropLast(".app".count))
     }
 
-    /// This app's team when it is Team-signed; nil for an ad-hoc DEV build.
-    static let ownTeam: String? = {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }()
+    /// This app's team when it is Team-signed; nil for an ad-hoc DEV build (read once, ``OwnCodeSignature``).
+    static var ownTeam: String? { OwnCodeSignature.current.teamIdentifier }
 
     @discardableResult
     private static func checked(_ descriptor: Int32, socketPath: String, executable: URL,
@@ -406,5 +395,15 @@ nonisolated enum AcpmuxServerPeer {
         let count = Darwin.recv(descriptor, &chunk, chunk.count, 0)
         guard count > 0 else { throw Refusal.closed }
         return Data(chunk[0..<count])
+    }
+}
+
+extension AcpmuxEnvironment {
+    /// Reads this app's signature and checks its bundled acpmux (`<bundledBinDirectory>/acpmux`), so the
+    /// resolves after launch, some on the main thread, find both answers kept
+    /// (``AcpmuxServerPeer/executableSignedByAppTeam(_:team:)``). Blocks: the app runs it on its system lane.
+    public nonisolated static func warmSignatureChecks(bundledBinDirectory: URL?) {
+        guard AcpmuxServerPeer.ownTeam != nil, let bundledBinDirectory else { return }
+        _ = AcpmuxServerPeer.executableSignedByAppTeam(bundledBinDirectory.appendingPathComponent("acpmux"))
     }
 }

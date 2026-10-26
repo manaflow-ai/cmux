@@ -1,5 +1,5 @@
 public import Foundation
-import Security
+import CmuxNextCompat
 
 /// Where the app keeps its `FrontendInstallKey`, one per tagged daemon
 /// session. Only unsigned or ad-hoc development builds have one: a 0600 file
@@ -28,22 +28,8 @@ public struct FrontendInstallKeyStores {
 public struct CodeSigningTeam {
     public init() {}
 
-    /// Read once per process: the signature of a running process does not change. Three
-    /// callers asked at launch on the main thread (the daemon prestart, CloudService and the
-    /// Chief's launcher), three SecCode reads each, which Security reports as main-thread
-    /// calls that "may lead to UI unresponsiveness".
-    public static func current() -> String? { cached }
-
-    private static let cached: String? = read()
-
-    private static func read() -> String? {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var information: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
-              let dictionary: [String: Any] = information as? [String: Any] else { return nil }
-        return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
-    }
+    /// Read once per process (``OwnCodeSignature``): the signature of a running process does not
+    /// change. The app starts the read on its system lane first thing at launch; the callers on the
+    /// main thread (the daemon prestart, CloudService, the Chief's launcher) then never make the calls.
+    public static func current() -> String? { OwnCodeSignature.current.teamIdentifier }
 }

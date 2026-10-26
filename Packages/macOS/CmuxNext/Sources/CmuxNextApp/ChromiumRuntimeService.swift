@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextChromiumRuntime
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -91,7 +92,10 @@ final class ChromiumRuntimeService {
         let store = ChromiumRuntimeStore(root: ChromiumRuntimeStore.defaultRoot(applicationSupport: applicationSupport, bundleIdentifier: bundleID))
         return launch(pin: pin, store: store, mainBundle: bundle.bundleURL) { inUse in
             ChromiumRuntimeInstaller(pin: pin, store: store, downloader: URLSessionChromiumRuntimeDownloader(),
-                                     unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(work: work),
+                                     unpacker: TarChromiumRuntimeUnpacker(),
+                                     signatures: SecCodeChromiumRuntimeSignatureChecker(work: work) {
+                                         StaticCodeValidityCache.process.isValid($0, flags: $1, requirement: $2)
+                                     },
                                      network: PathMonitorChromiumRuntimeNetwork(), keepAlso: { inUse })
         }
     }

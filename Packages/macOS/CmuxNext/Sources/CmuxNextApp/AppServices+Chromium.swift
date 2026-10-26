@@ -63,6 +63,8 @@ extension AppServices {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
+        // Both engines get these stores here: their blocking system calls (Keychain) run on the app's lanes.
+        browserStores.lanes = work
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in

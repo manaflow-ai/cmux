@@ -44,9 +44,11 @@ public protocol AccountsServices: AnyObject {
     /// Opens the provider's key page in a browser tab.
     func openConsole(_ url: URL)
 
-    /// Saves a pasted key to cmux's Keychain item (never cmux.json).
-    func saveKey(_ key: String, for provider: AIProvider) throws
-    func deleteSavedKey(for provider: AIProvider) throws
+    /// Saves a pasted key to cmux's Keychain item (never cmux.json). The Keychain write waits for
+    /// securityd, so it runs off the main thread and the caller awaits it.
+    func saveKey(_ key: String, for provider: AIProvider) async throws
+    /// Deletes the saved key, off the main thread like ``saveKey(_:for:)``.
+    func deleteSavedKey(for provider: AIProvider) async throws
 }
 
 extension AccountsServices {

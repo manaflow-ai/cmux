@@ -3,6 +3,7 @@ public import CmuxNextAccounts
 import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import os
 import CmuxNextCompat
@@ -56,7 +57,7 @@ final class AccountsService: AccountsServices {
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
         let keys = keys
-        let saved = await Task.detached { keys.savedProviders() }.value
+        let saved = (try? await services.work.run(.userVisible, mayBlock: .system) { keys.savedProviders() }) ?? []
         let labeler = await labeler()
         if let fixtureHome {
             return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
@@ -114,7 +115,7 @@ final class AccountsService: AccountsServices {
         guard let client else { throw CodeRouterError.notSignedIn }
         let resolver = CredentialResolver(environment: await detectionEnvironment(), keys: keys)
         // File and Keychain reads stay off the main actor.
-        let credential = try await Task.detached { try resolver.credential(for: provider, pasted: pasted) }.value
+        let credential = try await services.work.run(.userBlocking, mayBlock: .system) { try resolver.credential(for: provider, pasted: pasted) }
         try await client.add(credential)
         logger.info("connected \(provider.rawValue, privacy: .public) to CodeRouter")
     }
@@ -141,12 +142,17 @@ final class AccountsService: AccountsServices {
         openPage(url)
     }
 
-    func saveKey(_ key: String, for provider: AIProvider) throws {
-        if let showcaseMock { try showcaseMock.saveKey(key, for: provider) } else { try keys.save(key, for: provider) }
+    /// The Keychain write runs on the system lane (it waits for securityd), never on main.
+    func saveKey(_ key: String, for provider: AIProvider) async throws {
+        if let showcaseMock { return try await showcaseMock.saveKey(key, for: provider) }
+        let keys = keys
+        try await services.work.run(.userBlocking, mayBlock: .system) { try keys.save(key, for: provider) }
     }
 
-    func deleteSavedKey(for provider: AIProvider) throws {
-        if let showcaseMock { try showcaseMock.deleteSavedKey(for: provider) } else { try keys.delete(for: provider) }
+    func deleteSavedKey(for provider: AIProvider) async throws {
+        if let showcaseMock { return try await showcaseMock.deleteSavedKey(for: provider) }
+        let keys = keys
+        try await services.work.run(.userBlocking, mayBlock: .system) { try keys.delete(for: provider) }
     }
 
     /// Types `line` and Return into a new terminal tab of the focused pane,

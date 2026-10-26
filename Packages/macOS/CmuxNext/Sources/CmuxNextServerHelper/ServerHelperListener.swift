@@ -1,5 +1,5 @@
+import CmuxNextCompat
 public import Foundation
-import Security
 
 /// The helper's listener: accepts a connection only from the app bundle that
 /// carries the helper, signed by the helper's own team. The team comes from
@@ -32,15 +32,9 @@ public final nonisolated class ServerHelperListener: NSObject, NSXPCListenerDele
         return true
     }
 
-    /// The team identifier of the running process, or nil when it is unsigned or ad hoc.
+    /// The team identifier of the running process, or nil when it is unsigned or ad hoc
+    /// (``OwnCodeSignature``: the helper reads it once, at start, before it serves anyone).
     public static func ownTeamIdentifier() -> String? {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
-              let dict = info as? [String: Any] else { return nil }
-        return dict[kSecCodeInfoTeamIdentifier as String] as? String
+        OwnCodeSignature.current.teamIdentifier
     }
 }

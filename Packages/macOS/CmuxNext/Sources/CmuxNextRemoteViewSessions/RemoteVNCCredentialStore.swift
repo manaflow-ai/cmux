@@ -37,7 +37,7 @@ nonisolated struct RemoteVNCCredentialStore {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
+        guard blockingSecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data,
               let stored = try? JSONDecoder().blockingDecode(Stored.self, from: data) else { return nil }
         return VNCCredentials(username: stored.username, password: stored.password)
     }
@@ -46,16 +46,16 @@ nonisolated struct RemoteVNCCredentialStore {
         guard let data = try? JSONEncoder().encode(Stored(username: credentials.username, password: credentials.password)) else { return }
         let query = baseQuery(endpoint)
         let update = [kSecValueData as String: data]
-        if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+        if blockingSecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
             var add = query
             add[kSecValueData as String] = data
             add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
-            SecItemAdd(add as CFDictionary, nil)
+            _ = blockingSecItemAdd(add as CFDictionary, nil)
         }
     }
 
     func remove(for endpoint: VNCEndpoint) {
-        SecItemDelete(baseQuery(endpoint) as CFDictionary)
+        _ = blockingSecItemDelete(baseQuery(endpoint) as CFDictionary)
     }
 
     private func baseQuery(_ endpoint: VNCEndpoint) -> [String: Any] {

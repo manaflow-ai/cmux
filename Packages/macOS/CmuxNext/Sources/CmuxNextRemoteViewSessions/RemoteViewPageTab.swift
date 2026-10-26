@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextCompat
 public import CmuxNextWakeups
 import CmuxNextIcons
 public import CmuxNextRemoteView
@@ -38,9 +39,10 @@ public final class RemoteViewPageTab: BrowserTab {
     /// A woken tab's last frame until the stream presents its first one.
     @ObservationIgnored private let wakeCover = BrowserWakeCover()
 
-    /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`.
+    /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `lanes` are the app's (a VNC
+    /// sign-in's Keychain calls run on their system lane).
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
-         closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
+         lanes: any MayBlockRunner, closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -55,7 +57,7 @@ public final class RemoteViewPageTab: BrowserTab {
         self.state = state
         switch decision {
         case let .connect(record):
-            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab)
+            let session = RemoteViewPageSession.make(record: record, lanes: lanes, closeTab: closeTab)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):

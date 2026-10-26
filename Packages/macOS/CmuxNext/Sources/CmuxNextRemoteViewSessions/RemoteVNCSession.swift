@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextRemoteView
 public import CmuxVNC
@@ -15,15 +16,21 @@ public final class RemoteVNCSession {
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
+    /// The app's lanes: every Keychain call of the sign-in runs on their system lane, never on main.
+    private let lanes: any MayBlockRunner
+    /// The saved sign-in's read before a connect or the sign-in sheet (the newest one's only).
+    private var credentialRead: Task<Void, Never>?
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
 
-    /// `demoHost`: the reserved host name served by the loopback demo desktop.
-    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
+    /// `demoHost`: the reserved host name served by the loopback demo desktop; `lanes`: the app's lanes
+    /// (the Keychain reads and writes of the sign-in).
+    public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String, lanes: any MayBlockRunner) {
         self.record = record
+        self.lanes = lanes
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
@@ -35,6 +42,7 @@ public final class RemoteVNCSession {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
+            credentialRead?.cancel()
             demoStart?.cancel()
             demo?.stop()
         }
@@ -44,7 +52,14 @@ public final class RemoteVNCSession {
     public func connect() {
         guard !closed else { return }
         guard let demo else {
-            source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
+            // The saved sign-in comes from the Keychain on the system lane; the connect follows it.
+            let store = store, endpoint = endpoint, lanes = lanes
+            credentialRead?.cancel()
+            credentialRead = Task { [weak self] in
+                let saved = (try? await lanes.runSystem(.userBlocking) { store.credentials(for: endpoint) }) ?? nil
+                guard let self, !closed, !Task.isCancelled else { return }
+                source.connect(to: endpoint, credentials: saved ?? VNCCredentials())
+            }
             return
         }
         if let demoPort {
@@ -68,12 +83,14 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        credentialRead?.cancel()
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
+        credentialRead?.cancel()
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -93,7 +110,21 @@ public final class RemoteVNCSession {
     private func promptForSignIn(in window: NSWindow?) {
         guard !prompting else { return }
         prompting = true
-        let saved = store.credentials(for: endpoint)
+        // The saved user name fills the sheet: read on the system lane, then the sheet shows.
+        let store = store, endpoint = endpoint, lanes = lanes
+        credentialRead?.cancel()
+        credentialRead = Task { [weak self, weak window] in
+            let saved = (try? await lanes.runSystem(.userBlocking) { store.credentials(for: endpoint) }) ?? nil
+            guard let self else { return }
+            guard !closed, !Task.isCancelled else {
+                prompting = false
+                return
+            }
+            presentSignIn(saved: saved, in: window)
+        }
+    }
+
+    private func presentSignIn(saved: VNCCredentials?, in window: NSWindow?) {
         let spec = CmuxDialogSpec(
             title: RemoteVNCStrings.signInTitle(record.host),
             lines: [RemoteVNCStrings.signInMessage],
@@ -116,9 +147,13 @@ public final class RemoteVNCSession {
                 source.republishStatus()
                 return
             }
-            // Saved only once the host accepts them, so a typo never replaces a working sign-in.
-            let store = store, endpoint = endpoint
-            source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
+            // Saved only once the host accepts them, so a typo never replaces a working sign-in; the
+            // Keychain write runs on the system lane.
+            let store = store, endpoint = endpoint, lanes = lanes
+            source.connect(to: endpoint, credentials: credentials) {
+                // task-owner: one Keychain write; nothing waits on it
+                Task { _ = try? await lanes.runSystem(.bestEffort) { store.save(credentials, for: endpoint) } }
+            }
         }
     }
 
