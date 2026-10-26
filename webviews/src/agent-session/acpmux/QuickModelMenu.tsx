@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { SearchIcon, type Choice } from "./ComposerPickers";
@@ -7,6 +7,7 @@ import { EffortTrack } from "./EffortTrack";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { OnNewTab } from "./newTabComposer";
 import {
   Menu,
   MenuButton,
@@ -44,7 +45,8 @@ export type QuickMenu = {
   /// The rail beside the list: Starred (when any), then each harness. Without it the menu lists
   /// `models` alone and More models opens the full picker.
   families?: QuickFamilies;
-  /// The chat's agent CLI has an update (hq#2569 #12): the last row starts it.
+  /// The chat's agent CLI has an update (hq#2569 #12): a quiet footer under the list starts it, apart
+  /// from the model choices and their held height.
   update?: { text: string; run(): void };
   /// Search (Lawrence 2026-10-22: "spacing + needs search"): the models a typed query finds, with
   /// the full picker's matching (ModelPicker's `searchModels`), and the pick of one, which lands
@@ -123,7 +125,7 @@ export type TabExtent = { rows: number; separators: number };
 /// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
 export function tabExtent(
   family: QuickFamily,
-  menu: Pick<QuickMenu, "account" | "fast" | "update"> & { families: QuickFamilies; levels: number },
+  menu: Pick<QuickMenu, "account" | "fast"> & { families: QuickFamilies; levels: number },
 ): TabExtent {
   const chat = family.id === menu.families.current;
   const models = Math.min(family.models.length, FILTER_ROWS);
@@ -140,10 +142,6 @@ export function tabExtent(
     rows += 1;
     separators += 1;
   }
-  if (menu.update) {
-    rows += 1;
-    separators += 1;
-  }
   return { rows, separators };
 }
 
@@ -155,7 +153,17 @@ export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
 /// switching tabs or typing never changes the menu's height while it is open. `widths` is every
 /// tab's rows at no height: the cell is as wide as the widest tab, so its width holds too.
-function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: ProbeRow[] }) {
+function QuickMenuSpacer({
+  rows,
+  separators,
+  widths,
+  holdHeight = true,
+}: TabExtent & {
+  widths: ProbeRow[];
+  /// False holds the width alone: New Tab's menu opens down, so its top and rail stay put as its
+  /// height follows the rows, and it never shows empty rows under them.
+  holdHeight?: boolean;
+}) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
       <div className="acpmux-quick-probe">
@@ -170,7 +178,7 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
         ))}
       </div>
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
-      {Array.from({ length: rows }, (_, index) => (
+      {Array.from({ length: holdHeight ? rows : 0 }, (_, index) => (
         <Fragment key={index}>
           <div className="ui-menu-item acpmux-quick-item" />
           {index < separators && <div className="ui-separator" />}
@@ -206,6 +214,8 @@ export function QuickModelMenu({
   children: React.ReactNode;
 }) {
   const t = useT();
+  // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const { models, current, effort, account, fast } = menu;
   const levels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
   const level = levels.find((choice) => choice.id === effort?.current);
@@ -214,6 +224,10 @@ export function QuickModelMenu({
   // The rail's tab and the typed filter start over with each opening.
   const [tab, setTab] = useState(families?.current);
   const [query, setQuery] = useState("");
+  // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
+  // model menu does, not a submenu: the rail tab it was opened on.
+  const [moreFor, setMoreFor] = useState<string | undefined>();
+  const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
   const [wasOpen, setWasOpen] = useState(open);
@@ -222,6 +236,7 @@ export function QuickModelMenu({
     if (open) {
       setTab(families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
+      setMoreFor(undefined);
     }
   }
   // Typing can unmount the focused row (Effort, Account, a model it filters out); keyboard focus
@@ -271,9 +286,11 @@ export function QuickModelMenu({
       const first = node.querySelector<HTMLElement>('[role^="menuitem"]:not([data-disabled])');
       (first ?? node).focus({ preventScroll: true });
     }
-  }, [query, open, families, search, showField]);
+  }, [query, open, families, search, showField, tab, moreFor]);
   const onChatTab = !families || tab === families.current;
   const forkTab = !query && shown?.fork ? shown : undefined;
+  const inlineMore = newTab && families !== undefined;
+  const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
   const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
   const profile = shown?.account ?? shown?.id;
   // What the list draws: the search's matches, else the tab's top models.
@@ -371,7 +388,6 @@ export function QuickModelMenu({
         levels: levels.length,
         account,
         fast,
-        update: menu.update,
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
@@ -418,7 +434,6 @@ export function QuickModelMenu({
         { label: t("picker.moreModels"), sub: true },
         ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
         ...(fast ? [{ label: t("picker.fastMode") }] : []),
-        ...(menu.update ? [{ label: menu.update.text, value: t("harness.update") }] : []),
       ]
     : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
@@ -443,7 +458,11 @@ export function QuickModelMenu({
               closeOnClick
               disabled={choice.disabled}
               className="acpmux-quick-item"
-              shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
+              // tooltip-allow: New Tab's menu keeps its width, so a long model name ends in "…"; the tooltip names it whole.
+              {...(newTab ? { title: choice.hint ? `${choice.name} · ${choice.hint}` : choice.name } : {})}
+              shortcut={
+                !newTab && !query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined
+              }
             >
               <span className="acpmux-quick-label">
                 <span className="acpmux-menu-label">{choice.name}</span>
@@ -480,7 +499,57 @@ export function QuickModelMenu({
       ) : query ? (
         <MenuGroup label={`“${query}”`}>{modelRows}</MenuGroup>
       ) : (
-        modelRows
+        <>
+          {modelRows}
+          {inlineMore && shown && shown.more.length > 0 && (
+            <MenuItem
+              className="acpmux-quick-item acpmux-quick-sub acpmux-quick-disclosure"
+              closeOnClick={false}
+              expanded={moreShown}
+              {...(moreShown ? { controls: moreListId } : {})}
+              onSelect={() => setMoreFor(moreShown ? undefined : tab)}
+            >
+              <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
+              <span className="ui-submenu-chevron" aria-hidden="true" />
+            </MenuItem>
+          )}
+          {/* Its own short scroll area, so Effort, Account and Fast mode stay in view under it. */}
+          {moreShown && shown && (
+            <fieldset
+              id={moreListId}
+              className="acpmux-quick-more-list"
+              aria-label={t("picker.moreModels")}
+              data-single={shown.more.length === 1 ? "" : undefined}
+            >
+              <MenuRadioGroup
+                value={currentValue}
+                onValueChange={(value) => {
+                  const row = shown.more.find((choice) => rowValue(choice) === value);
+                  if (row) pickRow(row);
+                }}
+              >
+                {shown.more.map((choice) => (
+                  <MenuRadioItem
+                    key={choice.id}
+                    value={rowValue(choice)}
+                    closeOnClick
+                    disabled={choice.disabled}
+                    className="acpmux-quick-item"
+                    // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
+                    title={choice.name}
+                  >
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </fieldset>
+          )}
+          {inlineMore && families.onAddHarness && (moreShown || !shown?.more.length) && (
+            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
+              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
+            </MenuItem>
+          )}
+        </>
       )}
       {!query && onChatTab && effort && levels.length > 1 && (
         <>
@@ -516,8 +585,8 @@ export function QuickModelMenu({
           </Submenu>
         </>
       )}
-      {!query && !(forkTab && !profiles) && <MenuSeparator />}
-      {!query && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
+      {!query && !(forkTab && !profiles) && (!inlineMore || (onChatTab && account) || profiles) && <MenuSeparator />}
+      {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu acpmux-quick-more"
@@ -622,15 +691,6 @@ export function QuickModelMenu({
           </MenuCheckboxItem>
         </>
       )}
-      {!query && menu.update && (
-        <>
-          <MenuSeparator />
-          <MenuItem className="acpmux-quick-item acpmux-quick-update" onSelect={() => menu.update?.run()}>
-            <span className="acpmux-menu-label min-w-0 flex-1 truncate">{menu.update.text}</span>
-            <span className="acpmux-quick-value">{t("harness.update")}</span>
-          </MenuItem>
-        </>
-      )}
     </>
   );
   return (
@@ -639,11 +699,15 @@ export function QuickModelMenu({
         {children}
       </MenuButton>
       <MenuPopup
-        side="top"
+        side={newTab ? "bottom" : "top"}
         align="start"
         label={t("picker.model")}
-        className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
+        className={`acpmux-quick-menu${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
+        // New Tab's rows never go to the native panel: it would drop the rail and the More models
+        // scroll area (a tab with no Effort or Account submenu counts as flat, popupHost.ts). The
+        // menu's max height keeps it in the window instead (modelPicker.css).
+        escapes={!newTab}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}
       >
@@ -700,11 +764,25 @@ export function QuickModelMenu({
             </fieldset>
             <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer {...tallest} widths={widths} />
+              <QuickMenuSpacer {...tallest} widths={widths} holdHeight={!newTab} />
             </div>
           </div>
         ) : (
           list
+        )}
+        {menu.update && (
+          <div className="acpmux-quick-update">
+            <span>{menu.update.text}</span>
+            <MenuItem
+              className="acpmux-quick-update-action"
+              onSelect={() => {
+                menu.update?.run();
+                onOpenChange(false);
+              }}
+            >
+              {t("harness.update")}
+            </MenuItem>
+          </div>
         )}
       </MenuPopup>
     </Menu>
