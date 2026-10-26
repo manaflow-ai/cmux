@@ -63,9 +63,16 @@ public final class GlassBackdropFeed {
         update()
     }
 
-    /// Pushes what changed on the next display frame.
+    /// Pushes what changed on the next display frame its window is seen in: a hidden, minimized or
+    /// covered window's page gets the push when it shows (or a capture vote holds its window).
     func setNeedsUpdate() {
-        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false,
+        let node = host?.window.map { WindowVisibilitySource.of($0).node }
+        if let stale = nextFrame, stale.visibleOnly !== node {
+            // The host moved to another window: the pending push follows that window's visibility.
+            stale.deactivate()
+            nextFrame = nil
+        }
+        let client = nextFrame ?? FrameClient(owner: "glass.backdrop", isAnimation: false, visibleOnly: node,
                                               scheduler: { [weak self] in self?.host.map(FrameScheduler.forView) ?? .app }) { [weak self] _ in
             self?.update()
             return false

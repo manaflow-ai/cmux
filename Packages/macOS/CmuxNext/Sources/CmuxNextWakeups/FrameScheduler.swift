@@ -22,7 +22,7 @@ extension CADisplayLink: FrameLink {
 
 /// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link
 /// on the shared ``DisplayClock`` only while at least one ``FrameClient`` is active, and leaves when
-/// the last one goes idle, so an idle window has no frame wakeups.
+/// the last one goes idle (or is parked, ``FrameClient/visibleOnly``), so an idle window has no frame wakeups.
 ///
 /// Every animation, drag autoscroll, resize settle and per-frame batch in CmuxNext is a client of
 /// its window's scheduler; window-less frame work uses ``app``, on the main display. Budgeted
