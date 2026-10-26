@@ -108,5 +108,5 @@ export const commitFileUploadEndpoint = HttpApiEndpoint.post("commitFileUpload",
 
 export const abortFileUploadEndpoint = HttpApiEndpoint.del("abortFileUpload", "/v1/vms/:vmId/files/uploads/:uploadId")
   .setPath(UploadPath).setHeaders(TeamHeaders).addSuccess(HttpApiSchema.NoContent)
-  .addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+  .addError(BadRequest).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
   .annotateContext(describe("Abandon a resumable upload", "Frees the stored chunks. An upload being committed is 409. Audited."));
