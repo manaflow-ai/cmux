@@ -7,14 +7,6 @@ on:
 
 permissions: {}
 
-# A newer completion of the same workflow on the same branch supersedes an
-# older head's publish, so the older one stops spending GITHUB_TOKEN calls.
-# The workflow name is in the group: a CI completion never cancels a cmux-next
-# publish of the same branch, or the other way round.
-concurrency:
-  group: dogfood-artifact-publish-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}-${{ github.event.workflow_run.name }}
-  cancel-in-progress: true
-
 env:
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/cmux-next.yml
 

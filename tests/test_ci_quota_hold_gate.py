@@ -118,9 +118,27 @@ class QuotaHoldGateTests(unittest.TestCase):
         self.assertFalse(owners & set(HOLD_GATED))
 
     def test_dogfood_publish_skips_mismatched_bases_without_a_call(self) -> None:
-        job = load(WORKFLOWS / "dogfood-artifact-publish.yml")["jobs"]["publish"]
-        self.assertIn("pull_requests[0].base.ref != 'feat-cmux-next'", job["if"])
-        self.assertIn("pull_requests[0].base.ref == 'feat-cmux-next'", job["if"])
+        # The job condition pairs each source workflow with the base the script
+        # accepts for it, so it skips only runs the script would skip anyway.
+        document = load(WORKFLOWS / "dogfood-artifact-publish.yml")
+        condition = document["jobs"]["publish"]["if"]
+        run = next(step["run"] for step in document["jobs"]["publish"]["steps"]
+                   if step.get("name") == "Find the trusted org-member dogfood artifact")
+        event = "github.event.workflow_run"
+        ci = f"{event}.name == 'CI' && {event}.pull_requests[0].base.ref != 'feat-cmux-next'"
+        next_ = f"{event}.name == 'cmux-next' && {event}.pull_requests[0].base.ref == 'feat-cmux-next'"
+        self.assertIn(f"({ci} || {next_})", condition)
+        self.assertIn('(workflow_name == "CI" and pr.get("base", {}).get("ref") != "feat-cmux-next")', run)
+        self.assertIn('(workflow_name == "cmux-next" and pr.get("base", {}).get("ref") == "feat-cmux-next")', run)
+        # Swapped pairs would skip every run that should publish.
+        self.assertNotIn(f"{event}.name == 'CI' && {event}.pull_requests[0].base.ref == 'feat-cmux-next'", condition)
+        self.assertNotIn(f"{event}.name == 'cmux-next' && {event}.pull_requests[0].base.ref != 'feat-cmux-next'", condition)
+
+    def test_dogfood_publish_has_no_cancelling_group(self) -> None:
+        # A later CI completion on the same branch (a label event) can carry no
+        # artifact; a cancelling group would drop the earlier head's publish.
+        self.assertNotIn("cancel-in-progress: true",
+                         (WORKFLOWS / "dogfood-artifact-publish.yml").read_text(encoding="utf-8"))
 
     def write(self, directory: Path, name: str, text: str) -> Path:
         path = directory / name
