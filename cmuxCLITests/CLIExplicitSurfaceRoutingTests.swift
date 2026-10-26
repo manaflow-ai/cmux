@@ -4,6 +4,28 @@ import Testing
 
 @Suite(.serialized)
 struct CLIExplicitSurfaceRoutingTests {
+    @Test(arguments: [
+        ["--workspace"], ["--workspace", ""], ["--workspace", "   "], ["--workspace="],
+        ["--workspace", "--no-open"],
+        ["--workspace", "--token=synthetic-secret"],
+        ["--workspace=--token=synthetic-secret"],
+        ["--workspace", "  --token=synthetic-secret"],
+    ])
+    func surfaceNewDisplayRejectsMissingWorkspaceValues(arguments: [String]) throws {
+        let execution = try runMockCommand(
+            arguments: ["surface", "new-display", "--machine", "vivid-newt"] + arguments,
+            socketName: "display-invalid-workspace"
+        ) { line in
+            let id = Self.jsonObject(line)?["id"] as? String ?? "unknown"
+            return Self.v2Response(id: id, ok: true, result: ["resource": "vivid-newt/display/display:2"])
+        }
+        let output = execution.result.stderr + execution.result.stdout
+        #expect(!execution.result.timedOut, Comment(rawValue: output))
+        #expect(execution.result.status != 0, Comment(rawValue: output))
+        #expect(!output.contains("synthetic-secret"), Comment(rawValue: output))
+        #expect(try execution.state.requestObjects().isEmpty)
+    }
+
     /// Omitting `--no-open` must send the API's default `open: true` request.
     @Test func surfaceNewDisplayDefaultsToOpen() throws {
         let execution = try runMockCommand(
