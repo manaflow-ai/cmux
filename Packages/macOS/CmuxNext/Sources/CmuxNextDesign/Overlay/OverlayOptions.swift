@@ -86,10 +86,6 @@ public final class OverlayHandle {
     let id: Int
     /// The clip of a `.pane` overlay (its pane minus the occluders).
     var clipView: OverlayClipView?
-    /// Clears the host's region cache when the content resizes on its own.
-    var frameObserver: (any NSObjectProtocol)?
-    /// The content's own `postsFrameChangedNotifications`, set back on dismiss.
-    var contentPostedFrameChanges = false
     public internal(set) var options: OverlayOptions
     let content: NSView
     /// What automation calls this overlay (a toast's id, a dialog's spec id), set by its presenter; nil for
