@@ -116,6 +116,9 @@ public nonisolated struct Feature: Sendable, Hashable {
     public let sticky: Bool
     /// The feature has a tested live-teardown path.
     public let runtimeMutable: Bool
+    /// The Debug tunable keys and env switches the feature took over (its JSON's `replaces`): the App
+    /// reads a replaced Bool toggle as the feature's local override (step 3), at launch.
+    public let replaces: [String]
 
     /// The generated registry (`Features.generated.swift`) calls this with
     /// every label, in this order (schemas/features/README.md).
@@ -132,7 +135,8 @@ public nonisolated struct Feature: Sendable, Hashable {
         params: [FeatureParamSpec],
         stories: [String],
         sticky: Bool,
-        runtimeMutable: Bool
+        runtimeMutable: Bool,
+        replaces: [String] = []
     ) {
         self.index = index
         self.name = name
@@ -147,6 +151,7 @@ public nonisolated struct Feature: Sendable, Hashable {
         self.stories = stories
         self.sticky = sticky
         self.runtimeMutable = runtimeMutable
+        self.replaces = replaces
     }
 
     /// Duration param `name`'s value, to the microsecond: its declared default, since params have no

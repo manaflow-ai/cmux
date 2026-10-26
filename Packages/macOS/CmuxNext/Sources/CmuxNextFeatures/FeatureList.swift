@@ -49,19 +49,6 @@ public nonisolated final class FeatureList: Sendable {
         return resolutions[feature.index].isEnabled
     }
 
-    /// Whether `feature` is on with `localOverride`, the Debug toggle the feature replaced (its JSON's
-    /// `replaces`), in step 3: taken on DEV and NIGHTLY unless policy or the environment decided, so it
-    /// beats the remote document, the trial and the default, as Chrome's about:flags entries sit under
-    /// `--enable-features`/`--disable-features` (components/flags_ui/flags_state.cc). The toggle file loads
-    /// after this list is built, so the caller reads the toggle where it reads the value.
-    public func isEnabled(_ feature: Feature, localOverride: Bool?) -> Bool {
-        let resolved = resolution(of: feature)
-        guard let localOverride, channel.allowsLocalOverrides, resolved.source != .policy, resolved.source != .environment else {
-            return resolved.isEnabled
-        }
-        return localOverride
-    }
-
     /// The value of `feature` and the input that decided it.
     public func resolution(of feature: Feature) -> Feature.Resolution {
         assert(registry.contains(feature), "feature \(feature.name) is not declared in this list's registry")

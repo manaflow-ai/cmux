@@ -243,7 +243,8 @@ nonisolated extension Feature {
         params: [],
         stories: ["browser-hibernation", "memory-hidden"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["hibernation.compressedSnapshots"]
     )
 
     /// The control socket binds on a background lane at launch with the mode the launch settings read gives, and serves once its method groups register after the first frame, instead of binding on the main thread when the launch settles.
@@ -396,7 +397,8 @@ nonisolated extension Feature {
         params: [],
         stories: ["idle-tabs"],
         sticky: false,
-        runtimeMutable: false
+        runtimeMutable: false,
+        replaces: ["hostPressure.enabled"]
     )
 
     /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.

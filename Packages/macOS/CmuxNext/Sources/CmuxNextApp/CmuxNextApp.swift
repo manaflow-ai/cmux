@@ -89,6 +89,12 @@ public struct CmuxNextApp {
                 .appending(path: "features", directoryHint: .isDirectory).appending(path: FeatureLocalOverrides.fileName)
             environment.featureLocalOverridesFile = file
             environment.featureLocalOverrides = LaunchRead(in: ledgerThenSettings, dropped: FeatureLocalOverrides()) { FeatureLocalOverrides.read(file) }
+            // The Debug Settings toggles that features took over (their `replaces`), from the tunables file.
+            if let tunables = DebugSettingsService.launchFileURL(launch: environment.launch, environment: ProcessInfo.processInfo.environment) {
+                environment.featureToggleOverrides = LaunchRead(in: ledgerThenSettings, dropped: [:]) {
+                    FeatureLaunchLocalOverrides.readToggles(tunables, registry: FeatureRegistry())
+                }
+            }
         }
         // cmux-next.json (made on first launch) read and merged with the managed layers on the files lane, next:
         // the launch steps that need it run when it lands, never waiting for it on main (p08-startup 025).

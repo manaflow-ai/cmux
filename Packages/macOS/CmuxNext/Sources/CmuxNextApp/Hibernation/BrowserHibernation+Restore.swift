@@ -156,7 +156,7 @@ extension BrowserHibernation {
     /// critical memory limit, for a tab beside no shown tab).
     func snapshot(_ tab: any BrowserTab, key: String) async -> HibernationSnapshots.Picture? {
         guard snapshots.keeps(key), let image = await capture(tab) else { return nil }
-        if snapshots.keepsCompressed() { return await HibernationSnapshots.compress(image) }
+        if snapshots.keepsCompressed { return await HibernationSnapshots.compress(image) }
         // A quarter of the store, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double(snapshots.fullCapacityBytes / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())

@@ -52,9 +52,9 @@ final class HibernationSnapshots {
     /// The tabs beside each shown tab now, whose pictures are kept at any limit (`BrowserHibernation`
     /// sets it; read once per trim).
     var neighbors: () -> Set<String> = { [] }
-    /// Whether a new picture is kept compressed: feature `compressedSnapshots` (on by default), with Debug
-    /// Settings `hibernation.compressedSnapshots` as its local override (the App sets it; read at each sleep).
-    var keepsCompressed: () -> Bool = { true }
+    /// Whether a new picture is kept compressed: feature `compressedSnapshots` (on by default; the App sets it
+    /// from this launch's features).
+    var keepsCompressed = true
     private(set) var totalBytes = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.

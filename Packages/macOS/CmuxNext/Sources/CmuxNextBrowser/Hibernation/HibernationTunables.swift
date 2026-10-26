@@ -8,14 +8,14 @@ package struct HibernationTunables {
 
     /// The developer's local override of the feature `compressedSnapshots`
     /// (`schemas/features/features.d/compressedSnapshots.json`, which `replaces` this key, on by
-    /// default): nothing in the browser reads it. The App passes it to
-    /// `FeatureList.isEnabled(_:localOverride:)`, the feature's local-override place (DEV and NIGHTLY, under managed policy and
-    /// `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`) at each hibernation. On: each hibernated
+    /// default): nothing reads it here. The launch's feature ladder takes it from the Debug Settings
+    /// file as step 3 (the App's `FeatureLaunchLocalOverrides`; DEV and NIGHTLY, under managed policy
+    /// and `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`), so a change applies at the next launch. On: each hibernated
     /// page keeps its last frame JPEG-compressed in its own 64 MB store (`HibernationSnapshots`).
     /// Off: the frame is scaled to a quarter of that store, as before PR 23083.
     package static let compressedSnapshots = Tunable<Bool>.toggle(
         "hibernation.compressedSnapshots", section, "Keep every hibernated tab's picture",
-        help: "Overrides the feature compressedSnapshots: each hibernated page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture. Off keeps decoded frames, where only the last few fit (applies to the next hibernation).",
+        help: "Overrides the feature compressedSnapshots: each hibernated page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture. Off keeps decoded frames, where only the last few fit (applies at the next launch).",
         default: true, code: "HibernationTunables.compressedSnapshots")
 
     package static var all: [TunableDescriptor] { [compressedSnapshots.descriptor] }
