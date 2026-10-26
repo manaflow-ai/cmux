@@ -33,14 +33,15 @@ motion would be taken for its glyph), when no frame changed before the next key 
 Grants: the process that runs this needs Screen Recording (to capture) and Accessibility (to post keys). Without
 either it refuses before the app launches, says which and exits 2.
 
-  input-glass-check.py --app APP --out DIR [--surfaces terminal,home,omnibar] [--samples 200] [--interval-ms 120]
+  input-glass-check.py --app APP [--out DIR] [--surfaces terminal,home,omnibar] [--samples 200] [--interval-ms 120]
       [--min-pixels 6] [--quiet-ms 40] [--current-offset-ns N] [--json FILE]
   input-glass-check.py --self-test
 
 Fleet (a capture mini with a lit or 120 Hz virtual display, macOS 26 and 27):
   nx-remote --needs gui --app-from-fleet cmux --tag p04-071 --ref SHA --timeout 3600 -- \\
-    python3 scripts/cmux-next/input-glass-check.py --app "$NX_APP" --out "$NX_ARTIFACTS/glass" \\
+    python3 scripts/cmux-next/input-glass-check.py --app "$NX_APP" \\
     --surfaces terminal,home,omnibar --samples 200
+  (artifacts go to $NX_ARTIFACTS/glass; without --out or $NX_ARTIFACTS, to a new temporary directory it prints)
 """
 import argparse, importlib.util, json, os, re, statistics, subprocess, sys, tempfile, time
 
@@ -319,7 +320,7 @@ class Surfaces:
     def cli(self, *args):
         env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
         env["CMUX_NEXT_CONFIG_FILE"] = os.path.join(self.bench.scratch, "cmux.json")
-        return subprocess.run([self.bench.cli(), "--app-socket", self.bench.socket, *args], env=env, capture_output=True,
+        return subprocess.run([self.bench.cli, "--app-socket", self.bench.socket, *args], env=env, capture_output=True,
                               text=True, timeout=60, stdin=subprocess.DEVNULL)
 
     def terminal(self):
@@ -371,8 +372,24 @@ def macos():
         return version, 0
 
 
+def launch_env(isolated_key):
+    """BenchApp's `env`: frontmost (real keys go to the frontmost app) and still an isolated launch, so the test window
+    frame applies and the app claims no hot keys, shim, login item or import offer (bench_launch.SHIPPING_ENV)."""
+    return {"CMUX_NEXT_NO_ACTIVATE": None, isolated_key: "1"}
+
+
+def out_dir(out, environ):
+    """--out, else $NX_ARTIFACTS/glass, else a new temporary directory."""
+    if out:
+        return os.path.abspath(out)
+    if environ.get("NX_ARTIFACTS"):
+        return os.path.join(os.path.abspath(environ["NX_ARTIFACTS"]), "glass")
+    return tempfile.mkdtemp(prefix="glass-")
+
+
 def run(opts):
-    out = os.path.abspath(opts.out)
+    out = out_dir(opts.out, os.environ)
+    note(f"artifacts in {out}")
     os.makedirs(out, exist_ok=True)
     binary, error = compile_helper(out)
     if error:
@@ -382,14 +399,14 @@ def run(opts):
     if refused:
         print(f"glass: refused: {refused}", flush=True)
         return 2
-    from bench_launch import BenchApp, LaunchError
+    from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, LaunchError
     trace_tool = load("trace_tool", "trace.py")
     version, major = macos()
     offset_ns, offset_from = current_offset(major, opts.current_offset_ns)
     report = {"host": os.uname().nodename, "macos": version, "macos_major": major, "current_offset_ns": offset_ns,
               "current_offset_from": offset_from, "opts": vars(opts), "surfaces": {}, "log": []}
     bench = BenchApp(os.path.abspath(opts.app.rstrip("/")), out=out, window=WINDOW, log_name="app.log",
-                     env={"CMUX_NEXT_NO_ACTIVATE": None})  # real keys go to the frontmost app
+                     env=launch_env(ISOLATED_LAUNCH_KEY))
     with open(os.path.join(bench.scratch, "ghostty"), "w") as handle:
         handle.write("cursor-style-blink = false\n")  # a blink would be taken for a glyph
     stream = trace_tool.SignpostStream(os.path.join(out, "signposts.ndjson"))
@@ -552,6 +569,26 @@ def self_test():
         "no-screen-recording-grant: x") == "no-screen-recording-grant: x")
     check("refuse: both grants measure", refusal({"screen": True, "accessibility": True}) is None)
 
+    class StubBench:
+        scratch, socket = tempfile.gettempdir(), "/nonexistent.sock"
+
+        @property
+        def cli(self):  # BenchApp.cli is a property that returns a str
+            return "/bin/echo"
+
+    echoed = Surfaces(StubBench()).cli("workspace", "create")
+    check("surfaces: the CLI path is BenchApp.cli (a str property)",
+          echoed.returncode == 0 and echoed.stdout.split() == ["--app-socket", "/nonexistent.sock", "workspace", "create"])
+    import bench_launch
+    env = launch_env(bench_launch.ISOLATED_LAUNCH_KEY)
+    check("launch: frontmost and isolated (the test window frame applies)",
+          env == {"CMUX_NEXT_NO_ACTIVATE": None, "CMUX_NEXT_ISOLATED_LAUNCH": "1"})
+    check("out: --out wins", out_dir("rel", {"NX_ARTIFACTS": "/a"}) == os.path.abspath("rel"))
+    check("out: $NX_ARTIFACTS/glass without --out", out_dir(None, {"NX_ARTIFACTS": "/a"}) == "/a/glass")
+    made = out_dir(None, {})
+    check("out: a new temporary directory otherwise", os.path.isdir(made) and os.path.basename(made).startswith("glass-"))
+    os.rmdir(made)
+
     sample = "    private static let calibrated: [Int: Int64] = [26: 1_200_000, 27: -300_000]\n"
     check("offset table: parsed", offset_table(sample) == {26: 1_200_000, 27: -300_000})
     check("offset table: empty literal", offset_table("static let calibrated: [Int: Int64] = [:]") == {})
@@ -575,7 +612,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--app")
-    parser.add_argument("--out")
+    parser.add_argument("--out", help="artifacts (default: $NX_ARTIFACTS/glass, else a new temporary directory)")
     parser.add_argument("--json")
     parser.add_argument("--surfaces", default="terminal,home,omnibar")
     parser.add_argument("--samples", type=int, default=200, help="measured keys per surface (after 6 warmup keys)")
@@ -586,8 +623,8 @@ def main():
     opts = parser.parse_args()
     if opts.self_test:
         sys.exit(self_test())
-    if not (opts.app and opts.out):
-        parser.error("--app and --out are required (or --self-test)")
+    if not opts.app:
+        parser.error("--app is required (or --self-test)")
     unknown = [s for s in opts.surfaces.split(",") if s not in ("terminal", "home", "omnibar")]
     if unknown:
         parser.error(f"unknown surfaces {unknown}: terminal, home, omnibar")
