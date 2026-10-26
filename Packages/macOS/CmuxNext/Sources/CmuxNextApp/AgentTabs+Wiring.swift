@@ -106,7 +106,7 @@ extension AgentTabStore {
 
     /// The agent tabs' view store of `services`, wired to every machine's tree and daemon.
     static func wired(to services: AppServices) -> AgentTabStore {
-        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, webUI: services.webUI, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
+        let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, webUI: services.webUI, input: services.inputTap, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
