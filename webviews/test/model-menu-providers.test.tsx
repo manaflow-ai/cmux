@@ -123,27 +123,31 @@ async function mount(
   rail = false,
   catalog: ModelPickerProps["catalog"] = rail ? railed : openCode,
   providers?: "row" | "submenu" | "expanded",
+  newTab = false,
 ) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const { OnNewTab } = await import("../src/agent-session/acpmux/newTabComposer");
   const landed: string[] = [];
   const combos: ModelCombo[] = [];
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <ModelPicker
-        catalog={catalog}
-        harness="opencode"
-        model={model}
-        label="DeepSeek V4 Pro"
-        efforts={[]}
-        recents={[]}
-        harnessFixed={!rail}
-        quick={providers ? { providers } : {}}
-        onLand={(id) => landed.push(id)}
-        onCombo={(combo) => combos.push(combo)}
-        onEffort={() => undefined}
-      />,
+      <OnNewTab.Provider value={newTab}>
+        <ModelPicker
+          catalog={catalog}
+          harness="opencode"
+          model={model}
+          label="DeepSeek V4 Pro"
+          efforts={[]}
+          recents={[]}
+          harnessFixed={!rail}
+          quick={providers ? { providers } : {}}
+          onLand={(id) => landed.push(id)}
+          onCombo={(combo) => combos.push(combo)}
+          onEffort={() => undefined}
+        />
+      </OnNewTab.Provider>,
     ),
   );
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
@@ -731,4 +735,56 @@ test("fixed-harness filtering resets the popup's actual scroll offset", async ()
   popup.scrollTop = 140;
   await typeSearch("DeepSeek V4 Pro");
   expect(popup.scrollTop).toBe(0);
+});
+
+test("an unavailable curated alias keeps its available logical model in top picks", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      top: ["openrouter/qwen/Coder-3"],
+      models: [
+        { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable: "offline" },
+        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+        { id: "other", name: "Other" },
+      ],
+    },
+  ];
+  await mount("other", true, catalog);
+  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Coder 3");
+});
+
+test("held search width probes every eligible effort regardless of character count", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "alpha/coder", name: "Coder Enterprise Long", efforts: ["iiiiiiii", "WWWWWWW"], fast: false },
+        { id: "beta/coder", name: "Coder Enterprise Long", efforts: ["iiiiiiii", "WWWWWWW"], fast: false },
+      ],
+    },
+  ];
+  await mount("other", false, catalog, "expanded");
+  const values = [...menus()[0]!.querySelectorAll(".acpmux-quick-probe .acpmux-quick-value")].map(
+    (row) => row.textContent,
+  );
+  expect(values).toContain("iiiiiiii");
+  expect(values).toContain("WWWWWWW");
+});
+
+test("a New Tab folder-profile menu reserves width without blank height rows", async () => {
+  const catalog: ModelPickerProps["catalog"] = [
+    {
+      id: "opencode",
+      name: "Folder profile",
+      folder: { folder: "/project", state: "enabled" },
+      models: Array.from({ length: 9 }, (_, index) => ({ id: `model-${index}`, name: `Model ${index}` })),
+    },
+  ];
+  await mount("model-0", false, catalog, "row", true);
+  const spacer = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
+  expect(spacer).not.toBeNull();
+  expect(spacer.querySelectorAll(":scope > .acpmux-quick-item")).toHaveLength(0);
+  expect(spacer.querySelectorAll(".acpmux-quick-probe > .acpmux-quick-item").length).toBeGreaterThan(0);
 });
