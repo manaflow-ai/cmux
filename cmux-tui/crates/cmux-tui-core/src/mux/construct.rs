@@ -412,6 +412,7 @@ impl Mux {
             surface_operation_admission: Arc::new(
                 crate::server::ServerSurfaceOperationAdmission::default(),
             ),
+            request_watchdog: crate::server::RequestWatchdog::default(),
             pairing: PairingBroker::new(),
             #[cfg(test)]
             test_surface_runtime,

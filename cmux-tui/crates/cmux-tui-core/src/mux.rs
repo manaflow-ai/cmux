@@ -773,6 +773,8 @@ pub struct Mux {
     /// The history module's session state: journal folds and revision.
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
+    /// Records requests that run past 250 ms (server-stats `slow_requests`).
+    pub(crate) request_watchdog: crate::server::RequestWatchdog,
     pairing: PairingBroker,
     #[cfg(test)]
     test_surface_runtime: bool,
