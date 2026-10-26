@@ -18,6 +18,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod login_placement;
 #[cfg(target_os = "macos")]
 pub(crate) mod login_session;
 mod notify;
