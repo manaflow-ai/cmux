@@ -69,6 +69,8 @@ beforeAll(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  // Retained blocked drafts are persisted by Composer on unmount; each test starts a new chat.
+  dom.window.localStorage.clear();
   host.replaceChildren();
 });
 
