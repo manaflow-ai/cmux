@@ -2356,11 +2356,25 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
     return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
 
 
+def rate_limited(error: urllib.error.HTTPError) -> bool:
+    """Whether a refusal is GitHub's rate limit (primary or secondary), not a permission refusal."""
+    headers = error.headers
+    if headers is not None and (headers.get("X-RateLimit-Remaining") == "0" or headers.get("Retry-After")):
+        return True
+    try:
+        body = error.read() or b""
+    except Exception:  # noqa: BLE001 - an unreadable body is not a rate limit
+        body = b""
+    return b"rate limit" in body.lower()
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
-    over for the rest of the sweep once the App's is refused (401 or 403: expired, not permitted, or
-    out of budget). A cancel is idempotent, so the refused request is simply made again."""
+    over for the rest of the sweep once the App's is refused (401 or 403: expired or not permitted).
+    A cancel is idempotent, so the refused request is simply made again. An App out of budget (a
+    rate-limit 403 or 429) ends the sweep instead: moving its ~500 calls onto the shared
+    GITHUB_TOKEN emptied that budget too, and the nightly's publish then failed (2026-10-25)."""
 
     def __init__(self, token: str, repo: str, fallback_token: str = "") -> None:
         self.repo = repo
@@ -2390,6 +2404,9 @@ class GitHub:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
+            if error.code in (403, 429) and rate_limited(error):
+                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
+                                   "the sweep stops rather than spend the workflow token)") from error
             if error.code in (401, 403) and self.fallback_token:
                 print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
                       "using the workflow token for the rest of the sweep", file=sys.stderr)

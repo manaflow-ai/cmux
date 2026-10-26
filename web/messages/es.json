@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Si está activado, al hacer doble clic en un divisor, los paneles de su fila o columna pasan a tener el mismo tamaño. Las demás filas y columnas mantienen sus tamaños.",
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
           "windowTitleTemplate": "Plantilla opcional para el título de NSWindow. En blanco conserva el comportamiento de título predeterminado existente de cmux, incluida la alternativa del directorio actual. Marcadores admitidos: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nombre de pantalla usado solo en compilaciones DEBUG al abrir ventanas nuevas. Un valor vacío usa el valor predeterminado del sistema.",
