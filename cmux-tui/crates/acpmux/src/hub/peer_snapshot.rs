@@ -1,18 +1,49 @@
 //! Part of `Hub`; see `hub/mod.rs`. A durable local copy of each peer session's events, so a
-//! client paints a paused or offline peer's chat at once, marked possibly stale (cmuxterm-hq#4381).
-//! The peer's journal stays the authority. The files are `disk.rs`'s.
+//! client paints a paused or offline peer's chat at once, marked possibly stale, then catches up
+//! from the peer with `afterSeq` (cmuxterm-hq#4381; Lawrence: "decouple persistence of acp
+//! trajectories from the VM itself, in case the VM is resuming"). The peer's journal stays the
+//! authority: this is what this daemon saw of it (its clients' pages, the peer's live records),
+//! never a write lease, an execution checkpoint or a backup. The files are `disk.rs`'s.
 //!
-//! One thread owns every copy and every file (`Store`); the hub only sends it ops, in order.
-//! This part is the thread and what it does with the copies it holds: their bounds, writes and
-//! removal. What starts or grows a copy, and the hub's taps, come next.
+//! One thread owns every copy and every file (`Store`); the hub only sends it what it saw, in
+//! the order it saw it, so no capture, listing, purge or write ever runs beside another. Sending
+//! never waits; a read or a flush waits for its answer at most [`ANSWER_WITHIN`].
+//!
+//! Which copy may grow (the generation is the session's `createdAt`):
+//! - The peer's session list (`listed`, from its full lists and changed rows) says which
+//!   generation of each session is current; a row naming an older generation than the one listed
+//!   is a list read before it and takes nothing back. A copy of another generation, or of a session
+//!   it no longer lists, goes.
+//! - Each op names the link it came on (`Link`: the peer instance and its link epoch); one of an
+//!   older link than the newest the store has seen of that peer is not kept, however late it is.
+//! - A copy covers a run of seqs (`first_seq..=last_seq`: every record of them a page held). A page
+//!   starts or replaces a copy only when it names the listed generation itself (an attach's
+//!   `session.createdAt`) and the row named it when the page was asked (`asked`); a page that
+//!   names none (`_acpmux/events`) only continues one. A page joins a copy only next to or inside
+//!   what it covers; a newer page that does not replaces it, an older one is left out. A peer whose
+//!   `lastSeq` is behind what the copy saw of it, on a link no page joined the copy on (a VM back
+//!   on an older disk, this daemon restarted), replaces it too. A journal that went back and then
+//!   ran past where the copy was cannot be told by seq; only a new `createdAt` would tell.
+//! - A live record continues only a copy a page joined on the link it came on, and only at most
+//!   one past what it covers; when the link drops notifications (`_acpmux/lagged`) no record is
+//!   taken until a page again.
 //!
 //! Bounds: [`SESSION_EVENTS`] and [`SESSION_BYTES`] per copy (its oldest records go), and
-//! [`FILE_BYTES`] per file; [`TOTAL_BYTES`] on disk, refused removals counted (the least recently
-//! used copy goes; with nothing left to evict a write waits); [`MEMORY_BYTES`] of records in
-//! memory (written copies unload first); [`KEPT_TOTAL`] for what copies cost themselves, loaded
-//! or not (written copies go first). A failed write, a refused removal and a disk that cannot be read are
-//! tried again, 1 s doubling to 60 s (`daemon/persist_retry.rs`), never an exit. Nothing is
-//! written or removed until the directory reads as this user's own (no symlink).
+//! [`FILE_BYTES`] per file (a head past [`HEAD_BYTES`] is not kept, nor read);
+//! [`TOTAL_BYTES`] on disk, every file and every refused removal counted (the least recently used
+//! copy goes, and with nothing left to evict a write waits); [`MEMORY_BYTES`] of records in memory
+//! (written copies are unloaded first, then the least recently used unwritten one goes);
+//! [`KEPT_TOTAL`] for what copies cost themselves, loaded or not (written copies go first);
+//! a flush waits in the queue at most once per peer until the thread takes it (the queue's own
+//! bound comes with purges, next). A failed write is logged and tried again,
+//! 1 s doubling to 60 s (`daemon/persist_retry.rs`), never an exit; a refused removal, and a disk
+//! that cannot be read, are tried again the same way. Nothing is written or removed until the
+//! directory reads as this user's own (no symlink), and what was listed meanwhile is applied to
+//! what it holds (`Store::admits`).
+//! The hub's taps (what it sends the store) come next; until then nothing outside the tests
+//! uses it.
+//! A leased peer (a Cloud VM) is kept too: what a lease must not leave behind is its URL, port and
+//! tokens, none of which is here.
 
 use super::*;
 use std::collections::{BTreeMap, HashSet};
@@ -41,6 +72,9 @@ const RETRY_FIRST: Duration = Duration::from_millis(if cfg!(test) { 10 } else { 
 const RETRY_MAX: Duration = Duration::from_secs(60);
 /// The longest a read or a flush waits for the store's thread.
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
+/// Row fields a copy never repeats: a countdown (`retry.nextAt`) from a peer that is not
+/// answering may already have fired.
+const VOLATILE_ROW_FIELDS: &[&str] = &["retry"];
 /// What every op costs in the queue on top of its records, so empty ones are bounded too.
 const OP_BYTES: u64 = 256;
 /// What every copy costs in memory on top of its records and its head (its key, its retry
@@ -48,8 +82,66 @@ const OP_BYTES: u64 = 256;
 const KEPT_BYTES: u64 = 256;
 /// What every copy costs itself (`Kept::own`), every copy together, loaded or not.
 const KEPT_TOTAL: u64 = if cfg!(test) { 16 << 10 } else { 4 << 20 };
+/// Sessions whose listed generation the store keeps, every peer together; one listed past it
+/// keeps no copy (its pages are not taken) until a full list of its peer makes room.
+const LISTED_KEYS: usize = if cfg!(test) { 64 } else { 65536 };
+
+/// Which connection to a peer something came on: the peer instance (`Peer::generation`, unique
+/// across instances) and its link (`Peer::link_epoch`). Both only grow, so a later link of a peer
+/// name is always greater.
+pub(crate) type Link = (u64, u64);
+
+/// A page of a peer session this daemon forwarded (`_acpmux/attach`, `_acpmux/events`).
+#[derive(Debug, Default)]
+pub(crate) struct Page {
+    /// The link it was asked on (read before the request).
+    pub link: Link,
+    /// The generation the session's row named when the page was asked.
+    pub asked: Option<u64>,
+    /// The generation the page names itself (an attach's `session.createdAt`).
+    pub generation: Option<u64>,
+    /// `afterSeq`: the page holds every record after it (none: the newest records).
+    pub after: Option<u64>,
+    pub has_more: bool,
+    /// The peer's `lastSeq` with the page: how far it had gone (rollbacks, `Store::behind`).
+    pub host_last_seq: Option<u64>,
+    /// How far the page holds every record of the kinds it was asked for, when the peer says
+    /// (`pageThrough`: its `lastSeq` read before the page). A peer that does not say may have
+    /// taken records between the page and its `lastSeq`, so its page covers its own records only.
+    pub through: Option<u64>,
+    pub row: Option<Value>,
+    pub records: Vec<Value>,
+}
+
+impl Page {
+    /// The seqs the page covers (every record of them it was asked for), when any: an events
+    /// page after `A` covers `A+1` to its last record (to `through` when it holds all there is);
+    /// a page of the newest records covers its first record (the first seq, when it holds all
+    /// there is) to its last record, or to `through`. A page is one read of the peer's log, so
+    /// every record of the kinds asked up to its last one is in it; past that, only `through`
+    /// says what it holds.
+    fn covers(&self) -> Option<(u64, u64)> {
+        let seqs = || self.records.iter().filter_map(seq_of);
+        let (min, max) = (seqs().min(), seqs().max());
+        let to = self.through.max(max);
+        match self.after {
+            Some(after) => {
+                let to = if self.has_more { max } else { to };
+                to.filter(|to| *to > after).map(|to| (after + 1, to))
+            }
+            None => {
+                let from = if self.has_more { min? } else { 1 };
+                to.filter(|to| *to >= from).map(|to| (from, to))
+            }
+        }
+    }
+}
 
 enum Op {
+    Listed { peer: String, rows: Vec<(String, Option<u64>)>, full: bool },
+    Lagged { peer: String, link: Link },
+    Page { key: Key, page: Page },
+    Record { key: Key, link: Link, record: Value },
     Flush { peer: Option<String>, done: Option<mpsc::SyncSender<()>> },
 }
 
@@ -179,6 +271,29 @@ impl PeerSnapshots {
         self.dropped.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The generations peer `peer` lists now: every session (`full`) or the ones that changed.
+    pub(crate) fn listed(&self, peer: &str, rows: Vec<(String, Option<u64>)>, full: bool) {
+        let cost = OP_BYTES + rows.iter().map(|(m, _)| m.len() as u64 + 16).sum::<u64>();
+        self.send(cost, Op::Listed { peer: peer.to_owned(), rows, full });
+    }
+
+    /// Peer `peer`'s link `link` dropped notifications: no live record of it is taken until a
+    /// page again. A copy a later link's page joined keeps taking that link's records.
+    pub(crate) fn lagged(&self, peer: &str, link: Link) {
+        self.send(OP_BYTES, Op::Lagged { peer: peer.to_owned(), link });
+    }
+
+    pub(crate) fn page(&self, (peer, mux): (&str, &str), page: Page) {
+        let row = page.row.as_ref().map_or(0, record_bytes);
+        let cost = OP_BYTES + row + page.records.iter().map(record_bytes).sum::<u64>();
+        self.send(cost, Op::Page { key: (peer.to_owned(), mux.to_owned()), page });
+    }
+
+    pub(crate) fn record(&self, (peer, mux): (&str, &str), link: Link, record: Value) {
+        let cost = OP_BYTES + record_bytes(&record);
+        self.send(cost, Op::Record { key: (peer.to_owned(), mux.to_owned()), link, record });
+    }
+
     /// Writes what is not written yet, of peer `peer` (None: every peer), without waiting.
     pub(crate) fn flush(&self, peer: Option<&str>) {
         if self.dir.is_none() {
@@ -214,10 +329,25 @@ fn blocking<T>(f: impl FnOnce() -> T) -> T {
     if multi { tokio::task::block_in_place(f) } else { f() }
 }
 
+fn snapshot_row(mut row: Value) -> Value {
+    if let Some(obj) = row.as_object_mut() {
+        for f in VOLATILE_ROW_FIELDS {
+            obj.remove(*f);
+        }
+        obj.insert("stale".into(), Value::Bool(true));
+    }
+    row
+}
+
 /// Whether `record` is of session `key` (its `sessionId`): a page or a file holding another
 /// session's record is not this copy.
 fn of_session(record: &Value, key: &Key) -> bool {
     record.get("sessionId").and_then(Value::as_str) == Some(key.1.as_str())
+}
+
+/// `createdAt` of a session row or detail.
+fn created_at(row: &Value) -> Option<u64> {
+    row.get("createdAt").and_then(Value::as_u64)
 }
 
 struct Kept {
@@ -230,6 +360,8 @@ struct Kept {
     /// What the copy itself costs in memory, loaded or not: [`KEPT_BYTES`], its key, its head
     /// (bounded apart from its records, by [`KEPT_TOTAL`]).
     own: u64,
+    /// The link a page last joined it on, this run: only records of that link continue it.
+    epoch: Option<Link>,
     /// Not written yet: when the write is due, and the retry delay after a failed one.
     due: Option<Instant>,
     retry: Option<Duration>,
@@ -241,9 +373,20 @@ struct Kept {
 impl Kept {
     fn new(head: Head, disk: u64) -> Self {
         let used = head.captured_at;
-        let (memory, due, retry, failures, own) = (0, None, None, 0, 0);
-        Self { head, records: None, memory, disk, own, due, retry, failures, used }
+        let (memory, epoch, due, retry, failures, own) = (0, None, None, None, 0, 0);
+        Self { head, records: None, memory, disk, own, epoch, due, retry, failures, used }
     }
+}
+
+/// What a page does to the copy it is of.
+enum Fate {
+    /// It joins the copy: its records are added.
+    Join,
+    /// It is older history that does not reach the copy: nothing changes.
+    Ignore,
+    /// The copy is not this page's journal (none, another generation, rolled back, or a gap
+    /// between them): the page starts a new one if it can, else the copy just goes.
+    Restart,
 }
 
 struct Store {
@@ -252,6 +395,14 @@ struct Store {
     scanned: bool,
     scan_retry: Option<(Instant, Duration)>,
     copies: HashMap<Key, Kept>,
+    /// The generation each session is listed with (None: listed with none, which keeps no copy),
+    /// at most [`LISTED_KEYS`]; for a peer whose full list came, a session it does not list or
+    /// lists with none is not here.
+    listed: HashMap<Key, Option<u64>>,
+    /// Peers whose full list came this run: a session they do not list is not theirs any more.
+    full_listed: HashSet<String>,
+    /// The newest link each peer was seen on: anything of an older one comes too late.
+    links: HashMap<String, Link>,
     /// Removals the filesystem refused, with their bytes, and when they are tried again.
     dead: HashMap<PathBuf, u64>,
     dead_retry: Option<(Instant, Duration)>,
@@ -289,6 +440,9 @@ impl Store {
             scanned: false,
             scan_retry: None,
             copies: HashMap::new(),
+            listed: HashMap::new(),
+            full_listed: HashSet::new(),
+            links: HashMap::new(),
             dead: HashMap::new(),
             dead_retry: None,
             wake: None,
@@ -347,6 +501,16 @@ impl Store {
 
     fn take(&mut self, op: Op) {
         match op {
+            Op::Listed { peer, rows, full } => self.take_listed(&peer, rows, full),
+            Op::Lagged { peer, link } => {
+                // The lag tells of the link too: anything of an older one comes too late.
+                self.fresh_link(&peer, link);
+                for (_, c) in self.copies.iter_mut().filter(|(k, _)| k.0 == peer) {
+                    c.epoch = c.epoch.filter(|e| *e != link);
+                }
+            }
+            Op::Page { key, page } => self.take_page(&key, page),
+            Op::Record { key, link, record } => self.take_record(&key, link, record),
             Op::Flush { peer, done } => {
                 if done.is_none() {
                     self.dropped.lock().unwrap_or_else(|e| e.into_inner()).flushes.remove(&peer);
@@ -370,7 +534,204 @@ impl Store {
                 self.dropped.lock().unwrap_or_else(|e| e.into_inner()).flushes.remove(&peer);
             }
             Op::Flush { .. } => {}
+            // The copies stay as the thread took them: one started again knows no listing nor
+            // link, so it joins nothing to a copy before a page.
+            Op::Listed { .. } | Op::Lagged { .. } | Op::Page { .. } | Op::Record { .. } => {}
         }
+    }
+
+    fn take_listed(&mut self, peer: &str, rows: Vec<(String, Option<u64>)>, full: bool) {
+        if full {
+            let names: HashSet<&str> = rows.iter().map(|(m, _)| m.as_str()).collect();
+            let unlisted = |k: &Key| k.0 == peer && !names.contains(k.1.as_str());
+            self.listed.retain(|k, _| !unlisted(k));
+            let drop: Vec<Key> = self.copies.keys().filter(|k| unlisted(k)).cloned().collect();
+            for key in drop {
+                self.remove(&key);
+            }
+            self.full_listed.insert(peer.to_owned());
+        }
+        for (mux, generation) in rows {
+            let key = (peer.to_owned(), mux);
+            // An id no file can have keeps no copy, nor a place in the list.
+            if disk::path(&self.root, &key).is_none() {
+                continue;
+            }
+            // A session's generation (`createdAt`) only grows: a row naming an older one than the
+            // one listed is a list read before the change that named the newer (a peer's watch
+            // reply can reach the hub after notices it sent later), so it takes nothing back.
+            if let (Some(Some(now)), Some(g)) = (self.listed.get(&key), generation)
+                && g < *now
+            {
+                continue;
+            }
+            // Listed with none by a peer whose full list came reads as not listed (no entry).
+            let room = self.listed.len() < LISTED_KEYS || self.listed.contains_key(&key);
+            if generation.is_none() && self.full_listed.contains(peer) {
+                self.listed.remove(&key);
+            } else if room {
+                self.listed.insert(key.clone(), generation);
+            } else {
+                tracing::debug!(
+                    peer,
+                    "peer snapshot: too many sessions listed; this one keeps no copy"
+                );
+            }
+            let other = self
+                .copies
+                .get(&key)
+                .is_some_and(|c| !room || generation.is_none() || c.head.generation != generation);
+            if other {
+                self.remove(&key);
+            }
+        }
+    }
+
+    /// The generation the peer lists for `key`, when it lists one.
+    fn current(&self, key: &Key) -> Option<u64> {
+        self.listed.get(key).copied().flatten()
+    }
+
+    /// Whether `link` is peer `peer`'s newest link seen (it becomes so when it is newer): anything
+    /// of an older one, however late it is taken, is not kept.
+    fn fresh_link(&mut self, peer: &str, link: Link) -> bool {
+        match self.links.get(peer) {
+            Some(newest) if link < *newest => false,
+            _ => {
+                self.links.insert(peer.to_owned(), link);
+                true
+            }
+        }
+    }
+
+    /// Whether `page` shows a peer behind what copy `c` saw of it, on a link no page has joined
+    /// the copy on: its journal went back (a VM resumed from an older disk, or this daemon
+    /// restarted). On the link that joined it, a lower `lastSeq` is only a reply that came late.
+    fn behind(c: &Kept, page: &Page, to: Option<u64>) -> bool {
+        let seen = page.host_last_seq.or(page.through).or(to);
+        c.epoch != Some(page.link)
+            && seen.is_some_and(|s| s < c.head.host_last_seq.max(c.head.last_seq))
+    }
+
+    fn fate(&self, key: &Key, page: &Page, (from, to): (u64, u64), generation: u64) -> Fate {
+        let Some(c) = self.copies.get(key) else { return Fate::Restart };
+        let h = &c.head;
+        if h.generation != Some(generation) || Self::behind(c, page, Some(to)) {
+            Fate::Restart
+        } else if to + 1 < h.first_seq {
+            Fate::Ignore
+        } else if from > h.last_seq + 1 {
+            Fate::Restart
+        } else {
+            Fate::Join
+        }
+    }
+
+    fn take_page(&mut self, key: &Key, page: Page) {
+        // Seqs a client's number holds exactly (`seq_of`): no watermark a peer sends can make a
+        // bound's `+ 1` overflow.
+        let fits = |s: Option<u64>| s.is_none_or(|s| s < 1 << 53);
+        // A record with no such seq makes the page not one: nothing of it is taken.
+        if !(fits(page.after) && fits(page.through) && fits(page.host_last_seq))
+            || page.records.iter().any(|r| seq_of(r).is_none())
+        {
+            return;
+        }
+        // A key with no file name (an id too long for one) is never kept: it could not be written.
+        if disk::path(&self.root, key).is_none()
+            || !self.fresh_link(&key.0, page.link)
+            || !page.records.iter().all(|r| of_session(r, key))
+        {
+            return;
+        }
+        let Some(generation) = self.current(key) else { return };
+        if page.asked != Some(generation) || page.generation.is_some_and(|g| g != generation) {
+            return;
+        }
+        // A row past what a copy's head may hold is not kept (it could never be written).
+        let row = page.row.as_ref().map(|row| snapshot_row(row.clone()));
+        if row.as_ref().is_some_and(|r| record_bytes(r) > HEAD_BYTES) {
+            self.remove(key);
+            return;
+        }
+        // An attach of a journal with no record of the kinds asked yet (it names its generation
+        // and holds all there is) starts an empty copy, so its first live record joins.
+        let empty = page.generation == Some(generation)
+            && page.after.is_none()
+            && !page.has_more
+            && page.records.is_empty();
+        let covered = page.covers().or(empty.then_some((1, 0)));
+        let Some((from, to)) = covered else {
+            // Nothing to keep, but a peer behind the copy still says it is not this journal.
+            if self.copies.get(key).is_some_and(|c| Self::behind(c, &page, None)) {
+                self.remove(key);
+            }
+            return;
+        };
+        self.load(key);
+        match self.fate(key, &page, (from, to), generation) {
+            Fate::Ignore => return,
+            Fate::Join => {}
+            Fate::Restart => {
+                self.remove(key);
+                // Only a page that names its generation itself starts a copy.
+                if page.generation != Some(generation) {
+                    return;
+                }
+                let head = Head {
+                    peer: key.0.clone(),
+                    session_id: key.1.clone(),
+                    generation: Some(generation),
+                    first_seq: from,
+                    last_seq: to,
+                    ..Head::default()
+                };
+                let mut copy = Kept::new(head, 0);
+                copy.records = Some(BTreeMap::new());
+                self.insert(key.clone(), copy);
+            }
+        }
+        let Some(c) = self.copies.get_mut(key) else { return };
+        c.epoch = Some(page.link);
+        let h = &mut c.head;
+        (h.first_seq, h.last_seq) = (h.first_seq.min(from), h.last_seq.max(to));
+        // How far the peer was seen: its `lastSeq`, and how far it said it held (a page cut by
+        // `hasMore` covers only its records, but the peer's log still went that far).
+        let seen = page.host_last_seq.unwrap_or(0).max(page.through.unwrap_or(0)).max(to);
+        h.host_last_seq = h.host_last_seq.max(seen);
+        h.from_start = h.first_seq <= 1;
+        if let Some(row) = row {
+            h.summary = row;
+            self.charge(key);
+        }
+        self.add(key, page.records);
+    }
+
+    /// A live record continues only a copy a page joined on the link it came on, and only next to
+    /// or inside what the copy covers: one past a seq it never saw would leave a hole.
+    fn take_record(&mut self, key: &Key, link: Link, record: Value) {
+        let Some(seq) = seq_of(&record) else { return };
+        if !self.fresh_link(&key.0, link) || !of_session(&record, key) {
+            return;
+        }
+        let Some(generation) = self.current(key) else { return };
+        let joins = |c: &Kept| {
+            c.head.generation == Some(generation)
+                && c.epoch == Some(link)
+                && seq >= c.head.first_seq
+                && seq <= c.head.last_seq + 1
+        };
+        if !self.copies.get(key).is_some_and(joins) {
+            return;
+        }
+        if !self.load(key) {
+            return;
+        }
+        if let Some(c) = self.copies.get_mut(key) {
+            c.head.last_seq = c.head.last_seq.max(seq);
+            c.head.host_last_seq = c.head.host_last_seq.max(seq);
+        }
+        self.add(key, vec![record]);
     }
 
     /// Adds `records` to `key`'s loaded copy, keeps it within its bounds and the memory bound,
@@ -538,6 +899,19 @@ impl Store {
         }
     }
 
+    /// Whether a copy an earlier run kept of `key` (of `generation`) may stand, given what this
+    /// run was told before the disk could be read: not another generation than the listed one,
+    /// nor a session a full list left out.
+    fn admits(&self, key: &Key, generation: Option<u64>) -> bool {
+        if self.copies.contains_key(key) {
+            return false;
+        }
+        match self.listed.get(key) {
+            Some(listed) => listed.is_some() && *listed == generation,
+            None => !self.full_listed.contains(&key.0),
+        }
+    }
+
     /// Every copy on disk, by its head; anything else there goes. Until it reads, nothing is
     /// written or removed (what the disk holds is not known), and it is tried again with backoff.
     fn scan(&mut self) -> bool {
@@ -564,7 +938,7 @@ impl Store {
         }
         for (key, path, bytes) in found.copies {
             match disk::read_head(&path, &key) {
-                Ok(Some(head)) if bytes <= FILE_BYTES && !self.copies.contains_key(&key) => {
+                Ok(Some(head)) if bytes <= FILE_BYTES && self.admits(&key, head.generation) => {
                     self.insert(key, Kept::new(head, bytes));
                 }
                 _ => self.unlink(path, bytes),
