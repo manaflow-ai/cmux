@@ -42,11 +42,11 @@ public final class PageTabReplies {
     public func reply<T: Sendable>(for key: String?, file: StaticString = #fileID, line: UInt = #line,
                                    _ operation: @escaping @Sendable () async -> T,
                                    apply: @escaping @MainActor @Sendable (T) -> Void) -> Task<Void, Never> {
-        let queue = key.flatMap(queue(for:)), mainWork = mainWork, owner = owner
+        let tabQueue = key.flatMap { self.queue(for: $0) }, mainWork = mainWork, owner = owner
         return Self.start(operation) { value in
             mainWork.postFromAnyThread(.visible, owner: owner, file: file, line: line) {
-                guard let queue else { return apply(value) }
-                queue.post(file: file, line: line) { apply(value) }
+                guard let tabQueue else { return apply(value) }
+                tabQueue.post(file: file, line: line) { apply(value) }
             }
         }
     }
@@ -62,11 +62,11 @@ public final class PageTabReplies {
     }
 
     private func queue(for key: String) -> MainTaskQueue? {
-        if let queue = queues[key] { return queue }
-        guard let node = node(key) else { return nil }
-        let queue = node.queue(.visible, owner: ownerName, on: mainWork)
-        queues[key] = queue
-        return queue
+        if let held = queues[key] { return held }
+        guard let tabNode = node(key) else { return nil }
+        let made = tabNode.queue(.visible, owner: ownerName, on: mainWork)
+        queues[key] = made
+        return made
     }
 
     /// The async part, in a task that inherits no actor; `deliver` gets its value unless it was cancelled.
