@@ -31,7 +31,7 @@ enum WindowInvariants {
                 problems.append("window \(id) is presented but none of its workspaces is mirrored")
             }
         }
-        for window in value.openWindows where manager.builtController(for: window.id) == nil && manager.launchWindows?.isWaiting(window.id) != true {
+        for window in value.openWindows where manager.controller(for: window.id) == nil && manager.launchWindows?.isWaiting(window.id) != true {
             problems.append("open window \(window.id) has no controller")
         }
         return problems
@@ -43,7 +43,7 @@ enum WindowInvariants {
         let problems = problems(manager)
         return .object([
             "windows": .array(value.windows.map { window in
-                let controller = manager.builtController(for: window.id)
+                let controller = manager.controller(for: window.id)
                 return .object(pageFields(state: manager.states[window.id], controller: controller).merging([
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),

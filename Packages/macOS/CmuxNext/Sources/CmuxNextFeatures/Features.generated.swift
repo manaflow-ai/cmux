@@ -494,12 +494,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered, off-screen or full-screen one builds after startup, or at once when something acts in it.
+    /// At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered or off-screen one builds after startup, or at once when something acts in it. A window saved in full screen builds at launch, as before.
     public static let launchWindowsByOcclusion = Feature(
         index: 28,
         name: "launchWindowsByOcclusion",
         owner: "Performance Lead",
-        description: "At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered, off-screen or full-screen one builds after startup, or at once when something acts in it.",
+        description: "At launch the restored windows behind the front one build by what shows: one no window in front covers builds after the first frame, one per frame; a covered or off-screen one builds after startup, or at once when something acts in it. A window saved in full screen builds at launch, as before.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

@@ -215,7 +215,7 @@ extension TabDragSession {
         if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
            services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
         let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
-            .flatMap(services.windows.controller(for:)) ?? dropWindow
+            .flatMap(services.windows.controllerBuildingIfWaiting(for:)) ?? dropWindow
         let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
                                            crossesWindows: landing !== drag.source.window, appActive: NSApp.isActive,
                                            noActivate: WindowPlacement.noActivate,

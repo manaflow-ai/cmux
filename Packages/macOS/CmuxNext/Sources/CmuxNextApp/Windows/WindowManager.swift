@@ -91,6 +91,9 @@ final class WindowManager {
     /// The restored windows behind the front one not built yet (`launchWindowsByOcclusion`, p08-startup-062):
     /// nil when every restored window was built in the restore's turn.
     private(set) var launchWindows: LaunchWindowQueue?
+    /// Each waiting window's membership before its first change since restore: its selection repair waits
+    /// for its build, which has the sidebar's drawn rows (close-focus.md).
+    var waitingRepairs: [String: [String]] = [:]
     /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
     private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
@@ -167,19 +170,21 @@ final class WindowManager {
         }
     }
 
-    /// The controller of window `windowID`. A restored window still waiting for its launch build
-    /// (``launchWindows``) is built now: whoever asks for a window acts in it, as Chrome loads a restored
-    /// tab once it is activated.
+    /// The controller of window `windowID` when it is built; never builds one, so reads (the palette's
+    /// lists, observation passes, the window records) never build a restored window still waiting for
+    /// its launch build (``launchWindows``). A window's state is in ``states`` built or not.
     func controller(for windowID: String) -> WindowController? {
-        if let built = builtController(for: windowID) { return built }
-        guard launchWindows?.take(windowID) == true, let window = registry.value.window(windowID), window.isOpen else { return nil }
-        return makeController(for: window)
+        controllers.first { $0.state.id == windowID }
     }
 
-    /// The controller of window `windowID` when it is built; never builds one (passes over every window,
-    /// the window records, debug reads).
-    func builtController(for windowID: String) -> WindowController? {
-        controllers.first { $0.state.id == windowID }
+    /// The controller of window `windowID`, built now when it is a restored window still waiting for its
+    /// launch build: only for a person's or a script's act in that window (show, reveal, focus, reopen,
+    /// a CLI target), as Chrome loads a restored tab once it is activated, ahead of its `TabLoader` turn
+    /// (chrome/browser/sessions/tab_loader.cc).
+    func controllerBuildingIfWaiting(for windowID: String) -> WindowController? {
+        if let built = controller(for: windowID) { return built }
+        guard launchWindows?.take(windowID) == true else { return nil }
+        return buildWaitingWindow(windowID)
     }
 
     /// The window's state, created on first use.
@@ -294,28 +299,48 @@ final class WindowManager {
 
     /// The restored windows behind the front one build by what shows of them, not all in the restore's
     /// turn (`launchWindowsByOcclusion`, p08-startup-062): one that no window in front covers, on a
-    /// connected display, in its own afterFirstFrame post; a covered, off-screen or full-screen one at
-    /// afterStartup. The front window (the adopted launch window, else the first open one) builds now.
-    private func scheduleLaunchBuilds() {
-        guard services.features.isEnabled(.launchWindowsByOcclusion), ordersWindowsIn, services.environment.testWindow == nil,
+    /// connected display, in its own afterFirstFrame post; a covered or off-screen one at afterStartup.
+    /// The front window (the adopted launch window, else the first open one) builds now, and so does a
+    /// window saved in full screen: it enters full screen once restore finished, which moves the display
+    /// to its Space, so it does that at launch, never later under a person already at work.
+    ///
+    /// - Parameters:
+    ///   - screens: The connected displays' frames.
+    ///   - appHidden: Whether the app is hidden (nothing shows).
+    func scheduleLaunchBuilds(screens: [CGRect] = NSScreen.screens.map(\.frame), appHidden: Bool = NSApp.isHidden) {
+        guard services.features.isEnabled(.launchWindowsByOcclusion), services.environment.testWindow == nil,
               let startup = services.launchStartup else { return }
         let value = registry.value
         let open = value.recency.compactMap { value.window($0) }.filter(\.isOpen)
-        var built = Set(open.lazy.map(\.id).filter { self.builtController(for: $0) != nil })
-        if built.isEmpty, let front = open.first { built.insert(front.id) }
+        let live = open.map(\.id).filter { self.controller(for: $0) != nil }
+        var built = Set(live.isEmpty ? open.prefix(1).map(\.id) : live)
+        built.formUnion(open.lazy.map(\.id).filter { self.states[$0]?.restoresFullScreen == true })
         let saved = open.map { window in
             LaunchWindowVisibility.Saved(id: window.id, frame: window.frame.map { WindowPlacementFallback.visible($0, display: window.display) },
                                          onActiveSpace: states[window.id]?.restoresFullScreen != true)
         }
-        let visibility = LaunchWindowVisibility(screens: NSScreen.screens.map(\.frame), rule: WindowOcclusionRule(appHidden: NSApp.isHidden))
+        let visibility = LaunchWindowVisibility(screens: screens, rule: WindowOcclusionRule(appHidden: appHidden))
         let queue = launchWindows ?? LaunchWindowQueue(startup: startup) { [weak self] id in self?.buildLaunchWindow(id) }
         if queue.schedule(visibility.split(saved, built: built)) { launchWindows = queue }
     }
 
     /// A restored window's launch post: builds it unless it closed or was built meanwhile.
     private func buildLaunchWindow(_ id: String) {
-        guard builtController(for: id) == nil, let window = registry.value.window(id), window.isOpen else { return }
-        makeController(for: window)
+        guard controller(for: id) == nil else { return }
+        buildWaitingWindow(id)
+    }
+
+    /// Builds a restored window that waited for its launch build, then repairs its selection with its
+    /// sidebar's drawn rows, the repair ``repairSelections(previous:preferred:)`` left for it.
+    @discardableResult
+    private func buildWaitingWindow(_ id: String) -> WindowController? {
+        let previous = waitingRepairs.removeValue(forKey: id)
+        guard let window = registry.value.window(id), window.isOpen else { return nil }
+        let controller = makeController(for: window)
+        let shown = controller.state.workspaceID
+        repairSelection(of: window, previous: previous ?? window.workspaceIDs)
+        if controller.state.workspaceID != shown { controller.showWorkspace(requested: controller.state.workspaceID) }
+        return controller
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -413,7 +438,7 @@ final class WindowManager {
         services.background.windowWillAppear(activates: !behind && ordersWindowsIn) // leave background mode first (cx-ghagp)
         let restacks = restacking.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window,
-           !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.builtController(for: $0)?.window })) {
+           !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
             // A restored window shown alone comes forward without key; the order keeps its saved place.
             let kept = keepsOrder
             keepsOrder = restacks

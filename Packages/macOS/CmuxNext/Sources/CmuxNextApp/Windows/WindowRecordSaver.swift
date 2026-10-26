@@ -183,7 +183,7 @@ final class WindowRecordSaver {
         let states = manager.states
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
         return value.windows.compactMap { window in
-            let controller = manager.builtController(for: window.id)
+            let controller = manager.controller(for: window.id)
             var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
                                       isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
                                           || states[window.id]?.restoresFullScreen == true,
