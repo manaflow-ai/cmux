@@ -70,6 +70,13 @@ final class SidebarPriorityPanelView: NSView {
     func show(_ panel: SidebarPriorityPanel) {
         let old = self.panel
         self.panel = panel
+        // Hiding ends a drag even when the hidden feed keeps the same attention rows: the release
+        // may never reach the hidden row. A re-rank, a fold or a height change also invalidates its slot.
+        if draggingID != nil,
+           old.shown != panel.shown || old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
+            || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
+            stopDrag()
+        }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
