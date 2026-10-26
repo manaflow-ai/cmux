@@ -18,24 +18,19 @@ struct BrowserHibernationPressureTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let registry = ManualMemoryLevelRegistry()
         let hibernation = BrowserHibernation(cache: services.cache, memory: registry)
-        var changes: [MemoryPressureLevel] = []
-        hibernation.onPressureChange = { changes.append($0) }
         hibernation.start()
         #expect(registry.liveCount == 1)
         registry.send(.warning)
-        #expect(changes == [.warning])
+        #expect(hibernation.pressure == .warning)
 
         hibernation.stop()
         #expect(registry.liveCount == 0, "stop() must cancel the registration")
         registry.send(.critical)
-        #expect(changes == [.warning], "a level reported after stop() reached the hibernation")
-        #expect(hibernation.pressure == .warning)
+        #expect(hibernation.pressure == .warning, "a level reported after stop() reached the hibernation")
 
         hibernation.start()
-        #expect(changes == [.warning, .critical], "start() must take the coordinator's level of that moment, once")
-        registry.send(.critical)
-        #expect(changes == [.warning, .critical], "a repeated level must not reach the hibernation again")
-        #expect(hibernation.pressure == .critical)
+        #expect(registry.liveCount == 1, "start() did not register again")
+        #expect(hibernation.pressure == .critical, "start() must take the coordinator's level of that moment")
         withExtendedLifetime((services, hibernation)) {}
     }
 

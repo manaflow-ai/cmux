@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextHibernation
 import CmuxNextPages
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
@@ -98,18 +99,10 @@ extension TabContentCache {
     /// `key`'s content phase (`debug.surfaces`, hibernation, the tab strip).
     func phase(of key: String) -> ContentLifecycle<String>.Phase { lifecycle.phase(key) }
 
-    // MARK: Warm set
+    // MARK: Warm set (memory pressure: `WarmSetRelease`, below)
 
-    /// Applies a new warm set budget (memory pressure changed).
-    func setWarmBudget(_ budget: WarmSetBudget) {
-        guard budget != warmBudget else { return }
-        evictsAtOnce = budget.terminalCapacity < warmBudget.terminalCapacity
-        defer { evictsAtOnce = false }
-        warmBudget = budget
-        apply(ledger.setCapacity(budget.terminalCapacity))
-    }
-
-    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects) {
+    /// `evictsAtOnce`: a smaller warm budget evicts, so the closed surfaces keep no last picture.
+    func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects, evictsAtOnce: Bool = false) {
         guard !effects.isEmpty else { return }
         for displaced in effects.displaced {
             presenters[displaced.owner]?.value?.surfaceWasDisplaced(displaced.key)
@@ -119,7 +112,7 @@ extension TabContentCache {
             applyLifecycle(lifecycle.send(render ? .show(key) : .hide(key)))
         }
         for key in effects.evicted {
-            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key) }
+            if let entry = terminals.removeValue(forKey: key) { evict(entry, key: key, atOnce: evictsAtOnce) }
             applyLifecycle(lifecycle.send(.released(key)))
         }
         for displaced in effects.displaced where presenters[displaced.owner]?.value == nil { presenters[displaced.owner] = nil } // O(changed); removePresenter drops the rest
@@ -127,8 +120,8 @@ extension TabContentCache {
     }
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
-    private func evict(_ entry: TerminalEntry, key: String) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: evictsAtOnce)
+    private func evict(_ entry: TerminalEntry, key: String, atOnce: Bool) {
+        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: atOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
@@ -222,5 +215,17 @@ extension TabContentCache {
 
     func trace(_ key: String, _ event: String) {
         InputJournal.shared.append(window: nil, .content(tab: key, event: event))
+    }
+}
+
+extension TabContentCache: WarmSetHost {
+    var warmCapacity: Int { ledger.capacity }
+    var warmHiddenCount: Int { ledger.hiddenCount }
+    var leastRecentlyHiddenAge: Duration? { ledger.leastRecentlyHiddenAge }
+    func warmBudgetDidChange(to capacity: Int) { warmBudget = WarmSetBudget(terminalCapacity: capacity) }
+    func setWarmCapacity(_ capacity: Int) -> Int {
+        let effects = ledger.setCapacity(capacity)
+        apply(effects, evictsAtOnce: true) // only a smaller capacity evicts
+        return effects.evicted.count
     }
 }
