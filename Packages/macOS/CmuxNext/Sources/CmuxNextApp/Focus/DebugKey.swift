@@ -62,7 +62,7 @@ enum DebugKey {
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })
         // The palette opens with no main window (after Close All Windows), so its keys need none:
         // a palette row then runs as the user's, which no socket call can do otherwise (bd cx-beg1).
-        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palette.visiblePanel : nil
+        let palettePanel = params["target"]?.stringValue == "palette" && windowID == nil ? services.palettes.built?.visiblePanel : nil
         guard let shell = controller?.window ?? palettePanel else { return .object(["error": .string("no window")]) }
         var window: NSWindow = shell
         if params["target"]?.stringValue == "page" {
@@ -72,7 +72,7 @@ enum DebugKey {
             }
             window = page
         } else if params["target"]?.stringValue == "palette" {
-            guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
+            guard let panel = services.palettes.built?.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
