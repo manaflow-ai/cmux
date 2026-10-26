@@ -37,6 +37,27 @@ extension BackgroundWork {
         state.withLock { $0.overruns }
     }
 
+    /// The sites (`<module>/<file>.swift:<line>`) that posted a block-shutdown item after ``shutdown()``
+    /// returned, oldest first: an ordering bug, as Chrome's `TaskTracker::WillPostTask` DCHECKs. The item was
+    /// refused. Debug and bench builds record them; other builds keep this empty.
+    public var blockShutdownLatePosts: [String] {
+        state.withLock { $0.latePosts }
+    }
+
+    /// Records a block-shutdown item at `site` that came after ``shutdown()`` returned and was refused.
+    func blockShutdownRefused(_ site: CallSite) {
+        #if DEBUG || CMUX_BLOCKING_CHECKS
+        let name = "\(site.fileID):\(site.line)"
+        state.withLock { state in
+            if state.latePosts.count == Self.overrunLimit { state.latePosts.removeFirst() }
+            state.latePosts.append(name)
+        }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "work").fault(
+            "blockShutdown item at \(name, privacy: .public) came after shutdown returned and was refused: post the save before quit drains the lanes"
+        )
+        #endif
+    }
+
     /// The start of a block-shutdown item's run, or nil in builds without the check.
     func blockShutdownStarted() -> UInt64? {
         #if DEBUG || CMUX_BLOCKING_CHECKS

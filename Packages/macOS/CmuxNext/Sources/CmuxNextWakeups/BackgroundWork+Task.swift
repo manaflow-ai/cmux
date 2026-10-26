@@ -8,6 +8,17 @@ extension BackgroundWork {
         var cancelRequested = false
     }
 
+    /// Test seams between the steps of a ``task(_:shutdown:fileID:line:_:)`` start, so a test can put a shutdown
+    /// in each window; ``none`` runs every step at once.
+    struct TaskHooks: Sendable {
+        /// Awaited first in the task's body, before it checks for shutdown and runs `op`.
+        var beforeBody: @Sendable () async -> Void
+        /// Called with the step that gives the registered task its cancel; the default calls it at once.
+        var attach: @Sendable (_ attachNow: @escaping @Sendable () -> Void) -> Void
+
+        static let none = TaskHooks(beforeBody: {}, attach: { $0() })
+    }
+
     /// Starts `op` as a detached task at `priority` that ``shutdown()`` knows about: Chrome's
     /// `PostTask(FROM_HERE, {priority, shutdown_behavior}, task)` for async work
     /// (`base/task/thread_pool/task_tracker.cc`).
@@ -19,12 +30,14 @@ extension BackgroundWork {
     ///
     /// - ``ShutdownBehavior/skipOnShutdown``: shutdown cancels it (`op` sees `Task.isCancelled`; one that has
     ///   not started never runs `op`).
-    /// - ``ShutdownBehavior/continueOnShutdown``: a started one runs on; shutdown does not wait for it.
+    /// - ``ShutdownBehavior/continueOnShutdown``: a started one runs on; shutdown does not wait for it. One that
+    ///   has not started never runs `op`.
     /// - ``ShutdownBehavior/blockShutdown``: shutdown returns only after it finished. Only for one bounded
     ///   write (< 50 ms); Debug records one that runs longer than ``blockShutdownLimit``.
     ///
     /// After shutdown started, only a block-shutdown task runs; any other returns a task that throws
-    /// `CancellationError` without running `op`.
+    /// `CancellationError` without running `op`. After ``shutdown()`` returned, a block-shutdown task is refused
+    /// the same way (nothing would wait for it) and Debug records its site (``blockShutdownLatePosts``).
     ///
     /// ```swift
     /// let page = work.task(.userVisible) { try await client.fetch(url) }
@@ -46,24 +59,29 @@ extension BackgroundWork {
                                   fileID: StaticString = #fileID, line: UInt = #line,
                                   _ op: sending @escaping @isolated(any) () async throws -> T) -> Task<T, any Error> {
         let blocks = shutdown == .blockShutdown
+        let site = CallSite(fileID: fileID, line: line)
         let id: UInt64? = state.withLock { state in
-            guard !state.closed || blocks else { return nil }
+            guard blocks ? !state.drained : !state.closed else { return nil }
             let id = state.takeID()
             state.tasks[id] = RegisteredTask(shutdown: shutdown)
             if blocks { state.blocking += 1 }
             return id
         }
         guard let id else {
+            if blocks { blockShutdownRefused(site) }
             return Task<T, any Error>.detached(priority: priority.taskPriority) { throw CancellationError() }
         }
-        let site = CallSite(fileID: fileID, line: line)
+        let hooks = taskHooks
         let task = Task<T, any Error>.detached(priority: priority.taskPriority) { [self] in
+            await hooks.beforeBody()
             let start = blocks ? blockShutdownStarted() : nil
             defer { taskFinished(id, site: site, since: start) }
+            // Not started when shutdown began: only a block-shutdown task runs (Chrome skips the others).
+            if !blocks, state.withLock({ $0.closed }) { throw CancellationError() }
             try Task.checkCancellation()
             return try await op()
         }
-        attach(id, cancel: { task.cancel() })
+        hooks.attach { [self] in self.attach(id, cancel: { task.cancel() }) }
         return task
     }
 

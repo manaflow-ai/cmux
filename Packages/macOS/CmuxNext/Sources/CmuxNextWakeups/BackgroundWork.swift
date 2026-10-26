@@ -41,10 +41,12 @@ import Dispatch
 /// let page = work.task(.userVisible) { try await fetch(url) }  // async work, no blocking call
 /// ```
 ///
-/// Shutdown, as Chrome's `TaskTracker` (`base/task/thread_pool/task_tracker.cc`): ``shutdown()`` drops or
-/// cancels ``ShutdownBehavior/skipOnShutdown`` items, lets started ``ShutdownBehavior/continueOnShutdown``
-/// ones run, refuses new items other than ``ShutdownBehavior/blockShutdown`` ones, and returns when every
-/// block-shutdown item, lane item or ``task(_:shutdown:fileID:line:_:)``, has finished.
+/// Shutdown, as Chrome's `TaskTracker` (`base/task/thread_pool/task_tracker.cc`): ``beginShutdown()`` drops
+/// or cancels ``ShutdownBehavior/skipOnShutdown`` items, drops ``ShutdownBehavior/continueOnShutdown`` ones
+/// that have not started (started ones run on), and refuses new items other than
+/// ``ShutdownBehavior/blockShutdown`` ones; ``shutdown()`` then returns when every block-shutdown item, lane
+/// item or ``task(_:shutdown:fileID:line:_:)``, has finished. After that, a block-shutdown item is refused too
+/// (Chrome DCHECKs such a post): nothing would wait for it, and Debug records its site.
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
     public let cpuWidth: Int
@@ -56,19 +58,26 @@ public final class BackgroundWork: Sendable {
     let uptimeNanos: @Sendable () -> UInt64
     // concurrency-allow: id counter, the shutdown count and the registered tasks, read and written synchronously by submitters, lane threads and finishing tasks (lock carve-out: counters and a dictionary, no I/O under it).
     let state = Mutex(DrainState())
+    /// Test seams around a ``task(_:shutdown:fileID:line:_:)`` start; production uses ``TaskHooks/none``.
+    let taskHooks: TaskHooks
 
     struct DrainState {
         var nextID: UInt64 = 1
         /// Block-shutdown items (lane items and tasks) that have not finished.
         var blocking = 0
         var waiters: [CheckedContinuation<Void, Never>] = []
-        /// ``shutdown()`` has started: only block-shutdown items are taken.
+        /// ``beginShutdown()`` ran: only block-shutdown items are taken.
         var closed = false
+        /// ``shutdown()`` has returned: no item is taken, a block-shutdown one neither.
+        var drained = false
         /// The ``task(_:shutdown:fileID:line:_:)`` tasks that have not finished, by id.
         var tasks: [UInt64: RegisteredTask] = [:]
         /// Block-shutdown items that ran longer than ``blockShutdownLimit``, oldest first, at most
         /// ``overrunLimit``.
         var overruns: [BlockShutdownOverrun] = []
+        /// Sites that posted a block-shutdown item after ``shutdown()`` returned, oldest first, at most
+        /// ``overrunLimit``.
+        var latePosts: [String] = []
 
         mutating func takeID() -> UInt64 {
             defer { nextID += 1 }
@@ -87,9 +96,16 @@ public final class BackgroundWork: Sendable {
     ///     queued item, not the checks at the call.
     ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
     ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
-    public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
-                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
-                uptimeNanos: (@Sendable () -> UInt64)? = nil) {
+    public convenience init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
+                            onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
+                            uptimeNanos: (@Sendable () -> UInt64)? = nil) {
+        self.init(cpuWidth: cpuWidth, label: label, onQueued: onQueued, uptimeNanos: uptimeNanos, taskHooks: .none)
+    }
+
+    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps.
+    init(cpuWidth: Int, label: String, onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
+         uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks) {
+        self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
@@ -153,9 +169,11 @@ public final class BackgroundWork: Sendable {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let job = makeJob(id: id, shutdown: shutdown, site: site,
-                                  work: { continuation.resume(with: Result { try body() }) },
-                                  abandoned: { continuation.resume(throwing: CancellationError()) })
+                guard let job = makeJob(id: id, shutdown: shutdown, site: site,
+                                        work: { continuation.resume(with: Result { try body() }) },
+                                        abandoned: { continuation.resume(throwing: CancellationError()) }) else {
+                    return continuation.resume(throwing: CancellationError())
+                }
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
                 submitted(scheduler.submit(job, at: priority, posted: false, unless: { Task.isCancelled }), job, on: lane)
             }
@@ -177,8 +195,8 @@ public final class BackgroundWork: Sendable {
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown,
                      fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
-        let job = makeJob(id: nextID(), shutdown: shutdown, site: CallSite(fileID: fileID, line: line),
-                          work: body, abandoned: {})
+        guard let job = makeJob(id: nextID(), shutdown: shutdown, site: CallSite(fileID: fileID, line: line),
+                                work: body, abandoned: {}) else { return }
         submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
     }
 
@@ -251,13 +269,14 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    /// Starts shutdown: drops every lane item that has not started except ``ShutdownBehavior/blockShutdown``
-    /// ones, cancels every ``ShutdownBehavior/skipOnShutdown`` task, refuses new items other than
-    /// block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws `CancellationError`), lifts
-    /// the best-effort fence so held block-shutdown items run, and returns when every block-shutdown item
-    /// has finished. Started continue-on-shutdown items run on and are not awaited. Quit awaits it once,
-    /// after its own saves and inside its deadline (QuitCoordinator).
-    public func shutdown() async {
+    /// Starts shutdown and returns at once: drops every lane item that has not started except
+    /// ``ShutdownBehavior/blockShutdown`` ones, cancels every ``ShutdownBehavior/skipOnShutdown`` task, refuses
+    /// new items other than block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws
+    /// `CancellationError`, and so does a continue-on-shutdown task that had not started), and lifts the
+    /// best-effort fence so held block-shutdown items run. Started continue-on-shutdown items run on. A second
+    /// call does nothing more. Quit calls it before the engines stop, so the lanes drain alongside them
+    /// (QuitCompletion).
+    public func beginShutdown() {
         let cancels = state.withLock { state in
             state.closed = true
             return state.skipTaskCancels()
@@ -266,9 +285,19 @@ public final class BackgroundWork: Sendable {
         for lane in lanes {
             for job in lane.close() { job.abandon() }
         }
+    }
+
+    /// ``beginShutdown()``, then returns when every block-shutdown item has finished; from then on a
+    /// block-shutdown item is refused as well. Started continue-on-shutdown items are not awaited. Quit awaits
+    /// it once, after the engines stop and inside its deadline (QuitCompletion).
+    public func shutdown() async {
+        beginShutdown()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let now = state.withLock { state -> Bool in
-                if state.blocking == 0 { return true }
+                if state.blocking == 0 {
+                    state.drained = true
+                    return true
+                }
                 state.waiters.append(continuation)
                 return false
             }
@@ -280,12 +309,22 @@ public final class BackgroundWork: Sendable {
         state.withLock { $0.takeID() }
     }
 
+    /// The lane job for an item; nil for a block-shutdown item that came after ``shutdown()`` returned
+    /// (recorded, never run).
     private func makeJob(id: UInt64, shutdown: ShutdownBehavior, site: CallSite, work: @escaping @Sendable () -> Void,
-                         abandoned: @escaping @Sendable () -> Void) -> LaneJob {
+                         abandoned: @escaping @Sendable () -> Void) -> LaneJob? {
         guard shutdown == .blockShutdown else {
             return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: {})
         }
-        state.withLock { $0.blocking += 1 }
+        let taken = state.withLock { state -> Bool in
+            guard !state.drained else { return false }
+            state.blocking += 1
+            return true
+        }
+        guard taken else {
+            blockShutdownRefused(site)
+            return nil
+        }
         return LaneJob(id: id, shutdown: shutdown, work: { [self] in
             let start = blockShutdownStarted()
             work()
@@ -298,7 +337,9 @@ public final class BackgroundWork: Sendable {
     func blockItemFinished() {
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
             state.blocking -= 1
-            guard state.blocking == 0 else { return [] }
+            guard state.blocking == 0, !state.waiters.isEmpty else { return [] }
+            // A shutdown() waits: it returns now, so later block items are refused.
+            state.drained = true
             defer { state.waiters = [] }
             return state.waiters
         }

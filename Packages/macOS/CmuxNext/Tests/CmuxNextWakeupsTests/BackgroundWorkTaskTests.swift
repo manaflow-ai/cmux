@@ -1,5 +1,5 @@
 import CmuxNextCompat
-import CmuxNextWakeups
+@testable import CmuxNextWakeups
 import os
 import Testing
 
@@ -115,13 +115,87 @@ import Testing
         #expect(work.registeredTaskCount == 0)
     }
 
-    @Test func afterShutdownABlockTaskStillRuns() async throws {
+    @Test func aBlockItemIsTakenUntilShutdownReturnsAndRefusedAfter() async throws {
         let work = BackgroundWork(label: "test.task.late-save")
+        work.beginShutdown()
+        // Shutdown has begun, not returned: a block-shutdown save is still taken, and shutdown waits for it.
+        let early = work.task(.bestEffort, shutdown: .blockShutdown) { 42 }
         await work.shutdown()
-        let task = work.task(.bestEffort, shutdown: .blockShutdown) { 42 }
-        #expect(try await task.value == 42)
-        // A second shutdown waits for it too, and returns at once when nothing blocks.
+        #expect(try await early.value == 42)
+        // Nothing would wait for these any more: each is refused and never runs (Chrome DCHECKs such a post).
+        let ran = OSAllocatedUnfairLock(initialState: false)
+        let late = work.task(.bestEffort, shutdown: .blockShutdown) {
+            ran.withLock { $0 = true }
+            return 1
+        }
+        await #expect(throws: CancellationError.self) { try await late.value }
+        await #expect(throws: CancellationError.self) {
+            try await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { ran.withLock { $0 = true } }
+        }
+        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { ran.withLock { $0 = true } }
+        #expect(!ran.withLock { $0 })
+        #expect(work.registeredTaskCount == 0)
+        #if DEBUG
+        let sites = work.blockShutdownLatePosts
+        #expect(sites.count == 3, "\(sites)")
+        #expect(sites.allSatisfy { $0.hasPrefix("CmuxNextWakeupsTests/BackgroundWorkTaskTests.swift:") })
+        #endif
+        // A second shutdown has nothing to wait for.
         await work.shutdown()
+    }
+
+    @Test(arguments: [ShutdownBehavior.skipOnShutdown, .continueOnShutdown])
+    func aTaskThatHadNotStartedWhenShutdownBeganNeverRunsOp(behavior: ShutdownBehavior) async throws {
+        let entered = Signal()
+        let gate = Signal()
+        // The body stops before its shutdown check until the gate opens: the task is registered, not started.
+        let hooks = BackgroundWork.TaskHooks(beforeBody: {
+            entered.send()
+            await gate.wait()
+        }, attach: { $0() })
+        let work = BackgroundWork(cpuWidth: 1, label: "test.task.unstarted", onQueued: { _, _ in }, uptimeNanos: nil,
+                                  taskHooks: hooks)
+        let ran = OSAllocatedUnfairLock(initialState: false)
+        let task = work.task(.userVisible, shutdown: behavior) {
+            ran.withLock { $0 = true }
+            return 1
+        }
+        await entered.wait()
+        // Neither behavior is awaited: shutdown returns while the body still waits at the gate.
+        await work.shutdown()
+        gate.send()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(!ran.withLock { $0 })
+        #expect(work.registeredTaskCount == 0)
+    }
+
+    @Test func aStartedSkipTaskThatShutdownMetBeforeItsCancelWasSetIsCancelledWhenItIs() async throws {
+        let attachLater = OSAllocatedUnfairLock<(@Sendable () -> Void)?>(initialState: nil)
+        // The task gets its cancel only when the test says so: shutdown comes in between.
+        let hooks = BackgroundWork.TaskHooks(beforeBody: {}, attach: { attachNow in
+            attachLater.withLock { $0 = attachNow }
+        })
+        let work = BackgroundWork(cpuWidth: 1, label: "test.task.attach", onQueued: { _, _ in }, uptimeNanos: nil,
+                                  taskHooks: hooks)
+        let running = Signal()
+        let never = Signal()
+        let sawCancel = OSAllocatedUnfairLock(initialState: false)
+        let task = work.task(.userVisible, shutdown: .skipOnShutdown) {
+            running.send()
+            // Returns when the task is cancelled: nothing ever sends.
+            await never.wait()
+            sawCancel.withLock { $0 = Task.isCancelled }
+            try Task.checkCancellation()
+        }
+        // `op` runs: the body passed its shutdown check before shutdown began.
+        await running.wait()
+        await work.shutdown()
+        // Shutdown found no cancel to call; the task still runs.
+        #expect(work.registeredTaskCount == 1)
+        let attach = try #require(attachLater.withLock { $0 })
+        attach()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(sawCancel.withLock { $0 })
         #expect(work.registeredTaskCount == 0)
     }
 
