@@ -91,6 +91,9 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// The restore's and the visible panes' startup refs (p08-startup task 013), passed to `restoreWhenLoaded`.
     private var launchPaneRefs: VisiblePaneRefs?
+    /// The launch window's saved picture as its first frame (p08-startup-059, `LaunchSnapshotWindow`); nil when the
+    /// launch shows none.
+    var launchPicture: LaunchPicturePhase?
     /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
     private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
@@ -189,20 +192,26 @@ final class WindowManager {
     func restoreWhenLoaded(paneRefs: VisiblePaneRefs? = nil) {
         if let paneRefs { launchPaneRefs = paneRefs }
         registry.isLaunching = !restored
-        if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
+        if controllers.isEmpty, launchPicture == nil, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
         }
-        let store = services.daemon.store, work = services.work
+        let store = services.daemon.store
         // The restore awaits the saved window state off main; `restore` runs once (`restored`).
         loadObservation = ServiceObservation(.visible, owner: "WindowManager.restoreWhenLoaded", on: services.mainWork) {
             store.isLoaded
         } apply: { [weak self] loaded in
             guard loaded, let self, !restored else { return }
             loadObservation?.cancel()
-            work.task(.userBlocking) { [weak self] in await self?.restore() }
+            // The restore adopts the launch window's controller, which a picture shown alone has not built yet.
+            guard let launchPicture else { return startRestore() }
+            launchPicture.whenBuilt { [weak self] in self?.startRestore() }
         }
+    }
+
+    private func startRestore() {
+        services.work.task(.userBlocking) { [weak self] in await self?.restore() }
     }
 
     /// Runs `work` once the launch's session restore finished (the saved windows back, the launch window adopted or closed).
@@ -305,9 +314,10 @@ final class WindowManager {
 
     // MARK: Controllers
 
-    /// Creates the controller of registered window `id`.
+    /// Creates the controller of registered window `id`, in `premade` when the launch showed that window's saved
+    /// picture before it had a controller (`LaunchSnapshotWindow`).
     @discardableResult
-    func makeController(for window: WindowRegistry.Window) -> WindowController {
+    func makeController(for window: WindowRegistry.Window, in premade: ShellWindow? = nil) -> WindowController {
         let state = state(for: window.id)
         if state.machineID != MachineRegistry.localID { services.cloudNeeded() }  // a Cloud machine's window, restored ones too
         var frame = (window.frame ?? pendingFrames.removeValue(forKey: window.id)).map { WindowPlacementFallback.visible($0, display: window.display) }
@@ -316,7 +326,7 @@ final class WindowManager {
             frame = placed
             placedWindows += 1
         }
-        let controller = WindowController(state: state, services: services, frame: frame)
+        let controller = WindowController(state: state, services: services, frame: frame, window: premade)
         controller.focus.overlayChanges = services.overlayChanges
         if let window = controller.window { WindowOverlayHost.host(for: window).changes = services.overlayChanges }
         controller.sidebar.restore(width: state.sidebarWidth, hidden: state.sidebarHidden)
