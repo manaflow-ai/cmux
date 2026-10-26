@@ -108,7 +108,8 @@ acpmux new --host my-linux -m codex --group "Remote demo" -d "say hi"
 
 `--group` runs the local `cmux agent open` using the returned session ID. The
 workspace belongs to your Mac; the agent and its files stay on the peer. It
-joins a suitable group of that name or creates one.
+joins a suitable group of that name or creates one. Opening the workspace may
+move focus.
 Use `--name api-work --reuse` to rerun a launch without creating another
 session. Without `--name`, each invocation creates a new session and row.
 
