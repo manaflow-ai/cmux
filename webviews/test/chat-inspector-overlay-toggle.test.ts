@@ -450,4 +450,30 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         await page.close();
       }
     });
+
+  // Full length (Leo, 2026-10-26) never covers the composer: in a pane too narrow for the chat to move
+  // left for it, the card floats over the chat and stops above the composer's stack.
+  for (const name of browsers.keys())
+    test(`${name}: over the chat in a narrow pane, a busy Inspector stops above the composer`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 900, height: 900 });
+      try {
+        const { panel } = await openInspector(page, 0);
+        await page.addStyleTag({ content: "aside.acpmux-chat-inspector [data-section] { min-height: 1600px; }" });
+        await page.waitForFunction(
+          () => document.querySelector("aside.acpmux-chat-inspector[data-over-chat]") !== null,
+        );
+        const { bottom, dockTop, scrolls } = await panel.evaluate((node) => {
+          const body = node.querySelector(".acpmux-chat-inspector__body")!;
+          return {
+            bottom: node.getBoundingClientRect().bottom,
+            dockTop: document.querySelector(".acpmux-dock")!.getBoundingClientRect().top,
+            scrolls: body.scrollHeight > body.clientHeight + 1,
+          };
+        });
+        expect({ clear: bottom <= dockTop + 0.5, scrolls }).toEqual({ clear: true, scrolls: true });
+      } finally {
+        await page.close();
+      }
+    });
 });

@@ -38,6 +38,13 @@
   max-height: calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset));
   border-radius: var(--acpmux-inspector-panel-radius);
 }
+/* Lying over the chat's column (the chat cannot move left for it), it stops above the composer's stack
+   (ChatInspector.tsx inspectorOverChat, --acpmux-inspector-foot), so it never covers the composer. */
+.acpmux-chat-inspector[data-placement="overlay"][data-over-chat] {
+  max-height: calc(
+    100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-foot, 0px) - var(--acpmux-inspector-inset)
+  );
+}
 /* Pushing: a flex item that keeps its own height at the top, its margins the floating card's place. */
 .acpmux-chat-inspector[data-placement="push"] {
   align-self: flex-start;

@@ -123,8 +123,8 @@ const groupedControls: Play = async (ctx) => {
 
 // Plain icons (Leo 2026-10-25: "why do the icons have their own background border situation instead of
 // just being, you know, good"): with the right-side panel and Terminal's split open, Terminal hovered
-// and the chat menu open, no header tool draws a fill, border or shadow; the open panel's toggle reads
-// as on by its ink alone, against Browser at rest.
+// and the chat menu open, no header tool draws a fill, border or shadow but one: the open panel's toggle
+// draws a soft fill so it reads as toggled (Leo, 2026-10-26: "why is the button not toggled?").
 const plainIcons: Play = async (ctx) => {
   const { setHeaderState } = await import("./headerState");
   setHeaderState({ lit: ["splitRight"] });
@@ -133,11 +133,15 @@ const plainIcons: Play = async (ctx) => {
   await openMenu(ctx);
   const view = ctx.document.defaultView!;
   const tools = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-header-tools .acpmux-header-tool")];
+  const clear = (color: string) => /^rgba\(.*,\s*0\)$|^transparent$/.test(color);
   for (const tool of tools) {
     const style = view.getComputedStyle(tool);
     const name = tool.getAttribute("aria-label");
-    if (!/^rgba\(.*,\s*0\)$|^transparent$/.test(style.backgroundColor))
-      throw new Error(`header tool ${name} draws a fill: ${style.backgroundColor}`);
+    const openPanel = tool.matches('.acpmux-header-panel-toggle[aria-pressed="true"]');
+    if (openPanel === clear(style.backgroundColor))
+      throw new Error(
+        `header tool ${name}: ${openPanel ? "no fill while its panel is open" : `draws a fill: ${style.backgroundColor}`}`,
+      );
     if (["top", "right", "bottom", "left"].some((side) => style.getPropertyValue(`border-${side}-width`) !== "0px"))
       throw new Error(`header tool ${name} draws a border`);
     if (style.boxShadow !== "none") throw new Error(`header tool ${name} draws a shadow: ${style.boxShadow}`);
