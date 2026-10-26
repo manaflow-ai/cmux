@@ -953,7 +953,7 @@ fn latest_code_block_is_available_over_cli_and_mcp() {
             }),
         )],
     );
-    assert_eq!(replies[0]["isError"], false, "{:?}", replies);
+    assert_eq!(replies[0]["isError"], false, "{replies:?}");
     for page in [&cli, &replies[0]["structuredContent"]] {
         assert_eq!(
             page["last_code_block"],
