@@ -338,22 +338,22 @@ final class WindowManager {
         return controller
     }
 
-    /// The first window's first frame is its picture from the last quit over the bare window (p08-startup-060):
-    /// the workspace is built under it in an afterFirstFrame post, and the picture leaves region by region at each
-    /// region's first content: the sidebar's part at its rows, the main pane's at its tab strip and content, the
-    /// rest with the last of them (`LaunchPictureCover`, 2 s bound). False with no picture or past the first frame.
+    /// The first window's first frame is its picture from the last quit over the bare window (p08-startup-060): the workspace is built under it
+    /// after that frame and the picture leaves region by region (`LaunchPictureCover`); keys and clicks wait for it (`LaunchPictureInput`, 061).
     private func coverWithLaunchPicture(_ controller: WindowController) -> Bool {
         defer { launchPicture = nil }
         guard let startup = services.launchStartup, startup.log.phase == .beforeFirstFrame, let image = launchPicture?(controller.state.id) else { return false }
-        let root = controller.root
-        root.launchPicture = LaunchPictureCover(image: image, over: root, parts: [.init(until: [.sidebar], view: root.sidebar), .init(until: [.tabs, .pane], view: root.contentHost)],
-                                                reveal: services.launchReveal, deadlines: services.mainDeadlines)
-        DebugTimings.markLaunch("launch_picture_shown")
-        startup.post(.afterFirstFrame, "WindowManager.launchContent", on: .main) { [weak controller] in
-            guard let controller, !controller.tornDown else { return }
+        let root = controller.root, state = controller.state, build: @MainActor @Sendable () -> Void = { [weak controller] in
+            guard let controller, !controller.tornDown, controller.workspaceObservation == nil else { return }
             controller.showWorkspace(requested: controller.state.workspaceID)
-            if controller.workspaceObservation == nil { controller.observeWorkspace() }
+            controller.observeWorkspace()
         }
+        let input = LaunchPictureInput(window: state.id, shell: controller.window, keys: services.keyRouter.launchPictureKeys, reveal: services.launchReveal, mainWork: services.mainWork,
+                                       pastFirstFrame: { startup.log.phase != .beforeFirstFrame }, build: build) { String(describing: (state.workspaceID, state.page, state.sidebarHidden)) }
+        root.launchPicture = LaunchPictureCover(image: image, over: root, parts: [.init(until: [.sidebar], view: root.sidebar), .init(until: [.tabs, .pane], view: root.contentHost)],
+                                                reveal: services.launchReveal, deadlines: services.mainDeadlines, clicks: input.clicks, onFinish: input.finish)
+        DebugTimings.markLaunch("launch_picture_shown")
+        startup.post(.afterFirstFrame, "WindowManager.launchContent", on: .main, build)
         return true
     }
 
