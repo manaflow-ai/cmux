@@ -88,7 +88,7 @@ struct PageChromiumWindowImageTests {
         window.contentView?.addSubview(view)
         view.layoutSubtreeIfNeeded()
         #expect(view.chromiumWindowHoles.isEmpty, "a page with no native UI over it has holes: \(view.chromiumWindowHoles)")
-        view.nativeRects = [CGRect(x: 0, y: 164, width: 200, height: 36), CGRect(x: 267, y: 164, width: 33, height: 36)]
+        view.nativeRects = [CGRect(x: 0, y: 0, width: 200, height: 36), CGRect(x: 267, y: 0, width: 33, height: 36)]
         #expect(view.chromiumWindowHoles == [CGRect(x: 100, y: 214, width: 200, height: 36), CGRect(x: 367, y: 214, width: 33, height: 36)])
         view.nativeRects = []
         #expect(view.chromiumWindowHoles.isEmpty)

@@ -33,7 +33,8 @@ struct AppWindowImage {
             // The app's own React pages on Chromium (the agent page, Settings) go back over their page windows' masks.
             for (page, rect) in PageRegistry.shownChromiumPages(in: window) where ScreenshotPrivacyMask.isAppOwned(page) {
                 guard let image = await page.chromiumImage() else { continue }
-                layers.append(.page(image, rect, holes: page.chromiumWindowHoles)) // a chat leaves its pane's tabs uncovered
+                // No holes here: the mask under the page covers its whole window, so a hole would show black, not the tabs.
+                layers.append(.page(image, rect))
             }
             if layers.isEmpty { return base }
             // A mask that cannot be painted never lets the unmasked image out.
