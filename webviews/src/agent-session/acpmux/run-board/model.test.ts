@@ -108,6 +108,7 @@ describe("Run board human intent", () => {
             { path: "/work/project/src/main.ts", newText: "export {}" },
             { path: "/tmp/m1076.txt", newText: "scratch" },
             { path: "/work/project/../tmp/m1077.txt", newText: "scratch" },
+            { path: "m1078.txt", canonical: "/tmp/m1078.txt", newText: "scratch" },
           ],
         }),
       ], 1),
