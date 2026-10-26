@@ -186,6 +186,8 @@ fn state(summary: &Value) -> String {
     match s("status") {
         "disconnected" => "blocked: its agent stopped".into(),
         "closed" => "closed".into(),
+        // Between two turns, its next prompt already queued.
+        _ if summary["queued"].as_u64().unwrap_or(0) > 0 => "working on its next prompt".into(),
         _ => "idle".into(),
     }
 }

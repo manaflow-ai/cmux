@@ -278,15 +278,9 @@ impl Hub {
                 }
             }
         };
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-        // A lane's report queued behind a turn its parent's close then ended: it never reopens
-        // the parent. Logged, so a restart does not queue it again (`lost_start.rs`).
-        if refuses_closing(&p) && closing(session) {
-            let e = closing_error();
-            let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
-            self.append(session, "mux", "prompt_refused", msg);
-            return Err(Err(e));
-        }
         Ok((turn_id, true, guard, run))
     }
 
@@ -991,8 +985,17 @@ impl Hub {
 
 /// Whether the prompt is one a closing session refuses: a lane's report.
 fn refuses_closing(p: &Slot<'_>) -> bool {
-    p.provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+    is_lane_report(p.provenance)
+}
+
+fn is_lane_report(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
         == Some(super::lane_reports::KIND)
+}
+
+/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
+pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
+    is_lane_report(provenance) && closing(session)
 }
 
 /// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
