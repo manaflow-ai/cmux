@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// When a personal workspace group ends (cx-rcby). The home daemon keeps a
 /// group until a client deletes it, so the client that moves workspaces
@@ -133,8 +134,9 @@ struct PersonalGroupLife {
                     if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
                 }
             }
-            // Ending until the home store holds the delete, so a reader (the close's Undo) never sees the group as kept meanwhile.
-            if deleted != nil, let connection = home.connection { _ = await home.appliedThroughReply(on: connection, after: "delete-personal-group") }
+            // Ending until the home store no longer lists the groups (or 5 s, then a resync owns it), so a reader (a selection
+            // close's Undo) never sees a deleted group as kept, whatever connection the store hears it on.
+            if deleted != nil { await ObservationDeadline(owner: "personal-group-delete").until({ doomed.allSatisfy { personal.group($0) == nil } }, limit: .seconds(5)) }
             end()
             if deleted == nil { failed() }
         }
