@@ -34,7 +34,7 @@ enum DebugAXFrame {
         // A person ran the debug command and waits for it.
         let (work, pid, wanted) = (services.work, target.pid, target.frame)
         let trusted = (try? await work.run(.userBlocking, mayBlock: .system) { AXIsProcessTrusted() }) ?? false
-        guard let element = try? await work.run(.userBlocking, mayBlock: .system, { AXWindowFrame(pid: pid, nearest: wanted) }) else {
+        guard let element = try? await work.run(.userBlocking, mayBlock: .system) { () throws -> AXWindowFrame? in AXWindowFrame(pid: pid, nearest: wanted) } else {
             return .object(["error": .string("AX window not found"), "trusted": .bool(trusted)])
         }
         let sizeFirst = params["order"]?.stringValue == "size_position"
