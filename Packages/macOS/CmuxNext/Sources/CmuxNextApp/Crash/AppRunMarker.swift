@@ -87,7 +87,8 @@ final class AppRunMarker {
     /// The ticket of the newest submitted write.
     private var lastTicket: UInt64 = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    private var survivalTask: Task<Void, Never>?
+    /// Marks the run survived once it lived past the quick-crash window (``armSurvivalWindow(on:now:)``).
+    private var survival: MainDeadline?
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
@@ -164,13 +165,17 @@ final class AppRunMarker {
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
-        let window = LaunchRecovery.quickCrashWindow
-        survivalTask = Task { [weak self] in
-            // wakeup-allow: deadline the quick-crash window after launch; fires once, cancelled by a clean exit. It is
-            // armed inside AppServices.init, before the app's MainDeadlineScheduler can be read.
-            do { try await Task.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance) } catch { return }
-            self?.markSurvived()
-        }
+    }
+
+    /// Starts the quick-crash window: the run is marked survived once it has lived
+    /// ``LaunchRecovery/quickCrashWindow`` since its launch. One background deadline on the app's scheduler (nobody
+    /// waits on it, and a crash before it fires leaves the run unsurvived); a clean exit cancels it. Armed once.
+    func armSurvivalWindow(on deadlines: MainDeadlineScheduler, now: Date = Date()) {
+        guard survival == nil else { return }
+        let deadline = MainDeadline(owner: "AppRunMarker.survival", workClass: .background, scheduler: deadlines)
+        survival = deadline
+        let lived = Duration.seconds(max(0, now.timeIntervalSince(marker.launched)))
+        deadline.schedule(after: max(.zero, LaunchRecovery.quickCrashWindow - lived)) { [weak self] in self?.markSurvived() }
     }
 
     /// Installs the fatal signal handlers. Call again after CefInitialize:
@@ -225,7 +230,7 @@ final class AppRunMarker {
 
     /// A normal quit: the next launch is clean.
     func markCleanExit() {
-        survivalTask?.cancel()
+        survival?.cancel()
         let descriptor = fatalSignalDescriptor
         fatalSignalDescriptor = -1
         if descriptor >= 0 { close(descriptor) }

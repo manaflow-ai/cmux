@@ -72,6 +72,7 @@ nonisolated final class RunMarkerFile: Sendable {
     /// True once `ticket` is on disk; false when `timeout` passes first.
     /// After `close` it answers true: the file was removed on purpose.
     func written(_ ticket: UInt64, timeout: Duration) async -> Bool {
+        // timer-class-allow: off-main: the quit's bounded wait (flexible, no sooner) only resumes a continuation under the file's lock; it posts no main-thread job
         let deadline = DemandTimer(owner: "run-marker.write")
         defer { deadline.cancel() }
         return await withCheckedContinuation { continuation in
