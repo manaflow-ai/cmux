@@ -70,6 +70,8 @@ nonisolated enum AcpmuxDaemonLauncher {
         }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
+        // The owning app: the leftover daemon idle exit keeps the daemon while it runs.
+        variables["ACPMUX_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return variables
     }
 
