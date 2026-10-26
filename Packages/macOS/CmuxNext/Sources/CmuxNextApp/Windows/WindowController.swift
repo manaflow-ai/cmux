@@ -254,6 +254,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
+        // Panes pan and spring per display frame: shortcut chips over them follow.
+        controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
         DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
