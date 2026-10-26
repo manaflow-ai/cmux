@@ -116,7 +116,7 @@ nonisolated public struct WebUICensus: Sendable {
         self.pages = pages.map { view in
             let census = view.census
             let process = view.chromiumPage.map { rendererProcess($0) }
-            let isNewTabSpare = newTabSpare != nil && view.webKitView === newTabSpare
+            let isNewTabSpare = newTabSpare != nil && view.webKitEngine?.webView === newTabSpare
             newTabSpareSeen = newTabSpareSeen || isNewTabSpare
             let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil
             var keepReasons: [String] = []
@@ -129,7 +129,7 @@ nonisolated public struct WebUICensus: Sendable {
                         spare: spare,
                         windowNumber: view.window?.windowNumber, browserID: process?.browserID,
                         rendererClients: process?.clients ?? [],
-                        webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
+                        webKitPID: census.engine == "webkit" ? view.webKitEngine.flatMap { webKitPID($0.webView) } : nil)
         }
         var spares = spareWindows
         if let newTabSpare, !newTabSpareSeen { spares.append(Host(name: "new_tab", webKitPID: webKitPID(newTabSpare))) }

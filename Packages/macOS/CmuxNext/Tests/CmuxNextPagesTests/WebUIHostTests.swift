@@ -116,16 +116,19 @@ struct WebUIHostTests {
         for view in [first, second, alone] { host.close(view) }
     }
 
-    /// A page that shows in Chromium has no WebKit process to share: its unused WebKit view stays
-    /// out of the group, so it never becomes the group's first page.
+    /// A page that shows in Chromium has no WebKit process to share: it has no WebKit view
+    /// (p13-webui-041), and the one a host forces stays out of the group, so it never becomes the
+    /// group's first page.
     @Test func aSharedPageInChromiumStaysOutOfTheGroup() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let host = makeHost(FakeChromiumHosting())
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [],
                                                           options: PageEngineOptions(sharesWebKitProcess: true))))
         #expect(view.engineDecision == .chromium)
-        #expect(view.webKitView.configuration.websiteDataStore !== host.processGroups.dataStore)
+        #expect(view.webKitEngine == nil)
         await view.chromiumStart?.value
+        #expect(view.webKitEngine == nil)
+        #expect(view.webKitView.configuration.websiteDataStore !== host.processGroups.dataStore)
         host.close(view)
     }
 }

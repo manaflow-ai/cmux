@@ -6,7 +6,8 @@ import WebKit
 
 // Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through
 // ``PageChromiumPage``), so a host never reaches into ``PageWebView/webKitView`` for them: a script,
-// a picture of the page, the next drawn frame, and extra message handlers. A function's value is
+// a picture of the page, the next drawn frame, and extra message handlers. None of them builds the
+// WebKit engine: a Chromium page on its way answers nothing (PageWebKitEngine.swift). A function's value is
 // ``PageWebView/callPageFunction(_:arguments:)``; in Chromium it runs through
 // ``PageChromiumPage/evaluate(_:)``, which a CEF page answers with the fork's `tabEvaluate` on
 // renderer paths (fork API 29), so there the frame wait makes no DevTools call.
@@ -29,7 +30,7 @@ extension PageWebView {
     /// multi-megabyte base64 string) is parsed and decoded on the `.cpu` lane (``capturedPageImage(_:on:)``).
     public func snapshot() async -> NSImage? {
         guard !awaitsFirstShow else { return nil } // nothing drawn, and no engine call before the first show
-        guard let session = chromiumSession else { return try? await webView.takeSnapshot(configuration: nil) }
+        guard let session = chromiumSession else { return try? await webKitEngine?.view.takeSnapshot(configuration: nil) }
         guard let json = try? await session.page.devTools("Page.captureScreenshot", params: Self.snapshotParams),
               let image = await Self.capturedPageImage(json, on: session.work) else { return nil }
         return NSImage(cgImage: image, size: bounds.size)
@@ -71,8 +72,8 @@ extension PageWebView {
         Task { @MainActor [weak self] in
             guard let self, !self.awaitsFirstShow else { return body() }
             _ = await self.callPageFunction(wait)
-            guard self.chromiumSession == nil else { return body() }
-            Self.afterPresentationUpdate(of: self.webView, body)
+            guard self.chromiumSession == nil, let view = self.webKitEngine?.view else { return body() }
+            Self.afterPresentationUpdate(of: view, body)
         }
     }
 
@@ -96,7 +97,7 @@ extension PageWebView {
     ///   - handler: Gets each message's body.
     public func addMessageHandler(_ name: String, handler: @escaping @MainActor (Any) -> Void) {
         chromiumMessageHandlers[name] = handler
-        let controller = webView.configuration.userContentController
+        let controller = userContent
         controller.removeScriptMessageHandler(forName: name, contentWorld: .page)
         controller.add(PageMessageRelay(view: self, handler: handler), contentWorld: .page, name: name)
     }
@@ -104,7 +105,7 @@ extension PageWebView {
     /// Removes a handler ``addMessageHandler(_:handler:)`` added.
     public func removeMessageHandler(_ name: String) {
         chromiumMessageHandlers[name] = nil
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: name, contentWorld: .page)
+        userContent.removeScriptMessageHandler(forName: name, contentWorld: .page)
     }
 }
 
@@ -119,7 +120,7 @@ private final class PageMessageRelay: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let view, message.webView === view.webKitView, message.frameInfo.isMainFrame else { return }
+        guard let view, let webView = message.webView, webView === view.webKitEngine?.view, message.frameInfo.isMainFrame else { return }
         handler(message.body)
     }
 }
