@@ -1,0 +1,124 @@
+#!/bin/bash
+# gh, except that a GitHub API rate-limit refusal waits for the budget to reset
+# and tries again instead of failing the job.
+#
+# Every workflow shares one installation budget an hour. When something else has
+# spent it, a nightly's publish path used to fail on its next gh call and throw a
+# finished, signed build away (2026-10-26: run 40298250989 failed in
+# legacy-identity-target's feed compare and in the daemon attestation). Waiting
+# for the reset relaxes nothing: the same call runs, with the same token, later.
+#
+#   gh_budget_wait.sh --install      put this wrapper first on PATH as `gh` for the
+#                                    rest of the job (GITHUB_PATH); every later gh
+#                                    call, scripts' included, goes through it
+#   gh_budget_wait.sh --reserve N    wait (once, bounded) until the core budget has
+#                                    at least N calls left; never fails
+#
+# A refused call is retried at most GH_BUDGET_WAIT_ATTEMPTS times (default 3), and
+# one job waits at most GH_BUDGET_WAIT_MAX_SECONDS in all (default 3600, the
+# longest a reset can be away); each wait is logged. Reading /rate_limit costs
+# nothing. A refused request did nothing on GitHub's side, so retrying a write is
+# safe. Standard input is replayed only when the call reads it (`--input -`,
+# `@-`, `-F -`); otherwise it is left alone for the caller.
+# Runs on macOS's bash 3.2.
+
+REAL_GH=gh # --install writes the real gh's path here
+
+set -u
+
+ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
+max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
+attempts="${GH_BUDGET_WAIT_ATTEMPTS:-3}"
+
+waited_so_far() {
+  cat "$ledger_dir/waited" 2>/dev/null || echo 0
+}
+
+# Seconds until the exhausted budget resets (core, graphql or search), or 60 when
+# none reads exhausted (a secondary limit), capped by what this job has left.
+seconds_to_reset() {
+  local now reset left
+  now="$(date +%s)"
+  reset="$("$REAL_GH" api rate_limit --jq \
+    '[.resources.core, .resources.graphql, .resources.search] | map(select(.remaining == 0) | .reset) | max // 0' \
+    2>/dev/null || echo 0)"
+  case "$reset" in '' | *[!0-9]*) reset=0 ;; esac
+  if [ "$reset" -gt "$now" ]; then left=$((reset - now + 5)); else left=60; fi
+  echo "$left"
+}
+
+# Seconds until the core budget resets, for --reserve.
+seconds_to_reset_core() {
+  local now reset
+  now="$(date +%s)"
+  reset="$("$REAL_GH" api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+  case "$reset" in '' | *[!0-9]*) reset=0 ;; esac
+  if [ "$reset" -gt "$now" ]; then echo $((reset - now + 5)); else echo 60; fi
+}
+
+# Sleep for $1 seconds within this job's total, logging why. Fails when the total is spent.
+wait_for_budget() {
+  local want="$1" why="$2" spent remaining
+  spent="$(waited_so_far)"
+  remaining=$((max_total - spent))
+  [ "$remaining" -gt 0 ] || return 1
+  [ "$want" -le "$remaining" ] || want="$remaining"
+  echo "::notice title=GitHub API budget::$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)" >&2
+  sleep "$want"
+  mkdir -p "$ledger_dir"
+  echo $((spent + want)) >"$ledger_dir/waited"
+}
+
+if [ "${1:-}" = "--install" ]; then
+  real="$(command -v gh 2>/dev/null || true)"
+  if [ -z "$real" ] || [ -z "${GITHUB_PATH:-}" ]; then
+    echo "::warning title=GitHub API budget::no gh or GITHUB_PATH; gh calls in this job will not wait through a rate limit"
+    exit 0
+  fi
+  mkdir -p "$ledger_dir/bin"
+  sed "s|^REAL_GH=gh |REAL_GH='$real' |" "$0" >"$ledger_dir/bin/gh"
+  chmod +x "$ledger_dir/bin/gh"
+  echo "$ledger_dir/bin" >>"$GITHUB_PATH"
+  echo "gh calls in this job wait through a rate limit (real gh: $real)"
+  exit 0
+fi
+
+if [ "${1:-}" = "--reserve" ]; then
+  want="${2:-200}"
+  left="$("$REAL_GH" api rate_limit --jq '.resources.core.remaining' 2>/dev/null || echo "")"
+  case "$left" in '' | *[!0-9]*) exit 0 ;; esac
+  if [ "$left" -lt "$want" ]; then
+    wait_for_budget "$(seconds_to_reset_core)" "the core budget has $left calls left, under $want" || true
+  fi
+  exit 0
+fi
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/gh-budget-wait.XXXXXX")" || exec "$REAL_GH" "$@"
+trap 'rm -rf "$work"' EXIT
+
+stdin_file=""
+for arg in "$@"; do
+  case "$arg" in
+    - | *@- | --input=- | --body-file=-) stdin_file="$work/stdin" ;;
+  esac
+done
+[ -z "$stdin_file" ] || cat >"$stdin_file"
+
+try=1
+while [ "$try" -le "$attempts" ]; do
+  if [ -n "$stdin_file" ]; then
+    "$REAL_GH" "$@" <"$stdin_file" >"$work/out" 2>"$work/err"
+  else
+    "$REAL_GH" "$@" >"$work/out" 2>"$work/err"
+  fi
+  rc=$?
+  if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
+    ! grep -qiE 'rate limit exceeded|secondary rate limit' "$work/err" "$work/out"; then
+    break
+  fi
+  wait_for_budget "$(seconds_to_reset)" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
+  try=$((try + 1))
+done
+cat "$work/out"
+cat "$work/err" >&2
+exit "$rc"
