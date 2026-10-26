@@ -37,6 +37,24 @@ pub const CREATING_FOR: Duration = Duration::from_secs(20 * 60);
 /// The longest a machine name is (the app takes 64).
 const NAME_MAX: usize = 48;
 
+/// Why a run gave no result.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunError {
+    /// The app answered with a refusal or a failure.
+    Refused(String),
+    /// The app did not answer (no socket, a timeout): the run may still go on.
+    NoAnswer(String),
+}
+
+impl std::fmt::Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunError::Refused(e) => f.write_str(e),
+            RunError::NoAnswer(e) => write!(f, "the app did not answer: {e}"),
+        }
+    }
+}
+
 /// One app action run, its `result` fields answered. `key`: the run's
 /// idempotency key, so a retry joins or replays it instead of running again.
 pub trait AppActions: Send + Sync {
@@ -46,7 +64,7 @@ pub trait AppActions: Send + Sync {
         target: Option<&str>,
         args: Value,
         key: Option<&str>,
-    ) -> Result<Value, String>;
+    ) -> Result<Value, RunError>;
 }
 
 /// The app's control socket (`CMUX_SOCKET_PATH`).
@@ -65,9 +83,11 @@ impl AppActions for ControlSocketActions {
         target: Option<&str>,
         args: Value,
         key: Option<&str>,
-    ) -> Result<Value, String> {
+    ) -> Result<Value, RunError> {
         let request = run_request(action, target, args, key);
-        let reply = crate::workspaces::control_call(&self.socket, &request, RUN_TIMEOUT)?;
+        let (value, answer) = crate::workspaces::control_reply(&self.socket, &request, RUN_TIMEOUT)
+            .map_err(RunError::NoAnswer)?;
+        let reply = crate::workspaces::reply_result(&value, &answer).map_err(RunError::Refused)?;
         Ok(reply.get("result").cloned().unwrap_or(Value::Null))
     }
 }
@@ -129,6 +149,10 @@ pub struct CloudWorkspaces {
     /// Names whose create answered `pending`, and when: for an app whose
     /// list has no `creating`.
     creating: Mutex<HashMap<String, Instant>>,
+    /// The attempt of each (machine, title) workspace run: its key's suffix.
+    /// It moves on after every run the app answered, so only a retry of a
+    /// run with no answer reuses a key (and joins that run).
+    attempts: Mutex<HashMap<String, u64>>,
     now: Box<dyn Fn() -> Instant + Send + Sync>,
 }
 
@@ -144,6 +168,7 @@ impl CloudWorkspaces {
         CloudWorkspaces {
             app,
             creating: Mutex::new(HashMap::new()),
+            attempts: Mutex::new(HashMap::new()),
             now,
         }
     }
@@ -174,9 +199,10 @@ impl CloudWorkspaces {
         }
     }
 
-    /// Another workspace on machine `machine`. Keyed by the machine and the
-    /// title: a retry after a slow answer joins or replays the first run,
-    /// never opening a second workspace.
+    /// Another workspace on machine `machine`. Keyed by the machine, the
+    /// title and the attempt: a retry after a run the app did not answer
+    /// joins it, never opening a second workspace; any answered run (done,
+    /// pending or refused) leaves the next call a fresh run.
     fn on_machine(&self, machine: &str, title: &str) -> Result<String, String> {
         let machine = machine.trim();
         let target = if machine.starts_with("machine:") {
@@ -184,17 +210,45 @@ impl CloudWorkspaces {
         } else {
             format!("machine:{machine}")
         };
-        let key = machine_name(title)
+        let base = machine_name(title)
             .ok()
             .map(|name| format!("optchat-cloud-workspace-{target}-{name}"));
-        let result = self
-            .app
-            .run("newCloudWorkspace", Some(&target), json!({}), key.as_deref())
-            .map_err(|e| {
-                format!(
-                    "cloud_workspace: {e} (a call with the same machine and title joins this one, never a second workspace)"
-                )
-            })?;
+        let attempt = base.as_ref().map(|base| {
+            *self
+                .attempts
+                .lock()
+                .expect("attempts")
+                .entry(base.clone())
+                .or_default()
+        });
+        // The app takes keys of at most 200 characters.
+        let key = base
+            .as_ref()
+            .zip(attempt)
+            .map(|(base, n)| format!("{base}-{n}"))
+            .filter(|key| key.len() <= 200);
+        let answer = self.app.run(
+            "newCloudWorkspace",
+            Some(&target),
+            json!({}),
+            key.as_deref(),
+        );
+        if let Some(base) = &base
+            && !matches!(answer, Err(RunError::NoAnswer(_)))
+        {
+            *self
+                .attempts
+                .lock()
+                .expect("attempts")
+                .entry(base.clone())
+                .or_default() += 1;
+        }
+        let result = answer.map_err(|e| match e {
+            RunError::NoAnswer(_) => format!(
+                "cloud_workspace: {e}. The workspace may still open: look in the sidebar; a call with the same machine and title joins that run, never opening a second one"
+            ),
+            RunError::Refused(_) => format!("cloud_workspace: {e}"),
+        })?;
         if result["pending"] == true {
             let status = result["status"].as_str().unwrap_or("connecting");
             return Ok(format!(
@@ -321,13 +375,13 @@ mod tests {
 
     /// The app: answers by action, and records each run.
     struct FakeApp {
-        answers: Mutex<HashMap<&'static str, Vec<Result<Value, String>>>>,
+        answers: Mutex<HashMap<&'static str, Vec<Result<Value, RunError>>>>,
         runs: Mutex<Vec<Run>>,
     }
 
     impl FakeApp {
-        fn new(answers: Vec<(&'static str, Result<Value, String>)>) -> Arc<FakeApp> {
-            let mut map: HashMap<&'static str, Vec<Result<Value, String>>> = HashMap::new();
+        fn new(answers: Vec<(&'static str, Result<Value, RunError>)>) -> Arc<FakeApp> {
+            let mut map: HashMap<&'static str, Vec<Result<Value, RunError>>> = HashMap::new();
             for (action, answer) in answers {
                 map.entry(action).or_default().push(answer);
             }
@@ -349,7 +403,7 @@ mod tests {
             target: Option<&str>,
             args: Value,
             key: Option<&str>,
-        ) -> Result<Value, String> {
+        ) -> Result<Value, RunError> {
             self.runs.lock().unwrap().push((
                 action.to_owned(),
                 target.map(str::to_owned),
@@ -366,7 +420,7 @@ mod tests {
         }
     }
 
-    fn list(machines: Value) -> Result<Value, String> {
+    fn list(machines: Value) -> Result<Value, RunError> {
         Ok(json!({"loaded": true, "machines": machines, "account": {"signed_in": true}}))
     }
 
@@ -514,8 +568,58 @@ mod tests {
         // Keyed: a retry after a slow answer joins this run, never a second workspace.
         assert_eq!(
             run.3.as_deref(),
-            Some("optchat-cloud-workspace-machine:vm-2-second-pass")
+            Some("optchat-cloud-workspace-machine:vm-2-second-pass-0")
         );
+    }
+
+    /// Only a run the app did not answer keeps its key for the retry (which
+    /// joins it); a refused or answered run leaves the next call a fresh
+    /// run, so a stale failure or a closed workspace is never replayed.
+    #[test]
+    fn a_retry_joins_only_a_run_with_no_answer() {
+        let app = FakeApp::new(vec![
+            (
+                "newCloudWorkspace",
+                Err(RunError::NoAnswer("timed out".into())),
+            ),
+            (
+                "newCloudWorkspace",
+                Err(RunError::Refused("not connected".into())),
+            ),
+            ("newCloudWorkspace", Ok(json!({"workspace_id": "ws_1"}))),
+            ("newCloudWorkspace", Ok(json!({"workspace_id": "ws_2"}))),
+        ]);
+        let tool = CloudWorkspaces::new(app.clone());
+        let call = || {
+            tool.call(&Request {
+                machine: Some("machine:vm-5".into()),
+                ..request("Review")
+            })
+        };
+        let error = call().unwrap_err();
+        assert!(error.contains("may still open"), "{error}");
+        assert!(call().unwrap_err().contains("not connected"));
+        assert!(call().unwrap().contains("ws_1"));
+        assert!(call().unwrap().contains("ws_2"));
+        let keys: Vec<String> = app.runs().into_iter().filter_map(|r| r.3).collect();
+        let base = "optchat-cloud-workspace-machine:vm-5-review";
+        assert_eq!(
+            keys,
+            [0, 0, 1, 2].map(|n| format!("{base}-{n}")),
+            "the retry of the unanswered run joins it; the others move on"
+        );
+        // A key past the app's 200 characters is left out, not refused.
+        let long = FakeApp::new(vec![(
+            "newCloudWorkspace",
+            Ok(json!({"workspace_id": "ws_3"})),
+        )]);
+        CloudWorkspaces::new(long.clone())
+            .call(&Request {
+                machine: Some(format!("machine:{}", "v".repeat(190))),
+                ..request("Review")
+            })
+            .unwrap();
+        assert_eq!(long.runs()[0].3, None);
     }
 
     /// The app's own list of creates on their way decides: a create of the
@@ -584,7 +688,9 @@ mod tests {
             ("cloudListMachines", list(json!([]))),
             (
                 "newCloudMachine",
-                Err("The Cloud machine was not created.".into()),
+                Err(RunError::Refused(
+                    "The Cloud machine was not created.".into(),
+                )),
             ),
         ]);
         let tool = CloudWorkspaces::new(app.clone());
