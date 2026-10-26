@@ -39,6 +39,16 @@ nonisolated final class SurfaceBridge: Sendable {
     /// on it, and Ghostty's writes, the output lane and the frame mark by it.
     var typingSurface: TypingLatencyProbe.SurfaceKey { input.typingSurface }
 
+    /// Ghostty wrote `bytes` (`io_write_cb`, on the thread that made the write): one on the main thread
+    /// (a key, a paste, a report) reaches the session's echo predictions (``PredictiveEchoSlot/written(_:by:)``).
+    func wrote(_ bytes: Data) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
+            guard let view else { return }
+            input.predictions.written(bytes, by: view)
+        }
+    }
+
     static func from(_ raw: UnsafeMutableRawPointer?) -> SurfaceBridge? {
         guard let raw else { return nil }
         return Unmanaged<SurfaceBridge>.fromOpaque(raw).takeUnretainedValue()
@@ -67,6 +77,8 @@ nonisolated struct TerminalInputSink: Sendable {
     /// The session's surfaces to the typing probe (``TypingLatencyProbe``): the same across a surface
     /// swap, like the input order.
     let typingSurface: TypingLatencyProbe.SurfaceKey
+    /// The session's echo predictions, shared by its surfaces like the input order (``PredictiveEchoSlot``).
+    let predictions = PredictiveEchoSlot()
 
     init(continuation: AsyncStream<TerminalOutgoing>.Continuation, typingSurface: TypingLatencyProbe.SurfaceKey) {
         self.continuation = continuation
@@ -102,10 +114,13 @@ nonisolated struct TerminalInputSink: Sendable {
     }
 }
 
-/// `io_write_cb`: runs on Ghostty's IO thread. Copies the bytes and hands them
+/// `io_write_cb`: runs on the thread that made the write (the main thread for keys and pastes, which
+/// Ghostty's manual backend writes inline; its IO thread otherwise). Copies the bytes and hands them
 /// to the session's ordered writer.
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
     TypingLatencyProbe.shared.inputWritten(on: bridge.input.typingSurface)
-    bridge.input.send(Data(bytes: bytes, count: Int(length)))
+    let data = Data(bytes: bytes, count: Int(length))
+    bridge.wrote(data)
+    bridge.input.send(data)
 }

@@ -17,6 +17,20 @@ extension CEFLayerHosting {
         static let required: TrackA = [.resizeFence, .embedderVisibility]
     }
 
+    /// The last `CEFEngine`'s page features (`CEFRuntime.pageHosting`), read by each new page window's ``Fork``.
+    nonisolated struct Policy: Equatable, Sendable {
+        /// Feature `cefLayerHosting`: nil while off, else the Track A calls the app makes.
+        var trackA: TrackA?
+        /// Feature `cefAttachedPages`: a pane's tabs attach Chromium's own view where the fork can (Track B).
+        var attachesViews = false
+    }
+
+    /// Whether the tabs of this page window attach Chromium's view (``CEFAttachedPages``): a pane's page with
+    /// the fork's attach call. DevTools and popup windows keep their own window until p03-rendering-056.
+    static func attaches(fork: Fork, widget: Widget) -> Bool {
+        fork.attachView != nil && widget == .page
+    }
+
     /// Whether a page window hosts, and why not (`debug.cef` `tracker`).
     nonisolated enum Hosting: Equatable, Sendable {
         case hosted

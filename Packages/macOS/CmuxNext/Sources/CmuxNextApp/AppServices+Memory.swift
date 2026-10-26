@@ -24,6 +24,7 @@ import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -77,6 +78,7 @@ struct AppMemoryConsumers {
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
         // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
+        registerTabCaches()  // CmuxNextTabs
         registerTerminalLastFrames()  // CmuxNextTerminal
     }
 
@@ -128,11 +130,13 @@ struct AppMemoryConsumers {
     }
 
     /// `memoryAppCaches` (default off): the app-lifetime caches (agent panes' saved frames and launch
-    /// pages, decoded icon assets) are memory consumers (p07-memory-056).
+    /// pages, decoded icon assets, Launch Services' kept icons) are memory consumers (p07-memory-056,
+    /// p02-threads-056).
     private func registerAppCaches() {
         guard let registry = appCacheRegistry else { return }
         services.launchImages.registerMemoryConsumer(with: registry)
         IconAssetImages.shared.registerMemoryConsumer(with: registry)
+        services.workspaceQueries.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryImageCaches` (default off): terminal previews are a rebuildable consumer that shrinks at warning;
@@ -189,6 +193,14 @@ struct AppMemoryConsumers {
         cache.registerMemoryConsumer(with: registry)
     }
 
+    /// `memoryTabCaches` (default off): the tab strips' drawn symbols, pack icons, agent marks, emoji and
+    /// known symbol names are lossless consumers that keep only what was drawn in the last 2 s at critical
+    /// (p07-memory-052). The hover card thumbnails register with each strip (PaneController).
+    private func registerTabCaches() {
+        guard services.features.isEnabled(.memoryTabCaches) else { return }
+        TabIconMemoryConsumers(registry: services.memoryCoordinator).register()
+    }
+
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless
     /// consumer that drops them all at critical and reports their volatile bytes apart (p07-memory-035).
     private func registerTerminalLastFrames() {
@@ -229,7 +241,8 @@ struct AppMemoryConsumers {
     }
 
     /// `pageLifecycle` (default off): page tabs' reveal and conceal drive the page lifecycle
-    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats join in p13-webui-038.
+    /// (p13-webui-022), on the app's one deadline scheduler. Agent chats and New Tab pages join it when
+    /// the browser hibernation makes their `AgentPageHibernation` (p13-webui-038).
     private func registerPageLifecycle() {
         guard services.features.isEnabled(.pageLifecycle) else { return }
         installPageLifecycle(PageLifecycle(deadlines: services.mainDeadlines))

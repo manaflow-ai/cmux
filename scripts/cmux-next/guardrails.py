@@ -2422,6 +2422,10 @@ RAW_OBSERVER = re.compile(r"\baddObserver\(|\b(NSWindow|NSApplication)\.(did|wil
                           r"|\bNSWorkspace\.shared\.notificationCenter\b|\bnotifications\(named:"
                           r"|\bDistributedNotificationCenter\b|\.observe\(\\\.|\bNSView\.(frame|bounds)DidChangeNotification\b"
                           r"|\bdidUpdateNotification\b")  # queue Q4 of p06-scheduler.md section 6
+# R-notif's target: a notice name passed straight to a WindowEvents or AppEvents `subscribe(` (one observer per window
+# or app per name, fanned out by the subscriber's node). The name still matches RAW_OBSERVER; the subscription is not
+# a raw observer.
+SUBSCRIBED_NOTICE = re.compile(r"\bsubscribe\(\s*(?:NSWindow|NSApplication)\.(?:did|will)[A-Za-z]+Notification\b")
 TAP_FILE = re.compile(r"^" + re.escape(INPUT_TAP_MODULE) + r"InputEventTap(\+\w+)?\.swift$")
 
 
@@ -2556,6 +2560,18 @@ def timer_class_debt(version: Version, index: int) -> tuple[bool, list[int]]:
     return False, context
 
 
+def raw_observer_in(code: str) -> bool:
+    """Whether CODE (a line with comments dropped) holds a raw observer: a RAW_OBSERVER match other than a notice name
+    passed straight to a WindowEvents or AppEvents `subscribe(` (SUBSCRIBED_NOTICE, recipe R-notif's target).
+    p06_queue.py judges its Q4 hits with this too."""
+    return RAW_OBSERVER.search(SUBSCRIBED_NOTICE.sub("subscribe(", code)) is not None
+
+
+def raw_observer_debt(version: Version, index: int) -> tuple[bool, list[int]]:
+    """A raw observer on VERSION's line INDEX; a WindowEvents or AppEvents subscription to a named notice is not one."""
+    return raw_observer_in(code_of(version.lines[index])), []
+
+
 def scoped_to(matcher: Matcher, keep_file: Callable[[str], bool]):
     """matcher_rule(MATCHER) over the changed files KEEP_FILE accepts, each side's facts shared through SIDE_MEMO."""
     def find(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
@@ -2621,7 +2637,7 @@ MAIN_CLASS_RULES = (
          "per notice, fan-out to visible subscribers); a frame or bounds notice becomes the view's own `layout()` / "
          "`setFrameSize`; KVO on WebKit takes the tab's node",
          "// raw-observer-allow: <why no WindowEvents or AppEvents notice fits>",
-         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer")),
+         scoped_to(Matcher(RAW_OBSERVER, allow_marker("raw-observer"), raw_observer_debt),
                    lambda path: not path.startswith(WAKEUPS))),
     Rule("local-monitor", "A second NSEvent monitor inside CmuxNextInput, outside the input tap (InputEventTap)",
          "the tap is the one monitor of the process (p06-scheduler.md Q8 target: 1); input-monitor refuses "
@@ -3061,8 +3077,13 @@ SEAM_BLOCKING = re.compile(
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
     r"|URLForApplication|URLsForApplications|Icon|SMAppService(Status|Register|Unregister)|AuthorizationCopyRights)\(")
 # Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
-# sleep holds a thread to wait for time.
-ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
+# sleep holds a thread to wait for time; `runModal(` spins a nested modal run loop on main until the person answers
+# (p02-threads-132). Chrome shows its dialogs window-modal, never in a nested loop: SelectFileDialogBridge begins its
+# panel with beginSheetModalForWindow (components/remote_cocoa/app_shim/select_file_dialog_bridge.mm). Use
+# beginSheetModal(for:), a panel's begin(completionHandler:) or a CmuxDialogSpec. NSPrintOperation's sheet form
+# `runModal(for: window, delegate:...)` returns at once, so a call with a `delegate:` is not one.
+ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\("
+                             r"|\.runModal\((?![^)]*\bdelegate:)")
 # A new thread or queue. `extension Thread {` and a type annotation are not one.
 # `Thread {` counts only where a value starts (after `=`, `(`, `,`, `return`, or as a statement), so a superclass,
 # a return type or a type annotation (`class W: Thread {`, `-> Thread {`, `var t: Thread {`) is not one.
@@ -3119,7 +3140,7 @@ BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync"
                  "icon(", "SMAppService", "AuthorizationCopyRights", "synchronousRemoteObjectProxy", "executeAndReturnError")
 RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
 MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
-ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
+ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep", "runModal"))
 THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
                           ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance", "ChildProcessLauncher"))
 

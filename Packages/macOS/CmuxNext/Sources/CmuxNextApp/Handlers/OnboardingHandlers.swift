@@ -73,7 +73,10 @@ enum OnboardingHandlers {
             let apps = services.onboarding.defaultApps
             registry.track(Task { @MainActor in
                 do {
-                    for claim in DefaultHandlerClaim.terminalClaims where !apps.isClaimed(claim) { try await apps.claim(claim) }
+                    for claim in DefaultHandlerClaim.terminalClaims {
+                        let claimed = await apps.isClaimed(claim)
+                        if !claimed { try await apps.claim(claim) }
+                    }
                     return nil
                 } catch {
                     return (error as? CocoaError)?.code == .userCancelled ? nil : ActionWorkFailure("make-default-terminal", error)

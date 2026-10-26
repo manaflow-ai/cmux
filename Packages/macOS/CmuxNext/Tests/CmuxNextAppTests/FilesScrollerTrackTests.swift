@@ -40,14 +40,14 @@ struct FilesScrollerTrackTests {
     }
 
     @Test func theListsBarsHaveNoTrackOrCorner() throws {
-        let list = FileListView(actions: Self.actions, icons: FileIconProvider())
+        let list = FileListView(actions: Self.actions, icons: FileIconProvider(queries: nil))
         let scroll = try #require(list.view as? NSScrollView)
         #expect(scroll.hasVerticalScroller && scroll.hasHorizontalScroller)
         Self.expectNoTracks(under: scroll)
     }
 
     @Test func theColumnViewsBarsHaveNoTrack() async throws {
-        let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(), lister: Listing())
+        let columns = FileColumnsView(actions: Self.actions, icons: FileIconProvider(queries: nil), lister: Listing())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: true)
         window.contentView = columns.view

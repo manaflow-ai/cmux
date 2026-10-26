@@ -131,7 +131,7 @@ import Testing
 
     @Test func noForkAPIAloneHostsByDefault() throws {
         let shim = try CEFShimLibrary.resolving(HostingSpy.symbol)
-        #expect(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.forkAPI - 1, trackA: .required) == nil)
+        #expect(CEFLayerHosting.Fork(shim: shim, apiVersion: CEFLayerHosting.forkAPI - 1, policy: CEFLayerHosting.Policy(trackA: .required)) == nil)
         for api: Int32 in [26, 27, 31, 32, 33, 40] {
             HostingSpy.reset()
             let fork = try #require(CEFLayerHosting.Fork(shim: shim, apiVersion: api))
@@ -145,9 +145,9 @@ import Testing
     @Test func theRuntimeGivesItsFeatureAndTrackACallsToEachPageWindow() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
-        runtime.layerHostingTrackA = nil
+        runtime.pageHosting.trackA = nil
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == nil)
-        runtime.layerHostingTrackA = [.resizeFence]
+        runtime.pageHosting.trackA = [.resizeFence]
         #expect(try #require(CEFLayerHosting.Fork(runtime: runtime)).trackA == [.resizeFence])
     }
 
@@ -194,7 +194,7 @@ import Testing
         HostingSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-layer-default-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(HostingSpy.symbol), storage: CEFProfileStorage(root: root))
-        runtime.layerHostingTrackA = .required
+        runtime.pageHosting.trackA = .required
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }

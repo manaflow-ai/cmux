@@ -57,9 +57,10 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
-    /// The page view the page host opened, in whichever engine shows the chat: the pane reaches the
-    /// page only through its engine-neutral calls (``PageWebView/webKitEngine`` for the WebKit-only
-    /// tools). The provider answers its calls and carries the host's pushes.
+    /// The page view the page host opened, in whichever engine shows the chat (the app's page
+    /// lifecycle drives it, p13-webui-038): the pane reaches the page only through its engine-neutral
+    /// calls (``PageWebView/webKitEngine`` for the WebKit-only tools). The provider answers its calls
+    /// and carries the host's pushes.
     public let page: PageWebView
     let pageEvents: AgentPageProvider
     let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)

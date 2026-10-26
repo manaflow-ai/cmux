@@ -235,6 +235,10 @@ def main_binary(app):
 
 
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
+# Key-press flows for a recording that wraps a bench (`trace.py record --bundle APP -- BENCH`, input-hotspots.py): the
+# app gets CMUX_NEXT_TRACE_FLOWS=<this folder>, as `trace.py record --app` gives its own launch. The app's environment is
+# built here, not inherited, so the wrapper passes it under this name.
+TRACE_FLOWS_KEY = "BENCH_LAUNCH_TRACE_FLOWS"
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
 
@@ -1153,6 +1157,8 @@ class BenchApp:
             env["CMUX_NEXT_TEST_WINDOW_FRAME"] = ",".join(str(v) for v in self.window)
         if self.screen is not None:
             env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = str(self.screen)
+        if os.environ.get(TRACE_FLOWS_KEY):
+            env["CMUX_NEXT_TRACE_FLOWS"] = os.environ[TRACE_FLOWS_KEY]  # a bench's own env below wins
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)
@@ -1267,8 +1273,12 @@ class BenchApp:
         os.rename(root, prev)
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
-    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False, validate_host=True):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
+
+        With `validate_host` False, the lab's full host validation (``validate_lab_host``, under the perf-lab runner
+        a nettop window of a minute) is not part of the launch: a bench that times a span from the spawn calls
+        ``validate_lab_host()`` itself once that span ends, while the app still runs.
 
         With `probe_first_answer`, ``first_answer`` sends `system.ping` from the spawn on and ``first_answer_ms``
         holds when the app first answered (ms since the spawn; None when it did not).
@@ -1355,7 +1365,8 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
-                    self.validate_lab_host()
+                    if validate_host:
+                        self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()

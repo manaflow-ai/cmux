@@ -32,6 +32,9 @@ class SidebarRowView: NSView {
         self.key = key
         super.init(frame: .zero)
         wantsLayer = true
+        // A row's `updateLayer` sets layer colors only, so a resize (the sidebar's, a split's)
+        // does not repaint it; size-dependent geometry belongs in `layout()`.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
     }

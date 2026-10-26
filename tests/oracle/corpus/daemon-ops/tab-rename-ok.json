@@ -59,7 +59,7 @@
       "args": {
         "method": "tab.rename",
         "params": {
-          "name": "oracle"
+          "name": "renamed"
         },
         "idempotencyKey": "tab-rename-ok.call"
       },
@@ -71,7 +71,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the tab gets a user name"
     }
   ],
   "invariants": [
