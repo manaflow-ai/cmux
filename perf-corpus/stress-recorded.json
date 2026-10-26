@@ -9,14 +9,14 @@
   "duration_ms": 60000,
   "layout": {
     "snapshot": {
-      "sha256": "788bc158b9e718bc1ee5d0842cf1f11fa1911462452b0db59a64e83008ca1466",
-      "bytes": 5071
+      "sha256": "b99f25247611206ed153a241034f0af2321c43280b500e4faee0e4a36b482f83",
+      "bytes": 5072
     },
     "workspaces": 60
   },
   "input": {
     "blob": {
-      "sha256": "73945d48fb4ee75b82cbc8e249952ee84c13691e3891b50e35d4e505667b7501",
+      "sha256": "74a8a3a556a8a2e21b60124d3de64445efa396a0233c58fdceaba58adab5ad4b",
       "bytes": 123727
     }
   },

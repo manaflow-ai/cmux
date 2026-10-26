@@ -126,14 +126,28 @@ class ManifestTest(unittest.TestCase):
                          [("layout-imported", 0), ("midpoint", 30_000), ("end", 60_000)])
 
 
+def focus_quiet_pane(builder):
+    """What trace.py's build_stress does after the builder (focus_quiet_terminal): focuses the last measured pane
+    whose selected tab is a terminal that is not busy. Returns that pane's id."""
+    busy = set(builder.busy)
+    panes = builder.panes(builder.workspace(builder.measured))
+    quiet = next(pane for pane in reversed(panes)
+                 if any(tab["id"] == pane["selected_tab"] and tab["kind"] == "terminal" and tab["id"] not in busy
+                        for tab in pane["tabs"]))
+    builder.focus_pane(quiet["id"])
+    return quiet["id"]
+
+
 def stress_export():
-    """STRESS built by perf-stress-session.py into test_session_io's fake app, exported by session_io."""
+    """STRESS built by perf-stress-session.py into test_session_io's fake app, its typing moved to the quiet pane
+    as trace.py's stress-storm does, exported by session_io."""
     fake = load("test_session_io_for_stress_recorded", LAB / "tests" / "test_session_io.py")
     app = fake.fresh_app()
     builder = fake.stress.Stress(app.rpc, log=lambda line: None, settle=0,
                                  web_dev_config=str(LAB / "no-such-web-dev.json"))
     try:
         builder.build(check=False)
+        focus_quiet_pane(builder)
         return fake.session_io.export_layout(app.rpc, builder=builder)
     finally:
         builder.close()
@@ -152,6 +166,15 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(story.MEASURED, 59)
         self.assertEqual({w for w, _, _ in LAYOUT["busy"]}, {story.MEASURED})
         self.assertEqual(kit.session_io().importable(LAYOUT), [])
+
+    def test_keys_go_to_a_quiet_terminal(self):
+        """The typed pane is the one trace.py's stress-storm types into: its selected tab a terminal, not busy."""
+        leaves = kit.session_io().leaves(LAYOUT["workspaces"][LAYOUT["shown"]]["tree"])
+        typed = LAYOUT["focused_pane"]
+        selected = leaves[typed]["selected"]
+        self.assertEqual(leaves[typed]["tabs"][selected], "terminal")
+        self.assertNotIn([LAYOUT["shown"], typed, selected], LAYOUT["busy"])
+        self.assertEqual(typed, len(leaves) - 1, "the last pane, as focus_quiet_terminal walks them in reverse")
 
 
 class StormTest(unittest.TestCase):
@@ -251,6 +274,16 @@ class TypistTest(unittest.TestCase):
 
     def test_the_last_second_has_no_key(self):
         self.assertLess(key_downs()[-1]["t_ms"], story.DURATION_MS - story.END_QUIET_MS)
+
+    def test_no_key_waits_for_a_cli_spawn(self):
+        """The player spawns a CLI process before it sends the next step: no key is due at a call's time after it,
+        and the next key after a call is at least 10 ms later, so the spawn does not make keys late."""
+        for index, event in enumerate(EVENTS):
+            if event["kind"] != "cli":
+                continue
+            after = [e for e in EVENTS[index + 1:] if e["kind"] == "key"]
+            if after:
+                self.assertGreaterEqual(after[0]["t_ms"] - event["t_ms"], 10, (event, after[0]))
 
     def test_events_are_in_time_order_inside_the_window(self):
         times = [e["t_ms"] for e in EVENTS]

@@ -18,7 +18,9 @@ terminals). The input is the storm of `trace.py record --scenario stress-storm` 
           slot plays a pill, as trace.py does when it has no groups. No key_to_frame-like series for the calls:
           play.py has no app signpost that names a CLI op (its `cli_to_frame` note), so the story declares none.
   keys    a letter every 120 ms (--key-interval 0.12) into the measured workspace's focused terminal; typing keys
-          carry only their class (manifest.py's rule), the player types its fixed synthetic text.
+          carry only their class (manifest.py's rule), the player types its fixed synthetic text. The focused pane
+          is the one trace.py's focus_quiet_terminal moves typing to: the last measured pane whose selected tab is
+          a terminal that is not busy, so a key's first output is its echo and not the busy loop's line.
   chords  every 10 letters (--chord-every 10) an action pair, its keys 350 ms apart, cycling Cmd-T/Cmd-W,
           Cmd-D/Cmd-W and Ctrl-Cmd-[/Ctrl-Cmd-]. The step pair goes back then forward, the reverse of trace.py's:
           the measured workspace is the last row, and a step forward from it leaves the rows (to Home under the
@@ -29,6 +31,8 @@ Deterministic replay: a storm call names a workspace by its sidebar position at 
 A move to the top permutes only the rows above the one it moves, so rows 58 and 59 hold the same workspaces for the
 whole story, and the step pair shows the same workspace in every replay however late a CLI call lands. A chord
 never runs within CHORD_QUIET_MS before a checkpoint, so each checkpoint reads the measured workspace at rest.
+A key that falls on a storm call's time goes first: the player spawns a CLI process synchronously, and a key after
+it would be late by the spawn time (play.py's lateness bound is on the sends' p95).
 
 Every source is made here from fixed seeds (story_kit.Rng), so the bytes and their sha256 are the same on every host:
 the layout snapshot (session_io.py format) and the input track (NDJSON). `capture` reads the checkpoint digests on a
@@ -96,9 +100,21 @@ METRICS = (("key_to_frame", "ms"), ("action_to_frame", "ms"), ("switch_to_frame"
 
 # ---------------------------------------------------------------- layout
 
+def quiet_pane(snapshot: dict[str, Any]) -> int:
+    """trace.py focus_quiet_terminal's pick: the last pane of the shown workspace whose selected tab is a terminal
+    that is not busy."""
+    shown = snapshot["shown"]
+    busy = {(pane, tab) for workspace, pane, tab in snapshot["busy"] if workspace == shown}
+    leaves = kit.session_io().leaves(snapshot["workspaces"][shown]["tree"])
+    return next(index for index in reversed(range(len(leaves)))
+                if leaves[index]["tabs"][leaves[index]["selected"]] == "terminal"
+                and (index, leaves[index]["selected"]) not in busy)
+
+
 def layout() -> dict[str, Any]:
     """STRESS as perf-stress-session.py builds it and session_io.py exports it: the launch workspace's terminal,
-    the background (Chromium workspaces first), then the measured grid of columns of rows, its first pane focused."""
+    the background (Chromium workspaces first), then the measured grid of columns of rows, its quiet pane focused
+    (trace.py's build_stress runs focus_quiet_terminal after the builder focuses the first, busy pane)."""
     terminal = {"tabs": ["terminal"], "selected": 0}
     chromium = {"tabs": ["terminal"] + ["chromium"] * stress.CHROMIUM_PER_WORKSPACE,
                 "selected": stress.CHROMIUM_PER_WORKSPACE}
@@ -112,9 +128,10 @@ def layout() -> dict[str, Any]:
                   + [{"even": True, "tree": chromium}] * stress.CHROMIUM_WORKSPACES
                   + [{"even": True, "tree": terminal}] * (background - stress.CHROMIUM_WORKSPACES)
                   + [{"even": True, "tree": {"split": "right", "children": columns}}])
-    return {"schema": "cmux-layout-snapshot/v1", "window": list(stress.WINDOW_SIZE), "workspaces": workspaces,
-            "shown": MEASURED, "focused_pane": 0,
-            "busy": [[MEASURED, index, len(measured_tabs) - 1] for index in range(stress.BUSY_TERMINALS)]}
+    snapshot = {"schema": "cmux-layout-snapshot/v1", "window": list(stress.WINDOW_SIZE), "workspaces": workspaces,
+                "shown": MEASURED, "focused_pane": 0,
+                "busy": [[MEASURED, index, len(measured_tabs) - 1] for index in range(stress.BUSY_TERMINALS)]}
+    return {**snapshot, "focused_pane": quiet_pane(snapshot)}
 
 
 # ---------------------------------------------------------------- input track
@@ -166,9 +183,10 @@ def typist(track: Any) -> None:
 
 
 def input_events() -> list[dict[str, Any]]:
+    """The typist's keys are added before the storm's calls, so at an equal time a key is sent first."""
     track = kit.Track()
-    storm(track, kit.Rng(STORM_SEED))
     typist(track)
+    storm(track, kit.Rng(STORM_SEED))
     return track.events()
 
 
