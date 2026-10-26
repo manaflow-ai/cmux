@@ -1,5 +1,11 @@
 import CmuxNextDesign
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import WebKit
+
+/// One caller of ``PageWebView/waitUntilLoaded()``: ``PageWebView/resumeLoadWaiters()`` resumes it once.
+typealias PageLoadWaiter = OnceContinuation<Void, OnceContinuationError>
 
 /// What the page lifecycle froze a page in (``PageWebView/freezePage()``).
 enum PageFrozenEngine {
@@ -90,7 +96,7 @@ extension PageWebView {
     /// Waits for the current document to finish loading or fail, and for a pending claim to be acknowledged (or its fallback reload to finish).
     public func waitUntilLoaded() async {
         guard !loaded || claimState.pending else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        try? await withOnceContinuation { (continuation: PageLoadWaiter) in
             loadWaiters.append(continuation)
         }
     }
@@ -98,7 +104,7 @@ extension PageWebView {
     func resumeLoadWaiters() {
         let waiters = loadWaiters
         loadWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     // crash-allow: WebKit delegate signature uses nullable navigation handles.
