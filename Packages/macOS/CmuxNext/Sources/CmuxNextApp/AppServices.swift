@@ -419,9 +419,6 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
-    /// The process's hang-watch slots (``HangWatch``), passed to every watched lane: ``work``'s lanes, the
-    /// local daemon's connection readers and terminal attachments, and each terminal's output lane.
-    let hangWatch: (any HangWatchScoping)?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
@@ -442,8 +439,9 @@ final class AppServices {
     ///   hold for; the app-wide one by default.
     /// - Parameter work: the app's one set of blocking-work lanes (task traits, PATTERNS P14); by default
     ///   one watched by `hangWatch`, unless a test passes its own.
-    /// - Parameter hangWatch: the hang watch of every watched lane; the process's (`TraceRuntime.shared`)
-    ///   by default, a test's fake, or nil to watch nothing.
+    /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
+    ///   connection readers, terminal attachments and terminal output lanes): the process's
+    ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter mainWork: The app's main-thread scheduler (`AppDelegate` passes the one its control
     ///   socket uses); tests get one of their own, with no pending-input check.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
@@ -452,7 +450,6 @@ final class AppServices {
          hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
-        self.hangWatch = hangWatch
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)

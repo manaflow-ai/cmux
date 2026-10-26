@@ -91,7 +91,11 @@ final class AppHangWatch: HangWatchScoping {
             return scope
         }
         entering.yield(scope)
-        defer { state.withLock { state in _ = state.open.firstIndex(of: scope).map { state.open.remove(at: $0) } } }
+        defer {
+            state.withLock { state in
+                if let index = state.open.firstIndex(of: scope) { state.open.remove(at: index) }
+            }
+        }
         return try body()
     }
 }

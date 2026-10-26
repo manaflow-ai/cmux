@@ -2,6 +2,7 @@ import CmuxNextApps
 import CmuxNextCompat
 public import CmuxNextControl
 public import CmuxNextDaemon
+public import CmuxNextTrace
 import Foundation
 import os
 
