@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 18
+   "next_ordinal": 19
   },
   "clients": {
    "id": 2,
@@ -20821,6 +20821,31 @@
    "durability": "read_only",
    "clients": [
     "cli",
+    "sdk"
+   ]
+  },
+  "debug-daemon-locks": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "Per-lock wait and hold histograms by caller class and request op; the op rows are the ops that took the lock since start. See spec/commands.md debug-daemon-locks."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+   ],
+   "method_id": 274,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
     "sdk"
    ]
   },

@@ -202,6 +202,7 @@ command_table! {
     TerminalClipboardReply => "terminal-clipboard-reply", TerminalIo;
     PasteImage => "paste-image", TerminalIo;
     ServerStats => "server-stats", Query;
+    DebugDaemonLocks => "debug-daemon-locks", Query;
     TraceStart => "trace-start", Other;
     TraceStop => "trace-stop", Other;
     TraceStatus => "trace-status", Other;

@@ -545,6 +545,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "debug-daemon-locks",
       "trace-start",
       "trace-stop",
       "trace-status",

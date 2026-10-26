@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169'
+IR_SHA256 = '4f1a9d8a057f5d5775b6201fff51b6572bf8798df8c76e788ed37cfe866cb77a'
 
 
 @dataclass(frozen=True)
@@ -1983,6 +1983,16 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+        },
+    ),
+    'debug-daemon-locks': CommandMetadata(
+        'debug-daemon-locks',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'delete-bookmark': CommandMetadata(
