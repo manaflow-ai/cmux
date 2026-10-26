@@ -30,7 +30,8 @@ final class SocketWriter: Sendable {
     init(fd: Int32, label: String, limit: Int = 64 << 20) {
         self.fd = fd
         self.limit = limit
-        self.queue = DispatchQueue(label: label)
+        // qos-allow: key echo path: a typed key reaches the daemon through this queue and its frame waits for the echo
+        self.queue = DispatchQueue(label: label, qos: .userInteractive)
         // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
         // (whose default action ends the process), whatever the caller set.
         // The option fails (EINVAL) once the peer is gone, so writes also
@@ -56,6 +57,9 @@ final class SocketWriter: Sendable {
         if startDrain { queue.async { [self] in drain() } }
         return error
     }
+
+    /// The drain queue's QoS (tests).
+    var queueQoS: DispatchQoS { queue.qos }
 
     /// Bytes waiting for the socket (diagnostics, tests).
     var queuedBytes: Int { state.withLock { $0.pending.count } }
