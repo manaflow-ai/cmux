@@ -55,11 +55,12 @@
 //! hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
 
+use cmux_threads::sync::Mutex;
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering, fence};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
 

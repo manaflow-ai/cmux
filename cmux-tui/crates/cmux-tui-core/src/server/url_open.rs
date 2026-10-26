@@ -5,8 +5,9 @@
 use crate::panic_free::RecoverPoison;
 use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};

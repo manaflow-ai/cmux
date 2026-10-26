@@ -40,9 +40,10 @@
 //! `agent_session.acpmux_unavailable`.
 
 use crate::panic_free::JsonFields;
+use cmux_threads::sync::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
