@@ -22,6 +22,7 @@ final class CloudService {
     let auth: CloudAuth
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
+    @ObservationIgnored private let work: BackgroundWork
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
@@ -33,7 +34,8 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
-    @ObservationIgnored private let binary: URL?
+    /// The app's `cmux-tui` (the hub's, the moves' and `cloud enroll-machine`'s `wg dial`).
+    @ObservationIgnored let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
@@ -91,6 +93,7 @@ final class CloudService {
     init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
+        self.work = work
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
@@ -217,6 +220,8 @@ final class CloudService {
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
+                    // `ssh lane-vm-N` (cloud enroll-machine) dials through the hub's stable link.
+                    await self.startHubForSSHRoutes()
                 } else {
                     self.dropAllMachines()
                     // The session ended (signed out here or elsewhere, or
@@ -269,6 +274,7 @@ final class CloudService {
                 await hub?.resume()
                 await installSignedIn()
                 await refresh()
+                await startHubForSSHRoutes()
             }
         }
     }
@@ -476,6 +482,13 @@ final class CloudService {
         try await api.setIdlePause(machineID, minutes: minutes)
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
+    }
+
+    /// Starts the WireGuard hub once signed in when `cloud enroll-machine` wrote ssh routes that
+    /// dial through it (``CloudPaths/sshRoutesMarker``); without the hub those routes fail.
+    func startHubForSSHRoutes() async {
+        guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
+        do { _ = try await hub.socketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
