@@ -15,7 +15,8 @@ final class CEFHostView: NSView {
             postGeometryChange()
         }
     }
-    private var windowObserver: (any NSObjectProtocol)?
+    /// This view's place in its window's page geometry registry (`ChildPageGeometryRegistry`).
+    private var pageUpdates: ChildPageGeometryRegistry.Registration?
     /// The shown page's own background (`CEFTab.pageBackdropColor`). While
     /// the window live-resizes, this view fills with it instead of the pane
     /// ground: the page window's gap shows this view until Chromium's frame
@@ -86,14 +87,6 @@ final class CEFHostView: NSView {
         }
         performWithTheme {
             layer?.backgroundColor = Palette.paneFill.cgColor
-        }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         }
     }
 
@@ -182,15 +175,12 @@ final class CEFHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
-        windowObserver = nil
+        pageUpdates = nil
         readGeometry = nil
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
-        guard let window else { return }
-        windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
-            let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
-            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force) } // main-proof: observer on queue: .main
+        pageUpdates = ChildPageGeometryRegistry.of(window)?.register { [weak self] force in
+            self?.pagesNeedUpdate(force: force) ?? false
         }
     }
 
@@ -205,16 +195,19 @@ final class CEFHostView: NSView {
     /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
     /// `force`: a page window moved by something other than the fork must be
     /// put back over its host even though the host did not move.
-    func pagesNeedUpdate(force: Bool) {
+    /// Returns whether the fork was told.
+    @discardableResult
+    func pagesNeedUpdate(force: Bool) -> Bool {
         let now = CEFHostGeometry(of: self)
         guard force || readGeometry != now else {
             Self.trackerStats.geometrySkips += 1
-            return
+            return false
         }
         postGeometryChange()
         // The fork updates inside the post; a hidden or not yet created page reads nothing
         // there, so what it was told is recorded here (a still hidden page has nothing new).
         readGeometry = now
+        return true
     }
 
     /// Tells the tracker about moves AppKit does not report (layer
@@ -227,7 +220,8 @@ final class CEFHostView: NSView {
     /// What the fork's tracker read from host views so far (`debug.cef` `tracker`).
     static var trackerStats = CEFTrackerStats()
 
-    /// `CmuxParentViewGeometryDidChange` in the fork.
+    /// `CmuxParentViewGeometryDidChange` in the fork: its `CmuxParentViewTracker` observes it on each
+    /// host view (object: the view), the fork's only entry for moves AppKit does not report.
     static let geometryDidChange = Notification.Name("CmuxParentViewGeometryDidChange")
 }
 

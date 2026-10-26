@@ -5,16 +5,21 @@ import Testing
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
 /// are CEF chromium views involved". On every motion frame the window asks its Chromium pages to
-/// re-apply their geometry (`browserChildWindowPagesNeedUpdate`: the divider lines moved), and every
+/// re-apply their geometry (its `ChildPageGeometryRegistry`: the divider lines moved), and every
 /// page posted the fork's geometry notification, so the fork re-read clip and occlusion, rebuilt the
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
 @MainActor @Suite struct PageGeometryPostTests {
+    /// A plain window with `ShellWindow`'s page registry: `ShellWindow.setFrame` keeps frames on the
+    /// test screen, which can undo a move.
+    final class PagesWindow: NSWindow, ChildPageGeometryHosting {
+        let childPageGeometry = ChildPageGeometryRegistry()
+    }
+
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
-        /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
-        let window: NSWindow
+        let window: PagesWindow
         let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
         let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
         /// Both pages' common ancestor below the content view (the layout root's place).
@@ -23,7 +28,7 @@ import Testing
         init() {
             _ = NSApplication.shared
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
-            window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+            window = PagesWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = content
             _ = WindowOverlayHost.host(for: window)
@@ -48,9 +53,10 @@ import Testing
             return CEFHostView.trackerStats.geometryPosts - before
         }
 
-        func requestPageUpdate() {
-            // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        /// What the window's layout owner (`WindowOverlayLayer.requestPageUpdate`) does.
+        @discardableResult
+        func requestPageUpdate() -> Int {
+            window.childPageGeometry.pagesNeedUpdate()
         }
     }
 
@@ -80,6 +86,41 @@ import Testing
         pages.stage.setFrameOrigin(CGPoint(x: 40, y: 0))
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 2, "both pages moved on screen: \(posted) posts")
+    }
+
+    /// p06-scheduler-046: ten pages in one window, one of them moved: one fork post, and the
+    /// registry counts the one page that changed. A page of another window hears nothing.
+    @Test func movingOneOfTenPagesPostsOnce() {
+        let pages = TwoPages()
+        var hosts = [pages.left, pages.right]
+        for index in 2..<10 {
+            let host = CEFHostView(frame: CGRect(x: CGFloat(index % 2) * 400, y: 0, width: 400, height: 50))
+            pages.stage.addSubview(host)
+            hosts.append(host)
+        }
+        let other = TwoPages()
+        #expect(pages.window.childPageGeometry.count == 10)
+        #expect(other.window.childPageGeometry.count == 2)
+        for host in hosts + [other.left, other.right] {
+            _ = host.cmuxOcclusionRects()
+            _ = host.cmuxClipPath()
+        }
+        hosts[7].frame = hosts[7].frame.insetBy(dx: 10, dy: 0)
+        var changed = 0
+        let posted = pages.posts { changed = pages.requestPageUpdate() }
+        #expect(posted == 1, "only the moved page posts: \(posted) posts")
+        #expect(changed == 1)
+        #expect(other.posts { other.requestPageUpdate() } == 0, "the other window's pages did not move")
+    }
+
+    /// A page that leaves its window leaves its registry: the window no longer reaches it.
+    @Test func aPageThatLeftItsWindowIsNotUpdated() {
+        let pages = TwoPages()
+        pages.forkReads()
+        pages.left.removeFromSuperview()
+        #expect(pages.window.childPageGeometry.count == 1)
+        pages.left.frame = CGRect(x: 0, y: 0, width: 300, height: 500)
+        #expect(pages.posts { pages.requestPageUpdate() } == 0)
     }
 
     @Test func aHiddenPagePostsOnceNotOnEveryRequest() {

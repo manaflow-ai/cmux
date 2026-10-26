@@ -18,7 +18,7 @@ import CmuxNextDesign
 /// page is in a window and not hidden (a parked tab keeps its cards for when
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
-/// swap) arrives as `browserChildWindowPagesNeedUpdate`.
+/// swap) arrives from the window's `ChildPageGeometryRegistry`.
 @MainActor
 final class PageFloatingOverlays {
     private struct Card {
@@ -31,7 +31,8 @@ final class PageFloatingOverlays {
 
     private var cards: [Card] = []
     private weak var page: NSView?
-    private var pagesObserver: (any NSObjectProtocol)?
+    /// The cards' place in the page's window's `ChildPageGeometryRegistry`, while they have cards there.
+    private var pageUpdates: (registry: ChildPageGeometryRegistry, registration: ChildPageGeometryRegistry.Registration)?
 
     init(page: NSView) {
         self.page = page
@@ -41,7 +42,6 @@ final class PageFloatingOverlays {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            if let pagesObserver { NotificationCenter.default.removeObserver(pagesObserver) }
             for card in cards { card.handle?.dismiss() }
         }
     }
@@ -55,7 +55,7 @@ final class PageFloatingOverlays {
         guard !cards.contains(where: { $0.view === view }) else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
         cards.append(Card(view: view, lift: lift))
-        observePages()
+        followPages(of: page?.window)
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -70,10 +70,7 @@ final class PageFloatingOverlays {
     func remove(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }) else { return }
         cards.remove(at: index).handle?.dismiss()
-        if cards.isEmpty, let pagesObserver {
-            NotificationCenter.default.removeObserver(pagesObserver)
-            self.pagesObserver = nil
-        }
+        if cards.isEmpty { pageUpdates = nil }
     }
 
     /// Places every card over the page when it shows in a window, else
@@ -84,6 +81,7 @@ final class PageFloatingOverlays {
     /// mouse regions match the card.
     func sync() {
         guard !cards.isEmpty, let page else { return }
+        followPages(of: page.window)
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
             for index in cards.indices { dismiss(index) }
             return
@@ -131,20 +129,21 @@ final class PageFloatingOverlays {
         return host.acceptsMouse(at: NSPoint(x: frame.midX, y: frame.midY))
     }
 
-    /// The window's pages moved or were re-clipped without a layout of this
-    /// chrome (a pane swap of equal size): the cards follow.
-    private func observePages() {
-        guard pagesObserver == nil else { return }
-        pagesObserver = NotificationCenter.default.addObserver(
-            forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: nil, queue: .main
-        ) { [weak self] note in
-            // Only the window's identity crosses into the main-actor closure.
-            let window = (note.object as AnyObject?).map(ObjectIdentifier.init)
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let self, let window, window == self.page?.window.map(ObjectIdentifier.init) else { return }
-                self.sync()
-            }
+    /// The page's window's pages moved or were re-clipped without a layout of
+    /// this chrome (a pane swap of equal size): the cards follow. Only that
+    /// window's page updates reach them.
+    private func followPages(of window: NSWindow?) {
+        guard let window, let registry = ChildPageGeometryRegistry.of(window) else {
+            pageUpdates = nil
+            return
         }
+        guard pageUpdates?.registry !== registry else { return }
+        // Cards are not pages: they report no page change.
+        let registration = registry.register { [weak self] _ in
+            self?.sync()
+            return false
+        }
+        pageUpdates = (registry, registration)
     }
 
     private func dismiss(_ index: Int) {

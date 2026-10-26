@@ -69,13 +69,12 @@ public final class ChromiumHostPageView: NSView {
 
     private var lastGeometry: ChromiumHostGeometry?
     /// What moves the page on screen without changing this view's frame: the
-    /// window's page update request
-    /// (``Foundation/Notification/Name/browserChildWindowPagesNeedUpdate``). The
-    /// window's layout owner (`WindowOverlayLayer`) posts it once per change
+    /// window's page update request (``ChildPageGeometryRegistry``). The
+    /// window's layout owner (`WindowOverlayLayer`) makes it once per change
     /// after panes, dividers or the sidebar moved and after the window moved,
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
-    private var pageUpdates: MainActorObservation?
+    private var pageUpdates: ChildPageGeometryRegistry.Registration?
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
@@ -186,14 +185,16 @@ public final class ChromiumHostPageView: NSView {
     }
 
     /// Reports the page's screen rect when it differs from the last one
-    /// reported; an unchanged rect costs one comparison.
-    private func presentedRectDidChange() {
-        guard let onGeometry, let window, bounds.width >= 1, bounds.height >= 1 else { return }
+    /// reported; an unchanged rect costs one comparison. Returns whether it reported.
+    @discardableResult
+    private func presentedRectDidChange() -> Bool {
+        guard let onGeometry, let window, bounds.width >= 1, bounds.height >= 1 else { return false }
         let screen = window.convertToScreen(convert(bounds, to: nil))
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
-        guard geometry != lastGeometry else { return }
+        guard geometry != lastGeometry else { return false }
         lastGeometry = geometry
         onGeometry(geometry)
+        return true
     }
 
     /// Follows the window's page update request only while someone takes the geometry.
@@ -202,8 +203,8 @@ public final class ChromiumHostPageView: NSView {
             pageUpdates = nil
             return
         }
-        pageUpdates = MainActorObservation(Notification.Name.browserChildWindowPagesNeedUpdate, object: window) { [weak self] in
-            self?.presentedRectDidChange()
+        pageUpdates = ChildPageGeometryRegistry.of(window)?.register { [weak self] _ in
+            self?.presentedRectDidChange() ?? false
         }
     }
 

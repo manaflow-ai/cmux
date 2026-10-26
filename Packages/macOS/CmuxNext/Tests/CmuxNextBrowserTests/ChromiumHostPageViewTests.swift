@@ -13,11 +13,16 @@ import Testing
         ChromiumHostPageView(frame: frame, inputTarget: input, makeLayerHost: layerHost)
     }
 
+    /// A window with the app window's page registry (`ShellWindow`).
+    final class PagesWindow: NSWindow, ChildPageGeometryHosting {
+        let childPageGeometry = ChildPageGeometryRegistry()
+    }
+
     /// A window with a stage (the layout root's place) holding a pane holding `page`.
-    func makeWindow(holding page: ChromiumHostPageView) -> (NSWindow, stage: NSView, pane: NSView) {
+    func makeWindow(holding page: ChromiumHostPageView) -> (PagesWindow, stage: NSView, pane: NSView) {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 500), styleMask: .borderless,
-                              backing: .buffered, defer: true)
+        let window = PagesWindow(contentRect: NSRect(x: 100, y: 100, width: 600, height: 500), styleMask: .borderless,
+                                 backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let stage = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
         let pane = NSView(frame: NSRect(x: 20, y: 30, width: 400, height: 300))
@@ -112,7 +117,7 @@ import Testing
 
     /// P8: the owner hears of the page's screen rect only when it changed. An ancestor that moves
     /// (the layout root, a pane) reaches the page through the window's page update request, the
-    /// one the layout owner posts after panes, dividers or the sidebar moved.
+    /// one the layout owner makes after panes, dividers or the sidebar moved.
     @Test func geometryIsReportedOnlyWhenThePresentedRectChanged() throws {
         let page = makePage(.view)
         var reports: [ChromiumHostGeometry] = []
@@ -120,8 +125,8 @@ import Testing
         let (window, stage, pane) = makeWindow(holding: page)
         defer { page.removeFromSuperview(); window.close() }
         func layoutOwnerPostsPageUpdate() {
-            // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+            // The window's layout owner (WindowOverlayLayer.requestPageUpdate).
+            window.childPageGeometry.pagesNeedUpdate()
         }
         #expect(reports.count == 1)
         let first = try #require(reports.first)
@@ -172,12 +177,11 @@ import Testing
         defer { page.removeFromSuperview(); window.close() }
         var reports = 0
         pane.setFrameOrigin(NSPoint(x: 40, y: 30))
-        // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        // The window's layout owner (WindowOverlayLayer.requestPageUpdate).
+        #expect(window.childPageGeometry.pagesNeedUpdate() == 0, "no taker yet: the page is not registered")
         page.onGeometry = { _ in reports += 1 }
         #expect(reports == 0)
-        // global-notice-allow: the window's layout owner (WindowOverlayLayer.requestPageUpdate) posts on the default center
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        #expect(window.childPageGeometry.pagesNeedUpdate() == 1)
         #expect(reports == 1)
     }
 

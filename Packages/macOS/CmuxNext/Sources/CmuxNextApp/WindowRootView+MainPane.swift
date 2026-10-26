@@ -93,7 +93,7 @@ final class MainPaneCardView: NSView {
         CATransaction.setDisableActions(true)
         layer.masksToBounds = clips
         CATransaction.commit()
-        if let window { NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window) }
+        ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate()
         return true
     }
 
@@ -183,8 +183,8 @@ extension WindowRootView {
     /// told to re-read their clip.
     func updateMainPaneShade() {
         let radius = mainPaneCornerRadius
-        if contentHost.setCornerRadius(radius), let window {
-            NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
+        if contentHost.setCornerRadius(radius) {
+            ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate()
         }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)

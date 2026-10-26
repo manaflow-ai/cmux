@@ -383,8 +383,8 @@ final class WindowOverlayLayer {
     }
 
     /// Every Chromium page of this window whose geometry, clip or occlusion
-    /// changed since the fork last read it re-applies them (`CEFHostView`
-    /// posts the fork's geometry notification; the others have nothing new).
+    /// changed since the fork last read it re-applies them (the window's
+    /// `ChildPageGeometryRegistry`; the others have nothing new).
     /// `force`: every page re-applies, changed or not (a page window moved by another app).
     private func requestPageUpdate(force: Bool = false) {
         // Pages move their child windows on this: after the layout pass.
@@ -393,8 +393,7 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,
-                                        userInfo: force ? [browserPagesForceUpdateKey: true] : nil)
+        ChildPageGeometryRegistry.of(window)?.pagesNeedUpdate(force: force)
     }
 
     // MARK: Diagnostics
