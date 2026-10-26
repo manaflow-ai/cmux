@@ -6,12 +6,19 @@ Run on the VM or a fleet mini (stdlib only, safe under `python3 -I`, no network)
     python3 -I scripts/cmux-next/oracle/selftest.py [-v] [-k PATTERN]... [--seed N]
     python3 -I scripts/cmux-next/oracle/oracle.py selftest [...]
 
+`--mutants` is the mutation smoke test instead (p15-oracle-115, patch_mutants.py): each seeded patch
+mutant of tests/oracle/mutants/ against its smallest catching suite; it builds and runs the products,
+so it is not part of the unit run. It fails below 19/20 caught (9/10 per product):
+
+    python3 -I scripts/cmux-next/oracle/selftest.py --mutants [--product app|daemon] [--list] [...]
+
 Not in tests/test-execution.toml and not in CI: agents run it themselves (CLAUDE.md, 2026-10-23).
 
 Two layers:
 - Each module's own self test, run in process: normalize.py property cases, diff.py synthetic runs,
   expectations.py parser cases, baselines.py store cases, case_checks.py (when jsonschema is
-  installed) and oracle_cli_test.py (shards, retries, flaky handling, the run format).
+  installed), oracle_cli_test.py (shards, retries, flaky handling, the run format) and
+  patch_mutants_test.py (the --mutants verdicts, the gate and the worktree apply/build/revert loop).
 - Contracts between the modules that no single module tests: normalize's sha256 is the hash
   oracle.py writes and baselines.py stores; snapshots that differ only in raw ids compare equal
   through diff.py; the case-v1 mutation table gives its layer's result through normalize's
@@ -24,7 +31,8 @@ KNOWN_RED lists module self-test cases that fail on the current base, each with 
 like a Blink `[ Failure ]` expectation: the case still runs, the failure is printed, and a pass is
 an unexpected pass that fails this run, so the line is removed with the fix.
 
-Exit: 0 when every test passes (known-red failures aside), 1 otherwise, 2 bad usage.
+Exit: 0 when every test passes (known-red failures aside), 1 otherwise, 2 bad usage; with --mutants,
+patch_mutants.py's codes (3: undecided, an unmeasured mutant could still change the result).
 """
 
 from __future__ import annotations
@@ -231,6 +239,15 @@ class ModuleSelftests(unittest.TestCase):
         result, names, output = run_unittest_cases(cases)
         judge_cases(self, "oracle_cli_test", unittest_outcomes(result, names), output)
         self.assertEqual(result.testsRun, INNER["oracle_cli_test"].total)
+
+    def test_patch_mutants(self) -> None:
+        module = importlib.import_module("patch_mutants_test")
+        cases = [value for value in vars(module).values()
+                 if isinstance(value, type) and issubclass(value, unittest.TestCase) and value.__module__ == module.__name__]
+        self.assertTrue(cases)
+        result, names, output = run_unittest_cases(cases)
+        judge_cases(self, "patch_mutants_test", unittest_outcomes(result, names), output)
+        self.assertEqual(result.testsRun, INNER["patch_mutants_test"].total)
 
     def test_case_checks_with_jsonschema(self) -> None:
         try:
@@ -600,10 +617,17 @@ def report(result: unittest.TestResult, tests: Sequence[unittest.TestCase], spen
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if "--mutants" in argv:
+        import patch_mutants
+
+        return patch_mutants.main([a for a in argv if a != "--mutants"])
     parser = argparse.ArgumentParser(description="Self test of the oracle tooling (stdlib, no network).")
     parser.add_argument("-v", "--verbose", action="store_true", help="print each test")
     parser.add_argument("-k", dest="patterns", action="append", default=[], help="only tests matching this pattern")
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED, help="normalize.py property-case seed")
+    parser.add_argument("--mutants", action="store_true",
+                        help="run the patch-mutant smoke test instead (patch_mutants.py --help for its options)")
     args = parser.parse_args(argv)
     SETTINGS["seed"] = args.seed
     INNER.clear()

@@ -21,6 +21,8 @@ Chrome reference (chromium/src):
 Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
+`selftest --mutants` is selftest.py's mutation smoke test (patch_mutants.py, p15-oracle-115): the
+seeded patch mutants of tests/oracle/mutants/, the smallest catching suite each, and the 19/20 gate.
 
 Driver protocol (owned here; driver_<product>.py implements it):
     open_session(session_ctx: dict) -> session
@@ -153,6 +155,7 @@ DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "coverage": ("coverage.py", (), "p15-oracle-190"),
     "selftest": ("selftest.py", (), "p15-oracle-019"),
 }
+MUTANTS_SELFTEST = ("patch_mutants.py", "p15-oracle-115")
 
 
 class UsageError(Exception):
@@ -1737,6 +1740,10 @@ def cmd_gen(args: argparse.Namespace, rest: List[str]) -> int:
 
 def delegate(command: str, argv: List[str]) -> int:
     script, prefix, task = DELEGATES[command]
+    if command == "selftest" and "--mutants" in argv and not (HERE / MUTANTS_SELFTEST[0]).is_file():
+        print(f"oracle selftest --mutants: {MUTANTS_SELFTEST[0]} is not on this branch yet ({MUTANTS_SELFTEST[1]})",
+              file=sys.stderr)
+        return 2
     path = HERE / script
     if not path.is_file():
         print(f"oracle {command}: {script} is not on this branch yet ({task})", file=sys.stderr)
@@ -1749,7 +1756,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="oracle.py",
         description="cmux correctness oracle (plans/cmux-next/chrome-parity/p15-oracle.md).",
         epilog="rebaseline --run DIR [baselines.py options]. Delegated subcommands: "
-               + ", ".join(f"{k} ({v[0]})" for k, v in DELEGATES.items()),
+               + ", ".join(f"{k} ({v[0]})" for k, v in DELEGATES.items())
+               + f"; selftest --mutants ({MUTANTS_SELFTEST[0]})",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
