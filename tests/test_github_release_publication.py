@@ -166,7 +166,9 @@ class PublicationTests(unittest.TestCase):
     def test_null_digest_uses_the_authenticated_api_asset_url(self):
         client = publisher.GitHub("owner/repo", "fake-token")
         remote_asset = {"name": "draft.bin", "url": "https://api.github.com/assets/1", "browser_download_url": "https://github.com/draft.bin"}
-        with patch("publisher.urllib.request.urlopen") as urlopen:
+        # The opener keeps the token off a redirect to another host (publisher._SameHostAuthRedirect).
+        with patch("publisher._OPENER") as opener:
+            urlopen = opener.open
             response = urlopen.return_value.__enter__.return_value
             response.read.side_effect = [b"draft-content", b""]
             response.__iter__ = lambda self: iter([b"draft-content"])
@@ -182,7 +184,7 @@ class PublicationTests(unittest.TestCase):
                                          io.BytesIO(b'{"message": "API rate limit exceeded for installation."}'))
         ok = unittest.mock.MagicMock()
         ok.__enter__.return_value.read.side_effect = [b"abc", b""]
-        with patch("publisher.urllib.request.urlopen", side_effect=[refused, ok]), \
+        with patch.object(publisher._OPENER, "open", side_effect=[refused, ok]), \
                 patch.object(publisher, "backoff") as backoff:
             self.assertEqual(client.asset_digest(remote_asset), "sha256:" + hashlib.sha256(b"abc").hexdigest())
         self.assertTrue(backoff.call_args.args[1].rate_limited)
@@ -191,7 +193,7 @@ class PublicationTests(unittest.TestCase):
         client = publisher.GitHub("owner/repo", "fake-token")
         refused = urllib.error.HTTPError("https://api.github.com/assets/1", 403, "Forbidden", {},
                                          io.BytesIO(b'{"message": "Resource not accessible by integration"}'))
-        with patch("publisher.urllib.request.urlopen", side_effect=[refused]), \
+        with patch.object(publisher._OPENER, "open", side_effect=[refused]), \
                 patch.object(publisher, "backoff") as backoff:
             with self.assertRaises(publisher.RequestError):
                 client.asset_digest({"name": "a.bin", "url": "https://api.github.com/assets/1"})
