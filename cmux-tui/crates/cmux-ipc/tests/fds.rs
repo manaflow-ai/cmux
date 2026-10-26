@@ -1,5 +1,5 @@
 //! `cmux_ipc::fds` over a real socketpair: order, the per-frame cap, a
-//! truncated control buffer, and close-on-exec.
+//! truncated control buffer, the receive capacity, and close-on-exec.
 
 #![cfg(unix)]
 
@@ -17,14 +17,27 @@ mod cmux_ipc_fds {
         unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) }
     }
 
-    /// The (device, inode) of the file a descriptor names: a received copy
-    /// has another number but the same file.
-    fn identity(fd: RawFd) -> (u64, u64) {
+    /// The (device, inode, access mode) of the file a descriptor names: a
+    /// received copy has another number but the same file and mode.
+    fn identity(fd: RawFd) -> (u64, u64, libc::c_int) {
         // SAFETY: zeroed stat is a valid out-parameter.
         let mut st: libc::stat = unsafe { std::mem::zeroed() };
         // SAFETY: fstat writes one stat for a live descriptor.
         assert_eq!(unsafe { libc::fstat(fd, &mut st) }, 0, "{}", io::Error::last_os_error());
-        (st.st_dev as u64, st.st_ino as u64)
+        // SAFETY: F_GETFL of a live descriptor.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        assert!(flags >= 0, "F_GETFL: {}", io::Error::last_os_error());
+        (st.st_dev as u64, st.st_ino as u64, flags & libc::O_ACCMODE)
+    }
+
+    fn is_open(fd: RawFd) -> bool {
+        // SAFETY: F_GETFD only asks whether a descriptor number is open.
+        unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    /// The `FdBadMessage` source of a receive error.
+    fn bad_message(error: &io::Error) -> Option<FdBadMessage> {
+        error.get_ref().and_then(|e| e.downcast_ref::<FdBadMessage>()).copied()
     }
 
     fn close_on_exec(fd: &OwnedFd) -> bool {
@@ -45,12 +58,18 @@ mod cmux_ipc_fds {
     }
 
     /// Three descriptors over two frames (two, then one) arrive in order:
-    /// each frame takes its own, by file identity.
+    /// each frame takes its own, in the order it sent them, by file identity.
     #[test]
     fn three_fds_over_two_frames_arrive_in_order() {
         let (sender, receiver_end) = UnixStream::pair().unwrap();
-        let (a, b) = pipe();
+        let (a, _a_write) = pipe();
+        let (_b_read, b) = pipe();
         let (c, _c_write) = pipe();
+        let sent = [identity(a.as_raw_fd()), identity(b.as_raw_fd()), identity(c.as_raw_fd())];
+        assert!(
+            sent[0] != sent[1] && sent[1] != sent[2] && sent[0] != sent[2],
+            "the three descriptors must be told apart"
+        );
         fds::send_all(sender.as_raw_fd(), b"frame-one", &[a.as_raw_fd(), b.as_raw_fd()]).unwrap();
         fds::send_all(sender.as_raw_fd(), b"frame-two", &[c.as_raw_fd()]).unwrap();
 
@@ -95,8 +114,10 @@ mod cmux_ipc_fds {
         let raw = vec![read_end.as_raw_fd(); MAX_FDS_PER_FRAME + 1];
         let error = fds::send_with_fds(sender.as_raw_fd(), b"x", &raw).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        let bad = error.get_ref().and_then(|e| e.downcast_ref::<FdBadMessage>()).copied();
-        assert_eq!(bad, Some(FdBadMessage::TooManyFds { count: MAX_FDS_PER_FRAME + 1 }));
+        assert_eq!(
+            bad_message(&error),
+            Some(FdBadMessage::TooManyFds { count: MAX_FDS_PER_FRAME + 1 })
+        );
         fds::send_with_fds(sender.as_raw_fd(), b"x", &raw[..MAX_FDS_PER_FRAME]).unwrap();
 
         let mut receiver = FdReceiver::default();
@@ -107,9 +128,12 @@ mod cmux_ipc_fds {
     }
 
     /// More descriptors than the control buffer holds (`MSG_CTRUNC`) fails
-    /// the read with BadMessage and queues none of them.
+    /// the read with BadMessage and queues none of them. It closes no
+    /// descriptor it did not receive (XNU keeps the full `cmsg_len` of the
+    /// message it cut short).
     #[test]
     fn a_truncated_control_buffer_is_bad_message() {
+        let (sentinel, sentinel_write) = pipe();
         let (sender, receiver_end) = UnixStream::pair().unwrap();
         let (read_end, write_end) = pipe();
         let (other, _other_write) = pipe();
@@ -123,9 +147,31 @@ mod cmux_ipc_fds {
         let mut buf = Vec::new();
         let error = receiver.recv(receiver_end.as_raw_fd(), &mut buf, 16, |_| {}).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-        let bad = error.get_ref().and_then(|e| e.downcast_ref::<FdBadMessage>()).copied();
-        assert_eq!(bad, Some(FdBadMessage::ControlTruncated));
+        assert_eq!(bad_message(&error), Some(FdBadMessage::ControlTruncated));
         assert_eq!(receiver.queued(), 0, "a truncated read queues nothing");
+        for fd in [&sentinel, &sentinel_write, &read_end, &write_end, &other] {
+            assert!(
+                is_open(fd.as_raw_fd()),
+                "the truncated read closed a descriptor it did not own"
+            );
+        }
+    }
+
+    /// A read of more descriptors than the capacity fails though the control
+    /// buffer's alignment padding held them (on 64-bit Linux `CMSG_SPACE(4)`
+    /// has room for two).
+    #[test]
+    fn more_than_the_capacity_is_bad_message() {
+        let (sender, receiver_end) = UnixStream::pair().unwrap();
+        let (read_end, write_end) = pipe();
+        fds::send_all(sender.as_raw_fd(), b"x", &[read_end.as_raw_fd(), write_end.as_raw_fd()])
+            .unwrap();
+        let mut receiver = FdReceiver::with_capacity(1);
+        let error =
+            receiver.recv(receiver_end.as_raw_fd(), &mut Vec::new(), 16, |_| {}).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(bad_message(&error), Some(FdBadMessage::ControlTruncated));
+        assert_eq!(receiver.queued(), 0);
     }
 
     /// End of stream is a read of 0 bytes, not an error.

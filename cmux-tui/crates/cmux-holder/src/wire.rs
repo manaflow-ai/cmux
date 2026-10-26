@@ -417,8 +417,64 @@ pub fn raw(fd: &OwnedFd) -> RawFd {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Read;
     use std::os::fd::FromRawFd;
     use std::os::unix::net::UnixStream;
+
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let mut ends = [0; 2];
+        // SAFETY: pipe fills two descriptors this test then owns.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: both are fresh descriptors nothing else owns.
+        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) }
+    }
+
+    /// The (inode, access mode) of the file a descriptor names.
+    fn identity(fd: &OwnedFd) -> (u64, libc::c_int) {
+        // SAFETY: zeroed stat is a valid out-parameter.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat and F_GETFL of a descriptor this test owns.
+        let (stat, flags) = unsafe {
+            (libc::fstat(fd.as_raw_fd(), &mut st), libc::fcntl(fd.as_raw_fd(), libc::F_GETFL))
+        };
+        assert!(stat == 0 && flags >= 0, "{}", io::Error::last_os_error());
+        (st.st_ino as u64, flags & libc::O_ACCMODE)
+    }
+
+    /// The wire is the holder's frozen format with its descriptors: a ring
+    /// SPAWNED frame is these exact bytes on the socket (what every older
+    /// holder and daemon reads), and its two descriptors arrive with it,
+    /// master first, then the ring segment.
+    #[test]
+    fn a_frame_with_descriptors_is_the_frozen_bytes_in_order() {
+        const SPAWNED_RING: &[u8] = b"CMHX\x04\x00\x02\x00\x07\x00\x00\x00\x07\x00\x00\x00spawned";
+        let frame = encode_flagged(Kind::Spawned, FLAG_RING, 7, b"spawned");
+        assert_eq!(frame, SPAWNED_RING);
+        let (master, _master_write) = pipe();
+        let (_ring_read, ring) = pipe();
+
+        let (sender, mut receiver) = UnixStream::pair().unwrap();
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut bytes = vec![0; SPAWNED_RING.len()];
+        receiver.read_exact(&mut bytes).unwrap();
+        assert_eq!(bytes, SPAWNED_RING, "the bytes on the socket are the encoded frame");
+
+        send_all(sender.as_raw_fd(), &frame, &[raw(&master), raw(&ring)]).unwrap();
+        let mut reader = Reader::default();
+        let frame = loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                break frame;
+            }
+            assert!(reader.fill(receiver.as_raw_fd()).unwrap(), "the stream ended early");
+        };
+        assert_eq!((frame.kind, frame.flags, frame.chan), (Kind::Spawned as u16, FLAG_RING, 7));
+        assert_eq!(frame.payload, b"spawned");
+        assert_eq!(
+            frame.fds.iter().map(identity).collect::<Vec<_>>(),
+            [identity(&master), identity(&ring)],
+            "master first, then the ring segment"
+        );
+    }
 
     fn close_on_exec(fd: &OwnedFd) -> bool {
         // SAFETY: F_GETFD of a descriptor this test owns.

@@ -38,8 +38,9 @@ pub const MAX_RECV_FDS: usize = 253;
 /// the receiver can no longer tell which descriptor belongs to which frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FdBadMessage {
-    /// The kernel had more descriptors than the control buffer holds
-    /// (`MSG_CTRUNC`) and closed the rest.
+    /// A read brought more descriptors than the receiver takes: the kernel
+    /// truncated the control data (`MSG_CTRUNC`), or the control buffer's
+    /// alignment padding held more than [`FdReceiver::with_capacity`].
     ControlTruncated,
     /// A frame asked to send or take more than [`MAX_FDS_PER_FRAME`].
     TooManyFds { count: usize },
@@ -147,7 +148,8 @@ const RECV_FLAGS: libc::c_int = 0;
 pub struct FdReceiver {
     /// Descriptors one read may bring; sizes `control`.
     capacity: usize,
-    control: Vec<u8>,
+    /// `u64` words, so the `cmsghdr` the kernel writes at its start is aligned.
+    control: Vec<u64>,
     queue: VecDeque<OwnedFd>,
 }
 
@@ -159,7 +161,8 @@ impl Default for FdReceiver {
 
 impl FdReceiver {
     /// A receiver whose reads take at most `capacity` descriptors each; a
-    /// read that brings more fails with [`FdBadMessage::ControlTruncated`].
+    /// read that brings more fails with [`FdBadMessage::ControlTruncated`],
+    /// even when the control buffer's alignment padding held them.
     pub fn with_capacity(capacity: usize) -> Self {
         Self { capacity, control: Vec::new(), queue: VecDeque::new() }
     }
@@ -185,14 +188,15 @@ impl FdReceiver {
     /// they are made close-on-exec on macOS). Returns the bytes read, 0 at
     /// end of stream.
     ///
-    /// Control data the kernel truncated (`MSG_CTRUNC`) fails the read with
-    /// an `InvalidData` error whose source is
-    /// [`FdBadMessage::ControlTruncated`], as does a descriptor that cannot
-    /// be made close-on-exec: the descriptors of that read are closed then
-    /// and the stream is lost, rather than handing a later frame the wrong
-    /// descriptor or keeping one every later child inherits. Linux closes
-    /// the descriptors it truncated; XNU has already installed them before it
-    /// truncates the control data, so on macOS those stay open in this process.
+    /// Control data the kernel truncated (`MSG_CTRUNC`), or more descriptors
+    /// than the capacity, fails the read with an `InvalidData` error whose
+    /// source is [`FdBadMessage::ControlTruncated`]. A descriptor that cannot
+    /// be made close-on-exec fails it with the `fcntl` OS error. Either way
+    /// the descriptors of that read are closed and the stream is lost, rather
+    /// than handing a later frame the wrong descriptor or keeping one every
+    /// later child inherits. Linux closes the descriptors it truncated; XNU
+    /// has already installed them before it truncates the control data, so on
+    /// macOS those stay open in this process.
     pub fn recv(
         &mut self,
         fd: RawFd,
@@ -204,7 +208,7 @@ impl FdReceiver {
             // SAFETY: CMSG_SPACE computes a size from a length.
             let space =
                 unsafe { libc::CMSG_SPACE((self.capacity * size_of::<RawFd>()) as u32) as usize };
-            self.control = vec![0u8; space];
+            self.control = vec![0u64; space.div_ceil(size_of::<u64>())];
         }
         buf.reserve(max);
         let len = buf.len();
@@ -216,7 +220,7 @@ impl FdReceiver {
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
         msg.msg_control = self.control.as_mut_ptr().cast();
-        msg.msg_controllen = self.control.len() as _;
+        msg.msg_controllen = size_of_val(self.control.as_slice()) as _;
         let n = loop {
             // SAFETY: msg points at `room` bytes of `buf`'s spare capacity
             // and at the control buffer, both live for the call.
@@ -232,7 +236,7 @@ impl FdReceiver {
         // SAFETY: recvmsg initialized `n <= room` bytes past `len`.
         unsafe { buf.set_len(len + n) };
         let fds = received(&msg);
-        if msg.msg_flags & libc::MSG_CTRUNC != 0 {
+        if msg.msg_flags & libc::MSG_CTRUNC != 0 || fds.len() > self.capacity {
             return Err(FdBadMessage::ControlTruncated.into_io(io::ErrorKind::InvalidData));
         }
         between(&fds);
@@ -251,16 +255,26 @@ impl FdReceiver {
 
 /// The descriptors in the `SCM_RIGHTS` messages of a control buffer
 /// `recvmsg` filled, owned at once so every one closes on any early return.
+/// Only whole descriptors inside `msg_controllen` count: on `MSG_CTRUNC`
+/// XNU's `copyout_control` keeps the full `cmsg_len` of a message it cut
+/// short (Linux's `scm_detach_fds` rewrites it), and the bytes past
+/// `msg_controllen` are stale numbers from an earlier read.
 fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
     let mut fds = Vec::new();
-    // SAFETY: walking the control buffer recvmsg filled, within msg_controllen.
+    // msg_controllen is usize on Linux and socklen_t (u32) on macOS.
+    #[allow(clippy::unnecessary_cast)]
+    let end = msg.msg_control as usize + msg.msg_controllen as usize;
+    // SAFETY: CMSG_FIRSTHDR and CMSG_NXTHDR return only headers inside
+    // msg_controllen, and each read below stays before `end`.
     unsafe {
         let mut cmsg = libc::CMSG_FIRSTHDR(msg);
         while !cmsg.is_null() {
             if (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS {
                 let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
                 let header = libc::CMSG_LEN(0) as usize;
-                let count = ((*cmsg).cmsg_len as usize).saturating_sub(header) / size_of::<RawFd>();
+                let stated = ((*cmsg).cmsg_len as usize).saturating_sub(header);
+                let filled = end.saturating_sub(data as usize);
+                let count = stated.min(filled) / size_of::<RawFd>();
                 for index in 0..count {
                     fds.push(OwnedFd::from_raw_fd(std::ptr::read_unaligned(data.add(index))));
                 }
@@ -269,4 +283,64 @@ fn received(msg: &libc::msghdr) -> Vec<OwnedFd> {
         }
     }
     fds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::fd::IntoRawFd;
+
+    fn pipe() -> (OwnedFd, OwnedFd) {
+        let mut ends = [0; 2];
+        // SAFETY: pipe fills two descriptors this test then owns.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: both are fresh descriptors nothing else owns.
+        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) }
+    }
+
+    fn is_open(fd: RawFd) -> bool {
+        // SAFETY: F_GETFD only asks whether a descriptor number is open.
+        unsafe { libc::fcntl(fd, libc::F_GETFD) >= 0 }
+    }
+
+    /// A control buffer as XNU leaves it on `MSG_CTRUNC`: the header states
+    /// three descriptors, `msg_controllen` covers one. Only that one is
+    /// owned; the two stale numbers past it (here a live descriptor this
+    /// test owns) are neither read nor closed.
+    #[test]
+    fn an_overstated_cmsg_len_takes_only_the_filled_descriptors() {
+        let (given, _given_write) = pipe();
+        let (sentinel, _sentinel_write) = pipe();
+        let given_raw = given.into_raw_fd();
+        // SAFETY: CMSG_SPACE and CMSG_LEN compute sizes from lengths.
+        let (space, filled, stated) = unsafe {
+            (
+                libc::CMSG_SPACE(3 * size_of::<RawFd>() as u32) as usize,
+                libc::CMSG_LEN(size_of::<RawFd>() as u32) as usize,
+                libc::CMSG_LEN(3 * size_of::<RawFd>() as u32),
+            )
+        };
+        let mut control = vec![0u64; space.div_ceil(size_of::<u64>())];
+        // SAFETY: zeroed msghdr is a valid empty header.
+        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+        msg.msg_control = control.as_mut_ptr().cast();
+        msg.msg_controllen = space as _;
+        // SAFETY: the buffer holds one cmsg of three descriptors.
+        unsafe {
+            let cmsg = libc::CMSG_FIRSTHDR(&msg);
+            (*cmsg).cmsg_level = libc::SOL_SOCKET;
+            (*cmsg).cmsg_type = libc::SCM_RIGHTS;
+            (*cmsg).cmsg_len = stated as _;
+            let data = libc::CMSG_DATA(cmsg).cast::<RawFd>();
+            let numbers = [given_raw, sentinel.as_raw_fd(), sentinel.as_raw_fd()];
+            std::ptr::copy_nonoverlapping(numbers.as_ptr(), data, numbers.len());
+        }
+        msg.msg_controllen = filled as _;
+
+        let fds = received(&msg);
+        assert_eq!(fds.iter().map(AsRawFd::as_raw_fd).collect::<Vec<_>>(), [given_raw]);
+        drop(fds);
+        assert!(!is_open(given_raw), "the filled descriptor is owned and closes");
+        assert!(is_open(sentinel.as_raw_fd()), "a stale number past msg_controllen was closed");
+    }
 }
