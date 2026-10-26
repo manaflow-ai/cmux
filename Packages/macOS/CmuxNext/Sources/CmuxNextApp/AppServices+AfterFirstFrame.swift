@@ -64,10 +64,17 @@ extension AppServices {
                                     keepAwake: with { KeepAwakeService.shared.start(settings: $1, store: $0.daemon.store) },
                                     mobile: with { $0.mobile.follow($1, launch: $0.environment.launch) }, notifications: with { $0.notifications.follow($1) },
                                     macScreenSettings: with { $0.followMacScreenSettings($1) }, deviceHub: with { $0.startDeviceHub($1) },
-                                    computerUseHelper: with { services, settings in ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak services] in services?.registry.disabledFeatures.contains(.computerUse) ?? true }) },
+                                    computerUseHelper: with { $0.followComputerUseHelper($1) },
                                     hibernationMeasurements: { [weak self] in self?.startHibernationMeasurements() },
                                     apps: { [weak self] in self?.apps.start() }, macScreen: { [weak self] in self?.macScreenPages.activate() },
                                     updateFeed: { [weak self] in if let self { self.updateFeedObservation = UpdateFeedPosting.follow(self) } }).post(on: startup)
+    }
+
+    /// The Computer Use helper follows `settings`, off while the organization's policy turns the feature off.
+    private func followComputerUseHelper(_ settings: SettingsController) {
+        ComputerUseHelperDaemon.shared.follow(settings, disabledByPolicy: { [weak self] in
+            self?.registry.disabledFeatures.contains(.computerUse) ?? true
+        })
     }
 
     /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit.
