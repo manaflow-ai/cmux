@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // Mirrors shared/MODEL.md field for field. Enums are tagged unions keyed by `type`.
 
@@ -256,8 +257,17 @@ enum Instant {
     /// cmux: a live Home transcript shows the user's zone and locale; it
     /// sets `liveZone` / `liveLocale` before the first date is formatted.
     /// Unset (fixtures, the differential harness), the conversation's -07:00.
-    static var liveZone: TimeZone?
-    static var liveLocale: Locale?
+    /// The main thread sets them; the first `zone` or `locale` read, on any thread, takes them.
+    private struct Live: Sendable { var zone: TimeZone?; var locale: Locale? }
+    private static let lock = OSAllocatedUnfairLock(initialState: Live())
+    static var liveZone: TimeZone? {
+        get { lock.withLock { $0.zone } }
+        set { lock.withLock { $0.zone = newValue } }
+    }
+    static var liveLocale: Locale? {
+        get { lock.withLock { $0.locale } }
+        set { lock.withLock { $0.locale = newValue } }
+    }
     static let zone = liveZone ?? TimeZone(secondsFromGMT: -7 * 3600) ?? .gmt // cmux: no force unwrap
     static let locale = liveLocale ?? Locale(identifier: "en_US")
     private static let writer: ISO8601DateFormatter = {
@@ -266,15 +276,13 @@ enum Instant {
         f.timeZone = zone
         return f
     }()
-    private static var memo: [String: Date] = [:]
-    private static let lock = NSLock()
+    /// Rows derive on the main thread and the render queues: the lock owns the memo.
+    private static let memo = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
     /// Memoized: rows re-derive often and 50k timestamps parse slowly.
     static func parse(_ s: String) -> Date {
-        lock.lock()
-        if let d = memo[s] { lock.unlock(); return d }
-        lock.unlock()
+        if let d = memo.withLock({ $0[s] }) { return d }
         let d = fast(s) ?? parser.date(from: s) ?? Date(timeIntervalSince1970: 0)
-        lock.lock(); memo[s] = d; lock.unlock()
+        memo.withLock { $0[s] = d }
         return d
     }
     /// "yyyy-MM-ddTHH:mm:ss" + "Z" or "+hh:mm"/"-hh:mm" without ICU (a new message's timestamp
@@ -343,9 +351,11 @@ extension Message {
 enum Fixtures {
     /// conversation.json and assets/ from shared/ are bundled (not copied
     /// into this variant's sources).
-    /// cmux: fixtures are not in the app bundle; the harness sets `root`.
-    static var root: URL?
-    static var sharedDirectory: URL { root ?? Bundle.main.resourceURL ?? Bundle.main.bundleURL } // cmux: no force unwrap
+    /// cmux: fixtures are not in the app bundle; the harness sets the root (`setRoot`, main thread)
+    /// before rows resolve assets on the render queues: the lock owns it.
+    private static let root = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    static func setRoot(_ url: URL?) { root.withLock { $0 = url } }
+    static var sharedDirectory: URL { root.withLock { $0 } ?? Bundle.main.resourceURL ?? Bundle.main.bundleURL } // cmux: no force unwrap
     /// The repo's shared/ directory, for the large generated stores that are
     /// not bundled.
     static var repoShared: URL {
