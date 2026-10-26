@@ -10,8 +10,15 @@ public import Foundation
 /// macOS 14 cannot back-deploy). Keep the token in a stored property; set it to nil or call
 /// ``cancel()`` to stop early.
 ///
+/// The handler runs in a ``MainCallbackClass`` (p04-input-080): pass one from the app's main-thread
+/// scheduler so the notification's work is posted with a class and an owner and waits behind a
+/// person's pending input. The default, ``MainCallbackClass/immediate``, runs it in the
+/// notification's callout with no class; it stays only until the call sites name a class (tasks 081
+/// and 082), and new code passes one.
+///
 /// ```swift
-/// observation = MainActorObservation(NSWindow.didBecomeKeyNotification, object: window) { [weak self] in
+/// observation = MainActorObservation(NSWindow.didBecomeKeyNotification, object: window,
+///                                    class: mainWork.callbackClass(.visible, owner: "window.key")) { [weak self] in
 ///     self?.keyChanged()
 /// }
 /// ```
@@ -25,26 +32,30 @@ public final class MainActorObservation {
     ///   - name: The notification to observe.
     ///   - object: Only notifications this object posts; nil for every sender.
     ///   - center: The center to observe (default `NotificationCenter.default`; tests pass their own).
+    ///   - workClass: The class the handler runs in (default ``MainCallbackClass/immediate``: in the
+    ///     notification's callout, with no class).
     ///   - handler: Main-actor work for each notification (the `Notification` is not `Sendable`;
     ///     read what you need from the poster's state, not the payload).
     public init(
         _ name: Notification.Name,
         object: AnyObject? = nil,
         center: NotificationCenter = .default,
+        class workClass: MainCallbackClass = .immediate,
         _ handler: @escaping @MainActor () -> Void
     ) {
         self.center = center
         token = center.addObserver(forName: name, object: object, queue: .main) { _ in
             // main-proof: the observer is registered on the main queue (queue: .main).
-            MainActor.assumeIsolated { handler() }
+            MainActor.assumeIsolated { workClass.run(handler) }
         }
     }
 
     /// Observes `name` and hands the main-actor handler the value `read` takes from each notification.
     ///
-    /// `read` and `handler` both run inside this type's one main-delivery proof, on the same delivery,
-    /// so the value may be any type, `Sendable` or not (an `NSMenu`, an `NSWindow`): no caller needs a
-    /// box to carry it from the notification to the handler.
+    /// `read` runs inside this type's one main-delivery proof, on the notification's own delivery, and
+    /// the handler gets its value on the main actor (in that delivery, or later in `workClass`), so the
+    /// value may be any type, `Sendable` or not (an `NSMenu`, an `NSWindow`): no caller needs a box to
+    /// carry it from the notification to the handler.
     ///
     /// ```swift
     /// MainActorObservation(NSMenu.didBeginTrackingNotification, read: { $0.object as? NSMenu }) { menu in
@@ -56,12 +67,15 @@ public final class MainActorObservation {
     ///   - name: The notification to observe.
     ///   - object: Only notifications this object posts; nil for every sender.
     ///   - center: The center to observe.
+    ///   - workClass: The class the handler runs in (default ``MainCallbackClass/immediate``).
+    ///     `read` always runs in the notification's callout.
     ///   - read: Reads what the handler needs from the notification, on the main actor.
     ///   - handler: Main-actor work with the value `read` returned.
     public init<Value>(
         _ name: Notification.Name,
         object: AnyObject? = nil,
         center: NotificationCenter = .default,
+        class workClass: MainCallbackClass = .immediate,
         read: @escaping @MainActor (Notification) -> Value,
         _ handler: @escaping @MainActor (Value) -> Void
     ) {
@@ -70,7 +84,10 @@ public final class MainActorObservation {
             // crash-allow: the center delivers on the main queue (queue: .main) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note
             // main-proof: the observer is registered on the main queue (queue: .main).
-            MainActor.assumeIsolated { handler(read(note)) }
+            MainActor.assumeIsolated {
+                let value = read(note)
+                workClass.run { handler(value) }
+            }
         }
     }
 

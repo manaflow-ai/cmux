@@ -210,10 +210,11 @@ extension MainWorkScheduler {
         MainRunLoopBlock.perform { [weak self] in self?.arrive(workClass, owner: owner, site: site, enqueueNanos: enqueueNanos, body) }
     }
 
-    /// A task posted off main reached the main thread: this turn is the next turn, so on an idle
-    /// scheduler it runs now (in class order with anything else posted), not one more turn later.
+    /// A task posted off main reached the main thread, or a classed callback came in its own callout
+    /// (MainWorkScheduler+Classed.swift): this turn is the next turn, so on an idle scheduler it runs
+    /// now (in class order with anything else posted), not one more turn later.
     /// `enqueueNanos` is nil when the budget's clock is main-actor-only: the wait starts here.
-    private func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, enqueueNanos: UInt64?,
+    func arrive(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, site: MainPostSite, enqueueNanos: UInt64?,
                         _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
         queue.append(owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos), body)
