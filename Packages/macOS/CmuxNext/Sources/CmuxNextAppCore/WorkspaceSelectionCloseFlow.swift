@@ -31,6 +31,8 @@ public struct WorkspaceSelectionCloseFlow {
     public var restore: @MainActor () -> Void
     /// Whether a workspace is still listed (it may close another way while the question is up).
     public var listed: @MainActor (String) -> Bool
+    /// The live rows' closes settled: `ids` closed (a group they emptied closes now, `WorkspaceSelectionClose`).
+    public var liveClosed: @MainActor (_ ids: Set<String>) -> Void
     /// The app's machines: a close waiting for its machine ends when the machine leaves the app.
     public var machines: @MainActor @Sendable () -> [DaemonService]
     /// The one "Closed N workspaces" toast with Undo for `names` (none for fewer than two, or with no
@@ -42,6 +44,7 @@ public struct WorkspaceSelectionCloseFlow {
 
     public init(hide: @escaping @MainActor ([String]) -> [String], question: @escaping @MainActor () async -> (@MainActor () async -> Bool)?,
                 restore: @escaping @MainActor () -> Void, listed: @escaping @MainActor (String) -> Bool,
+                liveClosed: @escaping @MainActor (_ ids: Set<String>) -> Void = { _ in },
                 machines: @escaping @MainActor @Sendable () -> [DaemonService],
                 offerUndo: @escaping @MainActor (_ names: [String], _ undone: @escaping @MainActor () -> Void) -> Void,
                 window: String, toastWindow: NSWindow?) {
@@ -49,6 +52,7 @@ public struct WorkspaceSelectionCloseFlow {
         self.question = question
         self.restore = restore
         self.listed = listed
+        self.liveClosed = liveClosed
         self.machines = machines
         self.offerUndo = offerUndo
         self.window = window
@@ -89,14 +93,16 @@ public struct WorkspaceSelectionCloseFlow {
             // window's lane, so later creates and closes never wait for it (WorkspaceCloseFlow).
             for pair in offline {
                 // task-owner: one close that waits for its machine (until it connects or leaves the app)
-                Task { @MainActor in outcome.add(await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true))])) }
+                Task { @MainActor in outcome.add(await settle([(pair.0, await send(pair.0, terminals: pair.1, waits: true))]).map(\.0.name)) }
             }
             return await WorkspaceLanes.shared.run(in: window) {
                 // task-owner: one close request each, all sent now; awaited right below.
                 let started = live.map { pair in Task { @MainActor in (pair.0, await send(pair.0, terminals: pair.1, waits: false)) } }
                 var results: [(Member, ActionWorkFailure?)] = []
                 for task in started { results.append(await task.value) }
-                outcome.liveSettled(await settle(results))
+                let closed = await settle(results)
+                liveClosed(Set(closed.map(\.0.id)))
+                outcome.liveSettled(closed.map(\.0.name))
                 return results.first { $0.1 != nil }?.1
             }.value
         }
@@ -130,8 +136,8 @@ public struct WorkspaceSelectionCloseFlow {
 
     /// Ends the closes of `results`: one that went through stays hidden until its store has applied its
     /// events (the row is gone there); a refusal lists its row again, with one toast in `toastWindow` for all
-    /// of them. Returns the names that closed.
-    private func settle(_ results: [(Member, ActionWorkFailure?)]) async -> [String] {
+    /// of them. Returns the workspaces that closed.
+    private func settle(_ results: [(Member, ActionWorkFailure?)]) async -> [Member] {
         var daemons: [ObjectIdentifier: DaemonService] = [:]
         for (member, failure) in results where failure == nil { daemons[ObjectIdentifier(member.1)] = member.1 }
         for daemon in daemons.values {
@@ -143,7 +149,7 @@ public struct WorkspaceSelectionCloseFlow {
             Self.running.remove(member.0.id)
             ClosingWorkspaces.shared.end(member.0.id, refused: failure != nil, in: member.0.id == firstRefused ? toastWindow : nil)
         }
-        return results.filter { $0.1 == nil }.map { $0.0.0.name }
+        return results.filter { $0.1 == nil }.map(\.0)
     }
 
     /// One workspace's close on its own machine (`waits`: until that machine connects).

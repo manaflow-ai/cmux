@@ -119,4 +119,34 @@ struct SidebarSelectionBatchCloseTests {
             #expect(Self.listed(ids, services).isEmpty, "not closed: \(Self.listed(ids, services).count) of 9")
         }
     }
+    /// A selection that holds every row of a group: the group closes with them (an unpinned group goes) instead of
+    /// staying behind empty, and the same Undo brings back the workspaces and then the group with them (#21835).
+    @Test func aGroupTheSelectionEmptiesClosesAndUndoBringsItBack() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            try await PinnedPageTests.until({ !services.windows.registry.isLaunching }, within: .seconds(60))
+            let controller = try #require(services.windows.active)
+            let window = try #require(controller.window)
+            let ids = try await Self.make(3, prefix: "emptied", services, in: controller)
+            let sidebar = controller.sidebar.model
+            @MainActor func group() -> SidebarGroup? { SidebarEdits.groups(in: sidebar.sections).first { $0.name == "Emptied" } }
+            controller.sidebar.groupFlow.newGroup(of: ids.prefix(2).map { CmuxNextSidebar.WorkspaceID($0) }, name: "Emptied", byUser: false)
+            try await PinnedPageTests.until({ group()?.workspaces.count == 2 }, within: .seconds(30), report: { "group rows \(group()?.workspaces.count ?? -1)" })
+
+            sidebar.selection = Set(ids.map { CmuxNextSidebar.WorkspaceID($0) })
+            sidebar.send(.close(sidebar.orderedSelection))
+            try? await PinnedPageTests.until({ Self.listed(ids, services).isEmpty && group() == nil }, within: .seconds(60))
+            print("SidebarSelectionBatchClose: emptied group listed after the close: \(group() != nil), rows left \(Self.listed(ids, services).count)")
+            #expect(Self.listed(ids, services).isEmpty)
+            #expect(group() == nil, "the emptied group stayed: \(String(describing: group()))")
+
+            try await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: window).contains { $0.id == Self.toastID } }, within: .seconds(10))
+            #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: window))
+            let names = Set((1...3).map { String(format: "emptied-%02d", $0) })
+            @MainActor func reopened() -> Set<String> { Set(services.daemon.store.workspaces.map { $0.name }).intersection(names) }
+            try? await PinnedPageTests.until({ reopened() == names && group()?.workspaces.count == 2 }, within: .seconds(30))
+            print("SidebarSelectionBatchClose: undo reopened \(reopened().count) of 3, group rows \(group()?.workspaces.count ?? -1)")
+            #expect(reopened() == names)
+            #expect(group()?.workspaces.count == 2, "the group did not come back with its rows")
+        }
+    }
 }

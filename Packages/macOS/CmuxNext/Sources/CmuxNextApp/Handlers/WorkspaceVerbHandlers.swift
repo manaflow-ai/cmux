@@ -227,13 +227,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar group listing `workspace` in its window, if any.
     static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
-        for section in sections {
-            for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
-                return group
-            }
-        }
-        return nil
+        try SidebarEdits.groups(in: sidebar(showing: workspace, context).model.sections).first { $0.workspaces.contains { $0.id.rawValue == workspace.id } }
     }
 
     /// The directory of the workspace's focused terminal, else its first one.

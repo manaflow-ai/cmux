@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextSidebar
 
 /// A person's close of several selected sidebar rows as one batch (`WorkspaceSelectionCloseFlow`,
 /// Leo 2026-10-21: "it's really slow and it's missing a LOT... and it's also 2 lines tall"): the
@@ -16,6 +17,10 @@ enum WorkspaceSelectionClose {
         }
         let closing = members.map(\.0.id), undoWindow = WorkspaceBulkClose.survivor(closing: closing, AppActionContext(services: services))
         let incognito = members.contains { windows.isIncognito(workspace: $0.0.id) }, selected = WorkspaceCloseSelection()
+        // The groups this close empties: once their rows closed, each closes as Close Group does (an unpinned group goes and the
+        // same Undo brings it back after its workspaces; a pinned one stays, folded), instead of staying behind empty.
+        let emptied = controller?.sidebar.model.groupsEmptied(byClosing: closing.map(CmuxNextSidebar.WorkspaceID.init)) ?? []
+        var undoGroups: [String] = []
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let flow = WorkspaceSelectionCloseFlow(
             hide: { ids in
@@ -34,10 +39,16 @@ enum WorkspaceSelectionClose {
                       controller.state.workspaceID == selected.afterPress else { return }
                 windows.show(workspaceID: shownAtPress, in: controller.state)
             },
-            listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
+            listed: { services.workspace(id: $0) != nil },
+            liveClosed: { ids in
+                for group in emptied where group.workspaces.allSatisfy({ ids.contains($0.id.rawValue) }) {
+                    controller?.sidebar.handle(.closeGroup(group.id))
+                    if !group.isPinned { undoGroups.append(SidebarDocStore.personalGroupID(item: group.id.rawValue)) }
+                }
+            }, machines: { services.machines.daemons },
             offerUndo: { names, undone in
                 guard names.count > 1, let undoWindow else { return }
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services, undone: undone)
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)] + undoGroups.map { ($0, []) }, after: seen, in: undoWindow, services, undone: undone)
             },
             window: state.id, toastWindow: controller?.window)
         if let work = flow.start(members) { services.registry.track(work) }

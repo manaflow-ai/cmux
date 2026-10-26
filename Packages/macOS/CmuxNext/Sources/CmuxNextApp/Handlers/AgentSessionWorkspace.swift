@@ -158,23 +158,13 @@ enum AgentSessionWorkspace {
     /// either organization; nil when none may. Only the first group of that name was tried before, so a
     /// row it could not hold got a new group of that name each time (nine "GUI push · lanes", 2026-10-22).
     static func group(named name: String, accepting id: SidebarWorkspaceID, in sections: [CmuxNextSidebar.SidebarSection]) -> CmuxNextSidebar.GroupID? {
-        for section in sections {
-            for case let .group(group) in section.nodes where group.name == name {
-                if SidebarEdits.canMove([id], toGroup: group.id, in: sections) { return group.id }
-            }
-        }
-        return nil
+        SidebarEdits.groups(in: sections).first { $0.name == name && SidebarEdits.canMove([id], toGroup: $0.id, in: sections) }?.id
     }
 
     /// The row of this Mac titled `name` in a group named `group`: the workspace a lane of that name already
     /// has there (the launcher titles it with the lane's name; a row renamed since gets a new row, as before).
     /// Only this Mac's rows: the chat opens on this Mac's daemon, so another machine's row is never reused.
     static func predecessor(named name: String, inGroup group: String, in sections: [CmuxNextSidebar.SidebarSection]) -> SidebarWorkspaceID? {
-        for section in sections {
-            for case let .group(listed) in section.nodes where listed.name == group {
-                if let row = listed.workspaces.first(where: { $0.title == name && $0.machineID == .local }) { return row.id }
-            }
-        }
-        return nil
+        SidebarEdits.groups(in: sections).filter { $0.name == group }.flatMap(\.workspaces).first { $0.title == name && $0.machineID == .local }?.id
     }
 }
