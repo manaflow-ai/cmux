@@ -446,7 +446,8 @@ impl Hub {
             });
             (waiting, deciding)
         };
-        let retry = waiting.and_then(|(cut_turn, retry)| still_cut(session, &cut_turn).then_some(retry));
+        let retry =
+            waiting.and_then(|(cut_turn, retry)| still_cut(session, &cut_turn).then_some(retry));
         (retry, deciding)
     }
 

@@ -286,5 +286,10 @@ async fn no_row_of_a_cut_turn_reads_settled_before_its_retry_is_set() {
     let (bad, retried) = reader.await.unwrap();
     assert!(retried["retry"].is_object(), "the retry was never set");
     assert_eq!(retried["retryDeciding"], Value::Null, "{retried}");
-    assert!(bad.is_empty(), "{} rows read the cut turn as settled with no retry: {}", bad.len(), bad[0]);
+    assert!(
+        bad.is_empty(),
+        "{} rows read the cut turn as settled with no retry: {}",
+        bad.len(),
+        bad[0]
+    );
 }

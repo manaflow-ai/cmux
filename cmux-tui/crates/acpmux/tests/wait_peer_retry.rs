@@ -102,7 +102,8 @@ async fn a_wait_on_a_peers_cut_turn_answers_with_the_peers_retry() {
             json!({"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"name": "far"}}}),
         )
         .await;
-    let remote = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let remote =
+        made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
     let warm = cb
         .call(
             method::SESSION_PROMPT,
@@ -118,7 +119,10 @@ async fn a_wait_on_a_peers_cut_turn_answers_with_the_peers_retry() {
     // This daemon's view of the peer's row, once it has one.
     let mut seen = Value::Null;
     for _ in 0..200 {
-        seen = a.session_summaries_of(std::slice::from_ref(&remote)).remove(&remote).unwrap_or_default();
+        seen = a
+            .session_summaries_of(std::slice::from_ref(&remote))
+            .remove(&remote)
+            .unwrap_or_default();
         if seen["status"] == "ready" {
             break;
         }
@@ -146,7 +150,10 @@ async fn a_wait_on_a_peers_cut_turn_answers_with_the_peers_retry() {
     assert_eq!(w["timedOut"], false, "{waited}");
     let row = &w["resolved"][0];
     assert_eq!(row["lastTurn"]["status"], "failed", "{waited}");
-    assert_eq!(row["retry"]["reason"], "capacity", "the wait answered before the peer's retry: {waited}");
+    assert_eq!(
+        row["retry"]["reason"], "capacity",
+        "the wait answered before the peer's retry: {waited}"
+    );
     assert_eq!(row["retry"]["attempt"], 1, "{waited}");
     assert_ne!(row["retryDeciding"], true, "{waited}");
     b.shutdown_all().await;
