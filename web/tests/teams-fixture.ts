@@ -13,6 +13,7 @@ import type {
   StackSentInvitation,
   StackTeam,
   StackTeamMember,
+  StackTeamSummary,
   StackUser,
   TeamStackApp,
 } from "../services/teams/stack";
@@ -48,6 +49,12 @@ type FakeUserSeed = {
   readonly verifiedEmails?: readonly string[];
 };
 
+/** What the SDK user adds beyond `StackUser` for team listing. */
+type SdkUserTeams = {
+  readonly selectedTeam: { readonly id: string } | null;
+  listTeams(options?: { cursor?: string; limit?: number }): Promise<StackTeamSummary[] & { nextCursor: string | null }>;
+};
+
 type FakeInvitation = { id: string; teamId: string; email: string; expiresAt: Date };
 
 export class FakeStack {
@@ -60,6 +67,9 @@ export class FakeStack {
   teamGoneOnListUsers = false;
   failAddUser: unknown = null;
   failGrant = false;
+  failListUserTeams = false;
+  failPermissionsFor = new Set<string>();
+  permissionsGoneFor = new Set<string>();
   hangGetTeam = false;
   accessToken: string | null = "caller-access-token";
   private nextInvitation = 1;
@@ -174,7 +184,7 @@ export class FakeStack {
   user(userId: string): StackUser | null {
     const data = this.users.get(userId);
     if (!data) return null;
-    return {
+    const user: StackUser & SdkUserTeams = {
       id: userId,
       primaryEmail: data.email ?? null,
       primaryEmailVerified: false,
@@ -198,7 +208,22 @@ export class FakeStack {
       listContactChannels: async (): Promise<StackContactChannel[]> => {
         return (data.verifiedEmails ?? []).map((value) => ({ type: "email", value, isVerified: true }));
       },
+      // The SDK user's team list and selection, read by defaultTeamStackApp().listUserTeams.
+      selectedTeam: data.selectedTeamId ? { id: data.selectedTeamId } : null,
+      listTeams: async () => {
+        this.calls.push(`listTeams:${userId}`);
+        if (this.failListUserTeams) throw new Error("stack down");
+        const teams = this.teamsOf(userId);
+        return Object.assign(teams, { nextCursor: null });
+      },
     };
+    return user;
+  }
+
+  teamsOf(userId: string): StackTeamSummary[] {
+    return [...this.teams.entries()]
+      .filter(([, data]) => data.members.has(userId))
+      .map(([id, data]) => ({ id, displayName: data.displayName, profileImageUrl: data.profileImageUrl }));
   }
 
   app(): TeamStackApp {
@@ -218,6 +243,13 @@ export class FakeStack {
         if (!data) return null;
         return (data.verifiedEmails ?? []).map((value) => ({ type: "email", value, isVerified: true }));
       },
+      listUserTeams: async (userId) => {
+        this.calls.push(`listUserTeams:${userId}`);
+        if (this.failListUserTeams) throw new Error("stack down");
+        const user = this.users.get(userId);
+        if (!user) return null;
+        return { teams: this.teamsOf(userId), selectedTeamId: user.selectedTeamId };
+      },
       createTeam: async ({ displayName, creatorUserId }) => {
         const id = "33333333-3333-4333-8333-333333333333";
         this.addTeam(id, displayName);
@@ -226,6 +258,8 @@ export class FakeStack {
         return this.team(id)!;
       },
       listTeamMemberPermissions: async (teamId) => {
+        if (this.failPermissionsFor.has(teamId)) throw new Error("stack down");
+        if (this.permissionsGoneFor.has(teamId)) throw Object.assign(new Error(`Team ${teamId} not found.`), { errorCode: "TEAM_NOT_FOUND" });
         if (!this.teams.has(teamId)) throw new Error("team missing");
         const rows: { userId: string; permissionId: string }[] = [];
         for (const [key, grants] of this.grants) {
