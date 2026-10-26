@@ -179,18 +179,19 @@ pub(crate) enum Begun {
 
 /// A link failure as an op error.
 pub(crate) fn link_failure_for(machine: &str, failure: LinkFailure) -> CloudError {
-    let retry = format!("run `cmux cloud ssh --target machine:{machine}` again");
     match failure {
         LinkFailure::Revoked(reason) => CloudError::new(
             LINK_REVOKED,
-            format!("Cloud machine {machine}'s link was revoked: {reason}; reconnect with {retry}"),
+            format!(
+                "Cloud machine {machine}'s link was revoked: {reason}; run `cmux cloud diagnostics` and ask the team admin to restore access"
+            ),
         ),
         LinkFailure::Down { retryable, reason } => CloudError {
             retryable,
             ..CloudError::new(
                 LINK_DOWN,
                 format!(
-                    "Cloud machine {machine}'s link went down: {reason}; reconnect with {retry}"
+                    "Cloud machine {machine}'s link went down: {reason}; run `cmux cloud diagnostics` and reconnect from the Cloud sidebar"
                 ),
             )
         },
@@ -452,6 +453,20 @@ fn rescue_open<C: ControlPlane>(
 #[cfg(test)]
 mod hint_tests {
     use super::*;
+
+    #[test]
+    fn disconnected_links_do_not_suggest_ssh_before_reconnection() {
+        for failure in [
+            LinkFailure::Revoked("policy".into()),
+            LinkFailure::Down { retryable: true, reason: "offline".into() },
+            LinkFailure::Spawn("missing binary".into()),
+        ] {
+            let error = link_failure_for("vm-example", failure);
+            assert!(error.message.contains("vm-example"));
+            assert!(error.message.contains("cmux cloud diagnostics"));
+            assert!(!error.message.contains("cmux cloud ssh"));
+        }
+    }
 
     #[test]
     fn dial_failures_name_the_machine_and_an_offered_command() {

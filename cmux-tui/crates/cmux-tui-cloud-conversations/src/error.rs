@@ -96,7 +96,7 @@ impl fmt::Display for CloudError {
             ),
             Self::BadRequest(detail) => write!(
                 formatter,
-                "cmux Cloud conversation request had invalid arguments: {detail}; check the arguments with `cmux --help`",
+                "bad request: {detail}; check the arguments with `cmux --help`",
             ),
         }
     }
