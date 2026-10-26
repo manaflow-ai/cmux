@@ -325,9 +325,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md: written on the files lane after startup.
         let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        // One sequence: each write replaces the file, so a later status must never land before an earlier one.
+        let statusWrites = services.work.sequence("settings.managed-status")
         settings.writeManagedStatus(to: ManagedStatusReport.defaultURL(bundleID: bundleID),
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
-            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .lane(.files, .bestEffort), write)
+            startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
         }
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })

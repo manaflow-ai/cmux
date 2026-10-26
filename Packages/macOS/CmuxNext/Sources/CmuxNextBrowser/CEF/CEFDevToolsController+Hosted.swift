@@ -75,11 +75,23 @@ extension CEFDevToolsController {
         host.addSubview(page, positioned: .below, relativeTo: nil)
     }
 
+    /// Host mode: an opening command went to the host. It is a new open in flight unless DevTools is
+    /// open or on its way, where it only retargets that open (``hostedRequests``).
+    func hostedOpenSent(_ command: BrowserDevToolsCommand, browser: Int32) {
+        if isOpenOrRequested {
+            hostedRequests.retarget(command, browser: browser)
+        } else {
+            hostedRequests.sent(.open(command), browser: browser)
+        }
+    }
+
     /// Host mode: `DEVTOOLS_WILL_OPEN` came after Chromium made the DevTools. With a placement standing
     /// it is in ``hostedPage``: the pane keeps room for it. Without one it went to a window of the
-    /// host's own; ``opened(browser:docked:)`` closes it.
+    /// host's own; ``opened(browser:docked:)`` closes it. One cmux closed again before it opened gets
+    /// no room: the close is on the wire.
     func hostedWillOpen(in tab: CEFTab) {
-        guard let browser = tab.browserID, hostedPlacement == browser else {
+        guard let browser = tab.browserID, hostedPlacement == browser,
+              !hostedRequests.closesAfterOpening(browser: browser) else {
             opening = false
             return
         }

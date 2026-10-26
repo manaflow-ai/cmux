@@ -80,6 +80,9 @@ final class CEFSpareWindow {
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
     /// idle moment may make one (`ChromiumWarmup`).
     var onNeeded: (@MainActor () -> Void)?
+    // memory: fixed: 2 keys (`Kind`), each a list of (browser id, disposition, bounds) values of a few
+    // bytes, emptied when its spare is taken (`takeParked`) or dropped (`drop`); the spare windows
+    // themselves follow memory pressure through ChromiumWarmup's SpareMemoryConsumer.
     /// Tabs Chromium created in a spare's window before a tab took it, by the spare's kind.
     private var parked: [Kind: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)]] = [:]
     /// Windows built for a key a spare serves because no spare of its kind was ready
@@ -167,6 +170,7 @@ final class CEFSpareWindow {
             return false
         }
         hosts[kind] = spare
+        if spare.isLive { runtime.launchMarks.send(.spareWindowReady) }
         return true
     }
 
@@ -240,7 +244,9 @@ final class CEFSpareWindow {
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with a wanted kind that has no
     /// spare, ask for one, so a Chromium a tab started, not the warm start, gets spares too, and
     /// the next kind's spare follows the one that just came up.
+    /// A spare's own window marks `cef.spare_window_ready` (once per process, ``CEFLaunchMarks``).
     func windowCameUp(_ live: CEFPaneHost) {
+        if isSpare(live) { live.runtime.launchMarks.send(.spareWindowReady) }
         if !isHeld, missingKind != nil, !live.isPopupHost { onNeeded?() }
     }
 

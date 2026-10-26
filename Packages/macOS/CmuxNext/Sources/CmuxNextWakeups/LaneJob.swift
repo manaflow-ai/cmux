@@ -7,13 +7,14 @@ import CmuxNextCompat
 final class LaneJob: Sendable {
     let id: UInt64
     let shutdown: ShutdownBehavior
-    private let work: @Sendable () -> Void
+    /// The body; it gets the level the lane runs it at (a ``WorkSequence`` may raise it past its own priority).
+    private let work: @Sendable (WorkPriority) -> Void
     private let abandoned: @Sendable () -> Void
     private let done: @Sendable () -> Void
     // concurrency-allow: one-shot claim checked synchronously by a lane thread, a cancel handler and shutdown (lock carve-out).
     private let claimed = Mutex(false)
 
-    init(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable () -> Void,
+    init(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable (WorkPriority) -> Void,
          abandoned: @escaping @Sendable () -> Void, done: @escaping @Sendable () -> Void) {
         self.id = id
         self.shutdown = shutdown
@@ -22,10 +23,10 @@ final class LaneJob: Sendable {
         self.done = done
     }
 
-    /// Runs the body unless the item was abandoned first.
-    func execute() {
+    /// Runs the body, at `priority`, the level of the slot that runs it, unless the item was abandoned first.
+    func execute(at priority: WorkPriority) {
         guard claim() else { return }
-        work()
+        work(priority)
         done()
     }
 

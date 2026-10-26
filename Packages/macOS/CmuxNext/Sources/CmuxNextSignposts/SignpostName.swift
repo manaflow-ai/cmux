@@ -15,8 +15,9 @@
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
-/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep`` and
-/// ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
+/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab`` and ``switchPaneFocus``
+/// have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -130,10 +131,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 102, PL-trace). The main thread's IOSurface contents handoff of that frame.
     case keyEchoContents = 32
 
-    // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
+    // MARK: switch (PL-switch)
 
-    /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
-    /// workspace. Ring: AB/AE; begin arg0 the input age in us.
+    /// A workspace switch (task 027, `DebugWorkspaceSwitch`, every build): the intent
+    /// (`WindowManager.show(workspaceID:in:)`) to the ``CommitBoundary`` after its turn, which shows the new
+    /// workspace. An intent that shows nothing in its turn, or a superseded one, ends `commit=missed`. Ring: AB/AE;
+    /// begin arg0 the input age in us (all ones without an input event); end arg0 the boundary's `EndCode`.
     case switchWorkspace = 9
     /// A tab switch (``TabSwitchSignpost``, every build): the intent to the app's commit that shows the destination
     /// tab's content. Begin message `kind=<cold|warm|page>`. A switch to a live Chromium page ends at the commit after
@@ -160,11 +163,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (0 committed, 1 `commit=missed`, which readers drop).
     case switchAppActivation = 33
 
-    // MARK: create (reserved: PL-cef-tab)
+    // MARK: create (PL-cef-tab)
 
-    /// Reserved (task 030, PL-cef-tab). A new tab: the intent to its first themed frame. Message:
-    /// `kind=<terminal|chromium|webkit|chat|page>`. Ring: AB/AE keyed by the intent id; begin arg0 the kind,
-    /// end arg0 the outcome (0 shown, 1 closed before its first frame); an instant marks the stand-in commit.
+    /// A new tab (``CreateTabInterval``, every build): the intent's turn to its first themed content frame, or the
+    /// ``CommitBoundary`` that shows content with no frame signal of its own. Begin message
+    /// `kind=<terminal|chromium|webkit|chat|page>`, end message `outcome=<shown|closed|hidden|missed>`; only shown is a
+    /// create latency. Ring: AB/AE keyed by the intent id; begin arg0 the kind, end arg0 the outcome (0 shown, 1 closed,
+    /// 2 hidden, 3 missed); an instant marks the stand-in commit.
     case createTab = 12
     /// A new workspace (`SidebarNewRowTimer`, every build): its create to the ``CommitBoundary`` after the list reload
     /// that first lists its row; `input_age_ms=<age>` (the press's own input, -1 for a script). A row gone before it
@@ -242,14 +247,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case daemonRequest = 44
 
     // MARK: frame (reserved: PL-motion-core, PL-ghostty)
-    /// Reserved (task 037, PL-motion-core; perf-hot `frame-tick`). One display-link tick (`FrameScheduler`).
-    /// Ring: instant; arg0 the tick's timestamp, arg1 its target timestamp (uptime ns).
+    /// Task 037 (perf-hot `frame-tick`). One display-link tick (``FramePresentEstimate``, from `DisplayClock`).
+    /// Ring: instant; arg0 the tick's timestamp (uptime ns), arg1 its display (`CGDirectDisplayID`) in the high
+    /// 32 bits and the nanoseconds from the timestamp to its vsync target in the low 32.
     case frameTick = 45
-    /// Reserved (task 037, PL-motion-core). The end of a Core Animation commit (``CommitBoundary``). Ring: instant.
+    /// Task 037. A main run-loop turn's commit, once per turn end after Core Animation's commit observer
+    /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
+    /// arg1 how many it carries.
     case frameCommit = 46
     /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
     case frameGPUDone = 47
-    /// Reserved (task 037, PL-motion-core). The first vsync at or after max(``frameCommit``, ``frameGPUDone``)
+    /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
     /// arg0 the flow id, arg1 the vsync target (uptime ns).
     case framePresentEstimate = 48

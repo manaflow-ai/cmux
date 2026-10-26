@@ -38,19 +38,23 @@
       "args": {
         "method": "settings.reset_all",
         "params": {
-          "if_revision": -1
+          "origin": "cli"
         },
         "idempotencyKey": "settings-reset-all-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "settings.agent_refused",
+        "errorDetails": {
+          "key": "settings.reset_all",
+          "reason": "destructive"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "if_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "origin cli (the default) may not reset everything"
     }
   ],
   "invariants": [

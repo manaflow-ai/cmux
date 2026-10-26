@@ -88,7 +88,7 @@ struct AppSleepsOnWakeLeewayTests {
         for stage in [early, late] { try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true) }
         let start = Date(timeIntervalSince1970: 1_000_000)
         let stages = StageTable(stages: [early: start.addingTimeInterval(600), late: start.addingTimeInterval(900)])
-        let work = BackgroundWork(label: "test.stage-expiry")
+        let work = BackgroundWork(filesWidths: .serial, label: "test.stage-expiry")
         let expiry = MainDeadline(owner: "test.stageExpiry", workClass: .background, scheduler: rig.deadlines)
         let now: @MainActor () -> Date = { start.addingTimeInterval(rig.elapsed) }
 
@@ -205,7 +205,7 @@ struct AppSleepsOnWakeLeewayTests {
         #expect(poll.started == 1, "a released CloudAccessAsks ran its next round")
     }
 
-    /// Returns once the files lane ran what was posted on it at best effort before (one serial queue per priority).
+    /// Returns once the files lane ran what was posted on it at best effort before (`work` has one slot per priority).
     private static func drainFiles(_ work: BackgroundWork) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             work.post(.bestEffort, mayBlock: .files) { continuation.resume() }

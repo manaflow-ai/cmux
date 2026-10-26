@@ -16,7 +16,7 @@ import PackageDescription
 //   CmuxNextBrowser -> Input, InputCore (page link clicks, swipes and mouse side buttons hear the app's input tap)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
-//   CmuxNextCompat -> swift-atomics, system frameworks (back-ports of newer system APIs for the
+//   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
@@ -30,9 +30,10 @@ import PackageDescription
 //     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
 //   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
 //     p09-observability task 007)
-//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
+//   CmuxNextLaunch -> Compat, Signposts, Trace, Wakeups, Design, InputCore (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
-//     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
+//     plans/cmux-next/chrome-parity/p08-startup.md, task 073; Trace: LaunchMarks moves each mark's date onto the
+//     trace clock through the launch's one LaunchClock pairing)
 //   CmuxNextTrace -> Compat, swift-atomics (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
@@ -1306,11 +1307,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: uiSwiftSettings
         ),
         // Back-ports of newer system APIs so that cmux-next runs on macOS 14
-        // (plans/cmux-next/macos-floor.md): Mutex (os_unfair_lock) and Atomic
+        // (plans/cmux-next/macos-floor.md): Mutex (CmuxSafeConcurrency's os_unfair_lock Mutex) and Atomic
         // (lock-free, swift-atomics) with the Synchronization API.
         .target(
             name: "CmuxNextCompat",
-            dependencies: [.product(name: "Atomics", package: "swift-atomics")],
+            dependencies: [
+                .product(name: "Atomics", package: "swift-atomics"),
+                // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1357,7 +1362,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // depends on CmuxNextApp.
         .target(
             name: "CmuxNextLaunch",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextWakeups"],
+            // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextSignposts", "CmuxNextTrace",
+                           "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1409,8 +1416,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            // Trace: the black-box file steps' tests read the ring.
-            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037).
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
@@ -1609,7 +1616,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // PointerFrameConsumer.post(NSEvent) feeds the window's FrameInputCoalescer.
         .target(
             name: "CmuxNextInput",
-            dependencies: ["CmuxNextInputCore", "CmuxNextWakeups"],
+            // CmuxNextCompat: MemoryPressureEvents for IntentPrewarmService (p04-input-043).
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The debug.input control method and its JSON (Control and Settings, which sit above the tap's
@@ -1868,13 +1876,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // read-only UI host without pulling in the app composition root.
         .target(
             name: "CmuxNextFavicons",
-            dependencies: ["CmuxNextBrowser", "CmuxNextTabs"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextTabs"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -2147,6 +2155,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Seeded property tests (test targets only): p10-stability-016.
         .package(path: "../../Shared/CmuxFuzzSupport"),
+        // The portable Mutex (os_unfair_lock) every package of the closure shares: p10-stability-172.
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
@@ -2359,6 +2369,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "Packages/Shared/CmuxAuthRuntime",
                 "Packages/Shared/CmuxInstallAuthCore",
                 "Packages/Shared/CmuxIrxTransport",
+                "Packages/Shared/CmuxSafeConcurrency",
                 "Packages/Shared/CmuxTheme",
                 "Packages/iOS/CmuxMobileRPC",
                 "Packages/iOS/CmuxMobileSSH",

@@ -449,7 +449,7 @@ final class AgentTabStore {
             self?.pageHandler(provisional)?.remember(pick)
         }
         model.onEditNewTab = { [weak self] edit in self?.pageHandler(provisional)?.edit(edit) }
-        model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
+        model.onJump = { [weak self] target, id, input in self?.newTabPage(provisional)?.handler.jump(target, id, input) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }

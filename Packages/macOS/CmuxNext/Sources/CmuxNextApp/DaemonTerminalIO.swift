@@ -61,6 +61,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
+    /// `createIntent`: the `create.tab` intent id of the new tab this view shows (0: none, a restore): its first
+    /// attach writes that create's stages (`NewTerminalTrace.FirstAttach`).
     /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
     /// go while the burst bench records (`debug.burst`).
     /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
@@ -68,13 +70,14 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
-         creatingInput: CreatingTerminalInput? = nil,
+         createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
+        let firstAttach = NewTerminalTrace.FirstAttach(intent: createIntent)
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
@@ -95,7 +98,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                                                     localHistory: Self.attachLocalHistory,
                                                     images: Self.attachImages,
                                                     device: await Self.sizingDevice.value,
-                                                    hangs: hangWatch)
+                                                    hangs: hangWatch, createIntent: firstAttach.take())
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")

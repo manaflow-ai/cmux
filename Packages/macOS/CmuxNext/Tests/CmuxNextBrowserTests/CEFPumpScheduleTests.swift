@@ -92,7 +92,7 @@ import Testing
     /// The table of the absolute path: Chromium's run time and leeway are the wake as sent, with no
     /// whole-millisecond truncation (7.9 ms stays 7.9 ms) and no 36 ms rule (Chromium's own policy
     /// came with the leeway); a precise one is exact.
-    struct AbsoluteCase: Sendable {
+    nonisolated struct AbsoluteCase: Sendable {
         /// The run time after now, ns.
         var after: Int64
         var leeway: Int64
@@ -101,7 +101,7 @@ import Testing
         var tolerance: TimeInterval
     }
 
-    static let absoluteTable = [
+    nonisolated static let absoluteTable = [
         AbsoluteCase(after: 7_900_000, leeway: 8_000_000, precise: false, tolerance: 0.008),
         AbsoluteCase(after: 7_900_000, leeway: 8_000_000, precise: true, tolerance: 0),
         AbsoluteCase(after: 7_900_000, leeway: 0, precise: true, tolerance: 0),

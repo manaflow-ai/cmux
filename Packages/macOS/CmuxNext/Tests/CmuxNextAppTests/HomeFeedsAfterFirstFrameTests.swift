@@ -83,7 +83,7 @@ import Testing
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         tabs.firstPageNewTab = { _, _ in
-            (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }))
+            (AgentPaneNewTab(kind: .agent), NewTabPageHandler(open: { _, _ in }, jump: { _, _, _ in }, editShortcut: { _ in }))
         }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
         #expect(shown == 0, "a prewarmed spare is not shown")

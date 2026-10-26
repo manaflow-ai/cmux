@@ -39,7 +39,7 @@
         "method": "history.entries.remove",
         "params": {
           "ids": [
-            "oracle"
+            "page:oracle:1"
           ]
         },
         "idempotencyKey": "history-entries-remove-ok.call"
@@ -52,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a page entry id of the history.entries.list form; no visit has it on a fresh state root, so the removal commits removed 0 and no restore id"
     }
   ],
   "invariants": [
@@ -61,8 +61,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.ids[0] is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }
