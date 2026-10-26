@@ -58,8 +58,9 @@ impl Hub {
             crate::attach::receive(&id, false, &mut blocks).map(|saved| (blocks, saved))
         });
         let (blocks, saved) = received.await.map_err(|e| RpcError::internal(e.to_string()))??;
-        let accepted =
-            self.send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None).await;
+        let accepted = self
+            .send_family_prompt(caller, target, blocks, prompt_id, steer, interrupt, None)
+            .await;
         if let Some(saved) = saved {
             saved.settle_acceptance(&accepted).await;
         }

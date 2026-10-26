@@ -238,8 +238,8 @@ async fn with_attachments(mut args: Value) -> Result<Value> {
         .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
         .collect::<Option<_>>()
         .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
-    let blocks = tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths))
-        .await??;
+    let blocks =
+        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
     args["attachments"] = Value::Array(blocks);
     Ok(args)
 }

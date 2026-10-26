@@ -699,7 +699,15 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(parent, &probe, text_block(&req.prompt), None, false, false, Some(started))
+            .send_family_prompt(
+                parent,
+                &probe,
+                text_block(&req.prompt),
+                None,
+                false,
+                false,
+                Some(started),
+            )
             .await;
         let accepted = match accepted {
             Ok(v) => v,

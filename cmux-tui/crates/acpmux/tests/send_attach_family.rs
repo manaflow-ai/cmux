@@ -102,10 +102,12 @@ async fn send_message_carries_attachments_to_a_child() {
     p.ok("_acpmux/wait", ready).await;
     let sha: String = sha2::Sha256::digest(&shot).iter().map(|b| format!("{b:02x}")).collect();
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
-    assert!(got["lastReply"].as_str().unwrap_or_default().contains(&format!("image:{sha}")), "{got}");
-    let page = app
-        .ok("_acpmux/events", json!({"sessionId": child, "kinds": ["user_message"]}))
-        .await;
+    assert!(
+        got["lastReply"].as_str().unwrap_or_default().contains(&format!("image:{sha}")),
+        "{got}"
+    );
+    let page =
+        app.ok("_acpmux/events", json!({"sessionId": child, "kinds": ["user_message"]})).await;
     let sent = page["events"].as_array().unwrap().last().unwrap()["msg"].clone();
     assert_eq!(sent["images"][0]["id"], sha, "{sent}");
     assert_eq!(sent["_meta"]["provenance"]["from"], parent, "{sent}");
@@ -116,7 +118,8 @@ async fn send_message_carries_attachments_to_a_child() {
     assert_eq!(std::fs::metadata(&saved).unwrap().permissions().mode() & 0o777, 0o600);
 
     // Only attachment blocks: the tool reads the files, a caller never names bytes otherwise.
-    let bad = json!({"sessionId": child, "text": "x", "attachments": [{"type": "text", "text": "t"}]});
+    let bad =
+        json!({"sessionId": child, "text": "x", "attachments": [{"type": "text", "text": "t"}]});
     let r = p.call("_acpmux/subsession/send", bad).await;
     assert!(r.get("error").is_some(), "{r}");
     let _ = std::fs::remove_dir_all(&root);

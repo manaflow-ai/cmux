@@ -119,7 +119,9 @@ impl Outbox {
         let mut named = std::collections::HashSet::new();
         for d in deliveries.values_mut().filter(|d| !d.settled()) {
             let kept = dir.join(format!("{}.json", d.id));
-            if let Some(request) = std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+            if let Some(request) =
+                std::fs::read(&kept).ok().and_then(|b| serde_json::from_slice(&b).ok())
+            {
                 d.request = request;
                 named.insert(kept);
             }
@@ -277,9 +279,18 @@ mod tests {
         let data = block["data"].as_str().unwrap().to_owned();
         let request = json!({"sessionId": "lane", "prompt": [block],
                              "_meta": {"acpmux": {"promptId": "p1"}}});
-        let d = Delivery { id: "d1".into(), target: "lane".into(), request, caller: None,
-            state: State::Queued, attempts: 0, error: None, accepted: None,
-            created_at: 0, updated_at: crate::store::now_ms() };
+        let d = Delivery {
+            id: "d1".into(),
+            target: "lane".into(),
+            request,
+            caller: None,
+            state: State::Queued,
+            attempts: 0,
+            error: None,
+            accepted: None,
+            created_at: 0,
+            updated_at: crate::store::now_ms(),
+        };
         let outbox = Outbox::default();
         outbox.open(&path);
         let kept = outbox.attachments_path(&d).unwrap();
