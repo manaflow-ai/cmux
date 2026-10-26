@@ -308,6 +308,7 @@ extension PageWebView {
     ///   - arguments: Named JSON-compatible values (`NSNull` for null).
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
+        guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
         guard let page = chromiumSession?.page else {
             return try? await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }

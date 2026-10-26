@@ -4,12 +4,20 @@
 @MainActor
 final class PageScriptTarget {
     var bridge: any PageHostBridge
+    /// False while the page waits for its first show (PageWebView+FirstShow.swift): it has no
+    /// document, and a script would make WebKit launch its WebContent process
+    /// (`WebPageProxy::runJavaScriptInFrameInScriptWorld` calls `launchInitialProcessIfNecessary`).
+    /// Its scripts are dropped: no page code subscribes before a document runs, and the first
+    /// document gets its theme and scale from its document-start scripts and `documentFinished()`.
+    var hasDocument: Bool
 
-    init(_ bridge: any PageHostBridge) {
+    init(_ bridge: any PageHostBridge, hasDocument: Bool = true) {
         self.bridge = bridge
+        self.hasDocument = hasDocument
     }
 
     func evaluate(_ script: String) {
+        guard hasDocument else { return }
         bridge.evaluate(script)
     }
 }
