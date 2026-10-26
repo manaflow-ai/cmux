@@ -312,8 +312,8 @@ pub(super) struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
-    /// reaper starts that terminal's unattached period).
-    pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// reaper and the cold-scrollback worker start that terminal's period).
+    pub(super) detach_wakers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs).
     pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
@@ -385,7 +385,7 @@ fn validate_resource_client_label(
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            detach_waker: Mutex::new(None),
+            detach_wakers: Mutex::new(Vec::new()),
             client_presence_observer: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),

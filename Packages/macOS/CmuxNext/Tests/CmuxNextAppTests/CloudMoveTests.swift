@@ -545,9 +545,9 @@ struct CloudMoveTests {
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
-        let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-move-mac-\(UUID().uuidString.prefix(6).lowercased())",
+        let mac = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-move-mac-\(UUID().uuidString.prefix(6).lowercased())",
                                                       stateDirectory: root.appendingPathComponent("mac-state")), environment: environment)
-        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-move-vm-\(UUID().uuidString.prefix(6).lowercased())",
+        let vm = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-move-vm-\(UUID().uuidString.prefix(6).lowercased())",
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
         // The app's own defaults, as the app keeps them, for this run only.

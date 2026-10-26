@@ -350,6 +350,98 @@ import Testing
         w.settle()
     }
 
+    // MARK: Resampled pan (p04-input-041, feature `stripPanResampling`)
+
+    /// The container's translation shows the strip at camera `offset` over the views laid out at the pan's base.
+    private static func shows(_ offset: CGFloat, on screen: ScreenContentView) -> Bool {
+        guard let base = screen.panBase else { return false }
+        let translation = screen.geometry.viewShift(offset: offset) - screen.geometry.viewShift(offset: base)
+        return abs(screen.stripContainer.translation - translation) < 0.001
+    }
+
+    /// A display-link frame at `time`: the frame time the layout's step reads (`DisplayLinkDriver.frameTime`).
+    @discardableResult
+    private static func displayFrame(_ w: Window, at time: CFTimeInterval) -> Bool {
+        w.root.driver.motionStep(FrameTick(timestamp: time, elapsed: 1.0 / 120, rawElapsed: 1.0 / 120, refreshInterval: 1.0 / 120))
+    }
+
+    /// Resampling on: a resampled pan on the container, three events 8 ms apart of 10 pt each.
+    private static func resampledPan(_ w: Window) {
+        w.root.resamplesStripPan = true
+        w.screen.beginUserScroll(trackpad: true)
+        for step in 0..<3 { w.screen.userScroll(deltaX: -10, timestamp: 10 + Double(step) * 0.008) }
+    }
+
+    /// A pan that begins during a fling (the screen reports the camera on settle) or beside a running pane
+    /// spring presents in the frame's spring step: that presentation keeps the frame's resampled offset, not
+    /// the real one, so the resampling shows and the strip never steps back when the springs land.
+    @Test func theFramesSpringStepKeepsTheResampledPan() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        let base = screen.scrollState.spring.value
+        Self.resampledPan(w)
+        try #require(screen.scrollState.resamplesPan && screen.panBase != nil, "a resampled pan on the container")
+        // As after `takeCameraFromServer`: every frame's `step` presents the strip.
+        screen.reportScrollOnSettle = true
+        Self.displayFrame(w, at: 10.019)
+        let shown = try #require(screen.scrollState.presentedPan)
+        #expect(abs(shown - (base + 27.5)) < 0.001, "the frame resamples between the two newest events")
+        #expect(screen.scrollState.spring.value == base + 30, "the camera keeps the real offset")
+        #expect(Self.shows(shown, on: screen),
+                "the strip shows the resampled offset after the spring step")
+        // A frame with no new event shows the same offset, also through the spring step.
+        Self.displayFrame(w, at: 10.027)
+        #expect(Self.shows(shown, on: screen))
+        screen.endUserScroll(timestamp: 10.03)
+        screen.finishPanFling()
+        w.settle()
+    }
+
+    /// Reduce Motion (or the panes animation switch) turned on mid-pan steps no frames: each event shows at once,
+    /// unresampled, and the event that waited for a frame shows in Reduce Motion's settling frame.
+    @Test func reduceMotionMidPanShowsEachEventAtOnce() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        Self.resampledPan(w)
+        Self.displayFrame(w, at: 10.019)
+        screen.userScroll(deltaX: -10, timestamp: 10.024)
+        w.root.context.reduceMotionOverride = true
+        Self.displayFrame(w, at: 10.027)
+        let real = screen.scrollState.spring.value
+        #expect(Self.shows(real, on: screen),
+                "the waiting event shows in the settling frame")
+        screen.userScroll(deltaX: -10, timestamp: 10.032)
+        #expect(screen.scrollState.spring.value == real + 10)
+        #expect(Self.shows(real + 10, on: screen),
+                "the event shows at once")
+        screen.endUserScroll(timestamp: 10.04)
+        screen.finishPanFling()
+        w.settle()
+    }
+
+    /// Only a trackpad pan resamples: a scrollbar thumb drag follows the pointer, as Chromium resamples
+    /// touchpad and touchscreen scroll updates only.
+    @Test func onlyATrackpadPanResamples() throws {
+        let w = Window(renderServer: true)
+        defer { w.close() }
+        let screen = w.screen
+        w.root.resamplesStripPan = true
+        let point = try w.center("p2")
+        w.pan(at: point, events: 1, dx: -4)
+        #expect(screen.scrollState.resamplesPan, "the trackpad pan resamples")
+        w.scroll(at: point, phase: .ended)
+        screen.finishPanFling()
+        w.settle()
+        // The scrollbar's `onDragBegan`.
+        screen.beginUserScroll()
+        #expect(!screen.scrollState.resamplesPan, "a thumb drag does not")
+        screen.endUserScroll(timestamp: 20)
+        screen.finishPanFling()
+        w.settle()
+    }
+
     @Test func whileAPageWindowShowsTheStripPansItsFrames() throws {
         let w = Window(renderServer: true)
         // The window adopts the overlay plane exactly while a Chromium page shows in a child window

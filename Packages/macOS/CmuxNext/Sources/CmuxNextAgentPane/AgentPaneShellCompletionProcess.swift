@@ -23,13 +23,18 @@ nonisolated final class CompletionProcess: Sendable {
 
     private init(pid: pid_t) { self.pid = pid }
 
-    static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration)
-        async throws(AgentPaneShellCompletion.Failure) -> Data {
+    /// Spawns the shell on `launcher` (never on the caller's thread, the main actor) and answers its output.
+    static func run(path: String, arguments: [String], environment: [String: String], folder: String, timeout: Duration,
+                    launcher: ChildProcessLauncher) async throws(AgentPaneShellCompletion.Failure) -> Data {
         var pipe: [Int32] = [-1, -1]
         guard Darwin.pipe(&pipe) == 0 else { throw .spawnFailed(errno) }
         let pid: pid_t
+        let writeEnd = pipe[1]
         do {
-            pid = try spawn(path, arguments: arguments, environment: environment, folder: folder, output: pipe[1])
+            pid = try await launcher.run { () throws(AgentPaneShellCompletion.Failure) -> pid_t in
+                try Self.spawn(path, arguments: arguments, environment: environment, folder: folder, output: writeEnd,
+                               priority: launcher.priority)
+            }
         } catch {
             Darwin.close(pipe[0])
             Darwin.close(pipe[1])
@@ -102,7 +107,7 @@ nonisolated final class CompletionProcess: Sendable {
     }
 
     private static func spawn(_ path: String, arguments: [String], environment: [String: String], folder: String,
-                              output: Int32) throws(AgentPaneShellCompletion.Failure) -> pid_t {
+                              output: Int32, priority: MayBlockPriority) throws(AgentPaneShellCompletion.Failure) -> pid_t {
         var actions: posix_spawn_file_actions_t?
         var attributes: posix_spawnattr_t?
         guard posix_spawn_file_actions_init(&actions) == 0 else { throw .spawnFailed(errno) }
@@ -119,7 +124,7 @@ nonisolated final class CompletionProcess: Sendable {
         let variables = environment.map { "\($0.key)=\($0.value)" }
         var pid: pid_t = 0
         let status = withCStrings(arguments) { argv in
-            withCStrings(variables) { envp in posix_spawn(&pid, path, &actions, &attributes, argv, envp) }
+            withCStrings(variables) { envp in blockingPosixSpawn(&pid, path, &actions, &attributes, argv, envp, priority: priority) }
         }
         guard status == 0 else { throw .spawnFailed(status) }
         return pid

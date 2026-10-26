@@ -104,7 +104,7 @@
    "CmuxNextTerminal": 7,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
-   "MessagesLabSidebar": 2
+   "MessagesLabSidebar": 1
   }
  },
  "waived": {
@@ -112,7 +112,7 @@
    "exit": {
     "acpmux": 1,
     "cmux-browser-host": 4,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "expect": {
     "acpmux": 14,
@@ -129,7 +129,7 @@
     "cmux-pane-protocol": 1,
     "cmux-server": 1,
     "cmux-tui": 1,
-    "cmux-tui-core": 3
+    "cmux-tui-core": 4
    },
    "unwrap": {
     "acpmux": 7
@@ -185,7 +185,7 @@
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
     "CmuxVNCWebRTC": 19,
-    "MessagesLabHome": 1
+    "MessagesLabHome": 4
    }
   }
  }

@@ -403,7 +403,7 @@ struct PageLifecycleTests {
         let (host, view, root) = try openKeepAlivePage()
         defer { try? FileManager.default.removeItem(at: root) }
         defer { host.close(view) }
-        let target = PageWebViewLifecycle(view)
+        let target = PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) })
         lifecycle.hide("tab", page: target)
         #expect(view.keepReasons.lifecycle === lifecycle)
         var id = 0.0
@@ -542,7 +542,7 @@ struct PageLifecycleTests {
         window.orderFrontRegardless()
         window.layoutIfNeeded()
         let other = page("other")
-        lifecycle.hide("tab", page: PageWebViewLifecycle(view))
+        lifecycle.hide("tab", page: PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) }))
         rig.advance(to: .seconds(5))
         lifecycle.hide("other", page: Target(page: other))
         try fireDuePass()

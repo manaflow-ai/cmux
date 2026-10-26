@@ -292,7 +292,7 @@ pub fn start_idle_terminal_reaper(
     if let Some(owner) = mux.upgrade() {
         *owner.idle_close_waker.lock().unwrap() = Some(stop.clone());
         let waker = stop.clone();
-        owner.control_clients.set_detach_waker(move || {
+        owner.control_clients.add_detach_waker(move || {
             let _ = waker.send(ReaperMessage::Wake);
         });
     }

@@ -80,6 +80,23 @@ struct EnergyPolicyDriverTests {
         observation.cancel()
     }
 
+    /// "Turn Off for Now" and "Turn On Again" (p14-energy-025) publish at once, and a later input with
+    /// no battery -> AC edge keeps the hold.
+    @Test func turnOffForNowPublishesAtOnceAndTurnOnNowEndsIt() {
+        let source = EnergyPolicySource()
+        let driver = EnergyPolicyDriver(source: source, isEnabled: true)
+        driver.update(setting: .auto)
+        driver.update(inputs: Self.lowBattery)
+        driver.turnOffForNow()
+        #expect(driver.isOffForSession)
+        #expect(source.policy == EnergyPolicy(onBattery: true))
+        driver.update(inputs: EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 8))
+        #expect(source.policy == EnergyPolicy(onBattery: true), "still on battery: the hold stays")
+        driver.turnOnNow()
+        #expect(!driver.isOffForSession)
+        #expect(source.policy == EnergyPolicy(saverReason: .battery, onBattery: true))
+    }
+
     @MainActor
     final class Heard {
         var policies: [EnergyPolicy] = []

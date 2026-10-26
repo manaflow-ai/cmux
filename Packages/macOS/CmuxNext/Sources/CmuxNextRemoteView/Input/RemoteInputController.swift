@@ -101,11 +101,15 @@ final class RemoteInputController {
     }
 
     func scroll(_ event: NSEvent) {
+        scroll(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+               precise: event.hasPreciseScrollingDeltas, phase: event.phase, momentumPhase: event.momentumPhase)
+    }
+
+    /// One scroll of `deltaX`, `deltaY` in `phase` and `momentumPhase`: one event's, or the sum of a
+    /// frame's events in the same phase (``RemoteInputCaptureView``'s frame-aligned input).
+    func scroll(deltaX: Double, deltaY: Double, precise: Bool, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase) {
         guard isActive else { return }
-        let precise = event.hasPreciseScrollingDeltas
-        if let scrollEvent = scroll.add(
-            deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), precise: precise,
-            phase: event.phase, momentumPhase: event.momentumPhase) {
+        if let scrollEvent = scroll.add(deltaX: deltaX, deltaY: deltaY, precise: precise, phase: phase, momentumPhase: momentumPhase) {
             emit([scrollEvent])
         }
     }

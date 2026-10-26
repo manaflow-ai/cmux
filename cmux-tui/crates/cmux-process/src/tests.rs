@@ -146,3 +146,52 @@ fn wait_timeout_without_pidfd_open_waits_for_the_exit() {
     let status = quick.wait_timeout(Duration::from_secs(10)).unwrap().expect("child ended");
     assert_eq!(status.code(), Some(3));
 }
+
+/// macOS, from a UserInteractive thread (p02-threads 223): a child spawned
+/// with a `qos_ceiling(HELPER_CHILD)` runs below one spawned without it, and
+/// that one starts at Default, not at the thread's class; each is read by its
+/// first thread's priority. The spawning thread is UserInteractive after
+/// each spawn: the ceiling is a spawn attribute.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
+    use cmux_threads::process::probe;
+    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, current};
+
+    let default = probe::base_priority_at(ThreadQos::Default).unwrap();
+    let priority_of_child = |ceiling: Option<ThreadQos>| {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("30");
+        if let Some(qos) = ceiling {
+            command.qos_ceiling(qos);
+        }
+        let mut child = command.spawn().unwrap();
+        assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+        let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
+        let _ = child.kill();
+        let _ = child.wait();
+        priority.unwrap()
+    };
+    let [helper, user] = std::thread::spawn(move || {
+        assert_eq!(cmux_threads::set_current(ThreadQos::UserInteractive), QosChange::Applied);
+        [Some(HELPER_CHILD), None].map(priority_of_child)
+    })
+    .join()
+    .unwrap();
+    assert_eq!(user, default, "a child of a UserInteractive thread: {user}, default {default}");
+    assert!(helper < user, "helper {helper}, user child {user}");
+}
+
+/// A ceiling above Utility is refused before anything is spawned, on every
+/// platform.
+#[test]
+fn a_qos_ceiling_above_utility_is_invalid_input() {
+    for qos in [cmux_threads::ThreadQos::Default, cmux_threads::ThreadQos::UserInteractive] {
+        let error = Command::new("/bin/sh")
+            .args(["-c", "exit 0"])
+            .qos_ceiling(qos)
+            .spawn()
+            .expect_err("a ceiling above Utility");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{qos}");
+    }
+}

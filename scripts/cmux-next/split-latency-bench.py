@@ -2,8 +2,8 @@
 """Daemon-side cost of Cmd+D (splitRight), in the app's request order.
 
 Usage:
-  split-latency-bench.py --socket PATH [--runs N] [--label NAME] [--out FILE.jsonl] [--streams]
-  split-latency-bench.py --tag TAG [--app APP] [--artifacts DIR] [--runs N] [--streams]
+  split-latency-bench.py --socket PATH [--runs N] [--label NAME] [--jsonl FILE.jsonl] [--streams]
+  split-latency-bench.py --tag TAG [--app APP] [--out DIR] [--runs N] [--streams] [--story split-latency]
   split-latency-bench.py (--socket PATH | --tag TAG) --machine ssh --ssh-host HOST [--ssh-config FILE] [--streams]
 
 PATH is a cmux-tui daemon socket: a local daemon, or the local socket of
@@ -19,8 +19,9 @@ PATH is a cmux-tui daemon socket: a local daemon, or the local socket of
   5. `attach-surface` {mode:bytes}: reply, then the first content
      (`vt-state` with data or the first `output`)
 The run then closes the new surface. Times are milliseconds from the split
-send; the summary prints p50, p95, p99 and max and `app_path_sum` (split +
-resync + handshake + attach, the app's critical path without step 3).
+send; the summary prints p50, p95, p99 and max (scripts/perf-lab/perf_stats.py)
+and `app_path_sum` (split + resync + handshake + attach, the app's critical
+path without step 3).
 
 --streams (plans/cmux-next/chrome-parity/p05-ipc.md, IPC-2) measures what the
 app's own terminal view of each new terminal costs:
@@ -58,9 +59,13 @@ These rows show the protocol path, never the app's: they are not IPC-2.
 --tag TAG launches today's tagged build through bench_launch.py (BenchApp:
 scratch config, fresh saved state, its teardown), finds its daemon socket and
 splits the pane the app shows, so the app attaches its own view of each new
-terminal. Each series is also written as cmux-perf-result/v1
-(BenchApp.record), and report.json in --artifacts holds the host, macOS and
-display Hz (None where the host has none, a Linux remote host).
+terminal. report.json in --out (BenchApp's folder) holds the host, macOS
+and display Hz (None where the host has none, a Linux remote host). With
+--story (scripts/perf-lab/stories.d, engine none; --tag on the local machine
+only) a run whose every split and attach succeeded writes each series into
+--out as cmux-perf-result/v1 (BenchApp.record): split_latency.<step> (ms)
+and, with --streams, split_latency.<view count> (count). A run with a
+refused split or attach writes none and exits 1.
 
 --machine ssh starts `cmux remote connect ssh://HOST --headless` (the build's
 own CLI with --tag, else --cmux) on a private local socket and runs every
@@ -87,6 +92,9 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_tagged  # noqa: E402
+import split_pane_bench_report as sp_report  # noqa: E402
+from bench_story import story_problem  # noqa: E402
+from typing_report import distribution  # noqa: E402
 
 now = time.perf_counter
 STREAMS_CAPABILITY = "attach-streams-v1"
@@ -97,6 +105,7 @@ APP_VIEW_METRICS = ["app_view_connections", "app_view_attach_handshake_rtts", "a
                     "app_view_lines_written", "app_connections_per_view"]
 STREAM_METRICS = BENCH_VIEW_METRICS + APP_VIEW_METRICS
 TERMINAL_ATTACH_ROLE = "terminal_attach"  # DaemonWireStats.Role.terminalAttach in debug.daemon.wire
+ENGINE = "none"  # the split opens a terminal; no web page
 
 
 class Conn:
@@ -323,6 +332,7 @@ def bench(path, args, shown_workspace=None, log=print, app_wire=None, app_absent
         raise SystemExit("no pane to split")
 
     rows = []
+    info["failures"] = []
     next_stream = 1
     for i in range(args.runs):
         with lock:
@@ -337,6 +347,7 @@ def bench(path, args, shown_workspace=None, log=print, app_wire=None, app_absent
         t_split = now()
         if not r.get("ok"):
             log(f"split refused: {r}")
+            info["failures"].append(f"run {i}: split refused: {r.get('error')}")
             break
         surface = r["data"]["surface"]
         ctl.reply(ctl.send({"cmd": "list-workspaces"}))
@@ -350,6 +361,7 @@ def bench(path, args, shown_workspace=None, log=print, app_wire=None, app_absent
         view = open_view(path, ctl, surface, stream_id)
         if view["refused"]:
             log(f"attach refused: {view['refused']}")
+            info["failures"].append(f"run {i}: attach refused: {view['refused'].get('error')}")
         with lock:
             seen = {}
             for t, name in events:
@@ -394,7 +406,7 @@ def bench(path, args, shown_workspace=None, log=print, app_wire=None, app_absent
 
 def summarize(rows, label, log=print):
     keys = METRICS + [k for k in STREAM_METRICS if any(k in r for r in rows)]
-    stats = {k: bench_tagged.distribution([r.get(k) for r in rows]) for k in keys}
+    stats = {k: distribution([r.get(k) for r in rows], digits=3, mean=False) for k in keys}
     log(f"== {label} n={len(rows)}")
     for k in keys:
         if stats[k]:
@@ -450,10 +462,13 @@ def parse_args(argv=None):
     where.add_argument("--socket", help="a cmux-tui daemon socket")
     where.add_argument("--tag", help="launch today's tagged build (bench_launch.py) and use its daemon")
     ap.add_argument("--app", help="the tag's bundle (default $NX_APP, else its DerivedData build)")
-    ap.add_argument("--artifacts", help="BenchApp's folder and report.json (default artifacts/split-latency-bench/TAG)")
+    ap.add_argument("--out", "--artifacts", dest="artifacts",
+                    help="BenchApp's folder: report.json and cmux-perf-result/v1 (default artifacts/split-latency-bench/TAG)")
     ap.add_argument("--runs", type=int, default=15)
     ap.add_argument("--label", default="split")
-    ap.add_argument("--out", help="also append every run as one JSON line here")
+    ap.add_argument("--jsonl", help="also append every run as one JSON line here")
+    ap.add_argument("--story", help="write the run as cmux-perf-result/v1 under this story (--tag, --machine local)")
+    ap.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
     ap.add_argument("--streams", action="store_true", help="per-view handshake round trips, requests, connections")
     ap.add_argument("--settle", type=float, default=1.0, help="seconds the app gets to attach its view (--tag --streams)")
     ap.add_argument("--machine", choices=["local", "ssh"], default="local")
@@ -466,14 +481,39 @@ def parse_args(argv=None):
         ap.error("--machine ssh needs --ssh-host")
     if args.app and not args.tag:
         ap.error("--app goes with --tag")
+    if args.story:
+        if not args.tag or args.machine != "local":
+            ap.error("--story needs --tag on the local machine: only a launched app's run describes the story's build")
+        problem = story_problem(args.story, ENGINE)
+        if problem:
+            ap.error(problem)
     # Only a launched app on the local daemon attaches views of the bench's splits.
     args.app_census = bool(args.tag) and args.machine == "local"
     return args
 
 
+def record(app, story, rows, info, runs, streams, out_report, log=print):
+    """The run's series as result-v1 under `story` when every split and attach succeeded; the exit code. What was
+    written, or why nothing was, goes into `out_report["recorded"]`."""
+    failures = list(info.get("failures") or [])
+    if len(rows) < runs and not failures:
+        failures.append(f"{len(rows)} of {runs} runs")
+    if failures:
+        out_report["recorded"] = f"none: {'; '.join(failures)}"
+        log(f"RESULT-V1 {out_report['recorded']}")
+        return 1
+    series = sp_report.split_latency_series(rows, METRICS, STREAM_METRICS if streams else [])
+    out_report["recorded"] = sp_report.record_all(app, story, ENGINE, series, log=log)
+    if not sp_report.any_written(out_report["recorded"]):
+        log("RESULT-V1 FAIL: no series was written")
+        return 1
+    return 0
+
+
 def main(argv=None):
     args = parse_args(argv)
     app = link = None
+    code = 0
     report = {"label": args.label, "machine": args.machine, "streams_asked": args.streams}
     try:
         shown = None
@@ -481,7 +521,7 @@ def main(argv=None):
             from bench_launch import BenchApp
             bundle = bench_tagged.resolve_app(args.tag, args.app)
             artifacts = args.artifacts or os.path.join(bench_tagged.ROOT, "artifacts", "split-latency-bench", args.tag)
-            app = BenchApp(bundle, out=artifacts)
+            app = BenchApp(bundle, out=artifacts, perf_session=args.session)
             app.launch()  # LaunchError (a SystemExit) carries the reason
             report.update(tag=app.tag, app=app.app, ready_seconds=app.ready_seconds)
             path = bench_tagged.daemon_socket(app.tag)
@@ -502,17 +542,13 @@ def main(argv=None):
         report.update(info)
         report["n"] = len(rows)
         report["stats"] = summarize(rows, args.label)
-        if args.out:
-            with open(args.out, "a") as f:
+        if args.jsonl:
+            with open(args.jsonl, "a") as f:
                 for r in rows:
                     f.write(json.dumps(r) + "\n")
+        if args.story:
+            code = record(app, args.story, rows, info, args.runs, args.streams, report)
         if app:
-            story = f"split-latency-{args.machine}" + ("-streams" if args.streams else "")
-            report["recorded"] = bench_tagged.record_series(
-                app, story, {k: [r.get(k) for r in rows] for k in METRICS})
-            if args.streams:
-                report["recorded"].update(bench_tagged.record_series(
-                    app, story, {k: [r.get(k) for r in rows] for k in STREAM_METRICS}, unit="count"))
             with open(os.path.join(app.out, "report.json"), "w") as f:
                 json.dump({**report, "rows": rows}, f, indent=1)
             print(f"== report {os.path.join(app.out, 'report.json')}")
@@ -524,7 +560,7 @@ def main(argv=None):
             link.close()
         if app:
             app.stop()
-    return 0
+    return code
 
 
 if __name__ == "__main__":

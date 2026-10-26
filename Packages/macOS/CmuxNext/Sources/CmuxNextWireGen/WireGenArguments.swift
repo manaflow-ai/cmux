@@ -8,16 +8,24 @@ enum WireGenError: Error, CustomStringConvertible {
     case unwritable(path: String, reason: String)
     /// A schema the method table cannot encode, with its JSON path.
     case methodTable(MethodTableSchemaError)
+    /// An operation catalog the v2 bindings cannot spell, with its JSON path (ResourceEmitter).
+    case resourceOperations(ResourceEmitterError)
+    /// A schema type the Swift wire types cannot express, with its JSON path.
+    case types(TypeSchemaError)
 
     var description: String {
         switch self {
         case .usage(let detail):
             "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH [--identity-output PATH] "
-                + "[--method-table-output PATH] [--event-output PATH [--event-import MODULE]] (at least one output)"
+                + "[--method-table-output PATH] [--event-output PATH [--event-import MODULE]] "
+                + "[--resource-output-dir DIR --resource-operation-names NAME,...] [--types-output-dir DIR] "
+                + "(at least one output)"
         case .unreadable(let path, let reason): "\(path): cannot read: \(reason)"
         case .malformed(let path, let reason): "\(path): not a schema file: \(reason)"
         case .unwritable(let path, let reason): "\(path): cannot write: \(reason)"
         case .methodTable(let error): "\(error)"
+        case .resourceOperations(let error): "\(error)"
+        case .types(let error): "\(error)"
         }
     }
 }
@@ -27,7 +35,7 @@ enum WireGenError: Error, CustomStringConvertible {
 struct WireGenArguments {
     static let flags = [
         "--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output", "--event-output",
-        "--event-import",
+        "--event-import", "--resource-output-dir", "--resource-operation-names", "--types-output-dir",
     ]
 
     let sdkSchema: URL
@@ -39,8 +47,14 @@ struct WireGenArguments {
     /// Where `DaemonWireEvent` goes (EventEmitter).
     let eventOutput: URL?
     /// The module `DaemonWireEvent` imports `WireEventSet` from when it is built outside CmuxNextIPC
-    /// (CmuxNextIPCTests builds the fixture schema's set).
+    /// (CmuxNextIPCTestSupport builds the fixture schema's set).
     let eventImport: String?
+    /// Where the `cmux.protocol/2` requests go, one file per operation family (ResourceEmitter).
+    let resourceOutputDirectory: URL?
+    /// The operations those requests are for, comma-separated on the command line.
+    let resourceOperationNames: [String]
+    /// The directory TypeEmitter writes its support files and per-type files into.
+    let typesOutputDirectory: URL?
 
     init(_ argv: [String]) throws(WireGenError) {
         var values: [String: String] = [:]
@@ -58,8 +72,23 @@ struct WireGenArguments {
         methodTableOutput = values["--method-table-output"].map { URL(fileURLWithPath: $0) }
         eventOutput = values["--event-output"].map { URL(fileURLWithPath: $0) }
         eventImport = values["--event-import"]
-        guard identityOutput != nil || methodTableOutput != nil || eventOutput != nil else {
-            throw WireGenError.usage("no output: give --identity-output, --method-table-output or --event-output")
+        resourceOutputDirectory = values["--resource-output-dir"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        typesOutputDirectory = values["--types-output-dir"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        resourceOperationNames = values["--resource-operation-names"].map {
+            $0.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+        } ?? []
+        guard identityOutput != nil || methodTableOutput != nil || eventOutput != nil || resourceOutputDirectory != nil
+            || typesOutputDirectory != nil
+        else {
+            throw WireGenError.usage(
+                "no output: give --identity-output, --method-table-output, --event-output, --resource-output-dir "
+                    + "or --types-output-dir")
+        }
+        guard (resourceOutputDirectory == nil) == (values["--resource-operation-names"] == nil) else {
+            throw WireGenError.usage("--resource-output-dir and --resource-operation-names go together")
+        }
+        guard !resourceOperationNames.contains(where: \.isEmpty) else {
+            throw WireGenError.usage("--resource-operation-names has an empty name")
         }
         guard eventImport == nil || eventOutput != nil else {
             throw WireGenError.usage("--event-import needs --event-output")

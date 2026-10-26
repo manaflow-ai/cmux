@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// Tests for ``AttemptUpdateCoordinator`` — the policy that makes the install path re-resolve to
@@ -9,7 +8,7 @@ import Testing
 @MainActor
 @Suite struct AttemptUpdateCoordinatorTests {
     private func updateAvailable(_ version: String) -> UpdateState {
-        let item = SUAppcastItem(dictionary: [
+        let item = UpdateAppcastItem(dictionary: [
             "title": "cmux \(version)",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -18,7 +17,7 @@ import Testing
                 "sparkle:version": version,
                 "sparkle:shortVersionString": version,
             ],
-        ]) ?? SUAppcastItem.empty()
+        ]) ?? UpdateAppcastItem.empty()
         return .updateAvailable(.init(appcastItem: item, reply: { _ in }))
     }
 

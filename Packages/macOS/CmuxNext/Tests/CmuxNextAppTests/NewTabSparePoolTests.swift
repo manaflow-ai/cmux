@@ -1,8 +1,10 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
+import CmuxNextMemory
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -18,7 +20,7 @@ struct NewTabSparePoolTests {
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
             let clock = ManualClock()
-            let pool = NewTabSparePool(services: services, memoryPressure: services.memoryPressure, input: tap, clock: clock)
+            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, clock: clock)
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it runs
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
@@ -47,7 +49,7 @@ struct NewTabSparePoolTests {
             services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-hooks")
             try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
             let tap = FakeInputTap()
-            let pool = NewTabSparePool(services: services, memoryPressure: services.memoryPressure, input: tap, clock: ManualClock())
+            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: tap, clock: ManualClock())
             pool.webKit.markSlow() // the warm makes no web view: this test is about when it is armed
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                                   backing: .buffered, defer: true)
@@ -60,6 +62,44 @@ struct NewTabSparePoolTests {
             #expect(tap.liveSubscriptions == 0, "no warm is armed before startWarming")
             pool.startWarming()
             #expect(tap.liveSubscriptions == 1, "the launch warm is armed")
+        }
+    }
+
+    /// p07-memory-047, Chrome's spare rule: in the default (medium) Memory Saver mode at normal
+    /// pressure the pool keeps its spare and arms its warm; a warning cancels the armed warm and
+    /// arms none, a take arms no refill, and back at normal the warm is armed again.
+    @Test func noWarmUnderPressureAndTheWarmReturnsAtNormal() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-pressure")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let kernel = ManualMemoryPressureSource()
+            let pressure = MemoryPressureEvents(source: kernel)
+            let memory = MemoryCoordinator(pressure: pressure, mode: .medium, slicer: BrowserHibernationPressureTests.HeldSlices())
+            let tap = FakeInputTap()
+            let pool = NewTabSparePool(services: services, memory: memory, input: tap, clock: ManualClock())
+            pool.webKit.markSlow() // the warm makes no web view: this test is about when it is armed
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                                  backing: .buffered, defer: true)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            pool.retarget(window)
+            #expect(pool.allowsSpare, "medium mode at normal must keep one spare")
+            #expect(tap.liveSubscriptions == 1, "medium mode at normal arms the warm")
+
+            kernel.send(.warning)
+            #expect(!pool.allowsSpare)
+            #expect(tap.liveSubscriptions == 0, "a warning must cancel the armed warm")
+            #expect(pool.spareView == nil)
+            _ = pool.take(for: window, size: nil)
+            #expect(tap.liveSubscriptions == 0, "a take at warning armed a refill")
+
+            kernel.send(.critical)
+            #expect(tap.liveSubscriptions == 0, "a warm was armed at critical")
+
+            kernel.send(.normal)
+            #expect(pool.allowsSpare)
+            #expect(tap.liveSubscriptions == 1, "back at normal the warm is armed again")
+            withExtendedLifetime(pressure) {}
         }
     }
 }
