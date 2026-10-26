@@ -41,14 +41,31 @@ check("run.head_sha === sha" in text and "activeOrSucceeded" in text,
 check("run.conclusion === 'success'" in text and "run.status" in text,
       "a skipped or failed publisher run must not suppress a retry")
 publish_text = PUBLISH_WORKFLOW.read_text()
+# The shared GITHUB_TOKEN budget was spent when the publishers started on
+# 2026-10-26 ("Resolve the source run" failed with the installation rate limit).
+sign_job = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", publish_text, re.MULTILINE | re.DOTALL)
+sign_text = sign_job.group(1) if sign_job else ""
+check("id: read-token" in sign_text and "private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}" in sign_text
+      and "permission-actions: read" in sign_text and "permission-actions: write" not in sign_text,
+      "the signer must read the source run with the read-only manaflow-glaeda-route token")
+check("GH_TOKEN: ${{ github.token }}" not in sign_text,
+      "every signer source-run read must try the App token before GITHUB_TOKEN")
+check("- name: Wait for the API budget before publishing" in publish_text,
+      "the release writes must wait for the shared budget instead of failing on it")
 check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
-check("    continue-on-error: true\n    needs: sign\n" in publish_text,
-      "a red advisory verify must not fail the run and re-trigger the same publication")
+# verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
+# there): a red verify fails the run on purpose, so the dispatcher hands the source run over
+# again instead of counting a build that never published as handled.
+verify_job = "\n".join(line for line in publish_text[publish_text.index("\n  verify:\n"):publish_text.index("\n  publish:\n")]
+                       .splitlines() if not line.lstrip().startswith("#"))
+check("continue-on-error" not in verify_job and "|| true" not in verify_job.split("id: check")[1].split("- name:")[0],
+      "verify must not be continue-on-error, and its checks must not be masked")
+check("    needs: [sign, runner]\n" in verify_job, "verify runs after sign and its placement job")
 check("has no current Release app artifact; retry the handoff" in publish_text,
       "a missing source artifact must fail publication so the dispatcher retries")
 

@@ -41,7 +41,9 @@ GATE = "vars.CI_QUOTA_HOLD != '1'"
 # Optional workflows that spend GITHUB_TOKEN calls on every pull request
 # completion and that the nightly must not compete with during the hold.
 HOLD_GATED = (
+    "ci-failure-attribution.yml",
     "dogfood-artifact-publish.yml",
+    "pr-media.yml",
 )
 
 DELIVERY = re.compile(r"^(nightly.*|cmux-next-dev-daily.*|.*promote.*|release)\.ya?ml$")
@@ -176,6 +178,17 @@ class QuotaHoldGateTests(unittest.TestCase):
                                f"    if: {GATE}\n    runs-on: ubuntu-24.04\n    steps: [{{run: x}}]\n")
             failures = violations(workflow_files() + [stray])
         self.assertTrue(any("stray.yml reads" in f for f in failures), failures)
+
+    def test_merge_freeze_skips_drafts_but_is_never_held(self) -> None:
+        # Mergers read the freezes again at merge time, so a skipped draft run
+        # passes nothing; a held run on a ready pull request could, so the
+        # freeze check never reads CI_QUOTA_HOLD.
+        text = (WORKFLOWS / "merge-freeze.yml").read_text(encoding="utf-8")
+        self.assertNotIn(VARIABLE, text)
+        document = load(WORKFLOWS / "merge-freeze.yml")
+        self.assertIn("!github.event.pull_request.draft", document["jobs"]["check"]["if"])
+        on = document.get("on", document.get(True))
+        self.assertIn("ready_for_review", on["pull_request_target"]["types"])
 
     def test_delivery_names_are_recognised(self) -> None:
         for name in ("nightly.yml", "nightly-next-tick.yml", "cmux-next-dev-daily.yml", "release.yml"):

@@ -679,6 +679,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_github_token_budget.py
 
+      - name: Validate the nightly-next tick waits through GitHub API rate limits
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_gh_budget_wait.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -768,6 +772,10 @@ jobs:
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_sources.py
+
+      - name: Validate that every script a workflow runs by path is executable in git
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_workflow_scripts_are_executable.py
 
       - name: Validate the backend migrations plan
         if: ${{ matrix.group == 'ci' }}
