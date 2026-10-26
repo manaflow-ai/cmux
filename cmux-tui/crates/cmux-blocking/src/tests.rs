@@ -82,13 +82,19 @@ fn multi_thread_worker_is_compensated_so_other_tasks_keep_running() {
     // worker and the sender task could never run.
     let runtime = runtime::multi_thread().worker_threads(1).build().expect("build runtime");
     let before = counts();
+    let (tx, rx) = mpsc::channel::<u32>();
+    // Ends a deadlocked run with a wrong value instead of a hang.
+    let watchdog_tx = tx.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(10));
+        let _ = watchdog_tx.send(0);
+    });
     let received = runtime.block_on(async {
-        let (tx, rx) = mpsc::channel::<u32>();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let waiter = tokio::spawn(async move {
             assert_eq!(current_thread_kind(), ThreadKind::NoBlock);
             started_tx.send(()).expect("test awaits the start");
-            sync::recv_timeout(&rx, Duration::from_secs(10))
+            sync::recv(&rx)
         });
         started_rx.await.expect("waiter started");
         let sender = tokio::spawn(async move { tx.send(7) });
@@ -105,7 +111,7 @@ fn raw_spawn_blocking_on_a_marked_runtime_runs_the_call() {
     let kind = runtime.block_on(async {
         tokio::task::spawn_blocking(|| {
             let kind = current_thread_kind();
-            sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(1));
             kind
         })
         .await
@@ -118,7 +124,7 @@ fn raw_spawn_blocking_on_a_marked_runtime_runs_the_call() {
 fn current_thread_stall_panics_in_strict_mode_and_restores_the_kind() {
     let runtime = runtime::current_thread().build().expect("build runtime");
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime::block_on(&runtime, async { sleep(Duration::from_millis(1)) });
+        runtime::block_on(&runtime, async { thread::sleep(Duration::from_millis(1)) });
     }));
     let payload = caught.expect_err("strict mode panics on a stall");
     let message = payload.downcast_ref::<String>().expect("panic! with arguments yields a String");
@@ -168,7 +174,7 @@ fn spawn_blocking_may_block_inside_a_current_thread_runtime() {
     let before = counts();
     let kind = runtime::block_on(&runtime, async {
         spawn_blocking(|| {
-            sleep(Duration::from_millis(1));
+            thread::sleep(Duration::from_millis(1));
             current_thread_kind()
         })
         .await
@@ -182,11 +188,11 @@ fn spawn_blocking_may_block_inside_a_current_thread_runtime() {
 async fn unmarked_test_runtime_counts_unknown_and_never_panics() {
     assert_eq!(current_thread_kind(), ThreadKind::Unknown);
     let before = counts();
-    sleep(Duration::from_millis(1));
+    thread::sleep(Duration::from_millis(1));
     let pair = (Mutex::new(false), Condvar::new());
     let guard = pair.0.lock().expect("fresh mutex");
     let (_guard, timeout) =
-        sync::condvar_wait_timeout(&pair.1, guard, Duration::from_millis(1)).expect("fresh mutex");
+        sync::wait_timeout(&pair.1, guard, Duration::from_millis(1)).expect("fresh mutex");
     assert!(timeout.timed_out());
     assert!(counts().unknown >= before.unknown + 2);
 }

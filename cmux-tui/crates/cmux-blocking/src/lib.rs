@@ -15,7 +15,7 @@
 //! Threads nobody marked (test runtimes, plain std threads) are
 //! [`ThreadKind::Unknown`] and are only counted.
 //!
-//! The wrappers in [`fs`], [`process`], [`sync`] and [`sleep`] go through
+//! The wrappers in [`fs`], [`process`], [`sync`] and [`thread`] go through
 //! [`scoped_blocking_call`], which on a `NoBlock` thread:
 //! - on a multi_thread runtime runs the call inside
 //!   `tokio::task::block_in_place`, which hands the worker's queue to a new
@@ -40,6 +40,7 @@ pub mod runtime;
 mod sink;
 mod sites;
 pub mod sync;
+pub mod thread;
 
 #[cfg(test)]
 mod tests;
@@ -236,14 +237,6 @@ where
     })
 }
 
-/// `std::thread::sleep` through [`scoped_blocking_call`].
-#[track_caller]
-pub fn sleep(duration: Duration) {
-    scoped_blocking_call("thread::sleep", BlockingType::WillBlock, || {
-        std::thread::sleep(duration);
-    });
-}
-
 /// Chrome's `ScopedBlockingCall`: run `f`, which blocks, on the current
 /// thread under the policy in the crate docs. `op` names the call in
 /// records.
@@ -289,6 +282,7 @@ fn stalled_call<R>(
 ) -> R {
     COUNTERS.stalled.fetch_add(1, Ordering::Relaxed);
     if strict() {
+        // crash-allow: only with CMUX_BLOCKING_STRICT=1 (the lab) or in this crate's tests; shipped builds count and record
         panic!(
             "cmux-blocking: {op} on a thread that must not block (current_thread runtime) at {location}; \
              move it into cmux_blocking::spawn_blocking or use the tokio equivalent"
