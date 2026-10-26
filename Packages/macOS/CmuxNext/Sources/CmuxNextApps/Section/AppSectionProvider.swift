@@ -45,8 +45,9 @@ public final class AppSectionProvider {
         // The sidebar's section header row draws the title and owns collapse.
         let root = AppSectionFrame(look: look, title: section.title?.resolved() ?? name?.name.resolved() ?? app, symbol: section.symbol,
                                    icon: name?.icon, bundleDirectory: mount.bundleDirectory, showsHeader: false) {
-            AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory)
+            AppSceneView(model: mount.model, bundleDirectory: mount.bundleDirectory, bundleImages: client.bundleImages)
         }
+        .environment(\.appBundleImages, client.bundleImages)
         let view = AppSectionHostingView(rootView: root)
         view.onSizeChange = { [weak self] in self?.onContentChange?() }
         mounts[contribution] = (mount, view)

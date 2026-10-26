@@ -29,7 +29,9 @@ extension AppServices {
     }
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts), the agent tab
-    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already).
+    /// import and the right sidebar's icons (on the cpu lane; a panel built first posted them already). The agent
+    /// pages' WebKit warm-up makes no WebKit page when they open in Chromium (`AgentPageWarmup.start(webUI:)`
+    /// decides when it runs); each outcome leaves its own launch mark (`AgentPageWarmupOutcome.launchMark`).
     func postLaterTabWarmups(on startup: StartupScheduler) {
         LaunchServicePosts.laterTabs(chromiumWarmup: { [weak self] in if let self, !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() } },
                                      spareHooks: { [weak self] in self?.newTabSpares.start(holdingWarm: true) }, spareWarming: { [weak self] in self?.newTabSpares.startWarming() },
@@ -41,7 +43,9 @@ extension AppServices {
                                      },
                                      agentTabImport: { [weak self] in if let self { AgentTabImport.start(self); DebugTimings.markLaunch("launch.post_window_warmups") } },
                                      rightSidebarIcons: { [weak self] in self?.rightSidebarSections.buildIcons(.afterStartup) }).post(on: startup)
-        let warmup = AgentPageWarmupSlot(startup: startup) { [weak self] in DebugTimings.markLaunch(self.map { $0.agentPageWarmup.start(webUI: $0.webUI) } == true ? "launch.agent_page_warmup" : "launch.agent_page_warmup_not_needed") }
+        let warmup = AgentPageWarmupSlot(startup: startup) { [weak self] in
+            if let mark = self.flatMap({ $0.agentPageWarmup.start(webUI: $0.webUI).launchMark }) { DebugTimings.markLaunch(mark) }
+        }
         windows.whenRestored { [weak self] in warmup.restored(showsWebKitAgentChat: self?.showsWebKitAgentChat == true) }
     }
 
@@ -90,7 +94,10 @@ extension AppServices {
                                     apps: appsStart, macScreen: macScreenStart, updateFeed: updateFeedStart).post(on: startup)
     }
 
-    /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit.
-    private var showsWebKitAgentChat: Bool { windows.active?.focusedPane?.selectedTab?.agentSession != nil && AgentPaneView.newPagesShowInWebKit(
-        chromiumChat: AgentPaneTunables.chromium.value, hosting: webUI.chromium) }
+    /// The front window's focused pane shows an agent chat (`agentSession` is a conversation's only) that opens in WebKit,
+    /// by the warm-up's own engine decision (`AgentPageWarmup.agentPagesShowInWebKit(webUI:)`), so the post's place and
+    /// the warm-up's make-or-skip come from one seam.
+    private var showsWebKitAgentChat: Bool {
+        windows.active?.focusedPane?.selectedTab?.agentSession != nil && agentPageWarmup.agentPagesShowInWebKit(webUI: webUI)
+    }
 }

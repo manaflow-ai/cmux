@@ -289,6 +289,7 @@ extension ScreenContentView {
         }
     }
 
+    // memory: fixed computed on each read and kept by no one: one rect per laid-out pane.
     /// Pane frames for directional focus in one logical line: the left
     /// docked column before the strip, the strip in its own space, the right
     /// docked column after the strip's end, so every strip column stays

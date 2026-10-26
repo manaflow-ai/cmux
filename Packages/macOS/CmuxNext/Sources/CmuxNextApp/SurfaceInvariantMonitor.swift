@@ -39,6 +39,7 @@ final class SurfaceInvariantMonitor {
                 guard let window else { return }
                 let child = window.parent != nil
                 let visible = window.occlusionState.contains(.visible)
+                // wall-clock: one timeline with the Control and Browser tab-switch marks and the page's performance.timeOrigin
                 Self.tabSwitchLog.debug("tab-switch occlusion-\(child ? "child" : "top", privacy: .public)-\(visible ? "visible" : "hidden", privacy: .public)-\(String(describing: type(of: window)).filter(\.isLetter), privacy: .public)\(window.identifier?.rawValue.filter(\.isLetter) ?? "", privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
             }
             // task-owner: one main-actor hop per occlusion change; noteChange only arms the settle frames.
@@ -49,7 +50,7 @@ final class SurfaceInvariantMonitor {
     /// A pane showed, hid, moved or released content.
     func noteChange() {
         #if DEBUG
-        settle.schedule(after: Self.settleDelay) { @MainActor [weak self] in self?.check() }
+        settle.scheduleOnMain(after: Self.settleDelay) { [weak self] in self?.check() }
         #endif
     }
 

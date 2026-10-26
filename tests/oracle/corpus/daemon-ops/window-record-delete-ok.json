@@ -29,6 +29,27 @@
   ],
   "steps": [
     {
+      "id": "put",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "window_record.put",
+        "params": {
+          "install_id": "oracle-install",
+          "window_id": "oracle-window",
+          "record": {}
+        },
+        "idempotencyKey": "window-record-delete-ok.put"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,8 +59,8 @@
       "args": {
         "method": "window_record.delete",
         "params": {
-          "install_id": "oracle",
-          "window_id": "oracle"
+          "install_id": "oracle-install",
+          "window_id": "oracle-window"
         },
         "idempotencyKey": "window-record-delete-ok.call"
       },
@@ -51,7 +72,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "deletes the record the put step stored"
     }
   ],
   "invariants": [
@@ -60,9 +81,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.install_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "params.window_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

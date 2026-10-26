@@ -1,6 +1,7 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
 import CmuxNextControl
+import protocol CmuxNextAgentPane.PaneFirstPaintGated
 import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextPalette
@@ -9,6 +10,7 @@ import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextUpdater
+import CmuxNextWakeups
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import CmuxNextCompat
@@ -47,7 +49,8 @@ enum DebugTimings {
     /// The process start and the page-ins every launch mark reads (the system's).
     private nonisolated static let launchClock = LaunchClock()
     /// When the kernel started this process (PROC_PIDTBSDINFO), on the wall clock and the trace clock; now
-    /// when the kernel does not answer.
+    /// when the kernel does not answer. The launch's one clock pairing: every mark's date reaches the trace
+    /// clock through it (``LaunchMarks/uptimeNanos(of:pairedWith:)``).
     private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
 
@@ -58,9 +61,10 @@ enum DebugTimings {
     /// ends its `launch.*` slice; ``LaunchSlices/temperatureMark`` reads the page-ins first (Chrome reads them
     /// before its message-loop start's own work), writes the slices that waited, records `launch.pageins`, and
     /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
+    /// A first live content frame (``LaunchMarks/liveContentFrameMarks``) also marks `first_live_content_frame`, once.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
-        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date)
+        let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
         let (ms, trace, step) = launchMarks.withLock { state -> (Double?, StartupTrace?, LaunchSlices.Step) in
             guard let ms = state.marks.record(name, at: date, processStart: processStartDate) else {
                 return (nil, state.marks.trace, LaunchSlices.Step())
@@ -70,7 +74,7 @@ enum DebugTimings {
         guard let ms else { return }
         step.publish(into: .shared)
         LaunchMarkSink.shared.write(name: name, ms: ms)
-        LaunchMarks.forward(name, at: date, to: trace)
+        LaunchMarks.forward(name, at: date, to: trace, pairedWith: processStart)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("launch.\(name)", at: date)
         #endif
@@ -78,13 +82,43 @@ enum DebugTimings {
             LaunchMarkSink.shared.writeValue(name: LaunchSlices.pageinsValueMark, value: pageins)
         }
         if let temperatureInstant = step.temperatureInstant { markLaunch(temperatureInstant, at: date) }
+        if let derived = LaunchMarks.derivedMark(of: name) { markLaunch(derived, at: date) }
     }
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
         guard let trace = StartupTrace.fromEnvironment(processStartNanos: processStart.uptimeNanos) else { return nil }
-        launchMarks.withLock { $0.marks.attach(trace, processStart: processStartDate) }
+        launchMarks.withLock { $0.marks.attach(trace, processStart: processStart) }
         return trace
+    }
+
+    /// Marks `first_page_frame` when `view`, a page just put in a pane (an agent page or an
+    /// internal page, ``PaneFirstPaintGated``), first paints while its tab's visibility `node` is
+    /// visible. A page that paints out of sight (the New Tab spare parked in its window, a pane of
+    /// a hidden window) is not live content; Chrome's `FirstWebContentsProfiler` likewise stops
+    /// at a hidden or background tab (chrome/browser/metrics/first_web_contents_profiler.cc).
+    static func markFirstPageFrame(of view: NSView?, node: VisibilityNode) {
+        let pageFrame = "first_page_frame"
+        guard let gated = view as? any PaneFirstPaintGated, !launchMarks.withLock({ $0.marks.contains(pageFrame) }) else { return }
+        gated.whenFirstPainted { [weak node] in
+            guard node?.isVisible == true else { return }
+            markLaunch(pageFrame)
+        }
+    }
+
+    /// Marks `run_loop_start` at the main run loop's first entry, Chrome's
+    /// `RecordBrowserMainMessageLoopStart`: a one-shot entry observer, which the run loop
+    /// removes after its one call. Call it in `main()` just before `NSApp.run()`.
+    static func armRunLoopStartMark() {
+        MainRunLoopObserver.once(activities: .entry, order: CFIndex.min) { markLaunch("run_loop_start") }
+    }
+
+    /// Marks `first_idle` the first time the main run loop is about to sleep after
+    /// `applicationDidFinishLaunching`, Chrome's `RecordBrowserMainLoopFirstIdle`: a one-shot
+    /// before-waiting observer ordered after AppKit's display and the Core Animation commit,
+    /// so the turn it closes is the whole launch turn. Call it at `did_finish_launching_end`.
+    static func armFirstIdleMark() {
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: CFIndex.max) { markLaunch("first_idle") }
     }
 
     /// - Parameters:

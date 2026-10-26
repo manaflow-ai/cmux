@@ -16,9 +16,14 @@
         "cef.create_browser"
       ]
     },
+    "cef-host-input-ring": {
+      "what": "one input frame to the Chromium Host's input ring (ChromiumHostInputRing.write, p01-process-041): encode into the shm slot and a sequentially consistent tail store; one zero-timeout Mach send only when the host's reader is parked; a full ring spills to the backlog, never waits",
+      "bench": "swift test --filter ChromiumHostInputRingTests (1,000,000 frames from this writer to the host's C++ reader in a child process on its Mach doorbell; prints doorbells and spills) and scripts/cmux-next/tests/chromium-host-input-ring.test.sh (the host reader's back-pressure handshake and a C++ process pair, 1,000,000 frames each); input-hop p99 under STRESS with the host UI thread busy: scripts/cmux-next/chromium-host-bench.py (hop_us), on macOS 26 and 27",
+      "owner": "PL-cef-helper"
+    },
     "key-dispatch": {
       "what": "every key-down: shortcut table, chord tracker, focus routing",
-      "bench": "scripts/cmux-next/bench-typing.py",
+      "bench": "CMUX_BENCH=1 swift test -c release --filter KeyRouterBench (KEY-ROUTER-BENCH JSON: plain_p99_us, chord_p99_us, plain_allocs, chord_allocs, tis_calls, key_equiv_views; plain key, Cmd-T, Cmd-D, a when-clause binding and Ctrl-C in a terminal, 60 workspaces, 30 panes), then scripts/cmux-next/bench-typing.py",
       "owner": "PL-typing",
       "trace": [
         "key.frame",
@@ -218,6 +223,16 @@
         "input.frame",
         "key.scroll_frame"
       ]
+    },
+    "intent-prewarm-hover": {
+      "what": "one hover target change in the sidebar or a tab strip with intentPrewarmHover on: a compare, the dwell timer's cancel and re-arm, and the warmer's isCold lookup",
+      "bench": "scripts/cmux-next/bench_hibernation.py (wake after hover vs click), then swift test --filter IntentPrewarmServiceTests",
+      "owner": "PL-switch"
+    },
+    "lane-item": {
+      "what": "one BackgroundWork lane item's stats on its slot thread, in every build (LaneScheduler.runOnSlot, LaneStats.record): three CLOCK_UPTIME_RAW reads (submit, start, end; onRan and the block-shutdown check reuse them) and four relaxed atomic adds around the item's body",
+      "bench": "CMUX_LANE_ITEM_BENCH=1 swift test -c release --filter LaneStatsBench (ns per clock read, per record, per item: three reads plus the record), on macOS 26 and 27; distributions under STRESS: debug.work (RUN-13)",
+      "owner": "Performance Lead"
     }
   }
 }

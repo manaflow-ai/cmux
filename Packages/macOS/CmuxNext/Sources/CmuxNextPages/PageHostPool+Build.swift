@@ -3,13 +3,14 @@ import CmuxNextWakeups
 
 extension PageHostPool {
     var shouldBuild: Bool {
-        isLikely && allowsSpare && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
+        isLikely && allowsSpare && (madeVisible || !policy.preloadOnMakeVisible) && spare == nil && !building
+            && target != nil && claimedHosts.count < policy.maximumHosts
     }
 
     func scheduleBuild() {
         guard shouldBuild else { return }
         activityMark = activity()
-        timer.schedule(after: policy.idleInput) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: policy.idleInput) { [weak self] in
             self?.idleDeadline()
         }
     }

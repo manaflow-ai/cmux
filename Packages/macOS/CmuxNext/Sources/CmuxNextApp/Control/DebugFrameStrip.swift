@@ -35,7 +35,7 @@ enum DebugFrameStrip {
         // The key goes in once the recorder has frames from before it.
         let lead = DemandTimer(owner: "debug.frame_strip.lead")
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
+            lead.scheduleOnMain(after: .milliseconds(120)) { done.resume() }
         }
         let sent: JSONValue
         // When the first key went in (a burst's later keys come after it).
@@ -59,7 +59,7 @@ enum DebugFrameStrip {
                 let gap = DemandTimer(owner: "debug.frame_strip.repeat")
                 for _ in 1..<count {
                     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                        gap.schedule(after: .milliseconds(interval)) { @MainActor in done.resume() }
+                        gap.scheduleOnMain(after: .milliseconds(interval)) { done.resume() }
                     }
                     _ = DebugKey.send(keyParams, services: services)
                 }

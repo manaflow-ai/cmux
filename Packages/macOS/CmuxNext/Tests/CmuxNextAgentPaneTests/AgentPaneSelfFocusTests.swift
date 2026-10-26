@@ -4,6 +4,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// An agent page cannot take the keyboard by itself (cx-3hw0i.2, `AgentPaneView.refusesSelfFocus`).
 /// A pane keeps a tab it does not show parked in place, hidden (PaneContentView+Parking): a chat or
@@ -21,7 +22,7 @@ struct AgentPaneSelfFocusTests {
     /// An agent page inside `host`, as a pane's content host holds it.
     private func page(in host: NSView) throws -> AgentPaneView {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
         host.addSubview(view)
         return view
     }

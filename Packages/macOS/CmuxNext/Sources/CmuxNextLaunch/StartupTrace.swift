@@ -10,8 +10,8 @@ public import Foundation
 /// a ring set up before anything else runs, recorded into while startup runs, flushed to a file, and closed
 /// at the deadline.
 ///
-/// Recording appends a fixed-size record to a preallocated ring under a short lock. The files lane of the
-/// ``BackgroundWork`` given to ``start(writingOn:)`` drains the ring into the file in writes of about
+/// Recording appends a fixed-size record to a preallocated ring under a short lock. One ``WorkSequence`` on the
+/// files lane of the ``BackgroundWork`` given to ``start(writingOn:)`` drains the ring into the file in writes of about
 /// 64 KiB, each ending on an event: when the ring holds a write's worth, and at most
 /// ``StartupTraceConfiguration/flushInterval`` after a record that has not been written yet (Chrome's startup
 /// tracing also flushes on a period), so a launch that crashes leaves a file that still loads with what it
@@ -53,7 +53,8 @@ public final class StartupTrace: Sendable {
         var spare: [StartupTraceRecord]
         /// The file, taken out while a drain writes it.
         var file: StartupTraceFile?
-        var work: BackgroundWork?
+        /// The drains, in post order and one at a time, on the files lane; nil before ``StartupTrace/start(writingOn:)``.
+        var drains: WorkSequence?
         /// A posted drain has not started yet.
         var drainPosted = false
         /// ``StartupTrace/flushTimer`` is armed.
@@ -116,8 +117,9 @@ public final class StartupTrace: Sendable {
     /// Starts writing on `work`'s files lane: opens the file now (off the caller's thread) and closes it
     /// ``StartupTraceConfiguration/seconds`` after process start.
     public func start(writingOn work: BackgroundWork) {
-        state.withLock { $0.work = work }
-        post(on: work)
+        let drains = work.sequence("startup-trace")
+        state.withLock { $0.drains = drains }
+        post(on: drains)
         let end = processStartNanos &+ UInt64(configuration.seconds * 1e9)
         let current = now()
         deadline.schedule(after: .nanoseconds(Int64(clamping: end > current ? end - current : 0))) { [self] in
@@ -170,7 +172,7 @@ public final class StartupTrace: Sendable {
     /// What to do after the ring changed: nothing, post a drain, or arm the periodic drain.
     private enum Next {
         case idle
-        case drain(BackgroundWork)
+        case drain(WorkSequence)
         case armFlush
     }
 
@@ -178,10 +180,10 @@ public final class StartupTrace: Sendable {
     /// before ``start(writingOn:)`` (it posts the first drain) nor once a close is asked for (it posts the last).
     /// Under the state's lock.
     private func nextDrain(_ state: inout State) -> Next {
-        guard let work = state.work, !state.closed, !state.drainPosted, !state.pending.isEmpty else { return .idle }
+        guard let drains = state.drains, !state.closed, !state.drainPosted, !state.pending.isEmpty else { return .idle }
         if state.pending.count >= drainCount {
             state.drainPosted = true
-            return .drain(work)
+            return .drain(drains)
         }
         guard !state.flushArmed, !state.closeRequested else { return .idle }
         state.flushArmed = true
@@ -191,7 +193,7 @@ public final class StartupTrace: Sendable {
     private func run(_ next: Next) {
         switch next {
         case .idle: break
-        case let .drain(work): post(on: work)
+        case let .drain(drains): post(on: drains)
         case .armFlush:
             flushTimer.schedule(after: configuration.flushInterval) { [self] in flushDue() }
         }
@@ -199,26 +201,24 @@ public final class StartupTrace: Sendable {
 
     /// The periodic drain's deadline: drains what is pending unless a drain is already posted.
     private func flushDue() {
-        let work = state.withLock { state -> BackgroundWork? in
+        let drains = state.withLock { state -> WorkSequence? in
             state.flushArmed = false
-            guard !state.closed, !state.drainPosted, !state.pending.isEmpty, let work = state.work else { return nil }
+            guard !state.closed, !state.drainPosted, !state.pending.isEmpty, let drains = state.drains else { return nil }
             state.drainPosted = true
-            return work
+            return drains
         }
-        if let work { post(on: work) }
+        if let drains { post(on: drains) }
     }
 
     // MARK: writing
 
     /// Writes what the ring holds now, and returns the status after the write (`debug.startup_trace`).
     ///
-    /// Posted, not awaited with `run`: `run` would raise it to the caller's priority, onto another queue of
-    /// the files lane. At `.userVisible` it queues behind every drain posted before it, so all drains run
-    /// one at a time, in order.
+    /// Posted to the drains' sequence, so it runs after every drain posted before it.
     public func flush() async -> Status {
-        if let work = state.withLock({ $0.work }) {
+        if let drains = state.withLock({ $0.drains }) {
             await withCheckedContinuation { (written: CheckedContinuation<Void, Never>) in
-                work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { [self] in
+                drains.post(.userVisible, shutdown: .blockShutdown) { [self] in
                     drain()
                     written.resume()
                 }
@@ -241,12 +241,12 @@ public final class StartupTrace: Sendable {
     /// Writes the rest and closes the file; later records are dropped. The deadline calls it; a second call
     /// does nothing.
     public func close() {
-        guard let work = state.withLock({ state -> BackgroundWork? in
-            guard !state.closeRequested, let work = state.work else { return nil }
+        guard let drains = state.withLock({ state -> WorkSequence? in
+            guard !state.closeRequested, let drains = state.drains else { return nil }
             state.closeRequested = true
-            return work
+            return drains
         }) else { return }
-        work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { [self] in drain() }
+        drains.post(.userVisible, shutdown: .blockShutdown) { [self] in drain() }
     }
 
     /// The trace's status now.
@@ -260,13 +260,13 @@ public final class StartupTrace: Sendable {
 
     /// Posts a drain at `.userVisible`: below the person's input, and not held by the startup fence, which
     /// would keep the file empty until startup completes.
-    private func post(on work: BackgroundWork) {
-        work.post(.userVisible, mayBlock: .files) { [self] in drain() }
+    private func post(on drains: WorkSequence) {
+        drains.post(.userVisible) { [self] in drain() }
     }
 
     /// Runs on the files lane: swaps the ring's halves, writes the full half, hands it back; once a close
-    /// was asked for, also writes the end of the file. Drains run one at a time (one priority of the files
-    /// lane is one serial queue); a drain that finds the file taken anyway returns at once.
+    /// was asked for, also writes the end of the file. Drains run one at a time (one sequence); a drain that
+    /// finds the file taken anyway returns at once.
     private func drain() {
         let taken = state.withLock { state -> (batch: [StartupTraceRecord], file: StartupTraceFile, closing: Bool, dropped: Int)? in
             state.drainPosted = false

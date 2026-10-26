@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -136,7 +137,7 @@ extension PaneController {
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)) }; BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
@@ -176,7 +177,7 @@ extension PaneController {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
-                let created = try await pending.send(); BenchSpans.mark("daemon.newTab.returned")
+                let created = try await NewTerminalTrace.shared.request(of: timing, surface: \.surface.rawValue) { try await pending.send() }; BenchSpans.mark("daemon.newTab.returned") // create.tab: request_sent, reply
                 // The swap moved the selection already (NewTabSuccession); a pane still on the stand-in follows it.
                 if stripModel.selectedID?.rawValue == pending.tab { selectWhenReported(surface: created.surface) }
                 self.workspace?.expectFocus(on: created.surface, generation: intent)

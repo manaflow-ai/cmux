@@ -204,7 +204,7 @@ final class CloudUploads {
     /// Arms the deadline for the earliest live stage's expiry; nothing pending when no stage is left.
     private func armExpiry() {
         guard let next = stages.values.map(\.expires).min() else { expiryTimer.cancel(); return }
-        expiryTimer.schedule(after: .seconds(max(1, next.timeIntervalSinceNow))) { @MainActor [weak self] in
+        expiryTimer.scheduleOnMain(after: .seconds(max(1, next.timeIntervalSinceNow))) { [weak self] in
             guard let self else { return }
             purgeStages()
             armExpiry()

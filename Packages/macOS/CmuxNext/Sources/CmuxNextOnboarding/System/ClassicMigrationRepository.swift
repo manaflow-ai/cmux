@@ -35,6 +35,7 @@ public actor ClassicMigrationRepository {
             return .newer(schema: schema)
         }
         if let ledger = try? JSONDecoder().blockingDecode(ClassicMigrationLedger.self, from: data) { return .ledger(ledger) }
+        // wall-clock: a file name stamp, not a time.
         let aside = directory.appendingPathComponent("ledger.unreadable-\(Int(Date().timeIntervalSince1970 * 1000)).json")
         try? fileManager.moveItem(at: ledgerURL, to: aside)
         return .unreadable

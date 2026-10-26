@@ -1,16 +1,22 @@
 #!/usr/bin/env python3
 """Chromium layer hosting (fork API 26) works in a real window: pixels, orientation, mouse, keys, scroll, drag.
 
-Launches a tagged cmux-next app (scratch config, no activation) with `browserResize.layerHosting` set by --mode,
-opens a probe page in a Chromium tab and checks:
+Launches a tagged cmux-next app (scratch config, no activation) with layer hosting set by --mode, opens a probe page
+in a Chromium tab and checks:
+
+  --mode on       `browserResize.layerHosting` on: every page window hosts from fork API 26 (the A/B benches' "on")
+  --mode off      `browserResize.layerHosting` off and the feature `cefLayerHosting` off: no page hosts
+  --mode default  no tunable set, `CMUX_ENABLE_FEATURES=cefLayerHosting` (p03-rendering-050): a pane's page hosts
+                  only where the app makes every Track A call for the fork; expects what mode on expects
 
 Input is real HID events (CGEventPost: the pointer moves on the fleet host), because the point is that the
 WindowServer still routes the mouse and keys to the transparent page window; debug.mouse would post into the cmux
 window and skip that. The python process needs the host's event-posting permission (a FAIL row says so).
 
   valid       the page is Chromium: debug.cef shows no `unavailable` and no `fallback`, and windows.fork_api >= 26
-              in mode on (below 26 the app never hosts, so an "on" number would be an "off" number)
-  hosted      debug.cef tracker.hosted_pages >= 1 (on) or == 0 (off), read as soon as the first page of a new pane
+              in mode on (below 26 the app never hosts, so an "on" number would be an "off" number); in mode default
+              debug.cef tracker.hosting_without_track_a == 0 (the app makes every Track A call for this fork)
+  hosted      debug.cef tracker.hosted_pages >= 1 (on, default) or == 0 (off), read as soon as the first page of a new pane
               loaded (no tab switch first: the request made at window creation must host it by itself)
   hosted.fork the fork really moved the page's pixels, not only the app's view: debug.layers counts the CALayerHost
               layers (Chromium's GPU output) per shown page; on: >= 1 inside the context the pane hosts
@@ -54,7 +60,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", default="/tmp")
-parser.add_argument("--mode", default="on", choices=["on", "off"])
+parser.add_argument("--mode", default="on", choices=["on", "off", "default"])
 parser.add_argument("--keep", action="store_true", help="leave the app running")
 parser.add_argument("--input", default="hid", choices=["hid", "debug"],
                     help="hid: real CGEvents (nx-remote --needs input); debug: debug.mouse/debug.key into the app's queue "
@@ -63,6 +69,8 @@ parser.add_argument("--checks", default="all", choices=["all", "hosted"], help="
 parser.add_argument("--tunables", default="scratch", choices=["scratch", "build"],
                     help="build: set the tunable in the build's own debug-tunables.json (what the benches read)")
 opts = parser.parse_args()
+if opts.mode == "default" and opts.tunables == "build":
+    parser.error("--mode default sets no tunable: use --tunables scratch")
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -73,9 +81,10 @@ open(os.path.join(SCRATCH, "ghostty"), "w").close()
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}\n")
 TUNABLES = os.path.join(SCRATCH, "debug-tunables.json")
-json.dump({"version": 1, "values": {"browserResize.layerHosting": opts.mode == "on"}}, open(TUNABLES, "w"))
-WINDOW = (80, 80, 1400, 900)
 KEY = "browserResize.layerHosting"
+json.dump({"version": 1, "values": {} if opts.mode == "default" else {KEY: opts.mode == "on"}}, open(TUNABLES, "w"))
+HOSTED = opts.mode != "off"
+WINDOW = (80, 80, 1400, 900)
 LAYER_HOSTING_FORK_API = 26
 ROWS, TAB, FACTS = [], {}, {}
 
@@ -304,11 +313,15 @@ def check_valid_and_hosted():
     fork_api = (cef.get("windows") or {}).get("fork_api") or 0
     unavailable, fallback = cef.get("unavailable"), cef.get("fallback")
     hosted = tracker.get("hosted_pages", 0)
+    without_track_a = tracker.get("hosting_without_track_a")
     FACTS.update({"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback,
-                  "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused")})
-    row("valid", unavailable is None and fallback is None and (opts.mode == "off" or fork_api >= LAYER_HOSTING_FORK_API),
-        {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback})
-    row("hosted", hosted >= 1 if opts.mode == "on" else hosted == 0,
+                  "hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"),
+                  "hosting_without_track_a": without_track_a})
+    mode_valid = {"on": fork_api >= LAYER_HOSTING_FORK_API, "off": True,
+                  "default": fork_api >= LAYER_HOSTING_FORK_API and without_track_a == 0}[opts.mode]
+    row("valid", unavailable is None and fallback is None and mode_valid,
+        {"fork_api": fork_api, "unavailable": unavailable, "fallback": fallback, "hosting_without_track_a": without_track_a})
+    row("hosted", hosted >= 1 if HOSTED else hosted == 0,
         {"hosted_pages": hosted, "hosting_refused": tracker.get("hosting_refused"), "fork_api": fork_api})
 
 
@@ -319,7 +332,7 @@ def check_fork_hosted():
                 if "page_window_layer_hosts" in b]
         if not rows:
             return None
-        if opts.mode == "on":
+        if HOSTED:
             good = all((b.get("hosted_context_layer_hosts") or 0) >= 1 and b.get("page_window_layer_hosts") == 0 for b in rows)
         else:
             good = all(b.get("hosted_layer_hosts") == 0 and (b.get("page_window_layer_hosts") or 0) >= 1 for b in rows)
@@ -373,6 +386,8 @@ def main():
            "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(str(v) for v in WINDOW)}
     if opts.tunables == "scratch":
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = TUNABLES
+    if opts.mode == "default":
+        env["CMUX_ENABLE_FEATURES"] = "cefLayerHosting"
     os.makedirs(opts.out, exist_ok=True)
     log = open(os.path.join(opts.out, f"app-{TAG}-{opts.mode}.log"), "a")
     app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)

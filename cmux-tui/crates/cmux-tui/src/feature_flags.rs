@@ -150,17 +150,51 @@ pub(crate) fn report() -> (String, Vec<String>) {
     (cohort, disabled)
 }
 
-/// Whether the managed policy or this tester's wave turns `feature` off.
-#[allow(dead_code)] // The first wave-gated feature reads this; the flags ship before it.
-pub(crate) fn disables(feature: &str) -> bool {
+/// What the managed policy and this tester's wave turn off.
+fn disabled_now() -> Vec<String> {
     let env = |name: &str| std::env::var(name).ok();
     let managed = cmux_config::managed::default_reader(env).read();
-    let managed_off = managed
+    let mut disabled = managed
         .forced
         .get("DisabledFeatures")
-        .and_then(Value::as_array)
-        .is_some_and(|items| items.iter().any(|item| item.as_str() == Some(feature)));
-    managed_off || report().1.iter().any(|item| item == feature)
+        .map(|value| {
+            disabled_features(&BTreeMap::from([("DisabledFeatures".into(), value.clone())]))
+        })
+        .unwrap_or_default();
+    disabled.extend(report().1);
+    disabled
+}
+
+/// The daemon's features, resolved once at start (p12-perf-process 3.9):
+/// the channel default, then `CMUX_ENABLE_FEATURES` / `CMUX_DISABLE_FEATURES`,
+/// then `DisabledFeatures` of the managed policy and the signed document,
+/// which win (Chromium's `FeatureList` with its policy overrides).
+pub(crate) fn daemon_features() -> cmux_features::Snapshot {
+    let env = |name: &str| std::env::var(name).ok();
+    let exe = std::env::current_exe().ok();
+    let kind = crate::app_identity::AppIdentity::detect(env, exe.as_deref())
+        .map(|identity| identity.build().kind());
+    let enable = env(cmux_features::ENABLE_ENV);
+    let disable = env(cmux_features::DISABLE_ENV);
+    cmux_features::Snapshot::from_env(channel(kind), enable.as_deref(), disable.as_deref())
+        .with_disabled(disabled_now().iter().map(String::as_str))
+}
+
+/// The registry channel of a build: NIGHTLY's own, RC and release builds
+/// release's, DEV and staging dev's. A process outside any app bundle is a
+/// release when built optimized (an npm or PyPI cmux-tui), else dev.
+fn channel(
+    kind: Option<cmux_agent_pane_policy::build_identity::BuildKind>,
+) -> cmux_features::Channel {
+    use cmux_agent_pane_policy::build_identity::BuildKind;
+    use cmux_features::Channel;
+    match kind.unwrap_or(BuildKind::Unbundled) {
+        BuildKind::Nightly => Channel::Nightly,
+        BuildKind::Release | BuildKind::Rc => Channel::Release,
+        BuildKind::Dev | BuildKind::Staging => Channel::Dev,
+        BuildKind::Unbundled if cfg!(debug_assertions) => Channel::Dev,
+        BuildKind::Unbundled => Channel::Release,
+    }
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -244,5 +278,18 @@ mod tests {
         // An edit on disk voids the cache.
         std::fs::write(root.path().join(CACHE_NAME), br#"{"version":1}"#).unwrap();
         assert!(cached(root.path(), &key).is_none());
+    }
+
+    #[test]
+    fn each_build_kind_reads_its_channel_default() {
+        use cmux_agent_pane_policy::build_identity::BuildKind;
+        use cmux_features::Channel;
+        assert_eq!(channel(Some(BuildKind::Nightly)), Channel::Nightly);
+        assert_eq!(channel(Some(BuildKind::Release)), Channel::Release);
+        assert_eq!(channel(Some(BuildKind::Rc)), Channel::Release);
+        assert_eq!(channel(Some(BuildKind::Dev)), Channel::Dev);
+        assert_eq!(channel(Some(BuildKind::Staging)), Channel::Dev);
+        // Tests build unoptimized: an unbundled test binary is a dev build.
+        assert_eq!(channel(None), Channel::Dev);
     }
 }

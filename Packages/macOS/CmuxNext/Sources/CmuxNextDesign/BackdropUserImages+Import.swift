@@ -156,7 +156,8 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: self,
+                                 delegateQueue: .sessionDelegate("com.cmuxterm.next.backdrop.import", qos: .utility))
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

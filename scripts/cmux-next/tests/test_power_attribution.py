@@ -415,7 +415,7 @@ class IdleBudgetSessionTests(unittest.TestCase):
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
-        ib.measure(None, type("Instance", (), {"pid": 1})(), 60, attribute=True)
+        ib.measure(None, type("Instance", (), {"pid": 1, "harness": {}})(), 60, attribute=True)
         # ps and sudo (prepare, finish) sit outside the bracket of `first` and `last` (the two snapshots).
         self.assertEqual(events, ["prepare", "quiet", "snapshot", "begin", "window", "end", "snapshot", "finish"])
 

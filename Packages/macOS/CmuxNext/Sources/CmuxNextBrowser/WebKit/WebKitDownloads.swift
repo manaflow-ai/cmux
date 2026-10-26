@@ -12,6 +12,9 @@ final class WebKitDownloads: NSObject, WKDownloadDelegate {
     private var items: [ObjectIdentifier: BrowserDownload] = [:]
     /// Files the person chose for a download (Save Link As…), by download.
     private var chosenDestinations: [ObjectIdentifier: URL] = [:]
+    // memory: fixed: one entry per download of this tab the person paused, removed on resume or
+    // cancel; resume data is a small plist (URL, validators, partial file path), not the bytes
+    // downloaded, and dropping it would lose the download's resume, so it is state, not a cache.
     /// Paused downloads' resume data, by `BrowserDownload.id`.
     private var paused: [UUID: Data] = [:]
     /// Downloads Pause cancelled whose resume data has not come back yet.

@@ -826,6 +826,15 @@ input hooks stay in init. Acceptance: init holds no start() calls; banner and up
 SentrySDK.start; keep crash and signal handlers at launch; app-hang tracking, session file I/O and swizzled breadcrumbs
 start afterStartup. Static Sentry is out of scope (personality limit, CmuxSentryTelemetry/Package.swift:54).
 Acceptance: early-crash test (0.1 s) still reports; SentrySDK.start main time <= 3 ms warm.
+As built (cp/p08-startup-032): sentry-cocoa 9.28 installs every integration inside `SentrySDK.start` and has no
+public API to install one later, so only app-hang reports move (paused at start, resumed in one afterStartup post,
+feature `sentryHandlersFirst`). Session I/O stays at start: `SessionTracker` already reads and writes its files on
+the SDK's own queue (`endCachedSession`, `startSession` dispatch async), and manual sessions would lose the
+cached-session close of a run that ended abnormally. Network breadcrumbs stay on: turning them off removes the
+URLSession swizzle from the start but loses them for the whole run. The forwarder starts stay for 078. The
+`launch.sentry_start` interval (`crash.sentry_start` to `crash.sentry_started`) measures the call; the 3 ms
+target and the early-crash test are open until the fleet measures them. If the start is still over 3 ms, the
+cost is in SentryCrash install and the binary image cache, which only a lead decision on the spec can move.
 
 **033 main().** Files: `CmuxNextApp.swift`, `AppEnvironment.swift`, `CmuxNextApp+LaunchEnvironment.swift`. Change:
 signpost each step; directory creation for scroll anchors and draft attachments, SidebarSnapshotFile paths and
@@ -893,6 +902,11 @@ Change: coordinate with the bundle-size owner; A/B job `70436914a38e`'s official
 rebase the official flags onto the cmux.33 fork with `checkout_pgo_profiles=True` and the profile for that exact
 revision. Acceptance: pin only if CefInitialize and new-tab first paint are each >= 10 % faster, no STRESS soak crash, the
 profile mismatch rate < 10 %, and the shim crash-recovery test passes; flags test checks `is_official_build=true`.
+Status: gate only; the A/B was not run, and the pin and the cmux.33 rebase are still open. `cef_build_flags.py`
+refuses `require_official_pgo: true` unless the manifest records `pgo_profile` per arch (the exact name in
+`chrome/build/mac-arm.pgo.txt` / `mac.pgo.txt` at the fork's revision) and an `official_pgo_ab` record that meets
+the acceptance; the framework's `archive.json` must record that profile and the `pgo_mismatch` counts that
+`--count-pgo-mismatch` reads from the build log.
 
 **048 Toolchain spike.** Files: `plans/cmux-next/startup-DESIGN.md`, `scripts/cmux-next/pgo/probe-toolchain.sh`. Change: on
 the pinned Xcode, test `-profile-generate` + `__llvm_profile_write_file`/`reset_counters`, `llvm-profdata merge`, the

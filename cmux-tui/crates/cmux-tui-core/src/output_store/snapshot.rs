@@ -69,13 +69,19 @@ impl Writer {
     /// A terminal printed after the writer last looked at it: a pass is due
     /// `interval` from now, unless one is due sooner.
     pub(super) fn mark_dirty(&self, interval: Duration) {
-        let (lock, changed) = &*self.state;
-        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
-        let due = Instant::now() + interval;
-        if state.due.is_none_or(|current| due < current) {
-            state.due = Some(due);
-            changed.notify_all();
-        }
+        schedule(&self.state, interval);
+    }
+
+    /// A handle that asks this writer for a pass now (the memory budget's
+    /// pressure consumer).
+    pub(super) fn waker(&self) -> WriterWaker {
+        WriterWaker { state: self.state.clone() }
+    }
+
+    /// When the next pass is due (tests).
+    #[cfg(test)]
+    pub(super) fn due(&self) -> Option<Instant> {
+        self.state.0.lock().unwrap_or_else(PoisonError::into_inner).due
     }
 
     pub(super) fn stop(&self) {
@@ -91,6 +97,29 @@ impl Writer {
                 let _ = waits::join(thread);
             }
         }
+    }
+}
+
+/// Asks the writer for a pass now; the pass runs on the writer thread. It
+/// only takes the writer's state lock, never waits on a pass.
+pub(super) struct WriterWaker {
+    state: Arc<(Mutex<WriterState>, Condvar)>,
+}
+
+impl WriterWaker {
+    pub(super) fn wake_now(&self) {
+        schedule(&self.state, Duration::ZERO);
+    }
+}
+
+/// A pass is due `interval` from now, unless one is due sooner.
+fn schedule(state: &(Mutex<WriterState>, Condvar), interval: Duration) {
+    let (lock, changed) = state;
+    let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    let due = Instant::now() + interval;
+    if state.due.is_none_or(|current| due < current) {
+        state.due = Some(due);
+        changed.notify_all();
     }
 }
 
@@ -131,12 +160,18 @@ pub(super) fn write_pass(mux: &Arc<Mux>, store: &OutputStore) {
     let policy = PersistencePolicy::current(mux);
     let previous = store.cached_policy();
     store.cache_policy(policy);
-    if previous.is_some_and(|previous| previous.mode != policy.mode) {
+    let mode_changed = previous.is_some_and(|previous| previous.mode != policy.mode);
+    if mode_changed {
         // The mode changed at runtime: drop what the new mode does not keep.
         eprintln!("cmux-tui: terminal output store: mode {}", policy.mode.as_str());
         store.prune_pending.store(true, std::sync::atomic::Ordering::Release);
     }
     write_pass_at(mux, store, policy, false);
+    if mode_changed {
+        // Full mode compresses nothing (mux/cold_scrollback.rs): the worker
+        // reads the new mode.
+        mux.wake_cold_scrollback();
+    }
 }
 
 /// [`write_pass`] at quit: full mode writes a due snapshot at once.
@@ -151,8 +186,10 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     store.full.set_enabled(full);
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
-    if !dirty.is_empty() {
-        // Memory grows only when terminals print.
+    // Memory grows only when terminals print; a pressure level change moves
+    // the total itself.
+    let pressure_pass = store.memory_budget.take_pressure_pass();
+    if !dirty.is_empty() || pressure_pass {
         super::memory_budget::enforce(mux, store, policy.memory_total_bytes);
     }
     if policy.mode == PersistenceMode::Memory {
@@ -178,7 +215,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
                 || state.snapshot_at.is_none_or(|at| at.elapsed() >= store.snapshot_interval);
             (state.snapshot_digest, due)
         };
-        let captured = surface.try_with_terminal(|terminal| {
+        // A cold terminal has not printed since it was compressed, so its
+        // snapshot is current: reading it would restore it for nothing.
+        let captured = surface.try_with_hot_terminal(|terminal| {
             let digest = content_digest(terminal)?;
             if previous == Some(digest) || !snapshot_due {
                 return Some((digest, None));
@@ -188,7 +227,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
             let replay = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
             Some((digest, Some((cols, rows, replay))))
         });
-        let Ok(Some((digest, replay))) = captured else {
+        let Ok(Some(Some((digest, replay)))) = captured else {
             digests.push((log, None));
             continue;
         };

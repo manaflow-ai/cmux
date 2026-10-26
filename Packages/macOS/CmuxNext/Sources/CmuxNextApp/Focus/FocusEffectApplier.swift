@@ -83,7 +83,7 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
-        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        // The parked New Tab spare follows the focused pane's size (NewTabPreload).
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
@@ -187,7 +187,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             // this window is key because of a click, the click decides.
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
-            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            // In host mode the page's own view in this window is the responder (p01-process-046):
+            // it keeps it.
+            if window.firstResponder !== window, !hostedPageHasResponder(page, in: window) { window.makeFirstResponder(nil) }
             // One key change (#24913): the old page blurs without this window taking the keys
             // back first; the grant moves them straight to the new page window.
             pageFocus.focus(page)
@@ -259,6 +261,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         page.setFocused(focused)
         InputJournal.shared.append(window: controller.state.id, .page(tab: page.id.rawValue, focused: focused,
                                                                       engine: page.presentation == .childWindow ? "chromium" : "webkit"))
+    }
+
+    /// Whether `page`'s Chromium Host page view is `window`'s first responder (host mode: the
+    /// page's focus is that view plus the host's embedder-active state, no page window is key).
+    private func hostedPageHasResponder(_ page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let view = window.firstResponder as? ChromiumHostPageView else { return false }
+        return view.isDescendant(of: page.contentView)
     }
 
     private func responder(of window: NSWindow, isInside view: NSView) -> Bool {

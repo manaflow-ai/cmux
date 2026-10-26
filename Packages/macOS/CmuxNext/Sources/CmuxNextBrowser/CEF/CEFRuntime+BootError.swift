@@ -13,6 +13,9 @@ extension CEFRuntime {
         /// NSApp is not a CefAppProtocol NSApplication subclass.
         case application
         case initialize
+        /// The app began to quit before a predicted start's framework read ran (``CEFFrameworkPrefetch``):
+        /// nothing was mapped.
+        case quit
 
         var description: String {
             switch self {
@@ -22,6 +25,7 @@ extension CEFRuntime {
             case .framework(let message), .host(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
             case .initialize: "CefInitialize failed"
+            case .quit: "the app quit before the framework load"
             }
         }
     }

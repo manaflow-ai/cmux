@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-browser",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-input-wheel-error.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,12 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "tab.create_browser",
+        "method": "browser.profile.open",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "browser-input-wheel-error.fx-browser"
+        "idempotencyKey": "browser-input-wheel-error.fx-app-browser"
       },
       "expect": {
         "outcome": "ok",
@@ -76,13 +96,13 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "browser": "$step:fx-browser#/value/browser_id"
+        "browser": "$step:fx-app-browser#/value/browser_id"
       },
       "args": {
         "method": "browser.input.wheel",
         "params": {
-          "delta_x": "1.0",
-          "delta_y": 1.0,
+          "delta_x": 1.0,
+          "delta_y": 120.0,
           "x_px": 10.0,
           "y_px": 10.0,
           "pointer_frame_seq": "1"
@@ -91,13 +111,20 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "extra": {
+            "code": "browser_rendered_by_app",
+            "browser_id": "$step:fx-app-browser#/value/browser_id",
+            "tab_id": "$step:fx-app-browser#/value/tab_id"
+          }
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "delta_x breaks its catalog type (value must be a finite number); the daemon's catalog check refuses it"
+      "note": "an app-drawn browser has no daemon CDP session (content.rs browser_rendered_by_app_error): operation.failed whose details.extra names browser_rendered_by_app, the browser and its tab, no receipt; engine_unavailable and browser_not_ready are operation.failed too and fail this case"
     }
   ],
   "invariants": [

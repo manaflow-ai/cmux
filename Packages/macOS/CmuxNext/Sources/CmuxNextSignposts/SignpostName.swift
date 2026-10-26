@@ -15,8 +15,9 @@
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
-/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep`` and
-/// ``stallGhosttyRuntimePhase`` have an emitter today. The
+/// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
+/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
+/// ``burstEvent``, ``motionLateCommits`` and ``actionPresentedEstimate`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -67,8 +68,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: key (PL-typing)
 
-    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
-    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (begun with the
+    /// key's input latency slot in `CmuxApplication.sendEvent`, CmuxNextInput's `InputFrameSignposts`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
@@ -80,10 +81,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
     case keyFlow = 7
-    /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
-    /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
-    /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
-    /// ended|momentum|wheel> age_ms=<age>`, the event's wait in the queue. End message: `target=<layout|content>`,
+    /// A scroll event that opens an input latency slot (a trackpad gesture's began or change, its moving momentum,
+    /// or a mouse-wheel notch) from its dispatch to the end of the Core Animation commit that ends that turn (begun
+    /// with the slot, as ``keyToFrame``; ``ScrollFrameSignpost`` writes the same messages). Begin message:
+    /// `phase=<began|changed|momentum|wheel> age_ms=<age>` (older builds also wrote `touch` and `ended`), the
+    /// event's wait in the queue. End message: `target=<layout|content>`,
     /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
@@ -130,10 +132,12 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 102, PL-trace). The main thread's IOSurface contents handoff of that frame.
     case keyEchoContents = 32
 
-    // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
+    // MARK: switch (PL-switch)
 
-    /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
-    /// workspace. Ring: AB/AE; begin arg0 the input age in us.
+    /// A workspace switch (task 027, `DebugWorkspaceSwitch`, every build): the intent
+    /// (`WindowManager.show(workspaceID:in:)`) to the ``CommitBoundary`` after its turn, which shows the new
+    /// workspace. An intent that shows nothing in its turn, or a superseded one, ends `commit=missed`. Ring: AB/AE;
+    /// begin arg0 the input age in us (all ones without an input event); end arg0 the boundary's `EndCode`.
     case switchWorkspace = 9
     /// A tab switch (``TabSwitchSignpost``, every build): the intent to the app's commit that shows the destination
     /// tab's content. Begin message `kind=<cold|warm|page>`. A switch to a live Chromium page ends at the commit after
@@ -160,11 +164,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (0 committed, 1 `commit=missed`, which readers drop).
     case switchAppActivation = 33
 
-    // MARK: create (reserved: PL-cef-tab)
+    // MARK: create (PL-cef-tab)
 
-    /// Reserved (task 030, PL-cef-tab). A new tab: the intent to its first themed frame. Message:
-    /// `kind=<terminal|chromium|webkit|chat|page>`. Ring: AB/AE keyed by the intent id; begin arg0 the kind,
-    /// end arg0 the outcome (0 shown, 1 closed before its first frame); an instant marks the stand-in commit.
+    /// A new tab (``CreateTabInterval``, every build): the intent's turn to its first themed content frame, or the
+    /// ``CommitBoundary`` that shows content with no frame signal of its own. Begin message
+    /// `kind=<terminal|chromium|webkit|chat|page>`, end message `outcome=<shown|closed|hidden|missed>`; only shown is a
+    /// create latency. Ring: AB/AE keyed by the intent id; begin arg0 the kind, end arg0 the outcome (0 shown, 1 closed,
+    /// 2 hidden, 3 missed). Instants, on the intent id (`CreateTabInterval.Scope`): the stand-in commit (arg0 the
+    /// kind, arg1 the intent id) and a chat open's stages (`ChatOpenStage`: arg0 the chat kind with the stage's code
+    /// in bits 8-15, arg1 the intent id; message `kind=chat stage=<name>`), which may come after the end.
     case createTab = 12
     /// A new workspace (`SidebarNewRowTimer`, every build): its create to the ``CommitBoundary`` after the list reload
     /// that first lists its row; `input_age_ms=<age>` (the press's own input, -1 for a script). A row gone before it
@@ -242,14 +250,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case daemonRequest = 44
 
     // MARK: frame (reserved: PL-motion-core, PL-ghostty)
-    /// Reserved (task 037, PL-motion-core; perf-hot `frame-tick`). One display-link tick (`FrameScheduler`).
-    /// Ring: instant; arg0 the tick's timestamp, arg1 its target timestamp (uptime ns).
+    /// Task 037 (perf-hot `frame-tick`). One display-link tick (``FramePresentEstimate``, from `DisplayClock`).
+    /// Ring: instant; arg0 the tick's timestamp (uptime ns), arg1 its display (`CGDirectDisplayID`) in the high
+    /// 32 bits and the nanoseconds from the timestamp to its vsync target in the low 32.
     case frameTick = 45
-    /// Reserved (task 037, PL-motion-core). The end of a Core Animation commit (``CommitBoundary``). Ring: instant.
+    /// Task 037. A main run-loop turn's commit, once per turn end after Core Animation's commit observer
+    /// (``FramePresentEstimate/observeCommits()``). Ring: instant; arg0 the first key flow it carries (0: none),
+    /// arg1 how many it carries.
     case frameCommit = 46
     /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
     case frameGPUDone = 47
-    /// Reserved (task 037, PL-motion-core). The first vsync at or after max(``frameCommit``, ``frameGPUDone``)
+    /// Task 037. The first vsync of the flow's display at or after max(``frameCommit``, ``frameGPUDone``)
     /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
     /// arg0 the flow id, arg1 the vsync target (uptime ns).
     case framePresentEstimate = 48
@@ -261,8 +272,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
     /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
     case taskPost = 50
-    /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
-    /// arg0 the lane and priority, arg1 the queue wait in us.
+    /// A BackgroundWork lane item's run (emitter: CmuxNextWakeups `LaneScheduler`, p02-threads-124; the flow-in
+    /// from its post is reserved for task 042). Ring: B/E; arg0 the lane (bits 8-15) and priority (bits 0-7), arg1
+    /// the queue wait in us.
     case taskRun = 51
 
     // MARK: hang (reserved: PL-telemetry)
@@ -281,6 +293,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
     /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
     case inputFrame = 55
+    /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
+    /// into the app's input dispatch by p04-input-005): a point event when its slot closes, at the presented estimate
+    /// of the frame that shows it (the turn's commit for a view, the target's own content submission for a terminal
+    /// or a page), so it never runs as an interval across turns. Message (``InputLatencySignpostMessage``, numbers
+    /// only): `kind target entry source vrr coalesced frame gen_ns`, then each stage in microseconds after `gen_ns`, -1
+    /// when skipped: `last_gen_us arrived_us dispatch_start_us ti_start_us ti_end_us dispatch_end_us commit_us
+    /// content_us daemon_us pty_us echo_read_us echo_sent_us presented_us`. Ring: instant, "estimated" when the
+    /// presented time is a vsync estimate (not when it was skipped); arg0 packs kind | target << 8 | entrypoint << 16
+    /// | source << 24 | caused frame update << 32 | variable refresh << 33, arg1 the generated-to-presented time in us
+    /// (0 when presented was skipped). Id 85: ids are append-only and 69-84 were taken first.
+    case inputLatency = 85
 
     // MARK: webview (reserved: task 114, PL-telemetry)
     /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
@@ -397,6 +420,36 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// waiting=<steps released>`. Ring: instant; arg0 the steps released. Once per read per launch.
     case launchReadDone = 80
 
+    // MARK: burst (emitter: CmuxNextControl `BurstTrace`, task p09-observability-044)
+
+    /// One burst bench mark (`BurstTrace`), in every build while the `burst` category records: a refusal the person
+    /// saw, a Cmd-W's outcome, a grid sent to a PTY, its echo, the first output after it. Ring only: instant; arg0
+    /// bits 0-7 the kind (`BurstTrace.Kind.traceCode`); a grid's cols in bits 8-23, rows in 24-39 and its echo due in
+    /// bit 40; a close's tab count in bits 8-23 and pane emptied in bit 24. arg1 the PTY surface of a grid or an
+    /// output, else the input event's `CLOCK_UPTIME_RAW` ns (0 without one).
+    case burstEvent = 81
+
+    // MARK: presentation (p03-rendering 004: what a Release build can say about frames it does not watch)
+    /// A main-thread Core Animation commit, made while a Motion animation runs (`MotionActivity`), that ended past a
+    /// deadline its run-loop turn could have met (`MotionLateCommits`): a display-link tick's turn, the tick's target
+    /// timestamp; any other turn, one period past the first vsync after it began. The grid is the key window's
+    /// display's last link tick; the counter starts no link and asks for no frame, so a commit with no recent tick
+    /// is not judged. Message: `late_ms=<past the deadline> turn_ms=<turn start to commit end>`. Ring: instant;
+    /// arg0 the lateness in us, arg1 the turn in us.
+    case motionLateCommits = 82
+    /// The estimated time an action's committed change is shown, recorded at its commit (`ActionBudgetMonitor`):
+    /// the target timestamp of the first display-link tick after the commit, placed on the vsync grid of the
+    /// key window's display's last tick (no link is started for it). Message: `id=<action id>
+    /// present_ms=<run start to the estimate> commit_ms=<run start to the commit> input_age_ms=<age> phase=<running|
+    /// recent|unknown>`, where `phase` says where the grid came from (a running link, a tick under a second old,
+    /// none: then the estimate is the commit plus 1.5 refresh periods). Ring: instant with the "estimated" flag;
+    /// arg0 the action's interned index in bits 0-31 and the phase code in bits 32-39, arg1 the estimate (uptime ns).
+    case actionPresentedEstimate = 83
+    /// Reserved (task 080, PL-ghostty). The measured time an action's change was shown (Ghostty's presentedTime),
+    /// recorded next to ``actionPresentedEstimate`` where it exists. Ring: instant; arg0 the action's interned index,
+    /// arg1 the presented time (uptime ns).
+    case actionPresented = 84
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -460,6 +513,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .hangInProgress: "hang.in_progress"
         case .hangInvalidated: "hang.invalidated"
         case .inputFrame: "input.frame"
+        case .inputLatency: "input.latency"
         case .webviewINP: "webview.inp"
         case .webviewLoAF: "webview.loaf"
         case .remoteInput: "remote.input"
@@ -480,6 +534,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .daemonStep: "daemon.step"
         case .webuiAgentPaneStep: "webui.agent_pane_step"
         case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
+        case .burstEvent: "burst.event"
+        case .motionLateCommits: "motion.late_commits"
+        case .actionPresentedEstimate: "action.presented_estimate"
+        case .actionPresented: "action.presented"
         }
     }
 }

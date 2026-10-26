@@ -9,11 +9,38 @@ import Testing
 /// `TaskTracker::RunTask` (plans/cmux-next/chrome-parity/p02-threads.md, task 017). With no watcher
 /// the lanes run as before: BackgroundWorkTests and LaneBlockingContextTests build theirs with none.
 @Suite(.timeLimit(.minutes(1))) struct LaneHangScopeTests {
-    /// One ``HangWatch`` lane per BlockingLane, registered when the work is built.
-    @Test func eachLaneRegistersOnce() {
+    /// One ``HangWatch`` registration per slot of each lane, under the lane's name, made when the work is built:
+    /// each slot is one serial queue, as Chrome watches each pool worker thread on its own.
+    @Test func eachSlotRegistersOnceUnderItsLanesName() {
         let hangs = RecordingHangWatch()
-        _ = BackgroundWork(label: "test.hang-scope-lanes", hangs: hangs)
-        #expect(hangs.lanes == ["lane.files", "lane.system", "lane.cpu"])
+        _ = BackgroundWork(cpuWidth: 3, label: "test.hang-scope-lanes", hangs: hangs)
+        let files = WorkPriority.allCases.map(FilesLaneWidths.standard.width).reduce(0, +)
+        #expect(hangs.lanes == Array(repeating: "lane.files", count: files)
+            + Array(repeating: "lane.system", count: BackgroundWork.systemWidth) + Array(repeating: "lane.cpu", count: 3))
+    }
+
+    /// Two items of one lane that run at once open their scopes on two registrations. On one, the scope that
+    /// closes first would put back the other's deadline or none (a scope restores the deadline it found), so a
+    /// real hang of the other would go unreported.
+    @Test func itemsThatRunAtOnceAreWatchedOnTheirOwnRegistrations() async {
+        let hangs = RecordingHangWatch()
+        let work = BackgroundWork(label: "test.hang-scope-overlap", hangs: hangs)
+        let (started, start) = AsyncStream.makeStream(of: Void.self)
+        let gate = DispatchSemaphore(value: 0)
+        for _ in 0..<2 {
+            work.post(.userBlocking, mayBlock: .files) {
+                start.yield()
+                gate.wait()
+            }
+        }
+        var iterator = started.makeAsyncIterator()
+        _ = await iterator.next()
+        _ = await iterator.next()
+        let slots = hangs.enteredSlots
+        gate.signal()
+        gate.signal()
+        #expect(slots.count == 2)
+        #expect(Set(slots).count == 2, "both items ran on registration \(slots)")
     }
 
     @Test(arguments: zip([BlockingLane.files, .system, .cpu], [Int64(5), 30, 10]))
@@ -36,7 +63,8 @@ import Testing
         let hangs = RecordingHangWatch()
         let (queued, queue) = AsyncStream.makeStream(of: Void.self)
         let (started, start) = AsyncStream.makeStream(of: Void.self)
-        let work = BackgroundWork(label: "test.hang-scope-queued", hangs: hangs, onQueued: { _, _ in queue.yield() })
+        let work = BackgroundWork(filesWidths: .serial, label: "test.hang-scope-queued", hangs: hangs,
+                                  onQueued: { _, _ in queue.yield() })
         let gate = DispatchSemaphore(value: 0)
         work.post(.userVisible, mayBlock: .files) {
             start.yield()
@@ -55,7 +83,8 @@ import Testing
     }
 }
 
-/// A HangWatchScoping that records every lane and scope; one test thread at a time, so one stack.
+/// A HangWatchScoping that records every lane and scope; `open` is one stack, so tests that read it run one item at
+/// a time.
 final class RecordingHangWatch: HangWatchScoping {
     struct Scope: Equatable, Sendable {
         var name: String
@@ -66,6 +95,8 @@ final class RecordingHangWatch: HangWatchScoping {
         var lanes: [String] = []
         var open: [Scope] = []
         var entered: [Scope] = []
+        /// The registration slot of each scope, as it opened.
+        var enteredSlots: [UInt32] = []
     }
 
     private let state = Mutex(State())
@@ -80,6 +111,7 @@ final class RecordingHangWatch: HangWatchScoping {
     var lanes: [String] { state.withLock { $0.lanes } }
     var open: [Scope] { state.withLock { $0.open } }
     var entered: [Scope] { state.withLock { $0.entered } }
+    var enteredSlots: [UInt32] { state.withLock { $0.enteredSlots } }
 
     func registerLane(_ name: StaticString) -> HangWatch.Registration {
         state.withLock { state in
@@ -95,6 +127,7 @@ final class RecordingHangWatch: HangWatchScoping {
             let scope = Scope(name: state.lanes[Int(registration.slot)], deadline: deadline)
             state.open.append(scope)
             state.entered.append(scope)
+            state.enteredSlots.append(registration.slot)
         }
         defer { leaving.yield(state.withLock { $0.open.removeLast() }) }
         return try body()

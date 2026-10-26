@@ -38,7 +38,22 @@
       "args": {
         "method": "sidebar.apply",
         "params": {
-          "ops": {}
+          "ops": [
+            {
+              "op": "section.add",
+              "section": {
+                "id": "sec_oracle",
+                "kind": {
+                  "type": "custom"
+                },
+                "title": "Oracle"
+              }
+            },
+            {
+              "op": "section.remove",
+              "id": "sec_oracle_missing"
+            }
+          ]
         },
         "idempotencyKey": "sidebar-apply-error.call"
       },
@@ -50,7 +65,7 @@
         "before",
         "settled"
       ],
-      "note": "ops breaks its catalog type (value must be an array); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_section) and writes nothing: the second op fails, so the section the first one adds is not written either"
     }
   ],
   "invariants": [

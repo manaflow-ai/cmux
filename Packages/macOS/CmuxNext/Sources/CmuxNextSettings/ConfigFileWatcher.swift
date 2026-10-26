@@ -16,7 +16,7 @@ public import Foundation
 /// watch's opens and stats run there, never on the caller's thread (the main
 /// thread), as Chrome's `FilePathWatcher` sets up its kqueue on a sequence that may
 /// block (base/files/file_path_watcher_kqueue.cc).
-public final class ConfigFileWatcher: @unchecked Sendable {
+public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the sources and what they watch change only on the serial `queue` (arm, disarm, the event handlers) and in deinit; `run` is a Mutex, the rest is immutable
     public let url: URL
     private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void

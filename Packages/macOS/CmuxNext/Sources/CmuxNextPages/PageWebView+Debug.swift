@@ -34,6 +34,8 @@ extension PageWebView {
         """
         // Whether a first click in an inactive window reaches this page (the view's own answer).
         let firstMouse = JSONValue.bool(webView.acceptsFirstMouse(for: nil))
+        // Opened hidden and not shown yet: no document and no renderer (PageWebView+FirstShow.swift).
+        if awaitsFirstShow { return ["error": "page not shown yet", "awaits_first_show": true, "accepts_first_mouse": firstMouse] }
         guard let text = await callPageFunction(script) as? String,
               case .object(var members)? = try? JSONValue.parse(Data(text.utf8)) else {
             return ["error": "page not loaded", "accepts_first_mouse": firstMouse]
@@ -198,6 +200,8 @@ extension PageWebView {
         public var deliveriesWhileHidden: Int
         /// Native script pushes (theme, glass, document attributes) while hidden.
         public var pushesWhileHidden: Int
+        /// Reloads after a crash (``PageCrashRecovery/reloads``); a crash while hidden waits for the show.
+        public var crashReloads = 0
     }
 
     /// The page's `debug.webui` fields now.
@@ -207,7 +211,7 @@ extension PageWebView {
                hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
                loading: !loaded, parked: isParkedSpare, pooled: isPooled,
                deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
-               pushesWhileHidden: censusState.pushesWhileHidden)
+               pushesWhileHidden: censusState.pushesWhileHidden, crashReloads: crash.reloads)
     }
 
     /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
@@ -291,6 +295,7 @@ extension PageWebView {
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
+        if awaitsFirstShow { return false } // nothing drawn yet
         if let page = chromiumSession?.page {
             guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
                   let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,

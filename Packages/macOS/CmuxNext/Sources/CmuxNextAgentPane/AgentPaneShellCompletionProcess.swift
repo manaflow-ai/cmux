@@ -70,14 +70,9 @@ nonisolated final class CompletionProcess: Sendable {
                 if full { give(up: false) }
             }
         }
-        let pid = pid
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            var status: Int32 = 0
-            var result: pid_t
-            // wakeup-allow: a blocking wait for the completion shell's exit, retried only when a signal interrupts it.
-            repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
-            finish { $0.exited = true }
-        }
+        // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while it runs; the Tab waits.
+        ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.shell-complete-reap.\(pid)", qos: .userInitiated))
+            .start { [self] _ in finish { $0.exited = true } }
     }
 
     /// Records an end; answers with the output once the shell exited and its pipe closed.

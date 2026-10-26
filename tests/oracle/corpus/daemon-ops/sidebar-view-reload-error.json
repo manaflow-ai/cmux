@@ -29,49 +29,27 @@
   ],
   "steps": [
     {
-      "id": "fx-sidebar-view",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "sidebar_view.ensure",
-        "params": {
-          "cols": 80,
-          "rows": 24
-        },
-        "idempotencyKey": "sidebar-view-reload-error.fx-sidebar-view"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "sidebar_view": "$step:fx-sidebar-view#/value/id"
+        "sidebar_view": "sidebar"
       },
       "args": {
         "method": "sidebar_view.reload",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "sidebar-view-reload-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "no view was started (no plugin), so the sidebar view selector matches nothing"
     }
   ],
   "invariants": [

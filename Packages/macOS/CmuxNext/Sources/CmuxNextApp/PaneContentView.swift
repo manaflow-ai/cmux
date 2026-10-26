@@ -415,5 +415,6 @@ extension PaneContentView: TitlebarPressDeciding {
 /// a `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
 private func tabSwitchMark(_ name: String) {
+    // wall-clock: one timeline with the Control and Browser tab-switch marks and the page's performance.timeOrigin
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
