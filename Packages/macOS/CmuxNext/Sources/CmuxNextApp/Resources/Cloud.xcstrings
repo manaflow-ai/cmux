@@ -926,265 +926,265 @@
       }
     },
     "cloud.github.missing": {
-      "comment": "Toast when the Cloud machine has no gh (GitHub CLI).",
+      "comment": "Toast when the Cloud machine has no gh (GitHub CLI). `cmux cloud setup-github` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The GitHub CLI isn't installed on this machine."
+            "value": "The GitHub CLI isn't installed on this machine. Install gh on it, then run `cmux cloud setup-github` again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "واجهة GitHub CLI غير مثبتة على هذا الجهاز."
+            "value": "واجهة GitHub CLI غير مثبتة على هذا الجهاز. ثبّت gh عليه، ثم شغّل `cmux cloud setup-github` مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI nije instaliran na ovoj mašini."
+            "value": "GitHub CLI nije instaliran na ovoj mašini. Instalirajte gh na nju, pa ponovo pokrenite `cmux cloud setup-github`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI er ikke installeret på denne maskine."
+            "value": "GitHub CLI er ikke installeret på denne maskine. Installer gh på den, og kør derefter `cmux cloud setup-github` igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die GitHub CLI ist auf dieser Maschine nicht installiert."
+            "value": "Die GitHub CLI ist auf dieser Maschine nicht installiert. Installiere gh darauf und führe dann `cmux cloud setup-github` erneut aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI no está instalado en esta máquina."
+            "value": "GitHub CLI no está instalado en esta máquina. Instala gh en ella y vuelve a ejecutar `cmux cloud setup-github`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI n’est pas installé sur cette machine."
+            "value": "GitHub CLI n’est pas installé sur cette machine. Installez-y gh, puis exécutez à nouveau `cmux cloud setup-github`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI non è installato su questa macchina."
+            "value": "GitHub CLI non è installato su questa macchina. Installa gh, poi esegui di nuovo `cmux cloud setup-github`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンには GitHub CLI がインストールされていません。"
+            "value": "このマシンには GitHub CLI がインストールされていません。gh をインストールしてから、`cmux cloud setup-github` をもう一度実行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI មិនត្រូវបានដំឡើងនៅលើម៉ាស៊ីននេះទេ។"
+            "value": "GitHub CLI មិនត្រូវបានដំឡើងនៅលើម៉ាស៊ីននេះទេ។ ដំឡើង gh លើវា រួចដំណើរការ `cmux cloud setup-github` ម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신에는 GitHub CLI가 설치되어 있지 않습니다."
+            "value": "이 머신에는 GitHub CLI가 설치되어 있지 않습니다. gh를 설치한 뒤 `cmux cloud setup-github`를 다시 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI er ikke installert på denne maskinen."
+            "value": "GitHub CLI er ikke installert på denne maskinen. Installer gh på den, og kjør deretter `cmux cloud setup-github` igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI nie jest zainstalowany na tej maszynie."
+            "value": "GitHub CLI nie jest zainstalowany na tej maszynie. Zainstaluj na niej gh, a potem ponownie uruchom `cmux cloud setup-github`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O GitHub CLI não está instalado nesta máquina."
+            "value": "O GitHub CLI não está instalado nesta máquina. Instale o gh nela e execute `cmux cloud setup-github` de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI не установлен на этой машине."
+            "value": "GitHub CLI не установлен на этой машине. Установите на нее gh, затем снова выполните `cmux cloud setup-github`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไม่ได้ติดตั้ง GitHub CLI บนเครื่องนี้"
+            "value": "ไม่ได้ติดตั้ง GitHub CLI บนเครื่องนี้ ติดตั้ง gh บนเครื่อง แล้วเรียกใช้ `cmux cloud setup-github` อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI bu makinede yüklü değil."
+            "value": "GitHub CLI bu makinede yüklü değil. Makineye gh yükleyin, sonra `cmux cloud setup-github` komutunu yeniden çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI не встановлено на цій машині."
+            "value": "GitHub CLI не встановлено на цій машині. Встановіть на неї gh, а потім знову виконайте `cmux cloud setup-github`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub CLI chưa được cài trên máy này."
+            "value": "GitHub CLI chưa được cài trên máy này. Hãy cài gh trên máy rồi chạy lại `cmux cloud setup-github`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此机器上未安装 GitHub CLI。"
+            "value": "此机器上未安装 GitHub CLI。请在其上安装 gh，然后再次运行 `cmux cloud setup-github`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此機器上未安裝 GitHub CLI。"
+            "value": "此機器上未安裝 GitHub CLI。請在其上安裝 gh，然後再次執行 `cmux cloud setup-github`。"
           }
         }
       }
     },
     "cloud.github.failed": {
-      "comment": "Toast when the GitHub sign-in did not start on the Cloud machine.",
+      "comment": "Toast when the GitHub sign-in did not start on the Cloud machine. `cmux cloud setup-github` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub sign-in didn't start on this machine."
+            "value": "GitHub sign-in didn't start on this machine. Run `cmux cloud setup-github` again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يبدأ تسجيل الدخول إلى GitHub على هذا الجهاز."
+            "value": "لم يبدأ تسجيل الدخول إلى GitHub على هذا الجهاز. شغّل `cmux cloud setup-github` مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prijava na GitHub nije pokrenuta na ovoj mašini."
+            "value": "Prijava na GitHub nije pokrenuta na ovoj mašini. Ponovo pokrenite `cmux cloud setup-github`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub-login startede ikke på denne maskine."
+            "value": "GitHub-login startede ikke på denne maskine. Kør `cmux cloud setup-github` igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die GitHub-Anmeldung ist auf dieser Maschine nicht gestartet."
+            "value": "Die GitHub-Anmeldung ist auf dieser Maschine nicht gestartet. Führe `cmux cloud setup-github` erneut aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El inicio de sesión de GitHub no se inició en esta máquina."
+            "value": "El inicio de sesión de GitHub no se inició en esta máquina. Vuelve a ejecutar `cmux cloud setup-github`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La connexion à GitHub n’a pas démarré sur cette machine."
+            "value": "La connexion à GitHub n’a pas démarré sur cette machine. Exécutez à nouveau `cmux cloud setup-github`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accesso a GitHub non si è avviato su questa macchina."
+            "value": "L’accesso a GitHub non si è avviato su questa macchina. Esegui di nuovo `cmux cloud setup-github`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンで GitHub へのサインインを開始できませんでした。"
+            "value": "このマシンで GitHub へのサインインを開始できませんでした。`cmux cloud setup-github` をもう一度実行してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការចូល GitHub មិនបានចាប់ផ្តើមនៅលើម៉ាស៊ីននេះទេ។"
+            "value": "ការចូល GitHub មិនបានចាប់ផ្តើមនៅលើម៉ាស៊ីននេះទេ។ ដំណើរការ `cmux cloud setup-github` ម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 머신에서 GitHub 로그인이 시작되지 않았습니다."
+            "value": "이 머신에서 GitHub 로그인이 시작되지 않았습니다. `cmux cloud setup-github`를 다시 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "GitHub-pålogging startet ikke på denne maskinen."
+            "value": "GitHub-pålogging startet ikke på denne maskinen. Kjør `cmux cloud setup-github` igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logowanie do GitHub nie rozpoczęło się na tej maszynie."
+            "value": "Logowanie do GitHub nie rozpoczęło się na tej maszynie. Ponownie uruchom `cmux cloud setup-github`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O login no GitHub não foi iniciado nesta máquina."
+            "value": "O login no GitHub não foi iniciado nesta máquina. Execute `cmux cloud setup-github` de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход в GitHub на этой машине не начался."
+            "value": "Вход в GitHub на этой машине не начался. Снова выполните `cmux cloud setup-github`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การลงชื่อเข้าใช้ GitHub ไม่ได้เริ่มบนเครื่องนี้"
+            "value": "การลงชื่อเข้าใช้ GitHub ไม่ได้เริ่มบนเครื่องนี้ เรียกใช้ `cmux cloud setup-github` อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu makinede GitHub oturum açma başlamadı."
+            "value": "Bu makinede GitHub oturum açma başlamadı. `cmux cloud setup-github` komutunu yeniden çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вхід у GitHub на цій машині не розпочався."
+            "value": "Вхід у GitHub на цій машині не розпочався. Знову виконайте `cmux cloud setup-github`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đăng nhập GitHub chưa bắt đầu trên máy này."
+            "value": "Đăng nhập GitHub chưa bắt đầu trên máy này. Hãy chạy lại `cmux cloud setup-github`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此机器上的 GitHub 登录未能开始。"
+            "value": "此机器上的 GitHub 登录未能开始。请再次运行 `cmux cloud setup-github`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此機器上的 GitHub 登入未能開始。"
+            "value": "此機器上的 GitHub 登入未能開始。請再次執行 `cmux cloud setup-github`。"
           }
         }
       }
@@ -3289,132 +3289,133 @@
       }
     },
     "cloud.progress.failed": {
+      "comment": "The sidebar progress card of a Cloud machine that failed to start; %@ is why (last, after “Reason:”). Retry and Copy Error are the card's buttons.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud machine did not start: %@"
+            "value": "The Cloud machine did not start. Click Retry; Copy Error copies the details. Reason: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンを起動できませんでした: %@"
+            "value": "Cloud マシンを起動できませんでした。［再試行］をクリックしてください。［エラーをコピー］で詳細をコピーできます。理由: %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يبدأ الجهاز السحابي: %@"
+            "value": "لم يبدأ الجهاز السحابي. انقر على إعادة المحاولة؛ ينسخ «نسخ الخطأ» التفاصيل. السبب: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mašina u oblaku se nije pokrenula: %@"
+            "value": "Mašina u oblaku se nije pokrenula. Kliknite Pokušaj ponovo; Kopiraj grešku kopira detalje. Razlog: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-maskinen startede ikke: %@"
+            "value": "Cloud-maskinen startede ikke. Klik på Prøv igen. Kopiér fejl kopierer detaljerne. Årsag: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Cloud-Maschine ist nicht gestartet: %@"
+            "value": "Die Cloud-Maschine ist nicht gestartet. Klicke auf „Erneut versuchen“; „Fehler kopieren“ kopiert die Details. Grund: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La máquina en la nube no se inició: %@"
+            "value": "La máquina en la nube no se inició. Haz clic en Reintentar; Copiar error copia los detalles. Motivo: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La machine cloud n’a pas démarré : %@"
+            "value": "La machine cloud n’a pas démarré. Cliquez sur Réessayer ; Copier l’erreur copie les détails. Raison : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La macchina cloud non si è avviata: %@"
+            "value": "La macchina cloud non si è avviata. Fai clic su Riprova; Copia errore copia i dettagli. Motivo: %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ម៉ាស៊ីនពពកមិនបានចាប់ផ្ដើម៖ %@"
+            "value": "ម៉ាស៊ីនពពកមិនបានចាប់ផ្ដើម។ ចុច ព្យាយាមម្ដងទៀត។ ចម្លងកំហុស នឹងចម្លងព័ត៌មានលម្អិត។ មូលហេតុ៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "클라우드 머신을 시작하지 못했습니다: %@"
+            "value": "클라우드 머신을 시작하지 못했습니다. 다시 시도를 클릭하세요. 오류 복사로 세부 정보를 복사할 수 있습니다. 이유: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skymaskinen startet ikke: %@"
+            "value": "Skymaskinen startet ikke. Klikk Prøv igjen. Kopier feil kopierer detaljene. Årsak: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maszyna w chmurze nie uruchomiła się: %@"
+            "value": "Maszyna w chmurze nie uruchomiła się. Kliknij Ponów; Kopiuj błąd kopiuje szczegóły. Powód: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A máquina na nuvem não iniciou: %@"
+            "value": "A máquina na nuvem não iniciou. Clique em Tentar novamente; Copiar erro copia os detalhes. Motivo: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Облачная машина не запустилась: %@"
+            "value": "Облачная машина не запустилась. Нажмите «Повторить»; «Скопировать ошибку» копирует подробности. Причина: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องคลาวด์ไม่เริ่มทำงาน: %@"
+            "value": "เครื่องคลาวด์ไม่เริ่มทำงาน คลิกลองอีกครั้ง ส่วนคัดลอกข้อผิดพลาดจะคัดลอกรายละเอียด สาเหตุ: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bulut makinesi başlamadı: %@"
+            "value": "Bulut makinesi başlamadı. Yeniden dene'ye tıklayın; Hatayı kopyala ayrıntıları kopyalar. Neden: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Хмарна машина не запустилася: %@"
+            "value": "Хмарна машина не запустилася. Натисніть «Повторити»; «Скопіювати помилку» копіює подробиці. Причина: %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Cloud không khởi động được: %@"
+            "value": "Máy Cloud không khởi động được. Bấm Thử lại; Sao chép lỗi sẽ sao chép chi tiết. Lý do: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "云机器未能启动：%@"
+            "value": "云机器未能启动。点按“重试”；“复制错误”会复制详细信息。原因：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "雲端機器未能啟動：%@"
+            "value": "雲端機器未能啟動。按一下「重試」；「拷貝錯誤」會拷貝詳細資訊。原因：%@"
           }
         }
       }
@@ -4599,132 +4600,133 @@
       }
     },
     "cloud.move.failed": {
+      "comment": "Move to Cloud stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't move the chat: %@"
+            "value": "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر نقل المحادثة: %@"
+            "value": "تعذّر نقل المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat se nije mogao premjestiti: %@"
+            "value": "Chat se nije mogao premjestiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chatten kunne ikke flyttes: %@"
+            "value": "Chatten kunne ikke flyttes. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Chat konnte nicht verschoben werden: %@"
+            "value": "Der Chat konnte nicht verschoben werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo mover el chat: %@"
+            "value": "No se pudo mover el chat. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de déplacer la discussion : %@"
+            "value": "Impossible de déplacer la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile spostare la chat: %@"
+            "value": "Impossibile spostare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットを移動できませんでした: %@"
+            "value": "チャットを移動できませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ៖ %@"
+            "value": "មិនអាចផ្លាស់ទីការជជែកបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅을 옮기지 못했습니다: %@"
+            "value": "채팅을 옮기지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke flytte chatten: %@"
+            "value": "Kunne ikke flytte chatten. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się przenieść czatu: %@"
+            "value": "Nie udało się przenieść czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível mover o chat: %@"
+            "value": "Não foi possível mover o chat. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось перенести чат: %@"
+            "value": "Не удалось перенести чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ย้ายแชทไม่ได้: %@"
+            "value": "ย้ายแชทไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet taşınamadı: %@"
+            "value": "Sohbet taşınamadı. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося перенести чат: %@"
+            "value": "Не вдалося перенести чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể chuyển cuộc trò chuyện: %@"
+            "value": "Không thể chuyển cuộc trò chuyện. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法移动对话：%@"
+            "value": "无法移动对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法移動對話：%@"
+            "value": "無法移動對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
           }
         }
       }
@@ -8791,132 +8793,133 @@
       }
     },
     "cloud.bringBack.failed": {
+      "comment": "Bring Back stopped; %@ is why (last, after “Reason:”). `cmux cloud diagnostics` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't bring the chat back: %@"
+            "value": "Couldn't bring the chat back. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت إعادة المحادثة: %@"
+            "value": "تعذّرت إعادة المحادثة. حاول مرة أخرى؛ وإذا استمر الفشل، فشغّل `cmux cloud diagnostics`. السبب: %@"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat se nije mogao vratiti: %@"
+            "value": "Chat se nije mogao vratiti. Pokušajte ponovo; ako i dalje ne uspijeva, pokrenite `cmux cloud diagnostics`. Razlog: %@"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chatten kunne ikke hentes tilbage: %@"
+            "value": "Chatten kunne ikke hentes tilbage. Prøv igen. Hvis det bliver ved med at mislykkes, så kør `cmux cloud diagnostics`. Årsag: %@"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Chat konnte nicht zurückgeholt werden: %@"
+            "value": "Der Chat konnte nicht zurückgeholt werden. Versuche es erneut; schlägt es weiter fehl, führe `cmux cloud diagnostics` aus. Grund: %@"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo traer el chat de vuelta: %@"
+            "value": "No se pudo traer el chat de vuelta. Inténtalo de nuevo; si sigue fallando, ejecuta `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de rapatrier la discussion : %@"
+            "value": "Impossible de rapatrier la discussion. Réessayez ; si l’échec se répète, exécutez `cmux cloud diagnostics`. Raison : %@"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile riportare la chat: %@"
+            "value": "Impossibile riportare la chat. Riprova; se continua a non riuscire, esegui `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットを戻せませんでした: %@"
+            "value": "チャットを戻せませんでした。もう一度試してください。失敗が続く場合は `cmux cloud diagnostics` を実行してください。理由: %@"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចនាំការជជែកត្រឡប់មកវិញបានទេ៖ %@"
+            "value": "មិនអាចនាំការជជែកត្រឡប់មកវិញបានទេ។ សាកម្តងទៀត។ ប្រសិនបើនៅតែបរាជ័យ សូមដំណើរការ `cmux cloud diagnostics`។ មូលហេតុ៖ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅을 다시 가져오지 못했습니다: %@"
+            "value": "채팅을 다시 가져오지 못했습니다. 다시 시도하세요. 계속 실패하면 `cmux cloud diagnostics`를 실행하세요. 이유: %@"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke hente chatten tilbake: %@"
+            "value": "Kunne ikke hente chatten tilbake. Prøv igjen. Hvis det fortsatt mislykkes, kjør `cmux cloud diagnostics`. Årsak: %@"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się przywrócić czatu: %@"
+            "value": "Nie udało się przywrócić czatu. Spróbuj ponownie; jeśli nadal się nie udaje, uruchom `cmux cloud diagnostics`. Powód: %@"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível trazer o chat de volta: %@"
+            "value": "Não foi possível trazer o chat de volta. Tente de novo; se continuar falhando, execute `cmux cloud diagnostics`. Motivo: %@"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось вернуть чат: %@"
+            "value": "Не удалось вернуть чат. Повторите попытку; если сбой повторяется, выполните `cmux cloud diagnostics`. Причина: %@"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "นำแชทกลับมาไม่ได้: %@"
+            "value": "นำแชทกลับมาไม่ได้ ลองอีกครั้ง หากยังไม่สำเร็จ ให้เรียกใช้ `cmux cloud diagnostics` สาเหตุ: %@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet geri getirilemedi: %@"
+            "value": "Sohbet geri getirilemedi. Yeniden deneyin; başarısız olmaya devam ederse `cmux cloud diagnostics` komutunu çalıştırın. Neden: %@"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося повернути чат: %@"
+            "value": "Не вдалося повернути чат. Спробуйте ще раз; якщо збій повторюється, виконайте `cmux cloud diagnostics`. Причина: %@"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể đưa cuộc trò chuyện về: %@"
+            "value": "Không thể đưa cuộc trò chuyện về. Hãy thử lại; nếu vẫn thất bại, hãy chạy `cmux cloud diagnostics`. Lý do: %@"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法带回对话：%@"
+            "value": "无法带回对话。请重试；如果仍然失败，请运行 `cmux cloud diagnostics`。原因：%@"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法帶回對話：%@"
+            "value": "無法帶回對話。請再試一次；如果仍然失敗，請執行 `cmux cloud diagnostics`。原因：%@"
           }
         }
       }
@@ -10625,132 +10628,133 @@
       }
     },
     "cloud.moveAsk.noPage": {
+      "comment": "Told to the agent whose Move to Cloud question could not be shown. Move to Cloud is the action's name.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't show the question in the chat, so nothing moved."
+            "value": "Couldn't show the question in the chat, so nothing moved. Ask the person to run Move to Cloud on this chat."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّر عرض السؤال في المحادثة، لذا لم يُنقل شيء."
+            "value": "تعذّر عرض السؤال في المحادثة، لذا لم يُنقل شيء. اطلب من الشخص تشغيل «النقل إلى Cloud» على هذه المحادثة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pitanje se nije moglo prikazati u razgovoru, pa ništa nije premješteno."
+            "value": "Pitanje se nije moglo prikazati u razgovoru, pa ništa nije premješteno. Zamolite osobu da pokrene Premjesti u Cloud na ovom razgovoru."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spørgsmålet kunne ikke vises i chatten, så intet blev flyttet."
+            "value": "Spørgsmålet kunne ikke vises i chatten, så intet blev flyttet. Bed personen om at køre Flyt til Cloud på denne chat."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Frage konnte im Chat nicht angezeigt werden, daher wurde nichts verschoben."
+            "value": "Die Frage konnte im Chat nicht angezeigt werden, daher wurde nichts verschoben. Bitte die Person, für diesen Chat „In die Cloud verschieben“ auszuführen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo mostrar la pregunta en el chat, así que no se movió nada."
+            "value": "No se pudo mostrar la pregunta en el chat, así que no se movió nada. Pide a la persona que ejecute Mover a Cloud en este chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible d’afficher la question dans le chat, rien n’a donc été déplacé."
+            "value": "Impossible d’afficher la question dans le chat, rien n’a donc été déplacé. Demandez à la personne de lancer Déplacer vers le Cloud sur ce chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossibile mostrare la domanda nella chat, quindi non è stato spostato nulla."
+            "value": "Impossibile mostrare la domanda nella chat, quindi non è stato spostato nulla. Chiedi alla persona di eseguire Sposta su Cloud su questa chat."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットに確認を表示できなかったため、何も移動していません。"
+            "value": "チャットに確認を表示できなかったため、何も移動していません。このチャットで［Cloud に移動］を実行するよう依頼してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចបង្ហាញសំណួរក្នុងការជជែកបានទេ ដូច្នេះគ្មានអ្វីត្រូវបានផ្លាស់ទីទេ។"
+            "value": "មិនអាចបង្ហាញសំណួរក្នុងការជជែកបានទេ ដូច្នេះគ្មានអ្វីត្រូវបានផ្លាស់ទីទេ។ សុំឱ្យមនុស្សនោះដំណើរការ ផ្លាស់ទីទៅ Cloud លើការជជែកនេះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅에 질문을 표시하지 못해 아무것도 옮기지 않았습니다."
+            "value": "채팅에 질문을 표시하지 못해 아무것도 옮기지 않았습니다. 이 채팅에서 Cloud로 이동을 실행해 달라고 요청하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kunne ikke vise spørsmålet i chatten, så ingenting ble flyttet."
+            "value": "Kunne ikke vise spørsmålet i chatten, så ingenting ble flyttet. Be personen kjøre Flytt til Cloud på denne chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się pokazać pytania w czacie, więc nic nie zostało przeniesione."
+            "value": "Nie udało się pokazać pytania w czacie, więc nic nie zostało przeniesione. Poproś osobę, aby uruchomiła Przenieś do Cloud w tym czacie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível mostrar a pergunta no chat, então nada foi movido."
+            "value": "Não foi possível mostrar a pergunta no chat, então nada foi movido. Peça à pessoa para executar Mover para o Cloud neste chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось показать вопрос в чате, поэтому ничего не перенесено."
+            "value": "Не удалось показать вопрос в чате, поэтому ничего не перенесено. Попросите человека выполнить «Перенести в Cloud» для этого чата."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงคำถามในแชทไม่ได้ จึงไม่มีการย้ายใดๆ"
+            "value": "แสดงคำถามในแชทไม่ได้ จึงไม่มีการย้ายใดๆ ขอให้ผู้ใช้เรียกใช้ ย้ายไปยัง Cloud ในแชทนี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Soru sohbette gösterilemedi, bu yüzden hiçbir şey taşınmadı."
+            "value": "Soru sohbette gösterilemedi, bu yüzden hiçbir şey taşınmadı. Kişiden bu sohbette Cloud'a taşı'yı çalıştırmasını isteyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося показати запитання в чаті, тому нічого не перенесено."
+            "value": "Не вдалося показати запитання в чаті, тому нічого не перенесено. Попросіть людину виконати «Перенести в Cloud» для цього чату."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không thể hiển thị câu hỏi trong cuộc trò chuyện nên không có gì được chuyển."
+            "value": "Không thể hiển thị câu hỏi trong cuộc trò chuyện nên không có gì được chuyển. Hãy nhờ người dùng chạy Chuyển lên Cloud cho cuộc trò chuyện này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法在对话中显示该问题，因此没有移动任何内容。"
+            "value": "无法在对话中显示该问题，因此没有移动任何内容。请让对方在此对话中运行“移至 Cloud”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法在對話中顯示該問題，因此沒有移動任何內容。"
+            "value": "無法在對話中顯示該問題，因此沒有移動任何內容。請對方在此對話中執行「移至 Cloud」。"
           }
         }
       }
@@ -12983,132 +12987,133 @@
       }
     },
     "cloud.upload.refused": {
+      "comment": "A Cloud chat upload refused before sending: too big, too many, or not a regular file. %1$@ is the per-file limit and %2$@ the total limit, as sizes (e.g. “32 MB”).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac won't send that file to the Cloud machine."
+            "value": "This Mac won't send that file to the Cloud machine: send regular files of up to %1$@ each, %2$@ in all."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لن يرسل هذا الـ Mac ذلك الملف إلى جهاز Cloud."
+            "value": "لن يرسل هذا الـ Mac ذلك الملف إلى جهاز Cloud: أرسل ملفات عادية لا يتجاوز كل منها %1$@، و%2$@ إجمالًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ovaj Mac neće poslati tu datoteku na Cloud mašinu."
+            "value": "Ovaj Mac neće poslati tu datoteku na Cloud mašinu: šaljite obične datoteke do %1$@ svaka, ukupno do %2$@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Mac sender ikke den fil til Cloud-maskinen."
+            "value": "Denne Mac sender ikke den fil til Cloud-maskinen: send almindelige filer på højst %1$@ hver og %2$@ i alt."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieser Mac sendet diese Datei nicht an die Cloud-Maschine."
+            "value": "Dieser Mac sendet diese Datei nicht an die Cloud-Maschine: Sende normale Dateien bis %1$@ pro Datei und %2$@ insgesamt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este Mac no enviará ese archivo a la máquina de Cloud."
+            "value": "Este Mac no enviará ese archivo a la máquina de Cloud: envía archivos normales de hasta %1$@ cada uno y %2$@ en total."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce Mac n’enverra pas ce fichier à la machine Cloud."
+            "value": "Ce Mac n’enverra pas ce fichier à la machine Cloud : envoyez des fichiers ordinaires de %1$@ maximum chacun, %2$@ au total."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo Mac non invierà quel file alla macchina Cloud."
+            "value": "Questo Mac non invierà quel file alla macchina Cloud: invia file normali fino a %1$@ ciascuno, %2$@ in totale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac はそのファイルを Cloud マシンに送信しません。"
+            "value": "この Mac はそのファイルを Cloud マシンに送信しません。通常のファイルを 1 つあたり %1$@ まで、合計 %2$@ まで送信してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac នេះនឹងមិនផ្ញើឯកសារនោះទៅម៉ាស៊ីន Cloud ទេ។"
+            "value": "Mac នេះនឹងមិនផ្ញើឯកសារនោះទៅម៉ាស៊ីន Cloud ទេ៖ ផ្ញើឯកសារធម្មតាដែលមិនលើស %1$@ ក្នុងមួយឯកសារ និង %2$@ សរុប។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac은 해당 파일을 Cloud 머신으로 보내지 않습니다."
+            "value": "이 Mac은 해당 파일을 Cloud 머신으로 보내지 않습니다. 일반 파일을 파일당 %1$@, 합계 %2$@까지 보내세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Denne Macen sender ikke den filen til Cloud-maskinen."
+            "value": "Denne Macen sender ikke den filen til Cloud-maskinen: send vanlige filer på opptil %1$@ hver, %2$@ totalt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ten Mac nie wyśle tego pliku do maszyny Cloud."
+            "value": "Ten Mac nie wyśle tego pliku do maszyny Cloud: wysyłaj zwykłe pliki do %1$@ każdy, łącznie do %2$@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Este Mac não enviará esse arquivo para a máquina do Cloud."
+            "value": "Este Mac não enviará esse arquivo para a máquina do Cloud: envie arquivos comuns de até %1$@ cada, %2$@ no total."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Этот Mac не отправит этот файл на машину Cloud."
+            "value": "Этот Mac не отправит этот файл на машину Cloud: отправляйте обычные файлы размером до %1$@ каждый, всего до %2$@."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac เครื่องนี้จะไม่ส่งไฟล์นั้นไปยังเครื่อง Cloud"
+            "value": "Mac เครื่องนี้จะไม่ส่งไฟล์นั้นไปยังเครื่อง Cloud ส่งไฟล์ปกติได้ไฟล์ละไม่เกิน %1$@ รวมไม่เกิน %2$@"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu Mac o dosyayı Cloud makinesine göndermeyecek."
+            "value": "Bu Mac o dosyayı Cloud makinesine göndermeyecek: her biri en fazla %1$@, toplamda en fazla %2$@ olan normal dosyalar gönderin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Цей Mac не надішле цей файл на машину Cloud."
+            "value": "Цей Mac не надішле цей файл на машину Cloud: надсилайте звичайні файли до %1$@ кожен, загалом до %2$@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Máy Mac này sẽ không gửi tệp đó đến máy Cloud."
+            "value": "Máy Mac này sẽ không gửi tệp đó đến máy Cloud: hãy gửi tệp thông thường, tối đa %1$@ mỗi tệp và %2$@ tổng cộng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这台 Mac 不会将该文件发送到 Cloud 机器。"
+            "value": "这台 Mac 不会将该文件发送到 Cloud 机器：请发送普通文件，每个不超过 %1$@，总计不超过 %2$@。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這台 Mac 不會將該檔案傳送到 Cloud 機器。"
+            "value": "這台 Mac 不會將該檔案傳送到 Cloud 機器：請傳送一般檔案，每個不超過 %1$@，總計不超過 %2$@。"
           }
         }
       }
