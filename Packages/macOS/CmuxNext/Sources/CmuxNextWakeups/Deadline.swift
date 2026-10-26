@@ -22,6 +22,11 @@ public struct Deadline: Sendable {
         /// The limit it had.
         public let limit: Duration
 
+        public init(label: String, limit: Duration) {
+            self.label = label
+            self.limit = limit
+        }
+
         public var description: String { "\(label) missed its \(limit) deadline" }
     }
 
