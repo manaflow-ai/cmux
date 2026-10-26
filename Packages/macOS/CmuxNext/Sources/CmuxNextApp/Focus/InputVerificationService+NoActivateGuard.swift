@@ -1,5 +1,6 @@
 @preconcurrency import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import os
 
 private enum NoActivateApplicationResolver {
@@ -29,10 +30,10 @@ private enum NoActivateApplicationResolver {
 }
 
 // Wires NoActivateKeyboardGuard under CMUX_NEXT_NO_ACTIVATE=1: activation,
-// key-window and other-app changes in, input from the app-wide event tap,
+// key-window and other-app changes in, key and mouse presses from the input tap,
 // each give-back into the input journal and `debug.focus`.
 extension InputVerificationService {
-    func startNoActivateGuard() {
+    func startNoActivateGuard(tap: InputEventTap) {
         guard WindowPlacement.noActivate else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
@@ -66,14 +67,12 @@ extension InputVerificationService {
             MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
         })
         let application = NSApp as? CmuxApplication
-        let journalObserver = application?.inputObserver
-        application?.inputObserver = { event in
+        keyboardGuardSubscription = tap.subscribe([.key, .button]) { event in
             switch event.type {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 if application?.currentEventIsSynthetic != true { guardian.userInput() }
             default: break
             }
-            journalObserver?(event)
         }
         // Keep the no-activate invariant immediate. The previous app is
         // populated asynchronously below so this path never waits on

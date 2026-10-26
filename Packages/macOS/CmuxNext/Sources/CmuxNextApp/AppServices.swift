@@ -17,6 +17,7 @@ import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextInput
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -324,6 +325,8 @@ final class AppServices {
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`).
     let inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost())
+    let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
+    private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
@@ -549,6 +552,7 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
+        (NSApp as? CmuxApplication)?.inputTap = inputTap
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
@@ -610,13 +614,15 @@ final class AppServices {
         browserHost?.start()
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
-        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] event in
-            self?.notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
-            self?.browserHost?.noteInput(event)
-            // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
-            self?.linkHints.cancel()
-            self?.windowHints.cancel()
-            self?.keyRouter.cancelChord()
+        // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
+        // ends link hints and a waiting chord (it may move the keyboard).
+        mouseDownSubscription = inputTap.subscribe(.button, phase: .afterDispatch) { [weak self] event in
+            guard let self, event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown else { return }
+            notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
+            browserHost?.noteInput(event)
+            linkHints.cancel()
+            windowHints.cancel()
+            keyRouter.cancelChord()
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }

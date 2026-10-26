@@ -6,6 +6,7 @@ import CmuxNextWakeups
 import CmuxNextTerminal
 import CmuxNextSignposts
 import CmuxNextFocusUI
+import CmuxNextInput
 import os
 
 /// Chromium's application protocols (base/message_loop/message_pump_apple.h,
@@ -43,17 +44,16 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`. Gets the key-down and the window it goes
     /// to; returns true when it consumed the key.
     var keyDownInterceptor: ((NSEvent, NSWindow?) -> Bool)?
-    /// Set once by `AppServices`: sees every event first (input journal).
-    var inputObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: the app's one input tap. Its observers see every event first (input
+    /// journal), its intercepts run before AppKit dispatches the event, and its after-dispatch observers
+    /// see a click once focus has moved to the clicked pane.
+    var inputTap: InputEventTap?
     /// Set once by `AppServices`: true when a key-down typed into one cmux window would reach
     /// another, the key window (`CrossWindowInputGuard`): the key is dropped.
     var crossWindowKeyGuard: ((NSEvent, NSWindow?) -> Bool)?
     /// Set once by `AppServices`: runs a click's or key's dispatch with the window it came from as
     /// the active window (`WindowManager.dispatching(eventFrom:_:)`).
     var dispatchScope: ((NSEvent, () -> Void) -> Void)?
-    /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
-    /// (focus has moved to the clicked pane), with its window.
-    var mouseDownObserver: ((NSEvent) -> Void)?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -98,7 +98,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
-        BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
+        if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
         // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
         frameInput.willDispatch(event.type)
         let previous = handlingSendEvent
@@ -125,12 +125,15 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
-        if event.type == .leftMouseDown || event.type == .leftMouseUp {
-            BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
-        } else {
-            super.sendEvent(event)
+        if inputTap?.deliverIntercepts(event) != .consume {
+            if event.type == .leftMouseDown || event.type == .leftMouseUp {
+                BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
+            } else {
+                super.sendEvent(event)
+            }
         }
-        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
+        let mouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
+        if mouseDown { BenchSpans.measure("app.inputTap.afterDispatch") { inputTap?.deliverAfterDispatch(event) } } else { inputTap?.deliverAfterDispatch(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }
