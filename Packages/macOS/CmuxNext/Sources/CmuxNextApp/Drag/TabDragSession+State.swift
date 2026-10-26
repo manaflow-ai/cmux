@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTabs
 import QuartzCore
 
@@ -62,7 +63,8 @@ extension TabDragSession {
         /// crossing); nil when it does.
         var noTargetReason: String?
         var presentation: Presentation = .none
-        var monitor: Any?
+        /// The drag's input tap intercept; cancelled when the drag ends.
+        var input: InputSubscription?
         var link: FrameClient?
         /// Every surface that answered during this drag, told once at the end.
         var touched: [ObjectIdentifier: any TabDropTargetProviding] = [:]
