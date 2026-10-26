@@ -37,7 +37,8 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
         let path = candidate.join("session.json");
         let Ok(raw) = std::fs::read(path) else { continue };
         let Ok(meta) = serde_json::from_slice::<SessionMeta>(&raw) else { continue };
-        return meta.harness == "cmux-harness"
+        return meta.id == outer_id
+            && meta.harness == "cmux-harness"
             && meta.agent_session_id.as_deref() == Some(agent_id);
     }
     false
@@ -490,7 +491,7 @@ impl Hub {
                     return Err(transfer_error("store", "source-store backup path is occupied"));
                 }
                 let state = backup.with_extension("replacement-state.json");
-                super::transfer::write_json_atomic(&state, &json!({"id": id, "phase": "staged"}))
+                super::transfer::write_json_atomic(&state, &json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "staged"}))
                     .map_err(|e| transfer_error("store", format!("write replacement state: {e}")))?;
                 std::fs::rename(source_store, &backup)
                     .map_err(|e| transfer_error("store", format!("stage source store: {e}")))?;
@@ -513,7 +514,7 @@ impl Hub {
             Ok(session) => {
                 if let Some((_, backup)) = source_store_backup.as_ref() {
                     let state = backup.with_extension("replacement-state.json");
-                    let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "phase": "committed"}))
+                    let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
                         .map_err(|e| transfer_error("store", format!("encode commit state: {e}")))
                         .and_then(|value| {
                             super::transfer::write_json_atomic(&state, &value)

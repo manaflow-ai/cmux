@@ -560,6 +560,7 @@ impl Hub {
                 "outerId": meta.id,
                 "replaceDurable": replace_durable,
                 "phase": "staged",
+                "transferId": manifest["transferId"],
                 "piFilename": target_filename,
                 "journalDirWasPresent": journal_dir_was_present,
                 "hadJournal": std::fs::symlink_metadata(&journal).is_ok(),
