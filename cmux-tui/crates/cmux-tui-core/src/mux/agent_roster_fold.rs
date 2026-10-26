@@ -118,8 +118,7 @@ impl Mux {
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
-        let native_agent =
-            normalized.and_then(|value| value.get("native_agent_id")).and_then(Value::as_str);
+        let hook = crate::journal_reducers::HookWaitProbe::of_payload(&ingress.payload);
         let is_session_start = ingress.kind == "agent.session.started";
         let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
@@ -129,9 +128,7 @@ impl Mux {
         let state = match kind_state {
             Some(state) => state,
             None if waiting()
-                && previous_fence
-                    .as_ref()
-                    .is_none_or(|fence| fence.wait_answered_by(native_agent)) =>
+                && previous_fence.as_ref().is_none_or(|fence| fence.wait_answered_by(hook)) =>
             {
                 AgentState::Working
             }
@@ -154,7 +151,7 @@ impl Mux {
             state == AgentState::Done,
             observed_at_ms,
         )
-        .noting_wait(state, native_agent);
+        .noting_wait(state, hook);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits
