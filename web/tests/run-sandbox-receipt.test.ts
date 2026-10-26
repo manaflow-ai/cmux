@@ -169,6 +169,24 @@ describe("sandbox receipt", () => {
     expect(persistent.artifacts[0]?.name).toBe(artifact.name);
   });
 
+  test("VM time follows the VM rows through destruction, and the cost is provisional until then", () => {
+    const base = snapshot();
+    const created = new Date("2026-10-25T10:00:10.000Z");
+    const destroyedLate = new Date("2026-10-25T12:00:10.000Z");
+    const destroyed = { ...base, sandboxVms: [{ createdAt: created, destroyedAt: destroyedLate, live: false }] } as RunSnapshotRow;
+    expect(sandboxReceiptFor(destroyed)?.cost).toMatchObject({ vmSeconds: 7_200, final: true });
+    const up = { ...base, sandboxVmLive: true, sandboxVms: [{ createdAt: created, destroyedAt: null, live: true }] } as RunSnapshotRow;
+    expect(sandboxReceiptFor(up)?.cost.final).toBe(false);
+    expect(sandboxReceiptFor(up)?.cleanup).toBe("pending");
+  });
+
+  test("every string in a sandboxed artifact's metadata is redacted when served", () => {
+    const base = snapshot({ providerVmId: "vm-private-handle" });
+    const artifact = { id: "a1", runId: "run-1", attemptId: "attempt-1", name: "out.txt", mediaType: "text/plain", sizeBytes: 3, digest: `sha256:${"a".repeat(64)}`, uri: "x", metadata: { note: "sk-abcdefghijklmnopqrstuvwxyz", paths: ["work/vm-private-handle"], size: 3 }, createdAt, writerLeaseGeneration: null, writerLeaseTokenHash: null };
+    const view = toRunSnapshotView({ ...base, artifacts: [artifact] } as RunSnapshotRow);
+    expect(view.artifacts[0]?.metadata).toEqual({ note: "[redacted]", paths: ["work/[redacted]"], size: 3 });
+  });
+
   test("an artifact name is redacted like the reply", () => {
     const base = snapshot();
     const artifact = { id: "a1", runId: "run-1", attemptId: "attempt-1", name: "dump-sk-abcdefghijklmnopqrstuv.txt", mediaType: "text/plain", sizeBytes: 3, digest: `sha256:${"a".repeat(64)}`, uri: "x", metadata: {}, createdAt, writerLeaseGeneration: null, writerLeaseTokenHash: null };

@@ -24,7 +24,7 @@ import {
   type RunStatus,
   type SandboxRunOutcome,
 } from "./model";
-import { redactReceiptText, sandboxReply } from "./sandbox";
+import { redactReceiptText, redactReceiptValue, sandboxReply } from "./sandbox";
 
 export class RunIdempotencyConflictError extends Error {}
 export class RunNotFoundError extends Error {}
@@ -43,8 +43,10 @@ export type RunSnapshot = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: (typeof runAttempts.$inferSelect)[];
   readonly artifacts: (typeof runArtifacts.$inferSelect)[];
-  /** Sandboxed Runs only: a VM created under the sandbox's key is not destroyed yet. */
+  /** Sandboxed Runs only: a VM created under the sandbox's key (or still being created) is not gone yet. */
   readonly sandboxVmLive?: boolean;
+  /** Sandboxed Runs only: each VM row created under its key, for the receipt's VM time. */
+  readonly sandboxVms?: readonly { readonly createdAt: Date; readonly destroyedAt: Date | null; readonly live: boolean }[];
 };
 
 export type CreateRunInput = {
@@ -157,15 +159,24 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   // The VM row, not the attempt's handle, says whether a sandbox's machine is gone: a launcher
   // that died between create and journal leaves a VM the attempt never names.
   const keys = attempts.map((attempt) => sandboxVmIdempotencyKey(run.id, attempt.id));
-  const live = keys.length === 0 ? [] : await db.select({ id: cloudVms.id }).from(cloudVms).where(and(
+  // The create request carries the marker, so a row still being created (no provider id yet)
+  // counts too: until it is destroyed or failed with nothing to clean up, cleanup is pending.
+  const rows = keys.length === 0 ? [] : await db.select({
+    createdAt: cloudVms.createdAt,
+    destroyedAt: cloudVms.destroyedAt,
+    status: cloudVms.status,
+    providerVmId: cloudVms.providerVmId,
+  }).from(cloudVms).where(and(
     eq(cloudVms.billingTeamId, run.billingTeamId),
     eq(cloudVms.userId, run.userId),
     inArray(cloudVms.idempotencyKey, keys),
-    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
-    isNotNull(cloudVms.providerVmId),
-    ne(cloudVms.status, "destroyed"),
-  )).limit(1);
-  return { run, attempts, artifacts, sandboxVmLive: live.length > 0 };
+  )).limit(keys.length * 4);
+  const sandboxVms = rows.map((row) => ({
+    createdAt: row.createdAt,
+    destroyedAt: row.destroyedAt,
+    live: row.status !== "destroyed" && !(row.status === "failed" && !row.providerVmId),
+  }));
+  return { run, attempts, artifacts, sandboxVmLive: sandboxVms.some((vm) => vm.live), sandboxVms };
 }
 
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
@@ -908,14 +919,16 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
     if (row.attempt.error) {
       await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
     }
-    for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
+    for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri, metadata: runArtifacts.metadata }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
       const scrubbed = redactReceiptText(artifact.name, handles);
       // Names are unique per attempt: a scrubbed name that collides keeps a suffix from the id.
       const name = scrubbed === artifact.name ? scrubbed : `${scrubbed}~${artifact.id.slice(0, 8)}`;
       const mediaType = redactReceiptText(artifact.mediaType, handles) === artifact.mediaType ? artifact.mediaType : "application/octet-stream";
       const uri = redactReceiptText(artifact.uri, handles);
-      if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri) {
-        await tx.update(runArtifacts).set({ name, mediaType, uri }).where(eq(runArtifacts.id, artifact.id));
+      const metadata = redactReceiptValue(artifact.metadata, handles) as Record<string, unknown>;
+      const metadataChanged = JSON.stringify(metadata) !== JSON.stringify(artifact.metadata);
+      if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri || metadataChanged) {
+        await tx.update(runArtifacts).set({ name, mediaType, uri, metadata }).where(eq(runArtifacts.id, artifact.id));
       }
     }
   });

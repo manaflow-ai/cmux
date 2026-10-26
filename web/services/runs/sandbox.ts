@@ -124,18 +124,38 @@ export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId
       digest: artifact.digest,
     })),
     ...receiptTimingsAndCost(snapshot, outcome, provider, run.imageId),
-    cleanup: snapshot.sandboxVmLive || snapshot.attempts.some((row) => row.providerVmId) ? "pending" : "destroyed",
+    cleanup: sandboxCleanupPending(snapshot) ? "pending" : "destroyed",
   };
 }
 
+function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
+  return !!snapshot.sandboxVmLive || snapshot.attempts.some((row) => row.providerVmId);
+}
+
+/** Every string inside `value` (any depth) redacted like the receipt; keys and shape kept. */
+export function redactReceiptValue(value: unknown, handles: readonly (string | null | undefined)[]): unknown {
+  if (typeof value === "string") return redactReceiptText(value, handles);
+  if (Array.isArray(value)) return value.map((item) => redactReceiptValue(item, handles));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactReceiptValue(item, handles)]));
+  }
+  return value;
+}
+
 /**
- * A sandboxed Run's artifact as the snapshot serves it: name, media type and URI redacted like
- * the receipt (with the attempt's handles while it still has them), metadata already redacted.
+ * A sandboxed Run's artifact as the snapshot serves it: name, media type, URI and every string in
+ * its metadata redacted like the receipt (with the attempt's handles while it still has them).
  */
-export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly uri: string }>(view: T, snapshot: RunSnapshotRow): T {
+export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly uri: string; readonly metadata: Record<string, unknown> }>(view: T, snapshot: RunSnapshotRow): T {
   const attempt = snapshot.attempts[0];
   const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
-  return { ...view, name: redactReceiptText(view.name, handles), mediaType: safeMediaType(view.mediaType, handles), uri: redactReceiptText(view.uri, handles) };
+  return {
+    ...view,
+    name: redactReceiptText(view.name, handles),
+    mediaType: safeMediaType(view.mediaType, handles),
+    uri: redactReceiptText(view.uri, handles),
+    metadata: redactReceiptValue(view.metadata, handles) as Record<string, unknown>,
+  };
 }
 
 function receiptOutcome(
@@ -155,22 +175,27 @@ function receiptOutcome(
 }
 
 /**
- * Seconds the VM ran: from the attempt's start (journaled right after the VM booted) to its
- * finish, plus the measured boot. Unknown, never zero, when either end is missing: a create that
- * failed after the provider made a VM, or a VM the sweep adopted, still ran for a while nobody
- * measured.
+ * Seconds the VM existed: each VM row created under the sandbox's key, from its creation to its
+ * destruction, or to now while it is still up (the cost is then provisional). Without a VM row,
+ * from the attempt's start to its finish plus the measured boot; unknown, never zero, when either
+ * end is missing (a create that failed after the provider made a VM still ran a while).
  */
-function vmSecondsFor(snapshot: RunSnapshotRow, outcome: SandboxRunOutcome | null, finishedAt: Date | null): number | null {
+function vmSecondsFor(snapshot: RunSnapshotRow, outcome: SandboxRunOutcome | null, finishedAt: Date | null, nowMs: number): number | null {
+  const vms = snapshot.sandboxVms ?? [];
+  if (vms.length > 0) {
+    const ms = vms.reduce((sum, vm) => sum + Math.max(0, (vm.destroyedAt?.getTime() ?? nowMs) - vm.createdAt.getTime()), 0);
+    return Math.round(ms / 1000);
+  }
   const ran = between(snapshot.attempts[0]?.startedAt, finishedAt);
   if (ran === null) return null;
   return Math.round((ran + (outcome?.bootMs ?? 0)) / 1000);
 }
 
-function receiptCost(provider: ProviderId, imageId: string, vmSeconds: number | null): SandboxRunReceipt["cost"] {
+function receiptCost(provider: ProviderId, imageId: string, vmSeconds: number | null, final: boolean): SandboxRunReceipt["cost"] {
   const size = findVmImageManifestEntry(provider, imageId)?.size ?? null;
   const hourUsd = size ? sandboxHourUsd({ vcpu: size.cpu, gib: size.memoryMb / 1024 }, SANDBOX_LIST_USD) : null;
   const estimateUsd = hourUsd === null || vmSeconds === null ? null : Math.round(hourUsd * (vmSeconds / 3600) * 10_000) / 10_000;
-  return { vmSeconds, vcpus: size?.cpu ?? null, memoryMb: size?.memoryMb ?? null, estimateUsd };
+  return { vmSeconds, vcpus: size?.cpu ?? null, memoryMb: size?.memoryMb ?? null, estimateUsd, final };
 }
 
 function receiptTimingsAndCost(
@@ -191,6 +216,7 @@ function receiptTimingsAndCost(
       runMs: between(attempt?.startedAt, finishedAt),
       totalMs: between(run.createdAt, finishedAt),
     },
-    cost: receiptCost(provider, imageId, vmSecondsFor(snapshot, outcome, finishedAt)),
+    // Final once no VM is left: until then the VM time (and its cost) is still counting.
+    cost: receiptCost(provider, imageId, vmSecondsFor(snapshot, outcome, finishedAt, Date.now()), !sandboxCleanupPending(snapshot)),
   };
 }

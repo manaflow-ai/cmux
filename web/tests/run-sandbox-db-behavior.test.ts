@@ -303,7 +303,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
       // Text written while the handle was not yet known to the writer, so it still names it.
       await sql!`update run_attempts set error = ${`lost ${vmId}`} where id = ${attemptId}`;
       await sql!`update runs set receipt = ${sql!.json({ reply: `ran on ${vmId}`, exitCode: 1, signal: null, timedOut: false, bootMs: 1 })} where id = ${runId}`;
-      await sql!`insert into run_artifacts (run_id, attempt_id, name, media_type, size_bytes, digest, uri) values (${runId}, ${attemptId}, ${`dump-${vmId}.txt`}, ${`text/${vmId}`}, 1, ${`sha256:${"a".repeat(64)}`}, ${`blob/${vmId}`})`;
+      await sql!`insert into run_artifacts (run_id, attempt_id, name, media_type, size_bytes, digest, uri, metadata) values (${runId}, ${attemptId}, ${`dump-${vmId}.txt`}, ${`text/${vmId}`}, 1, ${`sha256:${"a".repeat(64)}`}, ${`blob/${vmId}`}, ${sql!.json({ where: `host ${vmId}` })})`;
       // Two names that scrub to the same text stay distinct (names are unique per attempt).
       await sql!`update run_attempts set provider_workspace_id = ${`ws-${attemptId}`} where id = ${attemptId}`;
       await sql!`insert into run_artifacts (run_id, attempt_id, name, media_type, size_bytes, digest, uri) values (${runId}, ${attemptId}, ${`dump-ws-${attemptId}.txt`}, 'text/plain', 1, ${`sha256:${"b".repeat(64)}`}, 'x')`;
@@ -314,14 +314,14 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().finishAttemptCleanup({ attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
       const [run] = await sql!`select receipt::text as receipt from runs where id = ${runId}`;
       const [attempt] = await sql!`select error from run_attempts where id = ${attemptId}`;
-      const artifacts = await sql!`select name, media_type, uri from run_artifacts where attempt_id = ${attemptId} order by digest`;
+      const artifacts = await sql!`select name, media_type, uri, metadata::text as metadata from run_artifacts where attempt_id = ${attemptId} order by digest`;
       const artifact = artifacts[0];
       expect(run?.receipt).not.toContain(vmId);
       expect(attempt?.error).toBe("lost [redacted]");
       expect(artifact?.name).toMatch(/^dump-\[redacted\]\.txt~[0-9a-f]{8}$/);
       expect(artifacts[1]?.name).toMatch(/^dump-\[redacted\]\.txt~[0-9a-f]{8}$/);
       expect(artifacts[1]?.name).not.toBe(artifact?.name);
-      expect(artifacts.map((row) => row.uri).join(" ")).not.toContain(vmId);
+      expect(artifacts.map((row) => `${row.uri} ${row.metadata}`).join(" ")).not.toContain(vmId);
       expect(artifact?.media_type).toBe("application/octet-stream");
     } finally {
       await removeRuns(userId);
@@ -378,7 +378,6 @@ describe("sandboxed Run lifecycle in the repository", () => {
       const attempt = created.attempts[0]!;
       await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, `vm-unmarked-${randomUUID()}`, false);
       await repo().cancelRun(created.run.id, userId);
-      expect((await repo().getRun(created.run.id, userId)).sandboxVmLive).toBe(false);
       await repo().failAbandonedSandboxAttempts({ limit: 100 });
       expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
     } finally {
@@ -454,6 +453,25 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await sql!`insert into cloud_vms (user_id, billing_team_id, owner_team_id, provider, image_id, status, idempotency_key, provider_vm_id)
         values (${userId}, ${userId}, ${userId}, 'freestyle', 'sh-test-image', 'running', ${key}, 'vm-foreign')`;
       expect((await begin({ sandboxMarker: key }))._tag).toBe("Failure");
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
+  dbTest("a VM still being created (no provider id yet) keeps cleanup pending", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const created = await repo().createRun(input(userId));
+      const attempt = created.attempts[0]!;
+      await sql!`insert into cloud_vms (user_id, billing_team_id, provider, image_id, status, idempotency_key)
+        values (${userId}, ${userId}, 'freestyle', 'sh-test-image', 'provisioning', ${`sandbox-run:${created.run.id}:attempt:${attempt.id}`})`;
+      await repo().cancelRun(created.run.id, userId);
+      const snapshot = await repo().getRun(created.run.id, userId);
+      expect(snapshot.sandboxVmLive).toBe(true);
+      // A create that failed with nothing to clean up is not pending.
+      await sql!`update cloud_vms set status = 'failed' where user_id = ${userId}`;
+      expect((await repo().getRun(created.run.id, userId)).sandboxVmLive).toBe(false);
     } finally {
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);

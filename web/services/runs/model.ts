@@ -186,6 +186,8 @@ export type SandboxRunReceipt = {
     readonly memoryMb: number | null;
     /** List-price estimate of the VM time; model tokens are billed separately. */
     readonly estimateUsd: number | null;
+    /** False while a VM is still up: the VM time, and so the cost, is still counting. */
+    readonly final: boolean;
   };
   /** `destroyed` once no attempt holds a VM; `pending` while the reaper still owes a destroy. */
   readonly cleanup: "destroyed" | "pending";
