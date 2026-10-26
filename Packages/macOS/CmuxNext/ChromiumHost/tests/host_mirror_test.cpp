@@ -1,41 +1,56 @@
 // Checks the Chromium Host's navigation, window and count mirrors
-// (src/host_mirror.mm, task p01-process-016) through the dispatcher and
-// fixtures/host_dispatch_subset.inc, against a fake shim whose values the
-// test changes: every open tab's keys go out before each event that
-// refreshes them, with no watch from cmux, so a cache applied in arrival
-// order (as the remote shim applies a batch) already holds the new value
-// when the event comes; event-carried values win over the shim's; a closed
-// tab's keys are forgotten. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// (src/host_mirror.mm, task p01-process-016) end to end: the real dispatcher
+// (src/host_dispatch.mm, the generated cases) with a fake shim on one end of a
+// socket pair, the real remote shim (client/remote_shim.mm, loaded as the
+// shared library cmux loads) on the other, and every read made through the
+// remote shim's exports, as cmux's Swift code makes it. So the wire both ends
+// speak is the one this checks: each side's HELLO, MIRROR's EncodeFields key
+// and value, a forget with no value.
+//
+//   - a read of tab_navigation_state in the LOAD_START callback has the new
+//     entry, with no watch from cmux (the acceptance of task 016);
+//   - one navigation reads and pushes the history twice (ADDRESS, LOAD_START),
+//     never at TITLE, LOAD_END or LOADING_STATE: the bytes per navigation;
+//   - a history over the frame bound is forgotten, never served stale;
+//   - event-carried windows and counts; BEFORE_CLOSE forgets the tab.
+// Built and run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+#include <dlfcn.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "remote_shim_runtime.h"
+
+#include "generated/host_dispatch.inc"
 
 namespace {
 
 using cmux_host::HostContext;
+using cmux_host::control::Channel;
+using cmux_host::control::End;
 using cmux_host::control::Field;
 using cmux_host::control::Message;
-using cmux_host::control::Type;
-using cmux_host::tlv::Reader;
-using cmux_host::tlv::Writer;
 
-constexpr uint16_t kOpInitialize = 26, kOpCreateWindow = 28, kOpTabNavigationEntries = 32, kOpTabWindowId = 34,
-                   kOpTabNavigationState = 65, kOpNavigationRestoreSupported = 67, kOpForeignBrowserCount = 91,
-                   kOpLiveBrowserCount = 97, kOpWindowCount = 98;
-constexpr uint16_t kOpEvent = 0x8001, kOpMirror = 0x8003;
-constexpr int32_t kMinted = 1 << 20;
 // cmux_tab_event_t (CEFForkTabEvent).
 constexpr int kTabInserted = 0, kTabActivated = 1, kTabMoved = 2, kTabRemoved = 3, kTabWindowDestroyed = 6,
               kForeignBrowserBlocked = 9, kPopupWindowCreated = 10;
+constexpr int kWindow = 11;
 
 int failures = 0;
 void Check(bool ok, const std::string& what) {
@@ -45,57 +60,164 @@ void Check(bool ok, const std::string& what) {
   }
 }
 
-// The fake shim's state, by Chromium's browser id.
+// The test thread is both processes' main thread: tasks from both channels run here, in order.
+std::mutex queue_mutex;
+std::deque<std::function<void()>> queue;
+
+void PostTask(std::function<void()> task) {
+  std::lock_guard<std::mutex> lock(queue_mutex);
+  queue.push_back(std::move(task));
+}
+
+void PostMain(void*, cmux_remote_main_task_fn run, void* task) {
+  PostTask([run, task] { run(task); });
+}
+
+bool PumpUntil(const std::function<bool()>& done) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!done()) {
+    std::deque<std::function<void()>> tasks;
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex);
+      tasks.swap(queue);
+    }
+    for (std::function<void()>& task : tasks) task();
+    if (std::chrono::steady_clock::now() > deadline) return false;
+    if (tasks.empty()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  return true;
+}
+
+// The remote shim's exports, as cmux binds them (CEFShimLibrary).
+struct Client {
+  decltype(&cmux_remote_shim_configure) configure;
+  decltype(&cmux_remote_shim_attach) attach;
+  decltype(&cmux_remote_shim_detach) detach;
+  decltype(&cmux_remote_shim_host_has_export) host_has_export;
+  decltype(&cmux_shim_initialize) initialize;
+  decltype(&cmux_shim_create_window) create_window;
+  decltype(&cmux_shim_load_url) load_url;
+  decltype(&cmux_shim_tab_navigation_state) navigation_state;
+  decltype(&cmux_shim_tab_navigation_entries) navigation_entries;
+  decltype(&cmux_shim_tab_window_id) window_id;
+  decltype(&cmux_shim_window_count) window_count;
+  decltype(&cmux_shim_live_browser_count) live_browser_count;
+  decltype(&cmux_shim_foreign_browser_count) foreign_browser_count;
+  decltype(&cmux_shim_navigation_restore_supported) navigation_restore_supported;
+  decltype(&cmux_shim_free) free;
+
+  // A string read: nullopt for NULL (no value in the cache).
+  std::optional<std::string> Take(char* value) const {
+    if (value == nullptr) return std::nullopt;
+    std::string out(value);
+    free(value);
+    return out;
+  }
+  std::optional<std::string> State(int browser) const { return Take(navigation_state(browser)); }
+  std::optional<std::string> Entries(int browser) const { return Take(navigation_entries(browser)); }
+};
+
+template <typename T>
+void Bind(void* library, const char* name, T* out) {
+  *out = reinterpret_cast<T>(dlsym(library, name));
+  if (*out == nullptr) {
+    std::fprintf(stderr, "FAIL: the remote shim has no %s\n", name);
+    std::exit(EXIT_FAILURE);
+  }
+}
+
+Client LoadClient() {
+  void* library = dlopen(CMUX_REMOTE_SHIM_PATH, RTLD_NOW | RTLD_LOCAL);
+  if (library == nullptr) {
+    std::fprintf(stderr, "FAIL: %s\n", dlerror());
+    std::exit(EXIT_FAILURE);
+  }
+  Client c{};
+  Bind(library, "cmux_remote_shim_configure", &c.configure);
+  Bind(library, "cmux_remote_shim_attach", &c.attach);
+  Bind(library, "cmux_remote_shim_detach", &c.detach);
+  Bind(library, "cmux_remote_shim_host_has_export", &c.host_has_export);
+  Bind(library, "cmux_shim_initialize", &c.initialize);
+  Bind(library, "cmux_shim_create_window", &c.create_window);
+  Bind(library, "cmux_shim_load_url", &c.load_url);
+  Bind(library, "cmux_shim_tab_navigation_state", &c.navigation_state);
+  Bind(library, "cmux_shim_tab_navigation_entries", &c.navigation_entries);
+  Bind(library, "cmux_shim_tab_window_id", &c.window_id);
+  Bind(library, "cmux_shim_window_count", &c.window_count);
+  Bind(library, "cmux_shim_live_browser_count", &c.live_browser_count);
+  Bind(library, "cmux_shim_foreign_browser_count", &c.foreign_browser_count);
+  Bind(library, "cmux_shim_navigation_restore_supported", &c.navigation_restore_supported);
+  Bind(library, "cmux_shim_free", &c.free);
+  return c;
+}
+
+Client client;
+
+// The host's fake shim, by Chromium's browser id.
 struct Shim {
   HostContext* host = nullptr;
-  std::map<int, std::string> navigation_state;
-  std::map<int, std::string> navigation_entries;
+  std::map<int, std::vector<std::string>> history;
   std::map<int, int> window_of;
+  size_t state_padding = 0;  // bytes of page state each read adds
+  int next_browser = 3;
   int live = 0;
   int windows = 0;
   int foreign = 0;
+  int state_reads = 0;
+  int entries_reads = 0;
   int window_id_reads = 0;
   int window_count_reads = 0;
 } shim;
 
-const char* Lookup(const std::map<int, std::string>& values, int browser) {
-  auto found = values.find(browser);
-  return found == values.end() ? nullptr : found->second.c_str();
+void Emit(int kind, int browser, int request, int64_t a = 0, int64_t b = 0, const char* s1 = "") {
+  HostContext::OnShimEvent(shim.host, kind, browser, request, a, b, s1, "");
 }
 
-void Emit(int kind, int browser, int request, int64_t a = 0, int64_t b = 0) {
-  HostContext::OnShimEvent(shim.host, kind, browser, request, a, b, "", "");
+std::string Joined(int browser) {
+  std::string out;
+  for (const std::string& url : shim.history[browser]) out += (out.empty() ? "" : "|") + url;
+  return out;
+}
+
+int TabSetFrozen(int, int) { return 1; }
+
+void* Resolve(const char* name) {
+  return std::strcmp(name, "cmux_shim_tab_set_frozen") == 0 ? reinterpret_cast<void*>(&TabSetFrozen) : nullptr;
 }
 
 }  // namespace
 
 extern "C" {
-const char* cmux_shim_abi_id(void) { return "abi"; }
-int cmux_shim_fork_api_version(void) { return 30; }
-void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn) {}
-void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn) {}
-void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn) {}
-void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn) {}
-void cmux_shim_set_new_tab_page_url(const char*) {}
-int cmux_shim_create_window(int request, void*, int, int, const char*, const char*) {
+int cmux_shim_create_window(int request, void*, int, int, const char* url, const char*) {
+  const int browser = shim.next_browser++;
   ++shim.live;
-  shim.window_of[3] = 11;
-  shim.navigation_state[3] = "about:blank";
-  Emit(CMUX_SHIM_AFTER_CREATED, 3, request, 11);  // OnAfterCreated inside the call
+  shim.window_of[browser] = kWindow;
+  shim.history[browser] = {url ? url : ""};
+  Emit(CMUX_SHIM_AFTER_CREATED, browser, request, kWindow);  // OnAfterCreated inside the call
   return 1;
 }
-int cmux_shim_tab_add(int, const char*, int, int) { return 0; }
-void cmux_shim_load_url(int, const char*) {}
-void cmux_shim_set_focus(int, int) {}
-int cmux_shim_devtools_call(int, const char*, const char*) { return 0; }
-void cmux_shim_shutdown(void) {}
+// One cross-document navigation, as Chromium reports it: later, in a task of
+// the UI thread, never inside the call (so after its ack).
+void cmux_shim_load_url(int browser_id, const char* url) {
+  PostTask([browser_id, committed = std::string(url)] {
+    shim.history[browser_id].push_back(committed);
+    Emit(CMUX_SHIM_LOADING_STATE, browser_id, 0, 1);
+    Emit(CMUX_SHIM_ADDRESS, browser_id, 0, 0, 0, committed.c_str());
+    Emit(CMUX_SHIM_LOAD_START, browser_id, 0, 0, 0, committed.c_str());
+    Emit(CMUX_SHIM_TITLE, browser_id, 0, 0, 0, "title");
+    Emit(CMUX_SHIM_LOAD_END, browser_id, 0, 200);
+    Emit(CMUX_SHIM_LOADING_STATE, browser_id, 0, 0);
+  });
+}
 char* cmux_shim_tab_navigation_state(int browser_id) {
-  const char* value = Lookup(shim.navigation_state, browser_id);
-  return value ? strdup(value) : nullptr;
+  ++shim.state_reads;
+  if (!shim.history.count(browser_id)) return nullptr;
+  return strdup((Joined(browser_id) + std::string(shim.state_padding, '#')).c_str());
 }
 char* cmux_shim_tab_navigation_entries(int browser_id) {
-  const char* value = Lookup(shim.navigation_entries, browser_id);
-  return value ? strdup(value) : nullptr;
+  ++shim.entries_reads;
+  if (!shim.history.count(browser_id)) return nullptr;
+  return strdup(("entries " + Joined(browser_id)).c_str());
 }
 void cmux_shim_free(char* s) { std::free(s); }
 int cmux_shim_tab_window_id(int browser_id) {
@@ -114,12 +236,26 @@ int cmux_shim_window_count(void) {
 
 namespace {
 
+struct World;
+World* current = nullptr;
+bool initialized = false;
+bool ready = false;  // the host's HELLO reached the remote shim
+int ended = -1;
+
 struct Delegate : cmux_host::HostDelegate {
-  void Initialize(cmux_host::InitializeRequest) override {}
+  std::function<void()> resume;
+  bool resumed = false;
+  std::vector<std::string> bad;
+  void Initialize(cmux_host::InitializeRequest) override {
+    // browser_host_main.mm runs cmux_shim_initialize, then Resume in a task.
+    PostTask([this] {
+      resume();
+      resumed = true;
+    });
+  }
   void Quit() override {}
   void BrowserClosed() override {}
   void BadMessage(const std::string& what) override { bad.push_back(what); }
-  std::vector<std::string> bad;
 };
 
 struct Views : cmux_host::PageViews {
@@ -128,252 +264,275 @@ struct Views : cmux_host::PageViews {
   void Close(uint64_t) override {}
 };
 
-// A mirror value as text: "-" for no value (forget), "null" for a NULL string.
-std::string ValueText(const std::vector<Field>& fields, size_t begin) {
-  if (begin >= fields.size()) return "-";
-  const Field& field = fields[begin];
-  if (field.type == Type::kStr) return field.tag == cmux_host::tlv::kTagNull ? "null" : field.bytes;
-  return std::to_string(field.integer);
-}
-
-// The remote shim's cache as it applies the host's messages in arrival order.
-struct Cache {
-  std::map<std::pair<int, int>, std::string> values;  // (op, browser or 0) -> value
-  std::optional<std::string> Read(int op, int browser = 0) const {
-    auto found = values.find({op, browser});
-    if (found == values.end()) return std::nullopt;
-    return found->second;
-  }
+struct Event {
+  int kind, browser, request;
 };
 
-struct Fixture {
-  std::vector<Message> sent;
-  Cache cache;
+// One host and its attached remote shim.
+struct World {
   Delegate delegate;
   Views views;
+  std::unique_ptr<Channel> channel;
+  // The host's MIRROR frames: op and body bytes.
+  std::vector<std::pair<int, size_t>> mirrors;
+  std::vector<Event> events;
+  std::function<void(const Event&)> on_event;
   HostContext host{[this](const Message& m) {
-                     sent.push_back(m);
-                     if (m.op == kOpMirror) Apply(m);
-                     if (m.op == kOpEvent && on_event) on_event(m);
-                     return true;
+                     if (m.op == cmux_host::kOpMirror) Record(m);
+                     return channel && channel->Send(m);
                    },
-                   delegate, views};
-  std::function<void(const Message&)> on_event;
+                   delegate, views, &Resolve};
 
-  Fixture() {
+  World() {
     shim = Shim();
     shim.host = &host;
-    host.Attach(30, 1234);
-    Writer init;
-    init.Str("/fw");
-    init.Str("/app");
-    init.Str("/helper");
-    init.Str("/root");
-    init.Str(nullptr);
-    init.I32(0);
-    init.Str(nullptr);
-    init.Str(nullptr);
-    init.StrList(nullptr, 0);
-    Message m;
-    m.op = kOpInitialize;
-    m.token = 1;
-    m.fields = init.fields();
-    host.OnMessages({m});
-    host.Resume();
-    sent.clear();
-  }
-
-  void Apply(const Message& m) {
-    Reader r(m.fields);
-    const int op = r.I32();
-    const int key_count = r.I32();
-    const int browser = key_count > 0 ? r.I32() : 0;
-    const std::string value = ValueText(m.fields, 2 + static_cast<size_t>(key_count));
-    if (value == "-") {
-      cache.values.erase({op, browser});
-    } else {
-      cache.values[{op, browser}] = value;
+    current = this;
+    ready = false;
+    ended = -1;
+    delegate.resume = [this] { host.Resume(); };
+    int pair[2];
+    Check(socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0, "socketpair");
+    channel = std::make_unique<Channel>(
+        pair[1], &PostTask, [this](std::vector<Message> batch) { host.OnMessages(std::move(batch)); },
+        [](End) {});
+    host.Attach();  // browser_host_main.mm: before the first message
+    Check(client.attach(pair[0], nullptr, nullptr) == 1, "the remote shim attaches");
+    if (!initialized) {
+      const char* switches[] = {nullptr};
+      Check(client.initialize("/fw", "/app", "/helper", "/root", nullptr, 0, nullptr, nullptr, switches, nullptr,
+                              nullptr, &OnEvent, nullptr) == 1,
+            "initialize is sent");
+      initialized = true;  // a later attach sends INITIALIZE again on its own
     }
+    Check(PumpUntil([this] { return ready && delegate.resumed; }), "the hellos and initialize go through");
   }
 
-  // "mirror <op> [browser] = <value>" and "event <kind> <browser> <request>", in order.
-  std::vector<std::string> Sent() {
-    std::vector<std::string> out;
-    for (const Message& m : sent) {
-      Reader r(m.fields);
-      if (m.op == kOpMirror) {
-        const int op = r.I32();
-        const int key_count = r.I32();
-        std::string text = "mirror " + std::to_string(op);
-        for (int i = 0; i < key_count; ++i) text += " " + std::to_string(r.I32());
-        out.push_back(text + " = " + ValueText(m.fields, 2 + static_cast<size_t>(key_count)));
-      } else if (m.op == kOpEvent) {
-        const int kind = r.I32(), browser = r.I32(), request = r.I32();
-        out.push_back("event " + std::to_string(kind) + " " + std::to_string(browser) + " " +
-                      std::to_string(request));
-      }
-    }
-    sent.clear();
-    return out;
+  ~World() {
+    client.detach();
+    channel->Close();
+    channel.reset();
+    current = nullptr;
   }
 
-  // A tab Chromium made (no minted id): AFTER_CREATED in window `window`.
-  void Open(int browser, int window) {
-    ++shim.live;
-    shim.window_of[browser] = window;
-    Emit(CMUX_SHIM_AFTER_CREATED, browser, 0, window);
-    sent.clear();
+  void Record(const Message& m) {
+    size_t bytes = 0;
+    for (const Field& field : m.fields) bytes += cmux_host::control::kFieldHeaderSize + field.bytes.size();
+    mirrors.emplace_back(static_cast<int>(m.fields.empty() ? 0 : m.fields[0].integer), bytes);
+  }
+
+  // Runs until the remote shim saw an event of `kind`.
+  void PumpUntilEvent(int kind) {
+    const size_t seen = events.size();
+    Check(PumpUntil([&] {
+            for (size_t i = seen; i < events.size(); ++i) {
+              if (events[i].kind == kind) return true;
+            }
+            return false;
+          }),
+          "event " + std::to_string(kind) + " reached the remote shim");
+  }
+
+  // A window cmux creates through the remote shim; returns cmux's (minted) id.
+  int CreateWindow(const char* url) {
+    Check(client.create_window(42, nullptr, 800, 600, url, nullptr) == 1, "create_window is sent");
+    PumpUntilEvent(CMUX_SHIM_AFTER_CREATED);
+    return events.back().browser;
+  }
+
+  size_t MirrorBytes(int op) const {
+    size_t bytes = 0;
+    for (const auto& [mirror, size] : mirrors) bytes += mirror == op ? size : 0;
+    return bytes;
+  }
+  int MirrorCount(int op) const {
+    int count = 0;
+    for (const auto& entry : mirrors) count += entry.first == op ? 1 : 0;
+    return count;
+  }
+
+  static void OnEvent(void*, int kind, int browser, int request, int64_t, int64_t, const char*, const char*) {
+    if (current == nullptr) return;
+    const Event event{kind, browser, request};
+    if (current->on_event) current->on_event(event);
+    current->events.push_back(event);
   }
 };
 
-std::string Join(const std::vector<std::string>& items) {
-  std::string out;
-  for (const std::string& item : items) out += (out.empty() ? "" : ", ") + item;
-  return out;
-}
+void OnReady(void*) { ready = true; }
+void OnEnded(void*, int reason) { ended = reason; }
 
-void Expect(const std::vector<std::string>& got, const std::vector<std::string>& want, const char* what) {
-  Check(got == want, std::string(what) + ": got [" + Join(got) + "], want [" + Join(want) + "]");
-}
-
-// The acceptance row: a read of tab_navigation_state in the turn that sees
-// LOAD_START gets the new entry, with no watch from cmux.
-void LoadStartCarriesTheNewEntry() {
-  Fixture f;
-  shim.navigation_state[7] = "a";
-  f.Open(7, 11);
-  Check(f.cache.Read(kOpTabNavigationState, 7) == "a", "AFTER_CREATED fills the new tab's navigation state");
-  shim.navigation_state[7] = "a|b";
-  std::optional<std::string> read_at_event;
-  f.on_event = [&](const Message& m) {
-    Reader r(m.fields);
-    if (r.I32() == CMUX_SHIM_LOAD_START) read_at_event = f.cache.Read(kOpTabNavigationState, 7);
+// The acceptance: a read of tab_navigation_state in the LOAD_START callback
+// gets the new entry, with no watch from cmux.
+void LoadStartReadsTheNewEntry() {
+  World w;
+  const int tab = w.CreateWindow("file:///probe1.html");
+  Check(tab >= (1 << 20), "AFTER_CREATED names the tab by cmux's minted id");
+  Check(client.State(tab) == "file:///probe1.html", "AFTER_CREATED fills the new tab's history");
+  std::optional<std::string> state_at_load_start;
+  std::optional<std::string> entries_at_load_start;
+  w.on_event = [&](const Event& e) {
+    if (e.kind != CMUX_SHIM_LOAD_START || e.browser != tab) return;
+    state_at_load_start = client.State(tab);
+    entries_at_load_start = client.Entries(tab);
   };
-  Emit(CMUX_SHIM_LOAD_START, 7, 0);
-  Check(read_at_event == "a|b", "the cache holds the new entry when LOAD_START arrives, got " +
-                                    read_at_event.value_or("nothing"));
-  Expect(f.Sent(), {"mirror 32 7 = null", "mirror 65 7 = a|b", "event 8 7 0"},
-         "LOAD_START: entries and state, then the event");
+  client.load_url(tab, "file:///probe2.html");
+  w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+  Check(state_at_load_start == "file:///probe1.html|file:///probe2.html",
+        "the history read at LOAD_START has the new entry, got " + state_at_load_start.value_or("nothing"));
+  Check(entries_at_load_start == "entries file:///probe1.html|file:///probe2.html",
+        "the Back/Forward entries read at LOAD_START have it too");
+  Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
 }
 
-// Each key goes out on exactly its refresh events (chromium-host-ops.json).
-void EachKeyOnItsEvents() {
-  Fixture f;
-  shim.navigation_state[7] = "s";
-  shim.navigation_entries[7] = "e";
-  f.Open(7, 11);
-  Emit(CMUX_SHIM_ADDRESS, 7, 0);
-  Expect(f.Sent(), {"mirror 32 7 = e", "mirror 65 7 = s", "event 4 7 0"}, "ADDRESS");
-  Check(f.cache.Read(kOpTabNavigationEntries, 7) == "e", "the Back/Forward entries are cached");
-  Emit(CMUX_SHIM_TITLE, 7, 0);
-  Expect(f.Sent(), {"mirror 32 7 = e", "event 5 7 0"}, "TITLE refreshes the entries' titles only");
-  Emit(CMUX_SHIM_LOADING_STATE, 7, 0);
-  Expect(f.Sent(), {"mirror 32 7 = e", "mirror 65 7 = s", "event 7 7 0"}, "LOADING_STATE");
-  Emit(CMUX_SHIM_LOAD_END, 7, 0);
-  Expect(f.Sent(), {"mirror 65 7 = s", "event 9 7 0"}, "LOAD_END refreshes the state (page state) only");
-  Emit(CMUX_SHIM_PROGRESS, 7, 0);
-  Expect(f.Sent(), {"event 11 7 0"}, "PROGRESS refreshes nothing");
+// One navigation reads the history (page state included) at ADDRESS and
+// LOAD_START only: TITLE, LOAD_END and LOADING_STATE read and push nothing.
+void OneNavigationPushesTheHistoryTwice() {
+  World w;
+  const int tab = w.CreateWindow("file:///a.html");
+  shim.state_reads = shim.entries_reads = 0;
+  shim.state_padding = 1000;  // page state
+  w.mirrors.clear();
+  client.load_url(tab, "file:///b.html");
+  w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+  Check(shim.state_reads == 2 && shim.entries_reads == 2,
+        "the history is read at ADDRESS and LOAD_START, got " + std::to_string(shim.state_reads) + " and " +
+            std::to_string(shim.entries_reads) + " reads");
+  Check(w.MirrorCount(cmux_host::kOpTabNavigationState) == 2 && w.MirrorCount(cmux_host::kOpTabNavigationEntries) == 2,
+        "and pushed twice each");
+  const size_t bytes = w.MirrorBytes(cmux_host::kOpTabNavigationState);
+  Check(bytes < 2 * 1200, "history bytes per navigation: " + std::to_string(bytes));
+  std::printf("chromium-host-mirror: one navigation pushes %zu bytes of history with 1000 bytes of page state\n", bytes);
+  shim.state_reads = shim.entries_reads = 0;
+  Emit(CMUX_SHIM_TITLE, 3, 0, 0, 0, "a title the page animates");
+  Emit(CMUX_SHIM_LOADING_STATE, 3, 0, 0);
+  Emit(CMUX_SHIM_LOAD_END, 3, 0, 200);
+  w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+  Check(shim.state_reads == 0 && shim.entries_reads == 0, "TITLE, LOADING_STATE and LOAD_END read no history");
+  // A same-document navigation (pushState, a fragment) commits with ADDRESS alone.
+  shim.history[3].push_back("file:///b.html#c");
+  Emit(CMUX_SHIM_ADDRESS, 3, 0, 0, 0, "file:///b.html#c");
+  w.PumpUntilEvent(CMUX_SHIM_ADDRESS);
+  Check(client.State(tab).value_or("").find("file:///b.html#c") != std::string::npos,
+        "a same-document commit refreshes the history at ADDRESS");
+}
+
+// A history over the frame bound goes out as a forget: a read finds no
+// value, never the history it replaced. The next one that fits is pushed.
+void AHistoryOverTheFrameBoundIsForgotten() {
+  World w;
+  const int tab = w.CreateWindow("file:///a.html");
+  Check(client.State(tab) == "file:///a.html", "a small history is cached");
+  for (size_t padding : {size_t{65530}, size_t{70000}}) {  // over the frame's 64 KiB, over a field's
+    shim.state_padding = padding;
+    std::optional<std::string> at_load_start = "unread";
+    w.on_event = [&](const Event& e) {
+      if (e.kind == CMUX_SHIM_LOAD_START) at_load_start = client.State(tab);
+    };
+    client.load_url(tab, "file:///big.html");
+    w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+    Check(!at_load_start, "a history of " + std::to_string(padding) + " bytes is no value, got " +
+                              (at_load_start ? at_load_start->substr(0, 40) : std::string()));
+  }
+  Check(w.delegate.bad.empty() && ended == -1, "an oversized value ends neither side");
+  shim.state_padding = 0;
+  w.on_event = nullptr;
+  client.load_url(tab, "file:///small.html");
+  w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+  Check(client.State(tab).value_or("").find("file:///small.html") != std::string::npos,
+        "the next history that fits is cached again");
 }
 
 // The window id comes from the event where the event carries it.
 void WindowIdFromTheEvent() {
-  Fixture f;
+  World w;
   shim.window_of[7] = 99;  // what the fork would say: the event's value wins
   ++shim.live;
+  shim.history[7] = {"file:///7.html"};
   shim.window_id_reads = 0;
   Emit(CMUX_SHIM_AFTER_CREATED, 7, 0, 11);
-  Check(f.cache.Read(kOpTabWindowId, 7) == "11", "AFTER_CREATED's window");
+  w.PumpUntilEvent(CMUX_SHIM_AFTER_CREATED);
+  Check(client.window_id(7) == 11, "AFTER_CREATED's window");
   Emit(CMUX_SHIM_TAB_EVENT, 7, kTabMoved, 12);
-  Check(f.cache.Read(kOpTabWindowId, 7) == "12", "TAB_EVENT moved's window");
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(client.window_id(7) == 12, "TAB_EVENT moved's window");
   Emit(CMUX_SHIM_TAB_EVENT, 7, kTabInserted, 13);
-  Check(f.cache.Read(kOpTabWindowId, 7) == "13", "TAB_EVENT inserted's window");
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(client.window_id(7) == 13, "TAB_EVENT inserted's window");
   Check(shim.window_id_reads == 0, "no shim read when the event carries the window");
-  f.Sent();
   Emit(CMUX_SHIM_TAB_EVENT, 7, kTabActivated, 13);
-  Expect(f.Sent(), {"event 16 7 1"}, "activation moves no tab");
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(shim.window_id_reads == 0 && client.window_id(7) == 13, "activation moves no tab");
   Emit(CMUX_SHIM_TAB_EVENT, 7, kTabRemoved, 13);
-  Check(shim.window_id_reads == 1 && f.cache.Read(kOpTabWindowId, 7) == "99",
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(shim.window_id_reads == 1 && client.window_id(7) == 99,
         "TAB_EVENT removed reads the tab's window from the fork");
 }
 
 // The counts: the remaining windows from the event, the rest from the shim.
 void Counts() {
-  Fixture f;
-  Check(f.cache.Read(kOpNavigationRestoreSupported) == "1", "the fork capability went out at the hello");
+  World w;
+  Check(client.navigation_restore_supported() == 1, "the fork capability came before the hello");
+  Check(client.host_has_export("cmux_shim_tab_set_frozen") == 1 &&
+            client.host_has_export("cmux_shim_tab_send_click") == 0,
+        "the hello lists the optional exports the host's shim has");
   shim.windows = 3;
-  f.Open(7, 11);
-  Check(f.cache.Read(kOpWindowCount) == "3" && f.cache.Read(kOpLiveBrowserCount) == "1",
+  w.CreateWindow("file:///a.html");
+  Check(client.window_count() == 3 && client.live_browser_count() == 1,
         "AFTER_CREATED refreshes the window and browser counts");
   shim.window_count_reads = 0;
-  Emit(CMUX_SHIM_TAB_EVENT, 0, kTabWindowDestroyed, 11, 2);
-  Check(f.cache.Read(kOpWindowCount) == "2" && shim.window_count_reads == 0,
+  Emit(CMUX_SHIM_TAB_EVENT, 0, kTabWindowDestroyed, kWindow, 2);
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(client.window_count() == 2 && shim.window_count_reads == 0,
         "window destroyed: the remaining count from the event, not the fork's (it still counts that window)");
-  Expect(f.Sent(), {"mirror 91 = 0", "mirror 98 = 2", "event 16 0 6"},
-         "a window-level event pushes no tab keys");
   shim.foreign = 1;
   shim.windows = 4;
   Emit(CMUX_SHIM_TAB_EVENT, 0, kForeignBrowserBlocked, 0, 1);
-  Check(f.cache.Read(kOpForeignBrowserCount) == "1" && f.cache.Read(kOpWindowCount) == "4",
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(client.foreign_browser_count() == 1 && client.window_count() == 4,
         "a blocked foreign Browser refreshes the foreign and window counts");
   shim.windows = 5;
   Emit(CMUX_SHIM_TAB_EVENT, 0, kPopupWindowCreated, 0, 1);
-  Check(f.cache.Read(kOpWindowCount) == "5", "a popup window refreshes the window count");
+  w.PumpUntilEvent(CMUX_SHIM_TAB_EVENT);
+  Check(client.window_count() == 5, "a popup window refreshes the window count");
 }
 
 // BEFORE_CLOSE forgets the tab's keys; later events push none for it.
 void CloseForgets() {
-  Fixture f;
-  shim.navigation_state[7] = "s";
-  f.Open(7, 11);
-  Check(f.cache.Read(kOpTabNavigationState, 7) == "s", "open tab cached");
+  World w;
+  const int tab = w.CreateWindow("file:///a.html");
+  Check(client.State(tab) == "file:///a.html" && client.window_id(tab) == kWindow, "open tab cached");
   --shim.live;
   shim.windows = 1;
-  Emit(CMUX_SHIM_BEFORE_CLOSE, 7, 0);
-  Expect(f.Sent(),
-         {"mirror 32 7 = -", "mirror 34 7 = -", "mirror 65 7 = -", "mirror 97 = 0", "mirror 98 = 1", "event 3 7 0"},
-         "BEFORE_CLOSE forgets the tab's keys, refreshes the counts, then the event");
-  Check(!f.cache.Read(kOpTabNavigationState, 7) && !f.cache.Read(kOpTabWindowId, 7), "the cache forgot the tab");
-  Emit(CMUX_SHIM_ADDRESS, 7, 0);
-  Expect(f.Sent(), {"event 4 7 0"}, "a closed tab gets no keys back");
-  Emit(CMUX_SHIM_ADDRESS, 8, 0);
-  Expect(f.Sent(), {"event 4 8 0"}, "a browser cmux has no tab for (DevTools) gets no keys");
-}
-
-// A tab cmux created: its keys use cmux's minted id, the shim reads Chromium's.
-void MintedKeys() {
-  Fixture f;
-  Writer create;
-  create.I32(kMinted);
-  create.I32(42);
-  create.ViewToken(9);
-  create.I32(800);
-  create.I32(600);
-  create.Str("file:///probe.html");
-  create.Str(nullptr);
-  Message m;
-  m.op = kOpCreateWindow;
-  m.token = 20;
-  m.fields = create.fields();
-  f.host.OnMessages({m});
-  Check(f.cache.Read(kOpTabNavigationState, kMinted) == "about:blank", "the minted id keys the new tab's state");
-  Check(f.cache.Read(kOpTabWindowId, kMinted) == "11", "and its window");
-  Check(!f.cache.Read(kOpTabNavigationState, 3), "Chromium's id never reaches cmux");
-  shim.navigation_state[3] = "about:blank|file:///probe.html";
-  Emit(CMUX_SHIM_LOAD_START, 3, 0);
-  Check(f.cache.Read(kOpTabNavigationState, kMinted) == "about:blank|file:///probe.html",
-        "LOAD_START of Chromium's browser refreshes the minted key");
-  Check(f.delegate.bad.empty(), "no bad message");
+  int live_at_close = -1;
+  w.on_event = [&](const Event& e) {
+    if (e.kind == CMUX_SHIM_BEFORE_CLOSE) live_at_close = client.live_browser_count();
+  };
+  Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_BEFORE_CLOSE);
+  Check(live_at_close == 0, "the counts are fresh in BEFORE_CLOSE's callback");
+  Check(!client.State(tab) && !client.Entries(tab) && client.window_id(tab) == 0, "the cache forgot the tab");
+  shim.state_reads = 0;
+  Emit(CMUX_SHIM_ADDRESS, 3, 0);
+  Emit(CMUX_SHIM_ADDRESS, 8, 0);  // a browser cmux has no tab for (DevTools)
+  w.PumpUntilEvent(CMUX_SHIM_ADDRESS);
+  Check(shim.state_reads == 0 && !client.State(3) && !client.State(8), "a closed tab, or no tab, gets no keys");
 }
 
 }  // namespace
 
 int main() {
-  LoadStartCarriesTheNewEntry();
-  EachKeyOnItsEvents();
+  client = LoadClient();
+  cmux_remote_shim_callbacks callbacks = {};
+  callbacks.post_main = &PostMain;
+  callbacks.ready = &OnReady;
+  callbacks.ended = &OnEnded;
+  client.configure(&callbacks);
+  LoadStartReadsTheNewEntry();
+  OneNavigationPushesTheHistoryTwice();
+  AHistoryOverTheFrameBoundIsForgotten();
   WindowIdFromTheEvent();
   Counts();
   CloseForgets();
-  MintedKeys();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-mirror tests: ok");
   return EXIT_SUCCESS;

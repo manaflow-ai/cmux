@@ -1,6 +1,8 @@
 // Checks the Chromium Host's dispatcher (src/host_dispatch.mm) against a
-// recording fake of the shim and fixtures/host_dispatch_subset.inc: the
-// hello and attach mirrors come first; preinit ops run before
+// recording fake of the shim and the generated cases
+// (generated/host_dispatch.inc, written by gen-chromium-host-wire.py): cmux's
+// HELLO of this wire comes first; the attach mirrors, then the host's HELLO
+// with the optional exports its shim has; preinit ops run before
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
@@ -15,18 +17,17 @@
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
 
+#include "generated/host_dispatch.inc"
+
 namespace {
 
+using namespace cmux_host;  // the generated op ids
 using cmux_host::HostContext;
 using cmux_host::control::Field;
 using cmux_host::control::Message;
-using cmux_host::tlv::Reader;
-using cmux_host::tlv::Writer;
+using Reader = cmux_host::control::TlvReader;
+using Writer = cmux_host::control::TlvWriter;
 
-constexpr uint16_t kOpForkApiVersion = 3, kOpSetNewTabPageUrl = 23, kOpInitialize = 26, kOpCreateWindow = 28,
-                   kOpTabAdd = 29, kOpLoadUrl = 35, kOpSetFocus = 40, kOpDevtoolsCall = 51,
-                   kOpTabNavigationState = 65, kOpShutdown = 99;
-constexpr uint16_t kOpEvent = 0x8001, kOpMirror = 0x8003, kOpAck = 0x8004;
 constexpr int32_t kMinted = 1 << 20;
 
 int failures = 0;
@@ -68,6 +69,10 @@ int cmux_shim_create_window(int request, void* parent_view, int, int, const char
   Emit(CMUX_SHIM_AFTER_CREATED, 3, request);  // OnAfterCreated inside the call
   return 1;
 }
+int TabSetFrozen(int browser_id, int frozen) {
+  shim.calls.push_back("frozen " + std::to_string(browser_id) + " " + std::to_string(frozen));
+  return 1;
+}
 int cmux_shim_tab_add(int window_browser_id, const char*, int, int) {
   shim.calls.push_back("tab_add " + std::to_string(window_browser_id));
   ++shim.live;
@@ -92,12 +97,6 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
 }
 void cmux_shim_free(char* s) { std::free(s); }
 int cmux_shim_live_browser_count(void) { return shim.live; }
-// The other mirrors of the fixture (host_mirror_test.cpp checks their values).
-char* cmux_shim_tab_navigation_entries(int) { return nullptr; }
-int cmux_shim_tab_window_id(int) { return 0; }
-int cmux_shim_navigation_restore_supported(void) { return 1; }
-int cmux_shim_foreign_browser_count(void) { return 0; }
-int cmux_shim_window_count(void) { return 0; }
 }
 
 namespace {
@@ -124,6 +123,11 @@ struct Views : cmux_host::PageViews {
   void Close(uint64_t token) override { calls.push_back("close " + std::to_string(token)); }
 };
 
+// The host's shim has one optional export.
+void* Resolve(const char* name) {
+  return std::strcmp(name, "cmux_shim_tab_set_frozen") == 0 ? reinterpret_cast<void*>(&TabSetFrozen) : nullptr;
+}
+
 Message Op(uint16_t op, uint32_t token, const Writer& w) {
   Message m;
   m.op = op;
@@ -132,7 +136,16 @@ Message Op(uint16_t op, uint32_t token, const Writer& w) {
   return m;
 }
 
-// "event <kind> <browser> <request>", "mirror <op> [key]", "ack <token>".
+// cmux's first frame (remote_shim.mm Attach).
+Message Hello(const char* wire = kWireID, const char* abi = kShimAbiID) {
+  Writer w;
+  w.Str(wire);
+  w.Str(abi);
+  return Op(control::kOpHello, 0, w);
+}
+
+// "event <kind> <browser> <request>", "mirror <op> [key]" ("forget <op> [key]"
+// with no value), "hello [exports]", "ack <token>", "reply <token> <i32>".
 std::string Describe(const Message& m) {
   Reader r(m.fields);
   if (m.op == kOpEvent) {
@@ -140,12 +153,25 @@ std::string Describe(const Message& m) {
     return "event " + std::to_string(kind) + " " + std::to_string(browser) + " " + std::to_string(request);
   }
   if (m.op == kOpMirror) {
-    const int op = r.I32(), key_count = r.I32();
-    std::string text = "mirror " + std::to_string(op);
-    for (int i = 0; i < key_count; ++i) text += " " + std::to_string(r.I32());
+    const int op = r.I32();
+    std::vector<Field> key;
+    const bool key_ok = control::DecodeFields(r.Bytes(), &key);
+    const bool forget = r.AtEnd();
+    std::vector<Field> value;
+    if (!forget && !control::DecodeFields(r.Bytes(), &value)) return "malformed value";
+    if (!key_ok || !r.ok() || !r.AtEnd()) return "malformed mirror";
+    std::string text = (forget ? "forget " : "mirror ") + std::to_string(op);
+    for (const Field& field : key) text += " " + std::to_string(field.integer);
     return text;
   }
+  if (m.op == control::kOpHello) {
+    const std::optional<std::string> wire = r.Str();
+    std::string text = wire == std::optional<std::string>(kWireID) ? "hello" : "hello of another wire";
+    for (const std::string& name : r.StrList()) text += " " + name;
+    return r.ok() && r.AtEnd() ? text : "malformed hello";
+  }
   if (m.op == kOpAck) return "ack " + std::to_string(m.token);
+  if (m.op == kOpReply) return "reply " + std::to_string(m.token) + " " + std::to_string(r.I32());
   return "op " + std::to_string(m.op);
 }
 
@@ -157,7 +183,7 @@ struct Fixture {
                      sent.push_back(m);
                      return true;
                    },
-                   delegate, views};
+                   delegate, views, &Resolve};
   Fixture() {
     shim = Shim();
     shim.host = &host;
@@ -169,7 +195,8 @@ struct Fixture {
     return out;
   }
   void Start() {
-    host.Attach(30, 1234);
+    host.Attach();
+    host.OnMessages({Hello()});
     Writer init;
     init.Str("/fw");
     init.Str("/app");
@@ -199,14 +226,70 @@ void Expect(const std::vector<std::string>& got, const std::vector<std::string>&
 
 void HelloFirst() {
   Fixture f;
-  f.host.Attach(30, 1234);
-  Expect(f.Sent(), {"mirror 3", "mirror 67", "event 0 0 0"}, "attach-only mirrors, then the hello");
+  f.host.Attach();
+  auto mirror = [](uint16_t op) { return "mirror " + std::to_string(op); };
+  Expect(f.Sent(),
+         {mirror(kOpForkApiVersion), mirror(kOpNavigationRestoreSupported), mirror(kOpPasswordImportAvailable),
+          mirror(kOpPasswordReplaceAvailable), mirror(kOpPasskeysAvailable), mirror(kOpPasswordCoreAvailable),
+          "hello cmux_shim_tab_set_frozen"},
+         "attach-only mirrors, then the hello with the optional exports the shim has");
   Check(f.delegate.calls.empty(), "no initialize before INITIALIZE");
+  f.host.OnMessages({Hello()});
+  Check(f.delegate.calls.empty(), "cmux's hello of this wire is accepted");
+}
+
+void HelloOfAnotherWire() {
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello("another wire")});
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}),
+          "a hello of another generation of the op table is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    f.host.OnMessages({Hello(kWireID, "another header")});
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}),
+          "a hello of another shim header is bad");
+  }
+  {
+    Fixture f;
+    f.host.Attach();
+    Writer ntp;
+    ntp.Str("cmux-page://home/");
+    f.host.OnMessages({Op(kOpSetNewTabPageUrl, 1, ntp)});
+    Check(f.delegate.calls == std::vector<std::string>({"bad no hello of this wire first"}) && shim.calls.empty(),
+          "an op before the hello is bad and does not run");
+  }
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({Hello()});
+    Check(f.delegate.calls.back() == "bad a second hello", "a second hello is bad");
+  }
+}
+
+void OptionalExports() {
+  Fixture f;
+  f.Start();
+  Writer frozen;
+  frozen.I32(3);
+  frozen.I32(1);
+  f.host.OnMessages({Op(kOpTabSetFrozen, 80, frozen)});
+  Expect(shim.calls, {"frozen 3 1"}, "an optional op calls the host shim's function");
+  Expect(f.Sent(), {"reply 80 1"}, "and answers its result");
+  Writer scheme;
+  scheme.I32(3);
+  scheme.I32(1);
+  f.host.OnMessages({Op(kOpTabSetColorScheme, 81, scheme)});
+  Expect(f.Sent(), {"ack 81"}, "an optional op the shim does not have runs nothing and is acked");
 }
 
 void PreinitBeforeInitialize() {
   Fixture f;
-  f.host.Attach(30, 1234);
+  f.host.Attach();
+  f.host.OnMessages({Hello()});
   f.Sent();
   Writer ntp;
   ntp.Str("cmux-page://home/");
@@ -279,9 +362,9 @@ void MintedWindow() {
   shim.live = 0;
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
   Expect(f.Sent(),
-         {"mirror 32 " + minted, "mirror 34 " + minted, "mirror 65 " + minted, "mirror 97", "mirror 98",
+         {"forget 32 " + minted, "forget 34 " + minted, "forget 65 " + minted, "mirror 97", "mirror 98",
           "event 3 " + minted + " 0"},
-         "BEFORE_CLOSE: last mirrors, then the event");
+         "BEFORE_CLOSE: the tab's keys forgotten, the counts refreshed, then the event");
   Expect(f.views.calls, {"open 9", "close 9"}, "the browser's page view closes with it");
   Expect(f.delegate.calls, {"initialize /root", "closed"}, "the delegate hears of the close");
   Emit(CMUX_SHIM_TITLE, 3, 0);
@@ -406,6 +489,8 @@ void WipeZeroes() {
 
 int main() {
   HelloFirst();
+  HelloOfAnotherWire();
+  OptionalExports();
   PreinitBeforeInitialize();
   MintedWindow();
   MintedTab();

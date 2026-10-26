@@ -9,10 +9,12 @@
 // on the thread that owns the object, bad messages ending the peer
 // (content/browser/bad_message.cc).
 //
-// Messages cmux sends (op = a generated op id, chromium_host_control.h framing):
-//   a post/view/async/mint/policy/preinit op   its arguments (chromium_host_tlv.h);
-//                                              token != 0 is acked (kOpAck) or
-//                                              answered (kOpReply) after the call
+// Messages cmux sends (op = a generated op id, chromium_host_control.h framing,
+// fields as chromium_host_tlv.h; the remote shim, ../client/remote_shim.mm):
+//   kOpHello (first)                            str kWireID, str kShimAbiID: another
+//                                              generation of the op table is a bad message
+//   a post/view/async/mint/policy/preinit op   its arguments; token != 0 is acked
+//                                              (kOpAck) or answered (kOpReply) after the call
 //   a mirror op                                 a watch: the key (the export's
 //                                              arguments); the host pushes the value
 //                                              now and before every event that
@@ -27,10 +29,11 @@
 // task 014); everything else after it.
 //
 // Messages the host sends:
-//   kOpEvent   EncodeEvent's fields; kind kEventAttach (0) is the hello, sent
-//              once before any op is applied: a = fork API, b = host pid,
-//              s1 = the shim's ABI id
-//   kOpMirror  i32 mirror op, i32 key field count, the key's fields, the value's
+//   kOpHello   str kWireID, StrList of the optional exports its shim defines;
+//              once, after the MIRRORs whose only refresh is attach
+//   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
+//              (EncodeFields), or no value: cmux forgets the key
+//   kOpEvent   EncodeEvent's fields, after the MIRRORs the event refreshes
 //   kOpAck     reply flag, token: the op ran
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //
@@ -46,6 +49,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "chromium_host_control.h"
@@ -54,8 +58,8 @@
 
 namespace cmux_host {
 
-using TlvWriter = tlv::Writer;
-using TlvReader = tlv::Reader;
+using TlvWriter = control::TlvWriter;
+using TlvReader = control::TlvReader;
 
 // Zeroes and clears strings that held secrets (password records) once the
 // call that read them returned.
@@ -118,14 +122,18 @@ class HostPageViews final : public PageViews {
 class HostContext {
  public:
   using Send = std::function<bool(const control::Message&)>;
+  // The address of a symbol of the host's shim, nullptr when it has none
+  // (dlsym in the host: the optional exports, fork API symbols the header
+  // does not declare yet).
+  using Resolve = void* (*)(const char* name);
 
-  HostContext(Send send, HostDelegate& delegate, PageViews& views);
+  HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve);
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
-  // The hello (attach) and the mirrors whose only refresh is attach. Once,
-  // before the first OnMessages; the framework is loaded, CEF not started.
-  void Attach(int fork_api, int pid);
+  // The mirrors whose only refresh is attach, then the hello. Once, before
+  // the first OnMessages; the framework is loaded, CEF not started.
+  void Attach();
   // A batch from the channel, in order (UI thread).
   void OnMessages(std::vector<control::Message> messages);
   // cmux_shim_initialize returned 1: acks kOpInitialize, pushes the mirrors
@@ -146,7 +154,16 @@ class HostContext {
   void Ack(uint32_t token);
   void Reply(uint32_t token, const TlvWriter& reply);
   void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  // `minted` names the browser of the next `event_kind` event with `request`
+  // (create_window's AFTER_CREATED) when the call returned 1.
+  void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int request, int64_t result);
+  // The host shim's function for an optional op, nullptr when it has none.
+  void* OptionalExport(uint16_t op) const;
+  // A value over the frame bound (shm is task 020) goes out as a forget, so
+  // cmux never reads the value it replaced.
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
+  // No value: cmux's cache drops the key.
+  void ForgetMirror(uint16_t op, const TlvWriter& key);
 
   // Puts the host's own focus and window-request handlers in the shim
   // (InstallPolicy* and Resume).
@@ -159,12 +176,14 @@ class HostContext {
     int64_t a, b;
     std::string s1, s2;
   };
-  struct PendingCreate {
+  // A minted id waiting for the event that names its browser.
+  struct PendingBind {
     int32_t minted;
-    uint64_t view;
+    uint64_t view;  // create_window's parent view token
   };
 
   void Handle(control::Message& message);
+  bool HandleHello(const control::Message& message);
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
@@ -182,6 +201,7 @@ class HostContext {
   HostDelegate& delegate_;
   PageViews& views_;
   State state_ = State::kPreinit;
+  bool peer_hello_ = false;  // cmux's HELLO came: every other op must follow it
   // Messages that arrived while initialize runs, or mirror watches before it.
   std::deque<control::Message> waiting_;
   uint32_t initialize_token_ = 0;
@@ -192,6 +212,7 @@ class HostContext {
   bool dispatching_ = false;
   uint16_t dispatching_op_ = 0;
   int32_t devtools_call_browser_ = 0;  // the client browser of the devtools_call being dispatched
+  uint64_t dispatching_view_ = 0;      // the page view token the op being dispatched opened
   std::vector<HeldEvent> held_events_;
   std::vector<control::Message> held_replies_;
 
@@ -199,7 +220,8 @@ class HostContext {
   // entry is the same on both sides.
   std::unordered_map<int32_t, int> chromium_of_;
   std::unordered_map<int, int32_t> client_of_;
-  std::unordered_map<int, PendingCreate> pending_creates_;  // by create_window's request
+  // By (event kind << 32 | request): bounded by kMaxPendingBinds.
+  std::unordered_map<uint64_t, PendingBind> pending_binds_;
   // DevTools message ids: (Chromium browser << 32 | the shim's id) -> the minted id.
   std::unordered_map<uint64_t, int32_t> devtools_ids_;
 
@@ -208,6 +230,9 @@ class HostContext {
   // Watched mirror keys by op; a key is the export's arguments.
   std::unordered_map<uint16_t, std::vector<std::vector<control::Field>>> watched_;
   size_t watched_count_ = 0;
+
+  // The optional exports' functions in the host's shim, by op (kOptionalExports).
+  std::vector<std::pair<uint16_t, void*>> optional_exports_;
 
   // Open page view tokens, and the view each create_window browser has.
   std::unordered_set<uint64_t> open_views_;

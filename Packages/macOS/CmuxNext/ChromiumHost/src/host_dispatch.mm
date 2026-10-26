@@ -32,6 +32,8 @@ namespace {
 constexpr size_t kMaxWatchedKeys = 16384;
 // Page view tokens open at once.
 constexpr size_t kMaxPageViews = 4096;
+// create_window calls whose AFTER_CREATED has not come yet.
+constexpr size_t kMaxPendingBinds = 4096;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -57,6 +59,23 @@ bool KeyNames(const std::vector<control::Field>& key, int32_t client_id) {
   return !key.empty() && key[0].type == control::Type::kI32 && key[0].integer == client_id;
 }
 
+uint64_t BindKey(int event_kind, int request) {
+  return (static_cast<uint64_t>(static_cast<uint32_t>(event_kind)) << 32) | static_cast<uint32_t>(request);
+}
+
+// The frame body `fields` make (chromium_host_control.h): a field header and
+// its payload each.
+size_t BodySize(const std::vector<control::Field>& fields) {
+  size_t size = 0;
+  for (const control::Field& field : fields) {
+    const size_t payload = field.type == control::Type::kI32                                         ? 4
+                           : field.type == control::Type::kI64 || field.type == control::Type::kF64 ? 8
+                                                                                                     : field.bytes.size();
+    size += control::kFieldHeaderSize + payload;
+  }
+  return size;
+}
+
 uint64_t DevToolsKey(int chromium_id, int32_t message_id) {
   return (static_cast<uint64_t>(static_cast<uint32_t>(chromium_id)) << 32) | static_cast<uint32_t>(message_id);
 }
@@ -72,14 +91,30 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
 
 }  // namespace
 
-HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views)
-    : send_(std::move(send)), delegate_(delegate), views_(views) {}
+HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve)
+    : send_(std::move(send)), delegate_(delegate), views_(views) {
+  for (const auto& entry : kOptionalExports) {
+    if (void* fn = resolve ? resolve(entry.name) : nullptr) optional_exports_.emplace_back(entry.op, fn);
+  }
+}
 
-void HostContext::Attach(int fork_api, int pid) {
+void HostContext::Attach() {
   ProduceAttach(true);
+  std::vector<const char*> exports;
+  for (const auto& entry : kOptionalExports) {
+    if (OptionalExport(entry.op)) exports.push_back(entry.name);
+  }
   TlvWriter hello;
-  EncodeEvent(hello, kEventAttach, 0, 0, fork_api, pid, cmux_shim_abi_id(), "");
-  Post(MessageOf(kOpEvent, false, 0, hello.Take()));
+  hello.Str(kWireID);
+  hello.StrList(exports.data(), static_cast<int>(exports.size()));
+  Post(MessageOf(control::kOpHello, false, 0, hello.Take()));
+}
+
+void* HostContext::OptionalExport(uint16_t op) const {
+  for (const auto& [optional_op, fn] : optional_exports_) {
+    if (optional_op == op) return fn;
+  }
+  return nullptr;
 }
 
 void HostContext::ProduceAttach(bool only_attach) {
@@ -113,6 +148,11 @@ void HostContext::Handle(control::Message& message) {
   for (int fd : message.fds) close(fd);
   message.fds.clear();
   if (message.reply) return Bad("a reply frame from cmux");
+  if (!peer_hello_) {
+    if (message.op != control::kOpHello || !HandleHello(message)) Bad("no hello of this wire first");
+    return;
+  }
+  if (message.op == control::kOpHello) return Bad("a second hello");
   switch (state_) {
     case State::kEnded:
       return;
@@ -134,6 +174,18 @@ void HostContext::Handle(control::Message& message) {
       Dispatch(message);
       return;
   }
+}
+
+bool HostContext::HandleHello(const control::Message& message) {
+  TlvReader r(message.fields);
+  const std::optional<std::string> wire = r.Str();
+  const std::optional<std::string> abi = r.Str();
+  if (!r.ok() || !r.AtEnd() || wire != std::optional<std::string>(kWireID) ||
+      abi != std::optional<std::string>(kShimAbiID)) {
+    return false;
+  }
+  peer_hello_ = true;
+  return true;
 }
 
 bool HostContext::HandleInitialize(const control::Message& message) {
@@ -163,25 +215,20 @@ void HostContext::Dispatch(const control::Message& message) {
     delegate_.Quit();
     return;
   }
-  if (message.op == kOpCreateWindow || message.op == kOpDevtoolsCall) {
-    // Header order: the minted id, then create_window's request and parent
-    // view, or devtools_call's browser.
+  if (message.op == kOpDevtoolsCall) {
+    // Header order: the minted id, then the browser BindMinted answers for.
     TlvReader peek(message.fields);
-    const int32_t minted = peek.I32();
-    const int32_t second = peek.I32();
-    if (message.op == kOpCreateWindow) {
-      const uint64_t view = peek.View();
-      if (peek.ok()) pending_creates_[second] = PendingCreate{minted, view};
-    } else {
-      devtools_call_browser_ = second;
-    }
+    peek.I32();
+    devtools_call_browser_ = peek.I32();
   }
   dispatching_ = true;
   dispatching_op_ = message.op;
+  dispatching_view_ = 0;
   TlvReader r(message.fields);
   const bool ok = DispatchOp(*this, message.op, message.token, r);
   dispatching_ = false;
   dispatching_op_ = 0;
+  dispatching_view_ = 0;
   std::vector<HeldEvent> events;
   events.swap(held_events_);
   for (const HeldEvent& e : events) ForwardEvent(e.kind, e.browser_id, e.request, e.a, e.b, e.s1.c_str(), e.s2.c_str());
@@ -242,14 +289,12 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   }
   int32_t client = ClientOf(browser_id);
   int32_t out_request = request;
-  if (kind == CMUX_SHIM_AFTER_CREATED && request != 0) {
-    auto pending = pending_creates_.find(request);
-    if (pending != pending_creates_.end()) {
-      Bind(pending->second.minted, browser_id);
-      if (pending->second.view) view_of_browser_[browser_id] = pending->second.view;
-      client = pending->second.minted;
-      pending_creates_.erase(pending);
-    }
+  auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
+  if (pending != pending_binds_.end()) {
+    Bind(pending->second.minted, browser_id);
+    if (pending->second.view) view_of_browser_[browser_id] = pending->second.view;
+    client = pending->second.minted;
+    pending_binds_.erase(pending);
   } else if (kind == CMUX_SHIM_DEVTOOLS_RESULT) {
     auto minted = devtools_ids_.find(DevToolsKey(browser_id, request));
     if (minted != devtools_ids_.end()) {
@@ -313,6 +358,7 @@ void* HostContext::PageView(uint64_t token) {
     }
     open_views_.insert(token);
   }
+  if (dispatching_) dispatching_view_ = token;
   return views_.Open(token);
 }
 
@@ -338,13 +384,6 @@ void HostContext::Reply(uint32_t token, const TlvWriter& reply) {
 
 void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result) {
   switch (op) {
-    case kOpCreateWindow:
-      // Bound at AFTER_CREATED(request); a refused creation sends none.
-      if (result != 1) {
-        std::erase_if(pending_creates_, [&](const auto& entry) { return entry.second.minted == minted; });
-        fprintf(stderr, "cmux-chromium-host: create_window %d refused\n", minted);
-      }
-      break;
     case kOpTabAdd:
     case kOpTabDuplicate:
       if (result > 0) Bind(minted, static_cast<int>(result));
@@ -364,13 +403,41 @@ void HostContext::BindMinted(uint16_t op, int32_t minted, int64_t result) {
   }
 }
 
+void HostContext::BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int request, int64_t result) {
+  if (result != 1) {
+    // The call refused: no event will name the browser.
+    fprintf(stderr, "cmux-chromium-host: op %u refused minted id %d\n", op, minted);
+    return;
+  }
+  if (pending_binds_.size() >= kMaxPendingBinds) return Bad("too many browsers waiting for their creation");
+  pending_binds_[BindKey(event_kind, request)] = PendingBind{minted, dispatching_view_};
+}
+
 void HostContext::PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value) {
-  TlvWriter mirror;
-  mirror.I32(op);
-  mirror.I32(static_cast<int32_t>(key.fields().size()));
-  mirror.Append(key);
-  mirror.Append(value);
-  Post(MessageOf(kOpMirror, false, 0, mirror.Take()));
+  std::string key_bytes;
+  std::string value_bytes;
+  if (!key.Encode(&key_bytes)) return Bad("a mirror key over a field bound");
+  if (value.Encode(&value_bytes)) {
+    TlvWriter mirror;
+    mirror.I32(op);
+    mirror.Bytes(key_bytes.data(), key_bytes.size());
+    mirror.Bytes(value_bytes.data(), value_bytes.size());
+    if (BodySize(mirror.fields()) <= control::kMaxBody) {
+      Post(MessageOf(kOpMirror, false, 0, mirror.Take()));
+      return;
+    }
+  }
+  fprintf(stderr, "cmux-chromium-host: mirror %u is over the frame bound: forgotten\n", op);
+  ForgetMirror(op, key);
+}
+
+void HostContext::ForgetMirror(uint16_t op, const TlvWriter& key) {
+  std::string key_bytes;
+  if (!key.Encode(&key_bytes)) return Bad("a mirror key over a field bound");
+  TlvWriter forget;
+  forget.I32(op);
+  forget.Bytes(key_bytes.data(), key_bytes.size());
+  Post(MessageOf(kOpMirror, false, 0, forget.Take()));
 }
 
 void HostContext::Post(control::Message message) {

@@ -31,7 +31,6 @@ constexpr Producer kProducers[] = {
     {kOpWindowCount, Scope::kHost},
     {kOpLiveBrowserCount, Scope::kHost},
     {kOpForeignBrowserCount, Scope::kHost},
-    {kOpNavigationRestoreSupported, Scope::kHost},
 };
 
 const Producer* ProducerOf(uint16_t op) {
@@ -76,7 +75,7 @@ bool HostMirrors::Produce(HostContext& ctx, uint16_t op, const MirrorEvent& even
     if (!open_tabs_.count(event.browser)) return true;
     key.I32(event.browser);
     if (event.kind == CMUX_SHIM_BEFORE_CLOSE) {
-      ctx.PushMirror(op, key, TlvWriter());
+      ctx.ForgetMirror(op, key);
       return true;
     }
   }
@@ -87,8 +86,7 @@ bool HostMirrors::Produce(HostContext& ctx, uint16_t op, const MirrorEvent& even
     ctx.PushMirror(op, key, value);
     return true;
   }
-  const std::vector<control::Field> fields = key.Take();
-  TlvReader r(fields);
+  TlvReader r(key.Take());
   ProduceMirror(ctx, op, r);
   return true;
 }

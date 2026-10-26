@@ -836,14 +836,12 @@
       "refresh_events": [
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_ADDRESS",
-        "CMUX_SHIM_TITLE",
         "CMUX_SHIM_LOAD_START",
-        "CMUX_SHIM_LOADING_STATE",
         "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Back/Forward menu JSON. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event; BEFORE_CLOSE pushes no value (forget)."
+      "reason": "Back/Forward menu JSON. host_mirror.mm pushes it for every open tab, with no watch, at the events that change the committed history (a commit is ADDRESS, a cross-document one LOAD_START too); the menus list other entries, whose titles are final by then, so TITLE does not refresh it. BEFORE_CLOSE pushes no value (forget)."
     },
     {
       "name": "cmux_shim_tab_go_to_entry",
@@ -1596,13 +1594,11 @@
         "CMUX_SHIM_AFTER_CREATED",
         "CMUX_SHIM_ADDRESS",
         "CMUX_SHIM_LOAD_START",
-        "CMUX_SHIM_LOAD_END",
-        "CMUX_SHIM_LOADING_STATE",
         "CMUX_SHIM_BEFORE_CLOSE"
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, before each refresh event, so a read in LOAD_START's turn has the new entry; BEFORE_CLOSE pushes no value (forget). PageState refresh on hide is task 093."
+      "reason": "History with page state for hibernation and restore. host_mirror.mm pushes it for every open tab, with no watch, only at the events that change the committed history (ADDRESS, LOAD_START), as SessionTabHelper records a tab at NavigationEntryCommitted, so a read in LOAD_START's turn has the new entry; a value over the frame bound is a forget, never the older value. BEFORE_CLOSE pushes no value (forget). PageState refresh at idle or hide is task 093."
     },
     {
       "name": "cmux_shim_tab_restore_navigation",
@@ -1645,7 +1641,7 @@
       ],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "A fork capability, fixed for the host's life: pushed once in the hello (host_mirror.mm owns it). Feature detection is mirror, never post (task 017)."
+      "reason": "A fork capability, fixed for the host's life: host_dispatch.mm's ProduceAttach pushes it once, before the host's hello. Feature detection is mirror, never post (task 017)."
     },
     {
       "name": "cmux_shim_ext_list",
@@ -3570,9 +3566,7 @@
     {
       "kind": "CMUX_SHIM_TITLE",
       "value": 5,
-      "refreshes": [
-        "tab.navigation_entries[browser_id]"
-      ]
+      "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_FAVICON",
@@ -3582,10 +3576,7 @@
     {
       "kind": "CMUX_SHIM_LOADING_STATE",
       "value": 7,
-      "refreshes": [
-        "tab.navigation_entries[browser_id]",
-        "tab.navigation_state[browser_id]"
-      ]
+      "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_LOAD_START",
@@ -3598,9 +3589,7 @@
     {
       "kind": "CMUX_SHIM_LOAD_END",
       "value": 9,
-      "refreshes": [
-        "tab.navigation_state[browser_id]"
-      ]
+      "refreshes": []
     },
     {
       "kind": "CMUX_SHIM_LOAD_ERROR",
