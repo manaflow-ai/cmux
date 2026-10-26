@@ -89,8 +89,6 @@ final class WindowOverlayLayer {
     /// The main run loop's turn number (`MainTurnMeter.turnNumber`): the layout depth and the geometry
     /// change's follow-up page update count only in the turn that set them.
     private let currentTurn: @MainActor () -> UInt64
-    /// Where the window's page update requests go (`updateBrowserPageGeometry`): the center the pages were given.
-    private let pageUpdateCenter: NotificationCenter
     private var isEvaluating = false
     /// Set by `teardown` (the window is closing): nothing is placed again.
     private var isTornDown = false
@@ -113,14 +111,12 @@ final class WindowOverlayLayer {
     /// Placement and order checks run (`evaluate()` past its guards; tests).
     private(set) var evaluations = 0
 
-    /// `center`: where windows post and where this layer sends page update requests (tests pass their own);
-    /// `currentTurn`: the main run loop's turn number.
+    /// `center`: where windows post (tests pass their own); `currentTurn`: the main run loop's turn number.
     init(window: NSWindow, signposter: Signposter = Signposter.cef, center: NotificationCenter = .default,
          currentTurn: @escaping @MainActor () -> UInt64) {
         self.window = window
         self.signposter = signposter
         self.currentTurn = currentTurn
-        pageUpdateCenter = center
         let events = WindowEvents.of(window, center: center)
         // An occluder (the sidebar) moved: pages re-read their occlusion rects.
         // The sidebar reports from WindowRootView.layout(): inside the
@@ -480,7 +476,7 @@ final class WindowOverlayLayer {
             forcedPageUpdateAfterLayout = forcedPageUpdateAfterLayout || force
             return
         }
-        window.updateBrowserPageGeometry(force: force, center: pageUpdateCenter)
+        window.updateBrowserPageGeometry(force: force)
     }
 
     // MARK: Diagnostics

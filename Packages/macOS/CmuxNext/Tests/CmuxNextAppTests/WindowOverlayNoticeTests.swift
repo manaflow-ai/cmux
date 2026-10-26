@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-@testable import CmuxNextBrowser
 import CmuxNextBrowserCore
 import CmuxNextCompat
 @testable import CmuxNextDesign
@@ -174,9 +173,9 @@ import Testing
         let rig = Rig()
         defer { rig.close() }
         rig.showPage()
-        // The layer asks the window's pages on the center it was given (`CEFHostView` listens on its own).
+        // The layer asks the window's pages on the default center (`CEFHostView` listens there).
         let posts = Count()
-        let watch = BrowserPageUpdates.observe(of: rig.window, center: rig.center) { _ in posts.value += 1 }
+        let watch = MainActorObservation(Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate"), object: rig.window) { posts.value += 1 }
 
         rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
         #expect(posts.value == 1, "the pages follow the move at once")

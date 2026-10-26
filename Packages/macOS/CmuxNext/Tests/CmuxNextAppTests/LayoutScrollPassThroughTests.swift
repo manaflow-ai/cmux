@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 import CmuxNextDesignTokens
 import CoreGraphics
