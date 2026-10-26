@@ -112,8 +112,39 @@ import Testing
         #expect(refused.isEmpty)
         #expect(Set(Spy.channels) == Set(CEFPageMessage.Channel.allCases.map(\.name)))
         // The page busy recorder reaches cross-origin frames (it reported nothing from them before).
-        #expect(Spy.scripts.contains { $0.source == BrowserPageBusy.recorderScript && $0.world == "" && $0.allFrames == 1 })
+        let recorder = CEFDocumentScripts.Script(world: "", body: BrowserPageBusy.recorderScript, allFrames: true, scope: .browserTabs)
+        #expect(Spy.scripts.contains { $0.source == recorder.source && $0.world == "" && $0.allFrames == 1 })
         #expect(Spy.scripts.allSatisfy { !$0.source.contains("cmuxMedia(") }, "a page-channel script posts through a DevTools binding")
+    }
+
+    // MARK: cmux page tabs (p13-webui-068)
+
+    /// A cmux page's tab on the shipped fork attaches no browser-tab bridge: no media or verification script and no
+    /// binding go over its DevTools session. Its first paint still reads lifecycle events, so the event watch is on.
+    @Test func aPageTabOnTheShippedForkAttachesNoBrowserTabBridge() async throws {
+        let rig = try Rig(forkAPI: 24)
+        defer { rig.close() }
+        _ = try rig.attachedTab(cmuxPage: true)
+        await rig.answeringDevTools { Spy.devToolsCalls.contains("Page.getFrameTree") }
+        await rig.settle()
+        #expect(Spy.devToolsCalls.contains("Page.setLifecycleEventsEnabled"), "\(Spy.devToolsCalls)")
+        #expect(!Spy.devToolsCalls.contains("Page.addScriptToEvaluateOnNewDocument"), "\(Spy.devToolsCalls)")
+        #expect(!Spy.devToolsCalls.contains("Runtime.addBinding"), "\(Spy.devToolsCalls)")
+        #expect(Spy.watched.last == 1, "the first paint bridge hears no lifecycle events")
+    }
+
+    /// From fork API 29 the media hub's post reaches a browser tab's bridge; a cmux page's tab drops it (its renderer
+    /// runs no browser-tab script, so the post is not cmux's) and opens no DevTools session.
+    @Test(arguments: [false, true]) func aMediaPostReachesOnlyABrowserTab(cmuxPage: Bool) async throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let tab = try rig.attachedTab(cmuxPage: cmuxPage)
+        await rig.settle()
+        #expect(Spy.devToolsCalls.isEmpty, "\(Spy.devToolsCalls)")
+        let post = try #require(CEFPageMessage(channel: "cmuxMedia", payload: #"{"frame":"f1","report":{"title":"Song","playing":true}}"#,
+                                               mainFrame: true))
+        tab.agentRelay.pageMessage(post)
+        #expect((tab.state.media != nil) == !cmuxPage, "media \(String(describing: tab.state.media))")
     }
 
     /// The spare window's about:blank placeholder is never shown, so Chromium never learned it was hidden and ran
@@ -201,10 +232,11 @@ import Testing
             runtime = CEFRuntime.spy(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
         }
 
-        /// A tab whose browser 7 exists (AFTER_CREATED).
-        func attachedTab() throws -> CEFTab {
+        /// A tab whose browser 7 exists (AFTER_CREATED); with `cmuxPage`, a cmux page's tab (`CEFEngine.makePagesTab`).
+        func attachedTab(cmuxPage: Bool = false) throws -> CEFTab {
             let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
             let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            tab.agentRelay.servesCmuxPage = cmuxPage
             host.add(tab)
             host.ensureCreated(tab)
             let request = try #require(runtime.pendingWindows.keys.first)
