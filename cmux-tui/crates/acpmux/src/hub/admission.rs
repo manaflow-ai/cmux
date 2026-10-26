@@ -53,7 +53,8 @@ impl Refusal {
     }
 
     /// `local`: the caller may learn this host's name and paths (not a Web client).
-    fn error(&self, local: bool) -> RpcError {
+    /// `can_force`: the caller's `--force-admit` is honoured (`Ask::can_force`).
+    fn error(&self, local: bool, can_force: bool) -> RpcError {
         let host = if local { super::start_gate::host_label() } else { "this machine" };
         let what = match self {
             Self::UnderFloor { flag } => format!(
@@ -65,16 +66,27 @@ impl Refusal {
                 }
             ),
             Self::MaxLanes { live, max, machine, source } => format!(
-                "{host} has {live} live sessions, at its cap of {max} (lanes.max_lanes of {machine} in {}): stop one or start the session on another host",
-                if local { source.display().to_string() } else { "the fleet registry".into() }
+                "{host} has {live} live sessions, at its cap of {max} ({}): stop one or start the session on another host",
+                if local {
+                    format!("lanes.max_lanes of {machine} in {}", source.display())
+                } else {
+                    "lanes.max_lanes in the fleet registry".into()
+                }
             ),
         };
         let mut data = json!({"reason": REASON, "why": self.why(), "retryable": true});
         if let Self::MaxLanes { live, max, machine, .. } = self {
-            (data["live"], data["maxLanes"], data["machine"]) =
-                (json!(live), json!(max), json!(machine));
+            (data["live"], data["maxLanes"]) = (json!(live), json!(max));
+            if local {
+                data["machine"] = json!(machine);
+            }
         }
-        RpcError::new(-32000, format!("{what}; --force-admit creates it anyway")).with_data(data)
+        let hint = if can_force {
+            "--force-admit creates it anyway"
+        } else {
+            "--force-admit is honoured only on that machine itself, not from a Web client or a peer"
+        };
+        RpcError::new(-32000, format!("{what}; {hint}")).with_data(data)
     }
 }
 
@@ -192,6 +204,16 @@ pub(super) fn claim(id: &str) {
     let _ = MAKING.try_with(|made| made.set(id.to_owned()));
 }
 
+/// A session counts as live when its harness runs: a live status, or (any
+/// status but Closed) an agent host still running for it.
+fn is_live(status: SessionStatus, hosted: bool) -> bool {
+    match status {
+        SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting => true,
+        SessionStatus::Closed => false,
+        SessionStatus::Idle | SessionStatus::Disconnected => hosted,
+    }
+}
+
 /// The live sessions `live` plus the admitted creates whose session is not one of
 /// them: a create is counted once, as its session once that runs.
 fn counted(live: &std::collections::HashSet<&str>, open: &[Arc<OnceLock<String>>]) -> usize {
@@ -207,19 +229,18 @@ impl Drop for Admitted<'_> {
 }
 
 impl Hub {
-    /// This host's sessions whose harness runs, plus the admitted creates
-    /// whose session is not (yet) one of them.
-    fn live_sessions(&self, open: &[Arc<OnceLock<String>>]) -> usize {
+    /// This host's sessions whose harness runs (`hosted`: those with a running
+    /// agent host), plus the admitted creates whose session is not (yet) one of them.
+    fn live_sessions(
+        &self,
+        open: &[Arc<OnceLock<String>>],
+        hosted: &std::collections::HashSet<String>,
+    ) -> usize {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
         let live: std::collections::HashSet<&str> = sessions
             .iter()
-            .filter(|s| {
-                matches!(
-                    s.status(),
-                    SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
-                )
-            })
+            .filter(|s| is_live(s.status(), hosted.contains(&s.id)))
             .map(|s| s.id.as_str())
             .collect();
         counted(&live, open)
@@ -243,13 +264,16 @@ impl Hub {
             let machine = registry
                 .as_ref()
                 .and_then(|r| machine_of(r, origin.as_deref(), super::start_gate::host_label()));
-            (flag, registry, source, machine)
+            // Running agent hosts: after a restart a session reads Idle until a
+            // prompt reattaches its host, but the host runs all the same.
+            let hosted = Hub::live_host_sessions();
+            (flag, registry, source, machine, hosted)
         });
-        let (flag, registry, source, machine) =
+        let (flag, registry, source, machine, hosted) =
             read.await.map_err(|e| RpcError::internal(e.to_string()))?;
         // Counted and reserved under one lock: no file I/O while it is held.
         let admitting = self.admitting.0.lock().unwrap_or_else(|e| e.into_inner());
-        let live = self.live_sessions(&admitting);
+        let live = self.live_sessions(&admitting, &hosted);
         let (refusal, uncapped) = check(&Inputs {
             flag: flag.as_deref(),
             registry: registry.as_ref(),
@@ -294,14 +318,18 @@ impl Hub {
         }
         drop(admitting);
         tracing::info!(caller = who, why, live, "session/new refused: {refusal:?}");
-        Err(refusal.error(ask.local))
+        Err(refusal.error(ask.local, ask.can_force))
     }
 }
 
 /// Who asks for a new session, for `Hub::admit_new`.
 pub(crate) struct Ask<'a> {
-    /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged.
+    /// `_meta.acpmux.forceAdmit`: admitted past a refusal, logged. Set only
+    /// where `can_force`.
     pub force: bool,
+    /// The caller may force: this host's unix socket or app, never a Web client
+    /// or a peer (as `--policy` and `--mode`).
+    pub can_force: bool,
     /// The person asks here (this host's app pane, or the person key). A peer's
     /// app pane is not: a forwarded `via: app` is the forwarding client's word.
     pub person: bool,
@@ -315,6 +343,16 @@ pub(crate) struct Ask<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_whose_agent_host_runs_is_live_whatever_its_status() {
+        // After a daemon restart every kept session reads Idle until it is reattached.
+        assert!(is_live(SessionStatus::Idle, true));
+        assert!(is_live(SessionStatus::Disconnected, true));
+        assert!(!is_live(SessionStatus::Idle, false));
+        assert!(!is_live(SessionStatus::Closed, true));
+        assert!(is_live(SessionStatus::Ready, false));
+    }
 
     #[test]
     fn a_create_whose_session_runs_counts_once() {
@@ -391,15 +429,19 @@ mod tests {
             assert_eq!(at(machine, 16), capped(machine, 16, max));
         }
         assert_eq!(at("cmux-lawrence", 50), None, "no lanes entry: admitted");
-        let message = capped("cmux16", 16, 3).unwrap().error(true).message;
+        let message = capped("cmux16", 16, 3).unwrap().error(true, true).message;
         assert!(
             message.contains("16 live sessions")
                 && message.contains("cap of 3")
                 && message.contains("lanes.max_lanes of cmux16 in /r/fleet-registry.json"),
             "the refusal names the count, the cap and where it comes from: {message}"
         );
-        let web = capped("cmux16", 16, 3).unwrap().error(false).message;
-        assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
+        let web = capped("cmux16", 16, 3).unwrap().error(false, false);
+        assert!(!web.message.contains("/r/"), "a Web client learns no path: {}", web.message);
+        assert!(!web.message.contains("cmux16"), "nor the machine: {}", web.message);
+        let data = web.data.unwrap_or_default();
+        assert!(data.get("machine").is_none(), "nor in data: {data}");
+        assert!(web.message.contains("only on that machine"), "{}", web.message);
     }
 
     #[test]

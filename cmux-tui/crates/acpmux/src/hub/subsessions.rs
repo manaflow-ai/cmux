@@ -655,6 +655,8 @@ impl Hub {
         let admitted = self
             .admit_new(super::admission::Ask {
                 force: req.force_admit,
+                // Set by the server only where the caller may force (`server/requests.rs`).
+                can_force: req.force_admit,
                 person: false,
                 who: &who,
                 local: true,
