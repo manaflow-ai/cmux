@@ -596,6 +596,7 @@ impl Hub {
             trust_gate: false,
             steer_only: false,
             interrupt: false,
+            steer_now: false,
             interrupt_turn: None,
             provenance: None,
             agent: None,

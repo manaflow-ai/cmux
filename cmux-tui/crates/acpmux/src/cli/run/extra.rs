@@ -423,11 +423,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        // No daemon connection: the update must work while the daemon does not.
+        Command::Host(PeerCmd::SelfUpdate { channel }) => {
+            crate::cli::hosts::self_update(&channel, json_out).await
+        }
         Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
                     let url = url.unwrap_or_else(|| format!("ssh://{name}"));
+                    let has_token = token.is_some();
                     let mut p = json!({"name": name, "url": url});
                     if let Some(t) = token {
                         p["token"] = json!(t);
@@ -435,7 +440,70 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     // `wait`: the daemon answers after the first connect attempt
                     // settled, so the listing shows the real state.
                     p["wait"] = json!(true);
-                    client.request("_acpmux/peer_add", p).await?
+                    let reply = client.request("_acpmux/peer_add", p).await?;
+                    let connected = reply
+                        .get("peers")
+                        .and_then(Value::as_array)
+                        .and_then(|peers| {
+                            peers.iter().find(|peer| {
+                                peer.get("name").and_then(Value::as_str) == Some(name.as_str())
+                            })
+                        })
+                        .and_then(|peer| peer.get("connected").and_then(Value::as_bool))
+                        .unwrap_or(false);
+                    let warning = if !connected {
+                        let host = url
+                            .strip_prefix("ssh://")
+                            .unwrap_or(&url)
+                            .split(':')
+                            .next()
+                            .unwrap_or(&name);
+                        let (message, warning) = if url.starts_with("ssh://") && has_token {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else if url.starts_with("ssh://") {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": format!("ssh -o BatchMode=yes {host} true"),
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        } else {
+                            (
+                                format!(
+                                    "peer {name} was saved and will keep reconnecting; run `acpmux host ls` and retry after it shows connected"
+                                ),
+                                json!({
+                                    "reason": "peer_unreachable",
+                                    "try": "acpmux host ls",
+                                    "detail": "the peer was saved and will keep reconnecting"
+                                }),
+                            )
+                        };
+                        if !json_out {
+                            eprintln!("warning: {message}");
+                        }
+                        Some(warning)
+                    } else {
+                        None
+                    };
+                    let mut reply = reply;
+                    if let Some(warning) = warning {
+                        reply["warning"] = warning;
+                    }
+                    reply
                 }
                 PeerCmd::Ls => client.request("_acpmux/peers", json!({})).await?,
                 PeerCmd::Status { name } => {
@@ -460,8 +528,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Rm { name } => {
                     client.request("_acpmux/peer_remove", json!({"name": name})).await?
                 }
-                PeerCmd::Setup { host, name, port } => {
-                    return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
+                PeerCmd::Setup { host, name, port, no_auto_update } => {
+                    let auto = !no_auto_update;
+                    return crate::cli::hosts::setup(client, &host, name, port, auto, json_out)
+                        .await;
+                }
+                // Dispatched before the connect (above); kept here so the
+                // match stays total without a panic.
+                PeerCmd::SelfUpdate { channel } => {
+                    return crate::cli::hosts::self_update(&channel, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.

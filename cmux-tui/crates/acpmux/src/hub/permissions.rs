@@ -469,6 +469,43 @@ impl Hub {
         // record see the request (questions.rs).
         super::questions::normalize(&mut request, Self::preview_format(session));
         let needs_person = super::questions::needs_person(&request);
+        // A shell command that only reads (`shell_readonly.rs`), judged before the lock and off
+        // the async workers: its git reads look at the repositories on disk.
+        // Only under approve-reads: approve-edits writes files unasked, so a command's own
+        // program could be one the agent wrote.
+        let reads_policy = {
+            let cfg = self.config.read().await;
+            self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
+        };
+        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
+        // login values, then the env its agent was started with (`ensure_child`). An agent this
+        // daemon did not start (re-adopted after a restart) asks.
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let shell_reads = reads_policy
+            && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
+            && match launched {
+                None => false,
+                Some(own) => {
+                    let meta = session.meta();
+                    let family = self.config.read().await.family(&meta.harness);
+                    let mut env = crate::login_env::effective_for(family.as_deref(), &own);
+                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+                    if let Some(path) = crate::login_env::agent_path()
+                        && !own.contains_key("PATH")
+                    {
+                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+                    }
+                    let (request, cwd) = (request.clone(), meta.cwd);
+                    // A probe that takes too long asks; its thread finishes on its own.
+                    let probe = tokio::task::spawn_blocking(move || {
+                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+                    });
+                    matches!(
+                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+                        Ok(Ok(true))
+                    )
+                }
+            };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
             full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
@@ -522,16 +559,21 @@ impl Hub {
                 None => match policy {
                     PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
                     PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                    PermissionPolicy::ApproveReads => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                    PermissionPolicy::ApproveReads | PermissionPolicy::ApproveEdits => {
+                        let edits = policy == PermissionPolicy::ApproveEdits;
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think")
+                            || (edits && tool_kind == "edit")
+                        {
                             pick(&["allow_once", "allow_always"])
-                        } else {
-                            None
-                        }
-                    }
-                    PermissionPolicy::ApproveEdits => {
-                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                            pick(&["allow_once", "allow_always"])
+                        } else if tool_kind == "execute"
+                            && shell_reads
+                            && policy == PermissionPolicy::ApproveReads
+                        {
+                            // Judged under approve-reads before the lock; the policy read here
+                            // must still be it.
+                            // A shell command that only reads (`shell_readonly.rs`), once:
+                            // allow_always would widen later asks and set the harness grant.
+                            pick(&["allow_once"])
                         } else {
                             None
                         }
@@ -541,9 +583,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
-            // The chat allowance never answers in a Web turn.
+            // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
+                && rule != Some(super::rules::RuleDecision::Ask)
                 && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {
@@ -683,10 +726,38 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
+        self.respond_permission_annotated(
+            session,
+            permission_id,
+            option_id,
+            answers,
+            None,
+            answered_by,
+            answerer,
+            control,
+        )
+        .await
+    }
+
+    /// `respond_permission` with a question's `annotations` (the chosen
+    /// preview and notes, `questions::check_annotations`): only the person's
+    /// own answer carries them, never a phone's signed one (its signature
+    /// covers the answers alone) or a session's.
+    pub async fn respond_permission_annotated(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+        annotations: Option<Value>,
+        answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
+        control: Control,
+    ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
-        let (pending, answered_by) = {
+        let (pending, answered_by, annotations) = {
             let mut guard = session.permissions.lock().unwrap();
             let state = &mut *guard;
             let map = &mut state.pending;
@@ -698,6 +769,14 @@ impl Hub {
                     None => lost,
                 }
             })?;
+            // A question's annotations, after the lookup so a losing answer still learns who
+            // won: only the person's own answer, and only beside its answers.
+            if annotations.is_some() && !answerer.person {
+                return Err(super::person::person_required("annotations"));
+            }
+            if annotations.is_some() && answers.is_none() {
+                return Err(RpcError::invalid_params("annotations go only with answers"));
+            }
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
@@ -746,6 +825,10 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            let annotations = match annotations {
+                Some(a) => super::questions::check_annotations(&p.request, &a)?,
+                None => None,
+            };
             // The authoritative person rule (`person.rs`), here under the
             // prompt's lock, whatever the request check saw: a client that
             // is not the person may cancel or reject; an allow, or who
@@ -832,7 +915,7 @@ impl Hub {
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            (p, answered_by)
+            (p, answered_by, annotations)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -842,6 +925,9 @@ impl Hub {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
+            if let Some(notes) = annotations {
+                input["annotations"] = notes;
+            }
             outcome["_meta"] = json!({"updatedInput": input});
         }
         if let Some(by) = answered_by {

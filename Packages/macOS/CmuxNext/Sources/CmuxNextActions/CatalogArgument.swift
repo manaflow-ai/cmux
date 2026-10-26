@@ -130,6 +130,14 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
+    /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
+    /// resolves this Mac's workspaces, not a Cloud machine's.
+    static var cloudWorkspaceString: ActionArgument {
+        ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var contentsString: ActionArgument {
         ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
     }
