@@ -103,7 +103,11 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
 }
 
 // Procfs is handled separately; device filesystem exceptions are path-scoped.
-fn classify_directory(magic: u64, flags: Result<c_long>) -> std::result::Result<(), String> {
+fn classify_directory(
+    magic: u64,
+    flags: Result<c_long>,
+    _xfs_geometry: Result<u32>,
+) -> std::result::Result<(), String> {
     let needs_flags = match magic {
         0xef53 | 0xf2f5_2010 | 0x0102_1994 => true, // ext2/3/4, f2fs, tmpfs
         0x5846_5342 | 0x9123_683e | 0x794c_7630 | 0x2fc1_2fc1 | 0xca45_1a4e => false,
@@ -114,6 +118,11 @@ fn classify_directory(magic: u64, flags: Result<c_long>) -> std::result::Result<
         Err(ENOTTY | EOPNOTSUPP) if !needs_flags => Ok(()),
         _ => Err(format!("casefold or unverified directory flags on filesystem {magic:#x}")),
     }
+}
+
+// Red-test seam: geometry probing is implemented after runner confirmation.
+fn xfs_geometry(_fd: RawFd) -> Result<u32> {
+    Err(EACCES)
 }
 
 fn proc_fd_number(name: &str) -> Result<u32> {
@@ -160,7 +169,7 @@ fn resolve_with_flags(
         {
             return Ok(());
         }
-        classify_directory(fs.f_type as u64, flags).map_err(|reason| {
+        classify_directory(fs.f_type as u64, flags, xfs_geometry(fd)).map_err(|reason| {
             eprintln!("sandbox directory refused: {reason}");
             EACCES
         })
@@ -397,8 +406,8 @@ mod tests {
             0x1cd1,
         ] {
             for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
-                let reason =
-                    classify_directory(magic, flags).expect_err("unverified filesystem allowed");
+                let reason = classify_directory(magic, flags, Err(ENOTTY))
+                    .expect_err("unverified filesystem allowed");
                 assert!(
                     reason.contains(&format!("{magic:#x}")),
                     "missing filesystem magic: {reason}"
@@ -409,22 +418,52 @@ mod tests {
 
     #[test]
     fn review_filesystem_classifier_requires_flags_for_casefold_capable_filesystems() {
-        // ext2/3/4, f2fs, tmpfs: unsupported GETFLAGS is not evidence of safety.
-        for magic in [0xef53, 0xf2f5_2010, 0x0102_1994] {
-            assert!(classify_directory(magic, Ok(0)).is_ok());
+        // ext2/3/4, f2fs, tmpfs, bcachefs require verified inode flags.
+        for magic in [0xef53, 0xf2f5_2010, 0x0102_1994, 0xca45_1a4e] {
+            assert!(classify_directory(magic, Ok(0), Err(ENOTTY)).is_ok());
             for flags in [Ok(0x4000_0000), Err(ENOTTY), Err(EOPNOTSUPP), Err(EIO), Err(EACCES)] {
-                let reason =
-                    classify_directory(magic, flags).expect_err("unverified flags allowed");
+                let reason = classify_directory(magic, flags, Err(ENOTTY))
+                    .expect_err("unverified flags allowed");
                 assert!(reason.contains(&format!("{magic:#x}")));
             }
         }
-        // XFS, Btrfs, overlayfs, ZFS, bcachefs have no supported per-directory
-        // casefold mode here. They must not require an unsupported flags ioctl.
-        for magic in [0x5846_5342, 0x9123_683e, 0x794c_7630, 0x2fc1_2fc1, 0xca45_1a4e] {
-            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
-                assert!(classify_directory(magic, flags).is_ok(), "supported magic {magic:#x}");
+        // Btrfs has no casefold support and needs neither ioctl.
+        assert!(classify_directory(0x9123_683e, Err(ENOTTY), Err(ENOTTY)).is_ok());
+    }
+
+    #[test]
+    fn review_filesystem_xfs_requires_verified_case_sensitive_geometry() {
+        for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
+            assert!(classify_directory(0x5846_5342, flags, Ok(0)).is_ok());
+            assert!(classify_directory(0x5846_5342, flags, Ok(0x10)).is_ok());
+            for geometry in [Ok(0x1000), Ok(0x1010), Err(ENOTTY), Err(EIO), Err(EACCES)] {
+                let reason = classify_directory(0x5846_5342, flags, geometry)
+                    .expect_err("ascii-ci or unverified XFS geometry allowed");
+                assert!(reason.contains("0x58465342"));
             }
         }
+    }
+
+    #[test]
+    fn review_filesystem_overlay_and_zfs_lookup_semantics_are_unverifiable() {
+        for (magic, explanation) in [(0x794c_7630, "layer"), (0x2fc1_2fc1, "dataset")] {
+            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
+                let reason = classify_directory(magic, flags, Ok(0))
+                    .expect_err("unverified overlay or dataset lookup semantics allowed");
+                assert!(reason.contains(&format!("{magic:#x}")));
+                assert!(reason.contains(explanation), "missing lookup explanation: {reason}");
+            }
+        }
+    }
+
+    #[test]
+    fn review_filesystem_real_tmpfs_directory_remains_supported() {
+        let fd = open_at(AT_FDCWD, "/dev/shm", O_RDONLY | O_DIRECTORY, 0).unwrap();
+        let mut fs: statfs = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { fstatfs(fd.as_raw_fd(), &mut fs) }, 0);
+        assert_eq!(fs.f_type as u64, 0x0102_1994, "runner /dev/shm must be tmpfs");
+        classify_directory(fs.f_type as u64, directory_flags(fd.as_raw_fd()), Err(ENOTTY))
+            .expect("real tmpfs directory must be supported");
     }
 
     #[test]
@@ -439,7 +478,7 @@ mod tests {
         } else {
             Err(error())
         };
-        classify_directory(fs.f_type as u64, flags)
+        classify_directory(fs.f_type as u64, flags, xfs_geometry(fd.as_raw_fd()))
             .expect("runner fixture filesystem must be supported");
         let path = format!("{}/ordinary", fixture.0.display());
         let resolved =
