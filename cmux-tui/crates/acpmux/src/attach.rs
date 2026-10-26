@@ -3,8 +3,8 @@
 //! should, we need to improve ACP Mux.").
 //!
 //! The sender ([`blocks_from_paths`]: `acpmux send --attach`, cmux-subsessions `send_message`)
-//! adds each file to the prompt as a block marked `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an `image` block,
-//! any other file as an embedded `resource`. The prompt then goes as every prompt goes (direct,
+//! adds each file to the prompt as a block marked `_meta.acpmux.attachment {name}`: an image
+//! (its type read from its bytes) as an `image` block, any other file as an embedded `resource`. The prompt then goes as every prompt goes (direct,
 //! through the outbox, or whole over the peer link), so the send rules, the prompt id's run-once
 //! ledger and the `--from` provenance are those of any message.
 //!
@@ -365,6 +365,16 @@ impl Drop for Saved {
             Err(_) => remove(),
         }
     }
+}
+
+/// The refusal for a peer on a build that would not save the files.
+pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
+    let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+    let message = format!(
+        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux host update {}`",
+        peer.name, peer.name
+    );
+    refused("attach.unsupported", message)
 }
 
 /// A `file://` URI for a saved file, percent-encoded.
