@@ -69,12 +69,31 @@ jobs:
         cmux app scheme compile (Debug)
         cmux-next Release compile (Xcode 26)
     steps:
+      # The source-run reads below (run, jobs, artifact, compares) go through the
+      # manaflow-glaeda-route App's own budget, read-only, not the GITHUB_TOKEN
+      # budget every workflow in the repository shares: that one was spent when
+      # these publishers started on 2026-10-26 (runs 40258137182, 40293667155,
+      # 40298877772 failed in "Resolve the source run" with "API rate limit
+      # exceeded for installation"). No App (a fork) or a failed mint leaves it
+      # empty, and GITHUB_TOKEN reads as before.
+      - name: Mint the source-run read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       # SOURCE_SHA is the commit the source run built: a dev daily run of
       # cmux-next.yml on feat-cmux-next whose name carries the SHA it was asked
       # for (cmux-next.yml fails a run whose checkout is not that SHA).
       - name: Resolve the source run
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -101,7 +120,7 @@ jobs:
       - name: Require a successful app-producing job
         id: source-gate
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -124,7 +143,7 @@ jobs:
         id: source-artifact
         if: steps.source-gate.outputs.eligible == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -180,7 +199,7 @@ jobs:
         env:
           APP_PATH: ${{ steps.unpack.outputs.app }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ secrets.NIGHTLY_SPARKLE_PRIVATE_KEY }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.read-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -380,7 +399,8 @@ jobs:
       group: cmux-next-dev-daily
       cancel-in-progress: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    # Room for one wait of up to an hour for the API budget's reset (below).
+    timeout-minutes: 75
     permissions:
       contents: write
     env:
@@ -400,6 +420,28 @@ jobs:
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sign job gave no source SHA" >&2; exit 1; }
           cp "signed-handoff/$APP_ARCHIVE_NAME" "$RUNNER_TEMP/$APP_ARCHIVE_NAME"
           (cd signed-handoff && shasum -a 256 "$APP_ARCHIVE_NAME") > "$RUNNER_TEMP/$APP_ARCHIVE_NAME.sha256"
+
+      # The release writes need contents: write, which only GITHUB_TOKEN has here,
+      # and GITHUB_TOKEN's budget is shared by every workflow (run 40243784267
+      # failed its asset upload with "API rate limit exceeded for installation").
+      # One bounded wait, not a poll: when fewer than 30 calls are left, wait for
+      # the reset, at most an hour (scripts/ci/gh_budget_wait.sh --reserve, #25434,
+      # which main does not carry yet). Reading /rate_limit costs nothing.
+      - name: Wait for the API budget before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          left="$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null || echo "")"
+          [[ "$left" =~ ^[0-9]+$ ]] || exit 0
+          (( left >= 30 )) && exit 0
+          now="$(date +%s)"
+          reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+          [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+          wait=$(( reset > now ? reset - now + 5 : 60 ))
+          (( wait > 3600 )) && wait=3600
+          echo "::notice title=GitHub API budget::$left calls left; waiting ${wait}s for the reset before publishing"
+          sleep "$wait"
 
       - name: Publish the rolling GitHub prerelease
         env:
