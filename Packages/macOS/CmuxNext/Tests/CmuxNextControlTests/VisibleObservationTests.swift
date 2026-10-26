@@ -209,7 +209,9 @@ import Testing
         harness.stop(watch)
     }
 
-    @Test func aPersonFlushOutsideThePassRunsInTheVisibleClass() {
+    /// The rest of a person's action (p06-scheduler-208): a person flush the pass did not reach
+    /// runs as userBlocking, not visible.
+    @Test func aPersonFlushOutsideThePassRunsInTheUserBlockingClass() {
         let harness = Harness(own: .visible)
         var classes: [MainWorkClass?] = []
         let watch = harness.watch { classes.append(harness.work.budget.board.running?.workClass) }
@@ -217,8 +219,8 @@ import Testing
         #expect(harness.work.causes.personPendingCount == 1)
         harness.frame()
         #expect(harness.applied == [0, 1])
-        #expect(classes == [nil, .visible])
-        #expect(harness.work.causes.flushPersonCaused() == 0, "the visible flush left the pass nothing")
+        #expect(classes == [nil, .userBlocking])
+        #expect(harness.work.causes.flushPersonCaused() == 0, "the userBlocking flush left the pass nothing")
         harness.stop(watch)
     }
 
@@ -234,8 +236,9 @@ import Testing
     }
 
     /// 500 rows an agent made dirty, then one person change of each row's property: the pass stops
-    /// at the visible + automation shares (3.5 ms), and the rest follow in the visible class.
-    @Test func thePassStopsAtItsCapAndTheVisibleClassAppliesTheRest() {
+    /// at the visible + automation shares (3.5 ms), and the rest follow in the userBlocking class,
+    /// capped at the same shares a frame.
+    @Test func thePassStopsAtItsCapAndTheUserBlockingClassAppliesTheRest() {
         let harness = Harness(own: .visible)
         var applied = 0
         let watches = (0..<500).map { _ in

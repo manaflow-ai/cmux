@@ -41,10 +41,18 @@ final class MainDeadlineRig {
         if let date = timer.armedDate { uptime.now = max(uptime.now, date) }
         timer.armedDate = nil
         queue.fire()
+        frame()
+    }
+
+    /// One display frame with no wake: runs the posted work only (an observation's flush), uptime unmoved.
+    func frame() {
         budgetClock.now += 17_000_000
         frames += 1
         work.frameDidFire(timestamp: frames, refreshInterval: 1.0 / 60)
     }
+
+    /// Whether a wake is armed (a pending deadline).
+    var hasArmedWake: Bool { timer.armedDate != nil }
 }
 
 /// Keeps the date the queue armed; the test fires the queue itself.

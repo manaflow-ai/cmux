@@ -7,7 +7,9 @@ p02-threads machine queues (plans/cmux-next/chrome-parity/p02-threads.md section
 the hook refuses. The rules model Chromium's blocking discipline: base/threading/scoped_blocking_call.h (a blocking
 call is marked and may not run on the UI thread) and base/threading/thread_restrictions.h (the reviewed allow list).
 
-Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc, and the
+Rules: main-blocking, raw-blocking, pool-blocking, raw-blocking-ext, maybe-main-blocking, task-priority, thread-doc,
+once-blocking (p02-threads-122: a blocking call in a static, lazy or global initializer, MQ-22),
+awaited-low-priority (p02-threads-113: a low-priority task whose value main-actor code awaits; MQ-19), and the
 inventory's own cpu-intensive (p02-threads-121: a raw JSON, property list, image, compression or regex call whose isolation,
 as the hit reports it, is main, instead of its size-gated seam; MQ-18). The hook gives a raw primitive that surely runs on
 main to main-blocking only (one refusal per line); the inventory lists each line under every rule it breaks, so
@@ -44,6 +46,15 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
   threading-inventory.py --rule raw-blocking-ext --group module --max-hits 25   # MQ-16
   threading-inventory.py --rule sync-inversion --jsonl                          # MQ-8
+  threading-inventory.py --rule once-blocking --jsonl                           # MQ-22
+  threading-inventory.py --rule awaited-low-priority                            # MQ-19
+  threading-inventory.py --task-graph plans/cmux-next/chrome-parity/design-result.json --program p02-threads
+
+--task-graph (p02-threads-110) expands each task's file list at REV (files, folders, globs, `{a,b}` lists, ranges such
+as p02-threads-060..101 split by module as section 9 lists them, and machine-queue placeholders resolved to the files
+with hits of the queue's rule) and prints, for every file more than one task touches, {file, tasks, resolution}: the
+depends_on edges that order its tasks (by task id; directory-wide tasks after the tasks that name the file) so each
+file has one owner per wave, a wave being a dependency level. It reads the plan file and git objects only.
 
 Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
 caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
@@ -56,6 +67,7 @@ import sys
 sys.dont_write_bytecode = True  # importing guardrails and its siblings must not write __pycache__
 
 import argparse
+import bisect
 import collections
 import fnmatch
 import importlib.util
@@ -303,6 +315,8 @@ RULES: dict[str, Callable[[list, collections.Counter], list]] = {
     "thread-doc": guardrails_rule("thread-doc"),
     "cpu-intensive": cpu_intensive,
     "sync-inversion": sync_inversion,
+    "once-blocking": guardrails_rule("once-blocking"),
+    "awaited-low-priority": guardrails_rule("awaited-low-priority"),
 }
 # Rules that read the whole tree beside the judged files (sync-inversion: queue declarations and call sites).
 TREE_RULES = {"sync-inversion"}
@@ -314,6 +328,8 @@ LOCATORS = {
     "raw-blocking-ext": re.compile(g.RAW_BLOCKING_EXT.pattern + r"|(?<![\w$])\w+[?!]?\.(" + g.FILE_OPS + r")\("),
     "cpu-intensive": CPU_INTENSIVE,
     "sync-inversion": re.compile(SYNC_WAIT.pattern + "|" + GLOBAL_SYNC_WAIT.pattern),
+    "once-blocking": re.compile(g.MAIN_SCAN.pattern.pattern + "|" + g.RAW_BLOCKING_EXT.pattern),
+    "awaited-low-priority": g.LOW_TASK,
 }
 DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING
@@ -703,8 +719,8 @@ def file_change(path: str, text: str):
                         base_lines=[], is_new=True)
 
 
-def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> list[tuple[str, object]]:
-    """[(rule, guardrails hit)] over the matching files, each rule judging every line against the empty tree."""
+def load_context(tree: Tree) -> None:
+    """Point guardrails' blocking context (threading doc, manifest, UI targets) at TREE."""
     texts: dict[tuple[str, str], str] = {}
     rev = "inventory"
     if tree.threading_doc is not None:
@@ -712,6 +728,11 @@ def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> lis
     if tree.manifest is not None:
         texts[(rev, g.PACKAGE_MANIFEST)] = tree.manifest
     g.load_blocking_context(texts, rev)
+
+
+def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> list[tuple[str, object]]:
+    """[(rule, guardrails hit)] over the matching files, each rule judging every line against the empty tree."""
+    load_context(tree)
     targets = g.swift_scope.package_targets(tree.manifest or "")
     changes = []
     for path in sorted(tree.sources):
@@ -1109,6 +1130,428 @@ def group_by_root(tree: Tree, hits: list[Hit], max_hits: int) -> list[tuple[str,
     return out
 
 
+# ---------------------------------------------------------------- task graph (p02-threads-110)
+#
+# --task-graph reads the plan's tasks (design-result.json), expands each file list at REV and orders the tasks that
+# share a file so that every file has one owner per wave. A wave is a dependency level: a task runs once everything
+# it depends on has landed, so a chain of depends_on edges through a file's tasks puts each in its own wave.
+
+QUEUE_RULES = {  # p02-threads.md section 6: the inventory rule behind each machine queue
+    "MQ-1": "raw-blocking", "MQ-2": "main-blocking", "MQ-3": "pool-blocking", "MQ-4": "maybe-main-blocking",
+    "MQ-5": "task-priority", "MQ-8": "sync-inversion", "MQ-9": "thread-doc", "MQ-16": "raw-blocking-ext",
+    "MQ-18": "cpu-intensive", "MQ-19": "awaited-low-priority", "MQ-22": "once-blocking",
+}
+MQ7_EXCLUDE = ("*/CmuxNextCompat/Threading/*", "*/CmuxNextCompat/NSWorkspace+Background.swift")
+
+
+@dataclass(frozen=True)
+class Pattern:
+    """The lines a placeholder stands for where the plan names a pattern instead of a rule (INV-2, INV-5)."""
+    regex: str
+    exclude: tuple[str, ...] = ()  # fnmatch globs (`*` crosses folders)
+
+
+TASK_HITS: dict[str, str | Pattern] = {  # placeholders whose task is narrower than its queue
+    # 036 owns every lock file (the design's 20); which locks become Mutex is its own judgement.
+    "p02-threads-036": Pattern(r"\bOSAllocatedUnfairLock\b|\bNSLock\(|\bNSRecursiveLock\b",
+                               ("*/CmuxNextWakeups/*", "*/CmuxNextCompat/*")),
+    "p02-threads-054..055": Pattern(r"SecItem(CopyMatching|Add|Update|Delete)\(|SecTrustEvaluate|"
+                                    r"SecStaticCodeCheckValidity|SecCodeCopy|AuthorizationCopyRights", MQ7_EXCLUDE),
+    "p02-threads-056": Pattern(r"NSWorkspace\.shared\.(urlForApplication|urlsForApplications|icon\()", MQ7_EXCLUDE),
+    "p02-threads-057": Pattern(r"NSWorkspace\.shared\.(open\(|activateFileViewerSelecting|selectFile)",
+                               ("*/NSWorkspace+Background.swift",)),
+    "p02-threads-059": Pattern(r"AXUIElement(Copy|PerformAction|SetAttributeValue)|getaddrinfo\(|"
+                               r"CGWindowList(Copy|Create)|SCShareableContent|LSCopy", MQ7_EXCLUDE),
+}
+
+# p02-threads.md section 9 (041-045, 047-052, 060-101, 141-144, 213-218): the files each id of a range takes, in id
+# order, as (ids, selector). A selector's tokens are Swift modules without the CmuxNext prefix, `Module:glob` for some
+# of a module's files, `First..Last` for the modules from First to Last (and those Last prefixes), or a path glob (a
+# token with a `/`; `*` crosses folders) for files outside the Swift modules. `*` takes the files no other selector of
+# the range takes, `**` all of them. A file goes to the first selector that takes it. Several ids split their files in
+# path order. expand_tasks reports the files no selector takes, and a range not listed here, which splits all its
+# files in path order.
+TUI = "cmux-tui/crates/"
+TUI_CORE = TUI + "cmux-tui-core/src/"
+SPAWN_CRATES = ("cmux-browser-host", "cmux-remote-browser-host", "cmux-tui-cdp", "cmux-host", "cmux-holder", "cmux-pty",
+                "cmux-process", "cmux-git", "cmux-tasks", "cmux-config", "acpmux")
+RANGE_PARTS: dict[str, list[tuple[int, str]]] = {
+    "p02-threads-041..045": [
+        (1, "HomeEngine Pages ImportCards"), (1, "AgentPane MacScreen ComputerUse Mobile RemoteViewSessions"),
+        (1, "Browser..Daemon"), (2, "App")],
+    "p02-threads-213..218": [  # 216 also takes the crate root, where its deny attribute goes
+        (1, f"{TUI_CORE}server*"),
+        (1, " ".join(f"{TUI_CORE}{name}*" for name in ("mux", "surface", "resource_router"))),
+        (1, " ".join(f"{TUI_CORE}{name}*" for name in ("journal", "chief_brains", "browser", "state",
+                                                       "provider_management", "apps"))),
+        (1, " ".join(f"{TUI_CORE}{name}" for name in ("lib.rs", "terminal_host_runtime*", "holder_runtime*",
+                                                      "terminal_backend*", "shell_integration*"))),
+        (1, f"{TUI}cmux-tui/src/*"),
+        (1, " ".join(f"{TUI}{crate}/src/*" for crate in SPAWN_CRATES))],
+    "p02-threads-141..144": [
+        (1, "App"), (1, "AgentPane HomeEngine"), (1, "Control Daemon ComputerUse Wakeups Cloud Design DesignTokens"),
+        (1, "*")],
+    "p02-threads-047..052": [
+        (1, "AgentPane"), (1, "HomeEngine Home"), (1, "App"),
+        (1, "Browser BrowserImport BrowserCore BrowserAutomation Design"),
+        (1, "Daemon DaemonService Mobile Remote Cloud Settings MacScreen"), (1, "*")],
+    "p02-threads-060..101": [
+        (1, "AgentPane:Acpmux*.swift AgentPane:AgentChatPullRequestReader.swift"), (3, "AgentPane"),
+        (4, "HomeEngine"), (7, "App"), (2, "BrowserImport"), (2, "Updater"), (2, "Browser"), (1, "Design"),
+        (1, "Files"), (1, "Daemon"), (1, "Mobile"), (1, "Diff"), (1, "Onboarding"), (1, "Cloud"), (1, "Control"),
+        (1, "Settings"), (1, "Phone"), (1, "ChromiumRuntime CLIInstall"), (1, "Pages Home"),
+        (1, "BrowserAutomation BrowserCore"), (1, "CrashReporting HangReports ErrorJournal"), (1, "Terminal Remote"),
+        (1, "DesignTokens Palette FilesUI Icons FileGrid"),
+        (1, "ImportSuggestions ImportCards Bookmarks History Screenshots"),
+        (1, "Wakeups Apps MobileHost ComputerUse ServerHelper"),
+        (1, "RemoteBrowser HostedChief NowPlaying MacScreen AgentActivity DaemonService"), (1, "*"), (1, "**")],
+}
+RANGE_ID = re.compile(r"^(?P<prefix>.*-)(?P<first>\d+)\.\.(?P<last>\d+)$")
+
+
+@dataclass
+class TaskUnit:
+    """One task of the graph: a plan task, or one id of a plan range (`p02-threads-060..101`)."""
+    id: str
+    entry: str  # the plan task it came from
+    files: dict[str, bool]  # path -> directory-wide (from a directory or a placeholder, not named)
+    depends_on: set[str]
+
+
+@dataclass
+class TaskGraph:
+    units: dict[str, TaskUnit]
+    shared: list[tuple[str, list[str], list[tuple[str, str]]]]  # (file, owners in order, new (task, depends_on))
+    waves_before: dict[str, int]
+    waves_after: dict[str, int]
+    unresolved: list[tuple[str, str, str]]  # (task, entry, note) the tool could not read exactly
+    unknown_dependencies: list[tuple[str, str]]  # (task, dependency) not in the task set
+
+
+def plan_tasks(document, programs: list[str] | None) -> list[dict]:
+    """The tasks of a design-result.json ({programs: {name: {tasks}}}), a {tasks: [...]} or a bare list."""
+    if "programs" not in document:
+        if programs:
+            raise ValueError("--program needs a plan with programs (design-result.json)")
+        return document if isinstance(document, list) else list(document.get("tasks", []))
+    unknown = sorted(set(programs or ()) - set(document["programs"]))
+    if unknown:
+        raise ValueError(f"no program {', '.join(unknown)} in the plan (it has {', '.join(document['programs'])})")
+    return [task for name, program in document["programs"].items()
+            if not programs or name in programs for task in program.get("tasks", [])]
+
+
+def range_ids(task_id: str) -> list[str]:
+    match = RANGE_ID.match(task_id)
+    if match is None:
+        return [task_id]
+    width = len(match["first"])
+    return [f"{match['prefix']}{n:0{width}d}" for n in range(int(match["first"]), int(match["last"]) + 1)]
+
+
+def module_name(short: str) -> str:
+    return short if short.startswith("CmuxNext") else f"CmuxNext{short}"
+
+
+def token_matches(token: str, path: str) -> bool:
+    """One selector token (see RANGE_PARTS) against a repo path."""
+    if "/" in token:
+        return fnmatch.fnmatchcase(path, token)
+    module = g.module_of(path)
+    if not module.startswith("CmuxNext"):
+        return False
+    if ".." in token:
+        first, _, last = token.partition("..")
+        short = module[len("CmuxNext"):]
+        return first <= short and (short <= last or short.startswith(last))
+    name, _, glob = token.partition(":")
+    return module == module_name(name) and (not glob or fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], glob))
+
+
+def selector_matches(selector: str, path: str) -> bool:
+    return any(token_matches(token, path) for token in selector.split())
+
+
+def split_by_weight(files: list[str], weights: dict[str, int], parts: int) -> list[list[str]]:
+    """FILES in path order cut into PARTS runs of about equal weight; a file is never split."""
+    out: list[list[str]] = [[] for _ in range(parts)]
+    total = sum(weights.get(f, 1) for f in files)
+    done = 0
+    for path in sorted(files):
+        out[min(parts - 1, done * parts // total)].append(path)
+        done += weights.get(path, 1)
+    return out
+
+
+def split_range(ids: list[str], files: dict[str, int],
+                parts: list[tuple[int, str]] | None) -> tuple[list[list[str]], list[str]]:
+    """The files (path -> weight) of a range task, one list per id, by PARTS when the plan names them (else in path
+    order), and the files no part takes."""
+    if parts is None:
+        return split_by_weight(list(files), files, len(ids)), []
+    if sum(count for count, _ in parts) != len(ids):
+        raise ValueError(f"RANGE_PARTS of {ids[0]}..: {sum(c for c, _ in parts)} ids, the plan has {len(ids)}")
+    claimed: dict[int, list[str]] = collections.defaultdict(list)
+    rest = next((i for i, (_, selector) in enumerate(parts) if selector == "*"), None)
+    every = [i for i, (_, selector) in enumerate(parts) if selector == "**"]
+    orphans: list[str] = []
+    for path in sorted(files):
+        owner = next((i for i, (_, selector) in enumerate(parts)
+                      if selector not in ("*", "**") and selector_matches(selector, path)), rest)
+        if owner is None and not every:
+            orphans.append(path)
+        for i in ([owner] if owner is not None else []) + every:
+            claimed[i].append(path)
+    out: list[list[str]] = []
+    for i, (count, _) in enumerate(parts):
+        out += split_by_weight(claimed[i], files, count) if claimed[i] else [[] for _ in range(count)]
+    return out, orphans
+
+
+def orphan_note(orphans: list[str]) -> str:
+    """Names the modules (or, outside Swift modules, the folders) of the files no part of a range takes."""
+    places = sorted({g.module_of(p) or p.rsplit("/", 1)[0] + "/" for p in orphans})
+    shown = ", ".join(places[:12]) + (f" and {len(places) - 12} more" if len(places) > 12 else "")
+    return f"{len(orphans)} files no part of the range names, left without an owner of the range: {shown}"
+
+
+class Expander:
+    """A task's file entries at one revision: files, folders, globs and the placeholders the inventory resolves."""
+
+    def __init__(self, tree: Tree, listing: list[str]):
+        self.tree = tree
+        self.listing = sorted(listing)
+        self.paths = set(listing)
+        self.cache: dict[str | Pattern, collections.Counter | None] = {}
+
+    def under(self, folder: str) -> list[str]:
+        prefix = folder.rstrip("/") + "/"
+        start = bisect.bisect_left(self.listing, prefix)
+        return self.listing[start:bisect.bisect_left(self.listing, prefix[:-1] + "0", start)]  # "0" follows "/"
+
+    def hits(self, finder: str | Pattern) -> collections.Counter | None:
+        """Hits per file of an inventory rule or a Pattern; None for a rule this inventory does not have."""
+        if finder not in self.cache:
+            self.cache[finder] = (self.pattern_hits(finder) if isinstance(finder, Pattern) else
+                                  collections.Counter(hit.path for _, hit in judge(self.tree, [finder], lambda p: True))
+                                  if finder in RULES else None)
+        return self.cache[finder]
+
+    def pattern_hits(self, pattern: Pattern) -> collections.Counter:
+        regex = re.compile(pattern.regex)
+        found: collections.Counter = collections.Counter()
+        for path, text in self.tree.sources.items():
+            if any(fnmatch.fnmatchcase(path, glob) for glob in pattern.exclude) or not regex.search(text):
+                continue
+            found[path] = sum(1 for line in text.split("\n") if regex.search(g.code_of(line)))
+        return +found  # a match only in a comment or a string is no hit
+
+    def entry(self, entry: str, finders: list[str | Pattern]) -> tuple[dict[str, tuple[bool, int]], str | None]:
+        """({path: (directory-wide, weight)}, note) for one entry of a task's file list. The note says what the tool
+        could not read exactly: a placeholder no rule resolves takes its whole folder; prose or a branch, nothing.
+        Besides its first word, every path of the listing the entry's prose names counts (`A/ and B/ packages`)."""
+        token, _, note = entry.strip().partition(" ")
+        note = note.strip()
+        files: dict[str, tuple[bool, int]] = {}
+        whole: list[str] = []
+        for word in [token, *(w for w in self.paths_in(note) if w != token)]:
+            expanded, wide = self.word(word, note, finders)
+            files.update(expanded)
+            if wide:
+                whole.append(word)
+        if whole:
+            return files, f"no rule for the placeholder: the whole folder of {', '.join(whole)}"
+        return files, None if files else "no path"
+
+    def paths_in(self, prose: str) -> list[str]:
+        """The words of PROSE that are a file or a folder of the listing."""
+        words = (w.strip("()[],;:`'\"") for w in prose.split())
+        return list(dict.fromkeys(w for w in words if "/" in w and (w in self.paths or self.under(w))))
+
+    def word(self, word: str, note: str, finders: list[str | Pattern]) -> tuple[dict[str, tuple[bool, int]], bool]:
+        """The files of one path word of an entry, and whether it took its whole folder for want of a rule."""
+        if "<" in word or (note and (word.endswith("/") or self.under(word)) and word not in self.paths):
+            folder = word.split("<", 1)[0]
+            found = self.placeholder(folder, finders)
+            if found is not None:
+                return found, False
+            return {p: (True, 1) for p in self.under(folder)}, True
+        return self.literal(word, note), False
+
+    def literal(self, token: str, note: str) -> dict[str, tuple[bool, int]]:
+        if "{" in token:
+            head, _, rest = token.partition("{")
+            names, _, tail = rest.partition("}")
+            out: dict[str, tuple[bool, int]] = {}
+            for name in names.split(","):
+                out.update(self.literal(head + name + tail, note))
+            return out
+        if any(c in token for c in "*?["):
+            return {p: (False, 1) for p in self.listing if fnmatch.fnmatchcase(p, token)}
+        if token in self.paths:
+            return {token: (False, 1)}
+        if token.endswith("/") or self.under(token):
+            return {p: (True, 1) for p in self.under(token)} or {token: (True, 1)}
+        if "/" in token and note in ("", "(new)"):
+            return {token: (False, 1)}  # a file the task creates
+        return {}
+
+    def placeholder(self, folder: str, finders: list[str | Pattern]) -> dict[str, tuple[bool, int]] | None:
+        """The files under FOLDER with hits of FINDERS (weight: the hits), or None when one has no rule here."""
+        counts = [self.hits(finder) for finder in finders]
+        if not counts or any(c is None for c in counts):
+            return None
+        total: collections.Counter = sum(counts, collections.Counter())
+        return {p: (False, n) for p, n in total.items() if p.startswith(folder)}
+
+
+def task_finders(task: dict) -> list[str | Pattern]:
+    if task["id"] in TASK_HITS:
+        return [TASK_HITS[task["id"]]]
+    queues = re.findall(r"MQ-\d+", task.get("machine_queue") or "")
+    return [QUEUE_RULES.get(q, q) for q in queues]
+
+
+def expand_tasks(tasks: list[dict], expander: Expander) -> tuple[dict[str, TaskUnit], list[tuple[str, str, str]]]:
+    """One unit per task id (each id of a range is a module sweep, so directory-wide), and the entries the expander
+    could not read exactly as (task, entry, note)."""
+    units: dict[str, TaskUnit] = {}
+    unresolved: list[tuple[str, str, str]] = []
+    aliases = {task["id"]: range_ids(task["id"]) for task in tasks}
+    for task in tasks:
+        finders = task_finders(task)
+        files: dict[str, tuple[bool, int]] = {}
+        for entry in task.get("files", []):
+            expanded, note = expander.entry(entry, finders)
+            files.update(expanded)
+            if note:
+                unresolved.append((task["id"], entry, note))
+        deps = {d for dep in task.get("depends_on") or [] for d in aliases.get(dep, [dep])}
+        ids = aliases[task["id"]]
+        if len(ids) == 1:
+            units[task["id"]] = TaskUnit(task["id"], task["id"], {p: wide for p, (wide, _) in files.items()}, deps)
+            continue
+        weights = {p: weight for p, (_, weight) in files.items()}
+        parts = RANGE_PARTS.get(task["id"])
+        split, orphans = split_range(ids, weights, parts)
+        if parts is None and files:
+            unresolved.append((task["id"], "(range)", "no RANGE_PARTS row: its files split in path order"))
+        if orphans:
+            unresolved.append((task["id"], "(range)", orphan_note(orphans)))
+        for unit_id, paths in zip(ids, split):
+            units[unit_id] = TaskUnit(unit_id, task["id"], dict.fromkeys(paths, True), set(deps))
+    return units, unresolved
+
+
+def depends_on_all(deps: dict[str, set[str]], task: str) -> set[str]:
+    """Every task TASK waits for, directly or through others."""
+    seen: set[str] = set()
+    stack = [task]
+    while stack:
+        for dep in deps.get(stack.pop(), ()):
+            if dep not in seen:
+                seen.add(dep)
+                stack.append(dep)
+    return seen
+
+
+def waves(deps: dict[str, set[str]]) -> dict[str, int]:
+    """Each task's dependency level: 0 without dependencies, else one more than its latest dependency."""
+    waiting = {task: set(ds) for task, ds in deps.items()}
+    dependents: dict[str, list[str]] = collections.defaultdict(list)
+    for task, ds in deps.items():
+        for dep in ds:
+            dependents[dep].append(task)
+    ready = [task for task, ds in waiting.items() if not ds]
+    level = dict.fromkeys(ready, 0)
+    while ready:
+        done = ready.pop()
+        for task in dependents[done]:
+            waiting[task].discard(done)
+            if not waiting[task]:
+                level[task] = 1 + max(level[d] for d in deps[task])
+                ready.append(task)
+    if len(level) < len(deps):
+        raise ValueError(f"depends_on cycle among {', '.join(sorted(t for t in deps if t not in level))}")
+    return level
+
+
+def shared_per_wave(units: dict[str, TaskUnit], level: dict[str, int]) -> int:
+    """(wave, file) pairs with more than one owner."""
+    owners = collections.Counter((level[u.id], path) for u in units.values() for path in u.files)
+    return sum(1 for n in owners.values() if n > 1)
+
+
+def owner_order(members: list[str], directory_wide: dict[str, bool], deps: dict[str, set[str]]) -> list[str]:
+    """MEMBERS in the order they take a file: by task id, directory-wide tasks after those that name the file, and
+    never before a task they already wait for."""
+    waits = {m: depends_on_all(deps, m) & set(members) for m in members}
+    order: list[str] = []
+    while len(order) < len(members):
+        ready = [m for m in members if m not in order and waits[m] <= set(order)]
+        order.append(min(ready, key=lambda m: (directory_wide[m], m)))
+    return order
+
+
+def task_graph(units: dict[str, TaskUnit], unresolved: list[tuple[str, str, str]]) -> TaskGraph:
+    """Order the owners of each shared file (owner_order) with depends_on edges, so every file has one owner per
+    wave. The edges follow an order the graph already allows, so they never close a cycle."""
+    unknown = sorted((u.id, d) for u in units.values() for d in u.depends_on if d not in units)
+    deps = {u.id: {d for d in u.depends_on if d in units} for u in units.values()}
+    before = waves(deps)
+    owners: dict[str, list[str]] = collections.defaultdict(list)
+    for unit in units.values():
+        for path in unit.files:
+            owners[path].append(unit.id)
+    shared = []
+    for path in sorted(p for p, members in owners.items() if len(members) > 1):
+        members = sorted(owners[path])
+        order = owner_order(members, {m: units[m].files[path] for m in members}, deps)
+        added = []
+        for earlier, later in zip(order, order[1:]):
+            if earlier not in depends_on_all(deps, later):
+                deps[later].add(earlier)
+                added.append((later, earlier))
+        shared.append((path, order, added))
+    for unit in units.values():
+        unit.depends_on = deps[unit.id] | {d for d in unit.depends_on if d not in units}
+    return TaskGraph(units, shared, before, waves(deps), unresolved, unknown)
+
+
+def build_task_graph(tree: Tree, listing: list[str], document, programs: list[str] | None = None) -> TaskGraph:
+    units, unresolved = expand_tasks(plan_tasks(document, programs), Expander(tree, listing))
+    return task_graph(units, unresolved)
+
+
+def print_task_graph(graph: TaskGraph, jsonl: bool) -> None:
+    before = shared_per_wave(graph.units, graph.waves_before)
+    after = shared_per_wave(graph.units, graph.waves_after)
+    edges = [edge for _, _, added in graph.shared for edge in added]
+    if jsonl:
+        for path, order, added in graph.shared:
+            print(json.dumps({"file": path, "tasks": order,
+                              "resolution": {"depends_on": [list(edge) for edge in added]}}))
+        print(json.dumps({"summary": {
+            "tasks": len(graph.units), "files": len({p for u in graph.units.values() for p in u.files}),
+            "shared_files": len(graph.shared), "new_edges": len(edges),
+            "shared_per_wave": {"before": before, "after": after},
+            "waves": dict(sorted(graph.waves_after.items())),
+            "unresolved": [{"task": t, "entry": e, "note": n} for t, e, n in graph.unresolved],
+            "unknown_dependencies": [{"task": t, "depends_on": d} for t, d in graph.unknown_dependencies]}}))
+        return
+    for path, order, added in graph.shared:
+        resolution = ", ".join(f"{later} after {earlier}" for later, earlier in added) or "already ordered"
+        print(f"{path}: {' '.join(order)} ({resolution})")
+    print(f"== {len(graph.units)} tasks, {len(graph.shared)} shared files, {len(edges)} new depends_on edges; "
+          f"shared files per wave: {before} before, {after} after")
+    for wave in sorted(set(graph.waves_after.values())):
+        print(f"wave {wave}: {' '.join(sorted(t for t, w in graph.waves_after.items() if w == wave))}")
+    for task, entry, note in graph.unresolved:
+        print(f"unresolved {task}: {entry} ({note})")
+    for task, dep in graph.unknown_dependencies:
+        print(f"unknown dependency {task}: {dep}")
+
+
 # ---------------------------------------------------------------- output
 
 
@@ -1134,7 +1577,16 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--jsonl", action="store_true", help="one JSON object per hit (or the counts as JSON)")
     parser.add_argument("--rev", default="HEAD", help="the revision to judge (default HEAD)")
     parser.add_argument("--repo", type=Path, default=None, help="the checkout (default: the one holding the cwd)")
+    parser.add_argument("--task-graph", type=Path, default=None, metavar="TASKS.json",
+                        help="expand the plan's task file lists at REV and print the depends_on edges that leave one "
+                             "owner per file per wave (design-result.json, {tasks: [...]} or a list)")
+    parser.add_argument("--program", action="append", default=None,
+                        help="with --task-graph: only this design-result.json program (repeat; default all)")
     args = parser.parse_args(argv)
+    if args.task_graph is not None and (args.rule or args.paths or args.count or args.group):
+        parser.error("--task-graph takes no --rule, --paths, --count or --group")
+    if args.program and args.task_graph is None:
+        parser.error("--program needs --task-graph")
     rules = [r.strip() for value in (args.rule or []) for r in value.split(",") if r.strip()]
     unknown = [r for r in rules if r not in RULES]
     if unknown:
@@ -1157,7 +1609,18 @@ def repo_root(repo: Path | None) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    tree = read_tree(repo_root(args.repo), args.rev)
+    repo = repo_root(args.repo)
+    tree = read_tree(repo, args.rev)
+    if args.task_graph is not None:
+        listing = g.git(repo, "ls-tree", "-r", "--name-only", args.rev).split("\n")
+        try:
+            graph = build_task_graph(tree, [p for p in listing if p], json.loads(args.task_graph.read_text()),
+                                     args.program)
+        except (OSError, ValueError, RuntimeError) as error:  # unreadable plan, depends_on cycle, RANGE_PARTS mismatch
+            print(f"threading-inventory: {error}", file=sys.stderr)
+            return 2
+        print_task_graph(graph, args.jsonl)
+        return 0
     try:
         hits = inventory(tree, args.rules, path_matcher(args.paths))
     except RuntimeError as error:  # thread-doc without the threading doc at REV

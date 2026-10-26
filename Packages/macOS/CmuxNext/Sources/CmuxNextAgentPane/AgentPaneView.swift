@@ -1,11 +1,10 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextPages
 public import CmuxNextSettings
 import Observation
 import os
-public import WebKit
 public import CmuxNextWakeups
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
@@ -19,7 +18,6 @@ public import CmuxNextWakeups
 public final class AgentPaneView: NSView {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
-    public let webView: WKWebView
     /// Opens a link the user clicked in the transcript with the click's `modifiers`: the shared
     /// link rule (``LinkRouter``, `browser.openLinksInCmuxBrowser`; Shift-Command the other target,
     /// Command alone a background tab), from the pane that shows this chat (set in `init`; never
@@ -32,6 +30,9 @@ public final class AgentPaneView: NSView {
     public let source: AgentPaneSource
     public var customization = AgentPaneCustomization() { didSet { if customization != oldValue { applyCustomization() } } }
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
+    /// The app's blocking-work lanes (`AppServices.work`): a file drag reads the file's icon and an image's
+    /// bytes there (``AgentPaneFileDrag``).
+    let work: any MayBlockRunner
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
     public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
@@ -56,9 +57,10 @@ public final class AgentPaneView: NSView {
     let savePanel = AgentPaneSavePanel()
     /// The app's made-ahead open panel (Add Files, Attach); nil: no file picker (tests).
     private let openPanel: MadeAheadOpenPanel?
-    /// The page view the page host opened, and the provider that answers its calls and carries the
-    /// host's pushes.
-    let page: PageWebView
+    /// The page view the page host opened, in whichever engine shows the chat: the pane reaches the
+    /// page only through its engine-neutral calls (``PageWebView/webKitEngine`` for the WebKit-only
+    /// tools). The provider answers its calls and carries the host's pushes.
+    public let page: PageWebView
     let pageEvents: AgentPageProvider
     let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
@@ -113,6 +115,8 @@ public final class AgentPaneView: NSView {
     ///
     /// - Parameters:
     ///   - model: Answers the page's host requests.
+    ///   - work: The app's blocking-work lanes (`AppServices.work`), for the reads of a file drag; tests pass
+    ///     their own `BackgroundWork`.
     ///   - source: The page to load; nil loads ``bundledPage``.
     ///   - renderRate: How fast the page renders. Adaptive starts at the
     ///     display's full rate and caps it while scrolls miss frames, as they
@@ -125,13 +129,14 @@ public final class AgentPaneView: NSView {
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
     ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
-    public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
+    public init?(model: AgentPaneModel, work: any MayBlockRunner, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
                  webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
                  chatStores: AgentPaneChatStores = .keepsNothing) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
+        self.work = work
         warmup?.agentPageMade()
         let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
@@ -141,7 +146,6 @@ public final class AgentPaneView: NSView {
         else { return nil }
         self.page = page
         pageEvents = provider
-        let webView = page.webKitView
         inputReadiness = page.inputReadiness
         dictation = AgentPaneDictation(input: gestures.input, send: { [weak provider] update in
             if let event = AgentPageEvent.dictation(update), provider?.publish(event) == false {
@@ -150,7 +154,6 @@ public final class AgentPaneView: NSView {
                 if let connection = model.transport.connection { model.transport.close(connection: connection) }
             }
         })
-        self.webView = webView
         super.init(frame: .zero)
         // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
         let keep = page.keepReasons
@@ -159,23 +162,11 @@ public final class AgentPaneView: NSView {
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
         }
-        inputReadiness.attach(webView)
+        // The page host made the page see-through and inspectable, without back-forward or link
+        // preview gestures, and attached its input readiness, in either engine (``PageWebView``).
         attachPage(page)
         applyZoom()
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
-        webView.autoresizingMask = [.width, .height]
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
-        // The page paints its own background with the theme's opacity;
-        // WebKit's opaque backing would hide a translucent window's backdrop.
-        // macOS has no public switch, so this uses WebKit's
-        // `_setDrawsBackground:` SPI through KVC, checked first (as
-        // `WebKitTab` does); without it the pane keeps WebKit's backing.
-        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            webView.setValue(false, forKey: "drawsBackground")
-        }
-        // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
-        webView.isInspectable = true
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in
             guard let self, let openPanel else { return [] }
@@ -320,8 +311,7 @@ public final class AgentPaneView: NSView {
         transportPacer?.stop()
         removeContextMenu()
         page.close()
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
+        page.endDocument()
         removeFromSuperview()
     }
 
@@ -374,8 +364,8 @@ public final class AgentPaneView: NSView {
         deliver([.shortcuts(shortcuts)])
     }
 
-    /// Pushes this view's scope tokens to the page (and to the area WebKit
-    /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
+    /// Pushes this view's scope tokens to the page (and to the area the
+    /// engine shows before the page paints); again when `surfaceKind` changes. The page gets a push
     /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
     /// that just loaded has none). It runs in this view's scope (`performWithTheme`): whether the
     /// window is see-through here comes from that scope's picture and tint, not the app's (a
@@ -388,7 +378,7 @@ public final class AgentPaneView: NSView {
         themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
-        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
+        page.underPageColor = AgentPaneTheme.underPageColor(tokens, surface: surface).nsColor
         themeCrashNotice(tokens)
         otherInstallNotice?.textColor = tokens.textSecondary.nsColor
         themeLoadingState(tokens)

@@ -39,9 +39,13 @@ final class AppControl {
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
+    #if CMUX_PGO_PROFILE
+    /// The profile build's flushes (`LaunchOrder.profileFlush`): `debug.pgo_flush` writes the rest profile.
+    var profileFlush: ProfileFlush?
+    #endif
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
-    private let keySequencePlayer = DebugKeySequencePlayer()
+    private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
+    let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -99,7 +103,7 @@ final class AppControl {
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -110,7 +114,7 @@ final class AppControl {
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
     func startErrorJournal(_ services: AppServices, on router: ControlRouter) {
-        let errors = ErrorJournalService.make(environment: services.environment)
+        let errors = ErrorJournalService.make(environment: services.environment, energy: services.mainWork.energy)
         errors.start()
         errorJournal = errors
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
@@ -156,7 +160,7 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }
-                                               }]).method])
+                                               }], recorders: [hops.start(input: input)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

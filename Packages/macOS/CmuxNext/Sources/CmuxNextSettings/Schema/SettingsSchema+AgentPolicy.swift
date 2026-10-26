@@ -117,6 +117,8 @@ extension SettingsSchema {
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
+        // How a dragged divider is drawn (looks only: snaps and the drop read the real pointer).
+        "input.resampleDrags", "input.resampleFrameAheadMs",
         "ui.animations.newTab",
         "ui.animations.newWorkspace",
         "ui.animations.bounce",
@@ -170,6 +172,8 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
+        // Draws typed characters early over the grid; it never writes to a terminal (p04-input-046).
+        "terminal.predictiveEcho",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",

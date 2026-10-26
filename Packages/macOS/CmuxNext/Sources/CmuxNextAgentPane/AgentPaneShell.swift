@@ -192,7 +192,7 @@ public final class AgentPaneShell {
             let deadline = DemandTimer(owner: "agent-pane.shell.read")
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 run.waiters[token] = continuation
-                deadline.schedule(after: Self.readWait) { @MainActor [weak run] in
+                deadline.scheduleOnMain(after: Self.readWait) { [weak run] in
                     run?.waiters.removeValue(forKey: token)?.resume()
                 }
             }
@@ -214,7 +214,7 @@ public final class AgentPaneShell {
     /// Sends the next of `signals` after ``stopEscalation`` while the command still runs.
     private func escalate(_ run: Run, group: pid_t, signals: [Int32]) {
         guard let signal = signals.first else { return }
-        run.escalation.schedule(after: Self.stopEscalation) { @MainActor [weak self, weak run] in
+        run.escalation.scheduleOnMain(after: Self.stopEscalation) { [weak self, weak run] in
             guard let self, let run, run.exit == nil else { return }
             kill(group, signal)
             self.escalate(run, group: group, signals: Array(signals.dropFirst()))
@@ -253,7 +253,7 @@ public final class AgentPaneShell {
             run.exit = status.map(Self.exit(status:)) ?? Exit()
             run.escalation.cancel()
             if !run.outputClosed {
-                run.drain.schedule(after: Self.drainAfterExit) { @MainActor [weak run] in
+                run.drain.scheduleOnMain(after: Self.drainAfterExit) { [weak run] in
                     guard let run, !run.outputClosed else { return }
                     run.outputClosed = true
                     run.stopReading?()

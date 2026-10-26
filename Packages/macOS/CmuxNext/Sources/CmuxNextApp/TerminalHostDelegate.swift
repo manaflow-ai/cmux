@@ -5,12 +5,17 @@ import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// Handles terminal requests that need the app: Ghostty keybinds for splits,
 /// tabs, and windows, the right-click menu, and links. OSC 9/777/99
 /// notifications come from the daemon, which parses every terminal's output.
 final class TerminalHostDelegate: TerminalSessionDelegate {
     weak var services: AppServices? { didSet { if let services { Self.routeLinks(to: services) } } }
+    /// `terminal.predictiveEcho` (nil: off), followed from the settings (``followPredictiveEcho(_:on:)``):
+    /// every terminal reads it at each key it takes.
+    private var predictiveEcho: TerminalPredictiveEcho.Mode?
+    private var predictiveEchoWatch: FrameObservation<TerminalPredictiveEchoSetting>?
 
     /// A Ghostty keybind (`new_split:right`, `goto_split:left`, ...) runs the
     /// registry action every other entrypoint runs, targeted at this
@@ -29,6 +34,23 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// delivers a key to the terminal (``InputDispatchContext/noteFrameExpected()``).
     func terminalSessionTookKey(_ session: TerminalSession) {
         services?.inputDispatch.noteFrameExpected()
+    }
+
+    /// Off makes no prediction engine (p04-input-046).
+    func terminalSessionPredictiveEcho(_ session: TerminalSession) -> TerminalPredictiveEcho.Mode? { predictiveEcho }
+
+    /// The tab's daemon is another machine's (a Cloud machine, another Mac).
+    func terminalSessionIsRemote(_ session: TerminalSession) -> Bool {
+        guard let services, let ref = target(of: session, in: services), let tab = services.cache.tabModel(ref.id) else { return false }
+        return !services.machines.daemon(forTab: tab).isLocal
+    }
+
+    /// Follows `terminal.predictiveEcho` from `settings`: one apply per change.
+    func followPredictiveEcho(_ settings: SettingsController, on work: MainWorkScheduler) {
+        predictiveEcho = TerminalPredictiveEcho.Mode(setting: settings.snapshot.terminalPredictiveEcho.rawValue)
+        predictiveEchoWatch = FrameObservation(owner: "terminal.predictiveEcho", delivery: .automation, on: work) {
+            settings.snapshot.terminalPredictiveEcho
+        } onChange: { [weak self] setting in self?.predictiveEcho = TerminalPredictiveEcho.Mode(setting: setting.rawValue) }
     }
 
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked

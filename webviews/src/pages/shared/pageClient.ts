@@ -66,6 +66,13 @@ export interface PageClient {
   ): Promise<() => void>;
   /** Serves an op the host calls on the page (both peers may call). Returns the unregister function. */
   handle(op: string, handler: PageHandler): () => void;
+  /**
+   * The restore the host handed this document when it came back after a discard
+   * (`takePageRestore`), taken when the client was made, before any page code renders; null (or
+   * absent, for a mock) when the document was not discarded. A page applies `state` to its store
+   * before its first render.
+   */
+  readonly restore?: PageRestore | null;
 }
 
 type Envelope =
@@ -134,6 +141,35 @@ export class PageKeepAlive {
   }
 }
 
+/**
+ * Set by the host before page code runs when the document comes back after a discard
+ * (PageWebView+Discard.swift): `{wasDiscarded: true, state}`, where `state` is what the page saved
+ * when it hid (null when it saved none). Chrome's `document.wasDiscarded` plus the page's own state.
+ * The host also puts that state back in sessionStorage, so `readPageState` (pageLifecycle.ts) reads it.
+ */
+export const RESTORE_NAME = "__cmuxPageRestore";
+
+/** What a document that comes back after a discard gets (`takePageRestore`). */
+export interface PageRestore {
+  wasDiscarded: true;
+  /** The state the page saved when it hid; null when it saved none. */
+  state: unknown;
+}
+
+/**
+ * The restore the host handed this document, once. The bridge client takes it when it is made
+ * (`BridgePageClient.restore`), which every page does before its first render. Null when the
+ * document is not a restored one or the restore was taken already.
+ */
+export function takePageRestore(
+  target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+): PageRestore | null {
+  const value = target[RESTORE_NAME] as { wasDiscarded?: unknown; state?: unknown } | null | undefined;
+  delete target[RESTORE_NAME];
+  if (!value || value.wasDiscarded !== true) return null;
+  return { wasDiscarded: true, state: value.state ?? null };
+}
+
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
 const EARLY_EVENTS = 64;
@@ -167,6 +203,7 @@ export class BridgePageClient implements PageClient {
   private parked: boolean;
   private held: Held[] = [];
   private readonly location: ClaimLocation | undefined;
+  readonly restore: PageRestore | null;
 
   constructor(
     private readonly handler: ReplyHandler,
@@ -174,6 +211,7 @@ export class BridgePageClient implements PageClient {
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     this.parked = target[PARKED_NAME] === true;
+    this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
   }
 

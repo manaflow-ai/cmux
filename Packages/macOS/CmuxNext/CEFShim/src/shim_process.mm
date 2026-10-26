@@ -314,6 +314,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(browser_set_layer_hosting, "cmux_browser_set_layer_hosting");
   CMUX_BIND(browser_set_resize_sync, "cmux_browser_set_resize_sync");
   CMUX_BIND(browser_set_resize_fence, "cmux_browser_set_resize_fence");
+  CMUX_BIND(browser_set_embedder_visibility, "cmux_browser_set_embedder_visibility");
   CMUX_BIND(browser_attach_view, "cmux_browser_attach_view");
   CMUX_BIND(set_new_tab_page_url, "cmux_set_new_tab_page_url");
   CMUX_BIND(set_install_prompt_handler, "cmux_set_install_prompt_handler");
@@ -374,6 +375,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_on_schedule_delayed, "cmux_set_on_schedule_delayed");
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
+  CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
 #undef CMUX_BIND
 }
 
@@ -554,6 +556,15 @@ int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   }
   fork_api().set_energy_saver(enabled != 0, exempt_scheme);
   return 1;
+}
+
+// The fork checks the level and the UI thread; a vote during quit would reach
+// an aggregator that CefShutdown is about to destroy.
+int cmux_shim_memory_pressure_vote(int level) {
+  if (!fork_api().memory_pressure_vote || stopping()) {
+    return 0;
+  }
+  return fork_api().memory_pressure_vote(level);
 }
 
 void cmux_shim_shutdown(void) {

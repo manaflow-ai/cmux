@@ -29,6 +29,67 @@
   ],
   "steps": [
     {
+      "id": "fx-workspace",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace.create",
+        "params": {
+          "initial_content": "terminal",
+          "name": "oracle"
+        },
+        "idempotencyKey": "saved-tab-group-delete-error.fx-workspace"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-tab-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "tab_group.create",
+        "params": {
+          "tabs": [
+            "$step:fx-workspace#/value/tab_id"
+          ],
+          "name": "oracle"
+        },
+        "idempotencyKey": "saved-tab-group-delete-error.fx-tab-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-saved-tab-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "saved_tab_group.save",
+        "params": {
+          "tab_group": "$step:fx-tab-group#/value/id"
+        },
+        "idempotencyKey": "saved-tab-group-delete-error.fx-saved-tab-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +99,23 @@
       "args": {
         "method": "saved_tab_group.delete",
         "params": {
-          "saved_tab_group": ""
+          "saved_tab_group": "$step:fx-saved-tab-group#/value/id",
+          "expected_revision": "999"
         },
         "idempotencyKey": "saved-tab-group-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "revision.conflict",
+        "errorDetails": {
+          "expected": "999"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "saved_tab_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a saved group id that names no record deletes nothing and succeeds (deleted false), so the refusal is a revision the session never reached: nothing is written"
     }
   ],
   "invariants": [

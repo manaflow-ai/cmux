@@ -272,7 +272,7 @@ final class HoverCardPanel: NSPanel {
         fade.duration = duration
         // motion-allow: the crossfade's ease-out curve (CATransition takes no Motion curve)
         fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        layer.add(fade, forKey: "hoverCard.crossfade")
+        layer.add(MotionActivity.began(fade), forKey: "hoverCard.crossfade")
     }
 
     /// Recolors the glass and the body in the card's theme scope.

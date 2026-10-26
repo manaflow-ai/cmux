@@ -32,6 +32,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     /// Every URL the host loaded, in order.
     public private(set) var loaded: [URL] = []
+    /// How many times the host reloaded the document.
+    public private(set) var reloads = 0
     /// The last zoom the host set; nil before any.
     public private(set) var zoom: Double?
     /// Whether the host closed the page.
@@ -42,6 +44,8 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var discards = 0
     /// A discard took and no load ran since (the engine reloads the entry when the page shows).
     public private(set) var isDiscarded = false
+    /// How many times the host reloaded the page (``reload()``).
+    public private(set) var reloads = 0
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?
     /// ``seeThrough`` when the first document loaded.
@@ -70,6 +74,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var surfaceCopy: PageEncodedSnapshot?
     /// The size of every surface copy asked for, in order.
     public private(set) var surfaceCopies: [CGSize] = []
+
+    /// One visibility or lifecycle call the host made (``setVisible(_:)``, ``setFrozen(_:)``).
+    public enum LifecycleStep: Equatable, Sendable {
+        case visible(Bool)
+        case frozen(Bool)
+    }
+    /// Every ``setVisible(_:)`` and ``setFrozen(_:)``, in order: an order test reads that the page
+    /// hid before it froze and thawed before it showed.
+    public private(set) var lifecycleSteps: [LifecycleStep] = []
+    /// What ``setFrozen(_:)`` answers (false: the engine still counts the page visible).
+    public var freezes = true
 
     /// Makes a page with no calls yet.
     public init() {}
@@ -117,14 +132,26 @@ public final class FakeChromiumPage: PageChromiumPage {
 
     /// Records the value in ``seeThrough``.
     public func setSeeThrough(_ seeThrough: Bool) { self.seeThrough = seeThrough }
-    /// Ends a discard (the reload brings the page back).
-    public func reload() { isDiscarded = false }
+    /// Counts in ``reloads`` and ends a discard (the reload brings the page back).
+    public func reload() {
+        reloads += 1
+        isDiscarded = false
+    }
     /// Records the value in ``zoom``.
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
-    /// Does nothing.
-    public func setVisible(_ visible: Bool) {}
+    /// Records `.visible(visible)` in ``lifecycleSteps``.
+    public func setVisible(_ visible: Bool) { lifecycleSteps.append(.visible(visible)) }
+
+    /// Records `.frozen(frozen)` in ``lifecycleSteps`` and answers ``freezes``; a closed page
+    /// records nothing and answers false, as a CEF page does.
+    @discardableResult
+    public func setFrozen(_ frozen: Bool) -> Bool {
+        guard !closed else { return false }
+        lifecycleSteps.append(.frozen(frozen))
+        return freezes
+    }
 
     /// Answers ``discardAnswer``; a discard that took counts in ``discards`` and sets ``isDiscarded``.
     public func discard() -> Bool {

@@ -1,5 +1,3 @@
-import CmuxNextCompat
-import CmuxNextWakeups
 
 /// A new workspace that opens on the New Tab page (Cmd-N) joins its window
 /// once its first tab is there, so the window changes in one step: its row
@@ -49,15 +47,9 @@ enum FirstTabHold {
 
     /// Returns once workspace `id` has a tab in the store, or after ``limit``.
     private static func firstTab(of id: String, _ services: AppServices) async {
-        // task-owner: ends at the first tab or when the backstop cancels it
-        let watch = Task { @MainActor [weak services] in
-            for await hasTab in ObservationStream({ [weak services] in
+        await ObservedCondition(owner: "FirstTabHold.firstTab", .visible, on: services.mainWork)
+            .until(timeout: limit, deadlines: services.mainDeadlines) { [weak services] in
                 services?.workspace(id: id).map { !$0.screens.flatMap(\.panes).flatMap(\.tabs).isEmpty } ?? true
-            }) where hasTab { return }
-        }
-        let backstop = DemandTimer(owner: "FirstTabHold.limit")
-        backstop.schedule(after: limit) { watch.cancel() }
-        await watch.value
-        backstop.cancel()
+            }
     }
 }

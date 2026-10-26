@@ -8,7 +8,12 @@ public import Darwin
 /// (``BlockingContext/pool``: the Swift cooperative pool, a GCD root queue) is a violation, and while a
 /// violation is recorded its wall time adds to the call site's total and maximum (`debug.blocking` prints
 /// `total_ms` and `max_ms`). On a `BackgroundWork` lane or a dedicated queue or thread it is allowed. In Release
-/// it is `body` alone.
+/// it is `body` plus the trace hook's load.
+///
+/// In every build, while a trace records the `task` category, the call is one `task.blocking_call` interval
+/// (its kind and site, plans/cmux-next/trace.md) through ``BlockingTraceHook``, as Chrome's `ScopedBlockingCall`
+/// writes its `ScopedBlockingCall` trace event (base/threading/scoped_blocking_call.cc). Off, that is one acquiring
+/// load and one branch.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (base/threading/scoped_blocking_call.h): Chrome asserts blocking is
 /// allowed when the scope opens and, in `IOJankMonitoringWindow` (base/threading/scoped_blocking_call_internal.cc),
@@ -26,8 +31,8 @@ public import Darwin
 /// it traps only in a Debug build started with `CMUX_BLOCKING_TRAP_POOL=1` (Chrome's task_tracker.cc runs a task
 /// without `MayBlock()` under `ScopedDisallowBlocking`).
 ///
-/// Off the main thread and off the pool it is one `pthread_main_np()` call, one thread-specific read and at most
-/// the queue label's compare, with no clock read. On the main thread
+/// Off the main thread and off the pool it is the trace hook's load, one `pthread_main_np()` call, one
+/// thread-specific read and at most the queue label's compare, with no clock read. On the main thread
 /// a repeat of a known site is one table probe, two clock reads around `body` and three atomic adds; an allowed
 /// call is not timed.
 ///
@@ -45,6 +50,20 @@ public import Darwin
 @inlinable @inline(__always)
 public func blockingCall<Result, Failure: Error>(
     _ kind: BlockingKind, fileID: StaticString = #fileID, line: UInt = #line, _ body: () throws(Failure) -> Result
+) throws(Failure) -> Result {
+    guard let sink = BlockingTraceHook.recordingSink else {
+        return try checkedBlockingCall(kind, fileID: fileID, line: line, body)
+    }
+    return try sink.interval(kind, fileID: fileID, line: line) { () throws(Failure) -> Result in
+        try checkedBlockingCall(kind, fileID: fileID, line: line, body)
+    }
+}
+
+/// ``blockingCall(_:fileID:line:_:)`` without its trace interval: the detector's check and timing around `body`
+/// (Debug and bench-checks builds), or `body` alone (Release).
+@inlinable @inline(__always)
+func checkedBlockingCall<Result, Failure: Error>(
+    _ kind: BlockingKind, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0 else {
@@ -76,6 +95,23 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
         BlockingViolationTable.mainThreadBlocked(kind, fileID: fileID, line: line)
     } else if let context = BlockingContext.offMainViolation() {
         BlockingViolationTable.offMainBlocked(kind, in: context, fileID: fileID, line: line)
+    }
+    #endif
+}
+
+/// Records a ``BlockingKind/priorityInversion`` site at `fileID`:`line` when called on the main thread: the caller
+/// (BackgroundWork's awaited `run`) found work stated below `.userBlocking` awaited while a person's input action
+/// is open. Record only in every mode, counted without time; off the main thread and inside
+/// ``allowBlocking(_:_:)`` it records nothing. Release compiles it to nothing.
+///
+/// - Parameters:
+///   - fileID: The awaiting code's `#fileID`.
+///   - line: The awaiting code's `#line`.
+@inlinable @inline(__always)
+public func recordAwaitedLowPriorityWork(fileID: StaticString, line: UInt) {
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    if pthread_main_np() != 0 {
+        BlockingViolationTable.mainThreadBlocked(.priorityInversion, fileID: fileID, line: line)
     }
     #endif
 }

@@ -588,7 +588,7 @@ final class NotificationCenterService {
         note("timeout \(tabID) in \(seconds)s")
         let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
         timeouts[tabID] = timer
-        timer.schedule(after: .seconds(seconds)) { @MainActor [weak self] in
+        timer.scheduleOnMain(after: .seconds(seconds)) { [weak self] in
             self?.timeouts[tabID] = nil
             self?.interacted(.timeout, tabID: tabID)
         }

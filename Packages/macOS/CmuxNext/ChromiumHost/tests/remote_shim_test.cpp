@@ -17,6 +17,8 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <map>
+#include <random>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -32,6 +34,7 @@ using cmux_host::control::Message;
 using cmux_host::control::Parse;
 using cmux_host::control::TlvReader;
 using cmux_host::control::TlvWriter;
+namespace control = cmux_host::control;
 
 int failures = 0;
 #define CHECK(cond)                                                       \
@@ -103,6 +106,16 @@ struct Host {
     CHECK(::write(fd, bytes.data(), bytes.size()) == static_cast<ssize_t>(bytes.size()));
   }
 };
+
+// Reads one message at a time until `done` holds for one (or 5 s pass).
+void ReadThrough(Host* host, const std::function<bool(const Message&)>& done) {
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (std::chrono::steady_clock::now() < deadline) {
+    const std::vector<Message> got = host->Read(1);
+    if (got.size() == 1 && done(got[0])) return;
+  }
+  CHECK(!"ReadThrough timed out");
+}
 
 int AttachNew(Host* host) {
   int pair[2];
@@ -186,6 +199,13 @@ std::string NavigationState(int browser) {
   return out;
 }
 
+std::string ExtensionList(int browser) {
+  char* s = cmux_shim_ext_list(browser);
+  std::string out = s ? s : "<null>";
+  cmux_shim_free(s);
+  return out;
+}
+
 void OnEvent(void*, int, int browser_id, int, int64_t a, int64_t b, const char*, const char* s2) {
   ++seen.events;
   CHECK(a == 7 && b == 8);
@@ -201,6 +221,223 @@ void OnEnded(void*, int reason) {
   seen.ended = reason;
 }
 
+
+// The ordering case through the real sender (task 092): the runtime's Post, PostInput and
+// OrderInput, its channel and outbox on a socket with a small buffer (so placements wait and
+// coalesce), the host's FrameQueue for ring frames and its OrderedStream. 10,000 ring keys
+// interleaved with page activations, devtools placements (keyed, ordered), control-channel
+// wheels, ring clicks and ring wheel bursts across 2 pages: every key lands on the page active
+// when it was written, every click and wheel meets the placement cmux had when it sent it.
+void TestOrderingThroughTheRuntime() {
+  int pair[2];
+  CHECK(::socketpair(AF_UNIX, SOCK_STREAM, 0, pair) == 0);
+  const int small = 4096;
+  ::setsockopt(pair[0], SOL_SOCKET, SO_SNDBUF, &small, sizeof small);
+  ::setsockopt(pair[1], SOL_SOCKET, SO_RCVBUF, &small, sizeof small);
+  Host host;
+  host.fd = pair[1];
+  CHECK(cmux_remote_shim_attach(pair[0], nullptr, nullptr) == 1);
+  const int ready = seen.ready;
+  host.Send(Hello(cmux_remote::kWireID));
+  CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+  cmux_remote_shim_stats stats = {};
+  cmux_remote_shim_get_stats(&stats);
+  const uint64_t coalesced_before = stats.coalesced;
+
+  const int first = cmux_remote::kFirstMintedBrowserID;
+  const int pages[2] = {first, first + 1};
+  const int sentinel = first + 100;
+  auto index = [&](int64_t browser) { return browser == pages[1] ? 1 : 0; };
+
+  // cmux's view.
+  int active = pages[0];
+  int placement[2] = {0, 0};
+  std::vector<int> key_page;
+  std::map<std::pair<int, int>, int64_t> wheel_sent;  // (page, placement) -> summed dy
+  // The host's view.
+  struct HostView {
+    int active = 0;
+    int placement[2] = {0, 0};
+    std::vector<int32_t> keys;
+    std::map<std::pair<int, int>, int64_t> wheel;
+    size_t misrouted = 0, wrong_clicks = 0, wrong_wheels = 0, wrong_control_wheels = 0;
+    bool sentinel = false;
+  } got;
+  got.active = pages[0];
+
+  control::OrderedStream stream([&](std::vector<Message> run) {
+    for (const Message& m : run) {
+      switch (m.op) {
+        case cmux_remote::kOpTabActivate:
+          got.active = static_cast<int>(m.fields.at(0).integer);
+          break;
+        case cmux_remote::kOpDevtoolsSetPlacement:
+          got.placement[index(m.fields.at(0).integer)] = static_cast<int>(m.fields.at(4).integer);
+          break;
+        case cmux_remote::kOpBrowserSendWheel:
+          if (m.fields.at(1).real != got.placement[index(m.fields.at(0).integer)]) ++got.wrong_control_wheels;
+          break;
+        case cmux_remote::kOpStop:
+          if (m.fields.at(0).integer == sentinel) got.sentinel = true;
+          break;
+        default:
+          break;
+      }
+    }
+  });
+  stream.AttachInput([&](const cmux_host::Header& h) {
+    const int page = static_cast<int>(h.t1 & 0xffffffffu);
+    if (page != got.active) ++got.misrouted;
+    if (h.kind == cmux_host::kKey) {
+      got.keys.push_back(h.v[1]);
+    } else if (h.kind == cmux_host::kMouse) {
+      if (h.v[0] != got.placement[index(page)]) ++got.wrong_clicks;
+    } else if (h.kind == cmux_host::kWheel) {
+      if (h.v[0] != got.placement[index(page)]) ++got.wrong_wheels;
+      got.wheel[{page, got.placement[index(page)]}] += h.v[3];
+    }
+  });
+  CHECK(stream.OpenInput() == control::OrderedStream::Result::kOk);
+  bool malformed = false;
+  cmux_host::FrameQueue ring(cmux_host::kFrameBacklog);
+  ring.MarkReady();
+  std::deque<cmux_host::Header> ring_held;  // frames AddInput refused: the ring keeps them
+
+  // The host reads what the socket has, and what the ring has.
+  auto host_step = [&](std::mt19937& rng, int wait_ms) {
+    const bool control_first = rng() % 2 == 0;
+    auto control_side = [&] {
+      std::vector<Message> batch;
+      pollfd p{host.fd, POLLIN, 0};
+      while (::poll(&p, 1, batch.empty() ? wait_ms : 0) > 0) {
+        uint8_t chunk[4096];
+        const ssize_t n = ::read(host.fd, chunk, sizeof chunk);
+        if (n <= 0) break;
+        host.buffer.insert(host.buffer.end(), chunk, chunk + n);
+        for (;;) {
+          Message m;
+          size_t used = 0;
+          if (Decode(host.buffer.data(), host.buffer.size(), &host.fds, &m, &used) != Parse::kFrame) break;
+          host.buffer.erase(host.buffer.begin(), host.buffer.begin() + static_cast<std::ptrdiff_t>(used));
+          batch.push_back(std::move(m));
+        }
+        if (batch.size() > 64) break;
+      }
+      if (!batch.empty()) malformed |= stream.AddControl(std::move(batch)) == control::OrderedStream::Result::kMalformed;
+    };
+    auto ring_side = [&] {
+      for (cmux_host::QueuedFrame& frame : ring.Take()) ring_held.push_back(frame.header);
+      while (!ring_held.empty()) {
+        const control::OrderedStream::Result r = stream.AddInput(ring_held.front());
+        malformed |= r == control::OrderedStream::Result::kMalformed;
+        if (r == control::OrderedStream::Result::kFull) break;
+        ring_held.pop_front();
+      }
+    };
+    if (control_first) {
+      control_side();
+      ring_side();
+    } else {
+      ring_side();
+      control_side();
+    }
+  };
+
+  // cmux writes a ring frame: OrderInput's seqs, the page in t1's low bits.
+  auto write = [&](cmux_host::Header h, int page) {
+    uint32_t ctl = 0;
+    h.seq = cmux_remote_shim_order_input(&ctl);
+    CHECK(h.seq != 0);
+    h.t1 = static_cast<uint32_t>(page);
+    cmux_host::SetCtlSeq(&h, ctl);
+    CHECK(ring.Add(h, std::string()) != cmux_host::FrameQueue::Push::kFull);
+  };
+  auto place = [&](int page, std::mt19937& rng) {
+    placement[index(page)] = 100 + static_cast<int>(rng() % 1000);
+    cmux_shim_devtools_set_placement(page, nullptr, 0, 0, placement[index(page)], 10);
+  };
+
+  std::mt19937 rng(92);
+  size_t activations = 0, placements = 0, control_wheels = 0, clicks = 0, ring_wheels = 0;
+  int32_t keys = 0;
+  while (keys < 10000) {
+    const unsigned roll = rng() % 100;
+    if (roll < 8) {
+      active = active == pages[0] ? pages[1] : pages[0];
+      CHECK(cmux_shim_tab_activate(active) == 1);
+      ++activations;
+    } else if (roll < 16) {
+      const int page = pages[rng() % 2];
+      for (unsigned n = 1 + rng() % 3; n > 0; --n) {  // a burst: the outbox replaces waiting ones
+        place(page, rng);
+        ++placements;
+      }
+    } else if (roll < 20) {
+      CHECK(cmux_shim_browser_send_wheel(active, placement[index(active)], 1, 0, 3, 1, 2, 0, 0) == 1);
+      ++control_wheels;
+      if (rng() % 2 == 0) {
+        place(active, rng);  // a placement right after the wheel must not take the one before it
+        ++placements;
+      }
+    } else if (roll < 25) {
+      cmux_host::Header h;
+      h.kind = cmux_host::kMouse;
+      h.v[0] = placement[index(active)];
+      h.v[2] = 1;  // down
+      write(h, active);
+      ++clicks;
+    } else if (roll < 32) {
+      for (unsigned n = 1 + rng() % 4; n > 0; --n) {  // a burst: the ring queue folds wheels
+        cmux_host::Header h;
+        h.kind = cmux_host::kWheel;
+        h.v[0] = placement[index(active)];
+        h.v[3] = 1 + static_cast<int32_t>(rng() % 5);
+        wheel_sent[{active, placement[index(active)]}] += h.v[3];
+        write(h, active);
+        ++ring_wheels;
+        if (rng() % 3 == 0) {
+          place(active, rng);  // an ordered op inside the burst: the wheels around it stay apart
+          ++placements;
+        }
+      }
+    } else {
+      cmux_host::Header h;
+      h.kind = cmux_host::kKey;
+      h.v[1] = keys++;
+      key_page.push_back(active);
+      write(h, active);
+    }
+    if (rng() % 100 < 3) host_step(rng, 0);
+  }
+  cmux_shim_stop(sentinel);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while (!(got.sentinel && ring_held.empty() && ring.size() == 0 && stream.held_input() == 0 &&
+           stream.held_control() == 0) &&
+         std::chrono::steady_clock::now() < deadline) {
+    host_step(rng, 20);
+  }
+  cmux_remote_shim_get_stats(&stats);
+  const uint64_t outbox_coalesced = stats.coalesced - coalesced_before;
+
+  CHECK(!malformed);
+  CHECK(got.sentinel && stream.held_input() == 0 && stream.held_control() == 0);
+  CHECK(got.misrouted == 0);
+  CHECK(got.wrong_clicks == 0 && got.wrong_wheels == 0 && got.wrong_control_wheels == 0);
+  CHECK(got.wheel == wheel_sent);
+  std::vector<int32_t> want(static_cast<size_t>(keys));
+  for (int32_t i = 0; i < keys; ++i) want[static_cast<size_t>(i)] = i;
+  CHECK(got.keys == want);
+  CHECK(activations > 500 && placements > 500 && control_wheels > 200 && clicks > 200 && ring_wheels > 500);
+  CHECK(outbox_coalesced > 0 && ring.coalesced() > 0);  // both coalescing paths ran
+  std::fprintf(stderr,
+               "remote shim ordering: %d keys, %zu activations, %zu placements (%llu coalesced), %zu control "
+               "wheels, %zu clicks, %zu ring wheels (%llu folded)\n",
+               keys, activations, placements, static_cast<unsigned long long>(outbox_coalesced), control_wheels,
+               clicks, ring_wheels, static_cast<unsigned long long>(ring.coalesced()));
+  cmux_remote_shim_detach();
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+  ::close(host.fd);
+}
 }  // namespace
 
 int main() {
@@ -229,6 +466,11 @@ int main() {
   cmux_remote_shim_stats stats = {};
   cmux_remote_shim_get_stats(&stats);
   CHECK(stats.reads_unattached == 1);
+  {
+    // No host yet: the ring writer writes no frame, and no input seq is taken.
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 0 && ctl == 0);
+  }
 
   const char* switches[] = {"enable-logging", "v=1", nullptr};
   CHECK(cmux_shim_initialize("/fw", "/app", "/helper", "/cache", nullptr, 0, "en-US", nullptr, switches, nullptr,
@@ -414,6 +656,39 @@ int main() {
     }
   }
 
+  // An extension change is async with pending keys (task 026): the list is hidden until its
+  // REPLY, and the reply callback reads the list the host pushed before it.
+  {
+    static std::string list_in_reply;
+    static int ext_replies = 0;
+    static int ext_browser = browser;
+    host.Send(Mirror(cmux_remote::kOpExtList, browser, "[\"before\"]"));
+    CHECK(PumpUntil([&] { return ExtensionList(browser) == "[\"before\"]"; }));
+    cmux_remote_shim_set_reply(nullptr, [](void*, uint32_t, const void*, size_t) {
+      list_in_reply = ExtensionList(ext_browser);
+      ++ext_replies;
+    });
+    CHECK(cmux_shim_ext_set_enabled(browser, "abc", 0) == 1);
+    const uint32_t token = cmux_remote_shim_last_reply_token();
+    CHECK(token != 0);
+    CHECK(ExtensionList(browser) == "<null>");
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpExtSetEnabled && got[0].token == token);
+    host.Send(Mirror(cmux_remote::kOpExtList, browser, "[\"after\"]"));
+    PumpUntil([] { return false; }, std::chrono::milliseconds(50));  // the MIRROR applies
+    CHECK(ExtensionList(browser) == "<null>");  // still pending: the op has not answered
+    cmux_host::control::TlvWriter verdict;
+    verdict.I32(0);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = token;
+    reply.fields = verdict.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return ext_replies == 1; }));
+    CHECK(list_in_reply == "[\"after\"]");
+    cmux_remote_shim_set_reply(nullptr, &OnReply);
+  }
+
   // Settings changes after initialize go now, and into the replay log for the next host.
   cmux_shim_set_new_tab_page_url("cmux-page://latest/");
   cmux_shim_set_background_color(0xff445566u);
@@ -428,6 +703,26 @@ int main() {
     }
   }
 
+  // One ordered input stream (task 092): an ordered op (focus, activation) carries its control
+  // seq and the input seq written before it; an input frame names the last ordered op; other
+  // ops carry neither.
+  {
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 1 && ctl == 0);
+    cmux_shim_set_focus(browser, 1);
+    cmux_shim_reload(browser);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 2 && ctl == 1);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 3 && ctl == 1);
+    CHECK(cmux_shim_tab_activate(browser + 1) == 1);
+    const std::vector<Message> got = host.Read(3);
+    CHECK(got.size() == 3);
+    if (got.size() == 3) {
+      CHECK(got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 1 && got[0].after_input == 1);
+      CHECK(got[1].op == cmux_remote::kOpReload && got[1].ctl_seq == 0 && got[1].after_input == 0);
+      CHECK(got[2].op == cmux_remote::kOpTabActivate && got[2].ctl_seq == 2 && got[2].after_input == 3);
+    }
+  }
+
   // A host that never reads: posts still return at once, and the geometry of a page waits
   // coalesced to one frame.
   cmux_remote_shim_get_stats(&stats);
@@ -438,6 +733,26 @@ int main() {
   cmux_remote_shim_get_stats(&stats);
   CHECK(stats.coalesced > coalesced);
   CHECK(stats.pending_messages >= 1 && stats.pending_messages <= 2);  // one waiting, one maybe half written
+  {
+    // Input on the control channel is a coalescing boundary: with the socket full, a placement,
+    // a wheel and a placement reach the host as three messages in that order; a third placement
+    // with no input since replaces the second.
+    cmux_remote_shim_get_stats(&stats);
+    const uint64_t before = stats.coalesced;
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 100, 10);
+    CHECK(cmux_shim_browser_send_wheel(browser, 100, 1, 0, 5, 1, 2, 0, 0) == 1);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 200, 10);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 300, 10);
+    cmux_remote_shim_get_stats(&stats);
+    CHECK(stats.coalesced == before + 1);
+    std::vector<std::string> got;
+    ReadThrough(&host, [&](const Message& m) {
+      if (m.op == cmux_remote::kOpDevtoolsSetPlacement) got.push_back("p" + std::to_string(m.fields.at(4).integer));
+      if (m.op == cmux_remote::kOpBrowserSendWheel) got.push_back("w");
+      return got.size() == 3;
+    });
+    CHECK(got == std::vector<std::string>({"p100", "w", "p300"}));
+  }
 
   // A second reply to the same token answers no request: it ends the host.
   Message again;
@@ -463,14 +778,22 @@ int main() {
 
   // A restarted host gets HELLO, the replay log with the latest values (each verdict asked
   // once) and INITIALIZE, then new posts.
+  cmux_shim_set_focus(browser, 0);  // detached: dropped, and takes no control seq
+  {
+    // Detached: the ring writer writes no frame, so no input seq waits for the next host.
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 0 && ctl == 0);
+  }
   Host second;
   CHECK(AttachNew(&second) == 1);
+  cmux_shim_set_focus(browser, 1);  // the new host's first ordered op follows no input
   cmux_shim_stop(browser);
   {
     const std::vector<uint16_t> want = {cmux_host::control::kOpHello,     cmux_remote::kOpSetBackgroundColor,
                                         cmux_remote::kOpPageSchemeAdd,    cmux_remote::kOpSetNewTabPageUrl,
                                         cmux_remote::kOpPageSchemeAdd,    cmux_remote::kOpPageSchemeAdd,
-                                        cmux_remote::kOpInitialize,       cmux_remote::kOpStop};
+                                        cmux_remote::kOpInitialize,       cmux_remote::kOpSetFocus,
+                                        cmux_remote::kOpStop};
     const std::vector<Message> got = second.Read(want.size());
     CHECK(got.size() == want.size());
     for (size_t i = 0; i < got.size() && i < want.size(); ++i) CHECK(got[i].op == want[i]);
@@ -486,7 +809,19 @@ int main() {
       CHECK(later.Str() == std::optional<std::string>("later") && got[4].token == 0);
       TlvReader gone(got[5].fields);
       CHECK(gone.Str() == std::optional<std::string>("gone") && got[5].token != 0);
+      // The focus posted while detached took no seq: the new host's first ordered op is seq 1,
+      // after no input.
+      CHECK(got[7].ctl_seq == 1 && got[7].after_input == 0);
     }
+  }
+  {
+    // A new host has a new ring and ordered stream: both seqs start again.
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 1 && ctl == 1);
+    cmux_shim_set_focus(browser, 0);
+    const std::vector<Message> got = second.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_remote::kOpSetFocus && got[0].ctl_seq == 2 &&
+          got[0].after_input == 1);
   }
   // Its HELLO from another generation of the op table ends it.
   seen.ended = -1;
@@ -497,15 +832,52 @@ int main() {
   ::close(second.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 
-  // A detach cmux asks for is not reported back.
+  // A detach cmux asks for is not reported back. Before it, the attach queue (an optional op
+  // waits for the HELLO) keeps a state op across input: a placement before a ring frame or a
+  // control-channel wheel is not replaced by one after it.
   Host third;
   CHECK(AttachNew(&third) == 1);
+  {
+    cmux_remote_shim_get_stats(&stats);
+    const uint64_t before = stats.coalesced;
+    CHECK(cmux_shim_tab_set_frozen(browser, 1) == 1);  // queued until the HELLO
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 10, 10);
+    uint32_t ctl = 0;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 1 && ctl == 1);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 20, 10);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 30, 10);  // replaces 20
+    CHECK(cmux_shim_browser_send_wheel(browser, 30, 1, 0, 5, 1, 2, 0, 0) == 1);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 40, 10);
+    cmux_shim_devtools_set_placement(browser, nullptr, 0, 0, 50, 10);  // replaces 40
+    cmux_remote_shim_get_stats(&stats);
+    CHECK(stats.coalesced == before + 2);
+    const int ready = seen.ready;
+    third.Send(Hello(cmux_remote::kWireID));
+    CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+    std::vector<Message> got;
+    ReadThrough(&third, [&](const Message& m) {
+      if (m.op == cmux_remote::kOpDevtoolsSetPlacement || m.op == cmux_remote::kOpBrowserSendWheel) got.push_back(m);
+      return got.size() == 4;
+    });
+    CHECK(got.size() == 4);
+    if (got.size() == 4) {
+      CHECK(got[0].op == cmux_remote::kOpDevtoolsSetPlacement && got[0].fields.at(4).integer == 10 &&
+            got[0].ctl_seq == 1 && got[0].after_input == 0);
+      CHECK(got[1].op == cmux_remote::kOpDevtoolsSetPlacement && got[1].fields.at(4).integer == 30 &&
+            got[1].ctl_seq == 3 && got[1].after_input == 1);
+      CHECK(got[2].op == cmux_remote::kOpBrowserSendWheel);
+      CHECK(got[3].op == cmux_remote::kOpDevtoolsSetPlacement && got[3].fields.at(4).integer == 50 &&
+            got[3].ctl_seq == 5 && got[3].after_input == 1);
+    }
+  }
   seen.ended = -1;
   cmux_remote_shim_detach();
   CHECK(cmux_remote_shim_attached() == 0);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
+
+  TestOrderingThroughTheRuntime();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.
