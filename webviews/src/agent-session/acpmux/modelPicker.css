@@ -113,6 +113,7 @@
   padding: 6px;
   border: 0;
   border-radius: 12px;
+  max-height: calc(100vh - 16px);
   max-height: var(--acpmux-quick-room);
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -264,6 +265,7 @@
   /* Search and the optional update footer are fixed siblings of this layout. Let the list give up
      its height first so both stay visible when the popup reaches its window cap. */
   flex: 1 1 auto;
+  max-height: calc(100vh - 16px);
   max-height: var(--acpmux-quick-room);
 }
 .acpmux-quick-rail,

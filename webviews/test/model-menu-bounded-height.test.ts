@@ -9,7 +9,7 @@
 // file when it cannot launch them (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/model-menu-bounded-height.test.ts
 // CMUX_MODEL_MENU_SHOTS=DIR also saves each case's PNG there.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
@@ -31,8 +31,11 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       console.warn(`model menu bounded height: ${engine[0]} cannot launch here`);
     }
   }
-  if (engines.length !== 2)
-    throw new Error(`model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`);
+  if (engines.length !== 2) {
+    throw new Error(
+      `model menu bounded height requires Chromium and WebKit; launched ${engines.map(([name]) => name).join(", ") || "none"}`,
+    );
+  }
 
   const ENTRY = "agent-pane.model-picker";
   const MANY = "quick-menu-many-profiles";
@@ -231,6 +234,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
       ["the room Base UI publishes", undefined],
       ["no published room", "initial"],
       ["a smaller published room", "120px"],
+      ["an invalid room", "none"],
       ["an oversized room", "4000px"],
     ] as const) {
       test(`${engine}, ${label}: 48 profiles keep to the short window and scroll to the last one`, async () => {
