@@ -44,31 +44,36 @@ public final class MainWorkScheduler {
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
 
-    /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
+    /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
-    /// The next vsync after the last link frame (`CLOCK_UPTIME_RAW` nanoseconds), until that
-    /// frame's render pass ends: a short idle period may run before it.
+    /// The next vsync after the last link frame of any scheduler (`CLOCK_UPTIME_RAW` nanoseconds),
+    /// until that frame's render pass ends: a short idle period may run before it.
     private var nextVsyncNanos: UInt64?
+    /// Whether a scheduler other than ``frames`` has a display link (window animations).
+    private var otherLinksRunning: Bool
+    private var otherLinksSubscription: FrameLinksSubscription?
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    ///   Idle periods use an unposted precise run-loop timer; a long one waits until no scheduler's
-    ///   display link runs (``FrameScheduler/all``).
+    ///   while a link runs and, while the budgeted one does, charged to the next frame
+    ///   (``MainFrameBudget/noteRenderPass(nanos:)``). Idle periods use an unposted precise run-loop
+    ///   timer; a long one waits until no scheduler's display link runs
+    ///   (``FrameScheduler/app``'s ``FrameScheduler/unbudgetedLinks``).
     public convenience init(budget: MainFrameBudget) {
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget),
-                  idleTimer: MainRunLoopPreciseTimer(), ledger: .shared,
-                  otherFramesActive: { FrameScheduler.all.contains { $0.hasLink } }, measuresRenderPasses: true)
+                  idleTimer: MainRunLoopPreciseTimer(), ledger: .shared, otherLinks: FrameScheduler.app.unbudgetedLinks,
+                  measuresRenderPasses: true)
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, idleTimer: any IdlePeriodTimer, ledger: WakeupLedger,
-                 otherFramesActive: @escaping @MainActor () -> Bool, measuresRenderPasses: Bool) {
+                 otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool) {
         self.budget = budget
         board = budget.board
         self.frames = frames
-        idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherFramesActive: otherFramesActive)
+        otherLinksRunning = otherLinks.anyRunning
+        idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
         if measuresRenderPasses {
             renderPasses = RenderPassMeter { [weak self] nanos in self?.renderPassEnded(nanos: nanos) }
         }
@@ -76,19 +81,27 @@ public final class MainWorkScheduler {
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }
             self.budget.tickOwnsWindow = exists
-            if exists {
-                self.renderPasses?.start()
-            } else {
-                self.renderPasses?.stop()
-                self.nextVsyncNanos = nil
-            }
+            self.updateRenderPassMeter()
             self.idle.framesChanged(running: exists)
         }
-        frames.onLinkFrame = { [weak self] timestamp, refreshInterval in
-            // CACurrentMediaTime's timebase is CLOCK_UPTIME_RAW's, in seconds.
-            self?.nextVsyncNanos = UInt64(max(0, timestamp + refreshInterval) * 1_000_000_000)
-        }
+        frames.onLinkFrame = { [weak self] timestamp, refreshInterval in self?.linkFrame(timestamp: timestamp, refreshInterval: refreshInterval) }
+        let subscription = FrameLinksSubscription(changed: { [weak self] running in
+            guard let self else { return }
+            self.otherLinksRunning = running
+            self.updateRenderPassMeter()
+            self.idle.otherLinksChanged(running: running)
+        }, frame: { [weak self] timestamp, refreshInterval in
+            self?.linkFrame(timestamp: timestamp, refreshInterval: refreshInterval)
+        })
+        otherLinksSubscription = subscription
+        otherLinks.add(subscription)
         idle.promote = { [weak self] owner, site, body in self?.post(.background, owner: owner, site: site, body) }
+        idle.hiddenWake = { [weak self] in self?.hiddenWake }
+        idle.higherWorkPending = { [weak self] in
+            guard let self else { return false }
+            return self.posting.turnQueued || self.frames.hasBudgetedWork
+        }
+        updateRenderPassMeter()
     }
 
     /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
@@ -99,15 +112,16 @@ public final class MainWorkScheduler {
     ///   - clock: The stall deadline's clock.
     ///   - ledger: Where frames and idle period timer fires are recorded.
     ///   - idleTimer: The idle period timer (tests: a fake fired by hand).
-    ///   - otherFramesActive: Whether a frame client ticks on another scheduler (holds long idle periods).
+    ///   - otherLinks: The other schedulers' display links (hold long idle periods; their frames
+    ///     open short ones). The default has none.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
-                               otherFramesActive: @escaping @MainActor () -> Bool = { false },
+                               otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(),
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
                                                                  makeLink: makeLink, budget: budget),
-                          idleTimer: idleTimer, ledger: ledger, otherFramesActive: otherFramesActive, measuresRenderPasses: false)
+                          idleTimer: idleTimer, ledger: ledger, otherLinks: otherLinks, measuresRenderPasses: false)
     }
 
     /// One display frame (the link's tick; tests call it directly).
@@ -116,28 +130,49 @@ public final class MainWorkScheduler {
     }
 
     /// One render pass of the main run loop ended (the ``RenderPassMeter``; tests call it after a
-    /// frame): it is charged to the next frame's budget, and when it followed a link frame, a short
-    /// idle period may run until 1 ms before the next vsync.
+    /// frame): while the budgeted link runs it is charged to the next frame's budget, and when it
+    /// followed a link frame of any scheduler, a short idle period may run until 1 ms before the
+    /// next vsync.
     ///
     /// - Parameter nanos: The pass's length.
     public func renderPassEnded(nanos: UInt64) {
-        budget.noteRenderPass(nanos: nanos)
+        if frames.hasLink { budget.noteRenderPass(nanos: nanos) }
         guard let vsync = nextVsyncNanos else { return }
         nextVsyncNanos = nil
         idle.frameRendered(nextVsyncNanos: vsync, budgetedWorkHeld: frames.hasBudgetedWork)
     }
 
+    /// A link frame of any scheduler: the earliest next vsync bounds the short idle period after
+    /// this pass.
+    private func linkFrame(timestamp: CFTimeInterval, refreshInterval: Double) {
+        // CACurrentMediaTime's timebase is CLOCK_UPTIME_RAW's, in seconds.
+        let vsync = UInt64(max(0, timestamp + refreshInterval) * 1_000_000_000)
+        nextVsyncNanos = min(nextVsyncNanos ?? vsync, vsync)
+    }
+
+    /// Render passes are timed while any display link runs; an idle app runs no observer.
+    private func updateRenderPassMeter() {
+        if frames.hasLink || otherLinksRunning {
+            renderPasses?.start()
+        } else {
+            renderPasses?.stop()
+            nextVsyncNanos = nil
+        }
+    }
+
     /// Queues `body` for the main thread's idle time (``MainWorkClass/idle``): a long idle period
     /// after 50 ms of quiet, or a short one between a frame's render pass and the next vsync. It
-    /// gets the period's ``IdleDeadline``; pending input ends the period, and a task posted from an
-    /// idle task waits for the next one. Never inline.
+    /// gets the period's ``IdleDeadline``; pending input or higher-class work ends the period, and a
+    /// task posted from an idle task waits for the next one. Never inline.
     ///
     /// - Parameters:
     ///   - owner: The task's owner in the board, the watchdog's records and signposts.
     ///   - maxDelay: When set, a task that has not run by then runs as ``MainWorkClass/background``
-    ///     work with ``IdleDeadline/didTimeout`` set. Nil (the default): it waits for idle time.
+    ///     work with ``IdleDeadline/didTimeout`` set, by the node's rules for background work (held
+    ///     while it is not visible, run at hidden wakes or on show). Nil (the default): it waits for
+    ///     idle time.
     ///   - node: The node of the thing the task is for: its periods stop 10 s after the node is
-    ///     hidden and resume on show; the task is dropped when the node is released.
+    ///     hidden (not occluded) and resume on show; the task is dropped when the node is released.
     ///   - file: The posting file (leave the default).
     ///   - line: The posting line (leave the default).
     ///   - body: The task.

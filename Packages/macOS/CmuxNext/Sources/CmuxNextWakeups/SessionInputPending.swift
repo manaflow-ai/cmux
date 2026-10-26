@@ -111,6 +111,11 @@ public final class SessionInputPending: InputPendingSource {
     private var undispatchedDragSeen: TimeInterval?
     private var observing = false
 
+    /// Told after each dispatched event that counts (a key, a mouse button, a scroll, a left drag;
+    /// not moves or modifiers): the composition root ends the idle scheduler's wait for pending
+    /// input there (``IdleScheduler/noteInput()``). Dispatches are observed from the first check.
+    public var onInputDispatched: (@MainActor () -> Void)?
+
     /// - Parameters:
     ///   - events: The window server and AppKit (tests: a fake that reports its own event times,
     ///     dispatches, pointer and refresh interval).
@@ -153,8 +158,9 @@ public final class SessionInputPending: InputPendingSource {
             scrollSequenceOpenUntil = latching.sequenceOpen(after: time, phase: phase, momentum: momentum)
             undispatchedScrollSeen = nil
         case .other:
-            break
+            return
         }
+        onInputDispatched?()
     }
 
     public func hasPendingInput(uptime: TimeInterval) -> Bool {

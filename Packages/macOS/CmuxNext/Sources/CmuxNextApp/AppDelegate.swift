@@ -64,7 +64,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        let input = SessionInputPending()
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: input, signposts: true))
+        // The quiet before a long idle period starts again at each key, click, scroll or drag.
+        input.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()

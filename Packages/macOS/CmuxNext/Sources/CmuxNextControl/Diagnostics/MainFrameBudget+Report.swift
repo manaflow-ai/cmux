@@ -26,3 +26,15 @@ extension MainFrameBudget {
                 "render_passes": JSONValue(stats.renderPasses), "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000)]
     }
 }
+
+extension IdleScheduler {
+    /// The `idle` member of the `debug.main_budget` report: periods, tasks run, promoted and
+    /// dropped, periods ended by input or higher-class work, timer fires and tasks queued.
+    public var report: JSONValue {
+        let stats = stats
+        return ["long_periods": JSONValue(stats.longPeriods), "short_periods": JSONValue(stats.shortPeriods),
+                "tasks": JSONValue(stats.tasks), "promoted": JSONValue(stats.promoted), "dropped": JSONValue(stats.dropped),
+                "ended_by_input": JSONValue(stats.endedByInput), "ended_by_higher_work": JSONValue(stats.endedByHigherWork),
+                "timer_fires": JSONValue(stats.timerFires), "queued": JSONValue(count)]
+    }
+}

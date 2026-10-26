@@ -72,6 +72,11 @@ public final class FrameScheduler: NSObject {
         [app] + windows.values.compactMap(\.value)
     }
 
+    /// On ``app``: the display links of ``app`` and the window schedulers (``all``), and their
+    /// frames. The app's ``MainWorkScheduler`` waits for none to run before a long idle period, and
+    /// their frames open short ones. Unused on the other schedulers.
+    public private(set) lazy var unbudgetedLinks = UnbudgetedFrameLinks()
+
     private static var associationKey: UInt8 = 0
 
     enum Host {
@@ -88,8 +93,15 @@ public final class FrameScheduler: NSObject {
     /// keeps the others of its class from ticking (round-robin).
     private var budgetedOrder: [ObjectIdentifier] = []
     private var link: (any FrameLink)? {
-        didSet { if (oldValue == nil) != (link == nil) { onLinkChange?(link != nil) } }
+        didSet {
+            guard (oldValue == nil) != (link == nil) else { return }
+            if reportsUnbudgeted { Self.app.unbudgetedLinks.linkChanged(exists: link != nil) }
+            onLinkChange?(link != nil)
+        }
     }
+    /// ``app`` and the window schedulers report to app's ``unbudgetedLinks``; the budgeted one and
+    /// test schedulers (a fake link) do not.
+    private let reportsUnbudgeted: Bool
     /// Told when the display link comes and goes (the ``MainWorkScheduler``: its link's ticks own
     /// the budget's window, and render passes are timed only while it runs).
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
@@ -136,11 +148,12 @@ public final class FrameScheduler: NSObject {
         self.ledger = ledger
         self.clock = clock
         self.makeLinkOverride = makeLink
+        reportsUnbudgeted = budget == nil && makeLink == nil
         stall = DemandTimer(owner: "FrameScheduler.stall", clock: clock, ledger: ledger)
         super.init()
     }
 
-    /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:makeLink:)``).
+    /// A scheduler with a fake link (tests; budgeted work: ``MainWorkScheduler/testing(budget:clock:ledger:idleTimer:otherLinks:makeLink:)``).
     /// `clock` runs the stall timer; `mediaTime` stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
     public static func testing(clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
@@ -299,7 +312,10 @@ public final class FrameScheduler: NSObject {
         stalls = 0
         deliver(timestamp: timestamp, refreshInterval: refreshInterval)
         if clients.isEmpty { pause() } else { armStall() }
-        if let timestamp, let refreshInterval, link != nil { onLinkFrame?(timestamp, refreshInterval) }
+        if let timestamp, let refreshInterval, link != nil {
+            onLinkFrame?(timestamp, refreshInterval)
+            if reportsUnbudgeted { Self.app.unbudgetedLinks.frame(timestamp: timestamp, refreshInterval: refreshInterval) }
+        }
     }
 
     private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)

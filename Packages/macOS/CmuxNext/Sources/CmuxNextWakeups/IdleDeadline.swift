@@ -36,4 +36,9 @@ public struct IdleDeadline {
 public protocol IdleNextDeadlineSource: AnyObject {
     /// `CLOCK_UPTIME_RAW` nanoseconds of the earliest pending deadline; nil when none is pending.
     var nextFireNanos: UInt64? { get }
+    /// Called after ``nextFireNanos`` changes: a deadline was added or cancelled, or one fired. The
+    /// ``IdleScheduler`` sets it: while a deadline is due it starts no long period and arms no
+    /// timer, and this call (not a re-check on a timer) lets the next period start, as Chrome's
+    /// `IdleHelper` hears of the delayed task it waits for.
+    var onNextFireChange: (@MainActor () -> Void)? { get set }
 }

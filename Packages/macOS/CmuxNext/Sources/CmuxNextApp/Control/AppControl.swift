@@ -119,11 +119,16 @@ final class AppControl {
             .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
-            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
-            .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
-                let report = budget.report
-                if call.params["reset"]?.boolValue == true { budget.resetStats() }
-                return .value(report)
+            // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class;
+            // its idle class's periods under "idle".
+            .mainActor("debug.main_budget") { [budget = mainWork.budget, idle = mainWork.idle] call in
+                var report = budget.report.objectValue ?? [:]
+                report["idle"] = idle.report
+                if call.params["reset"]?.boolValue == true {
+                    budget.resetStats()
+                    idle.resetStats()
+                }
+                return .value(.object(report))
             },
             // Main-thread CPU per frame against a 120 Hz frame (anim-perf-terminal.py).
             .mainActor("debug.main_cpu") { [probe = mainCPUProbe] call in .value(probe.handle(call.params)) },

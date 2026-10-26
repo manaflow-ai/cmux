@@ -44,16 +44,38 @@ import Testing
         #expect(seen?.postedFrom == MainTaskBoard.PostedFrom(file: "CmuxNextControlTests/IdleSchedulerTests.swift", line: line))
     }
 
-    /// No idle period while a person's input is pending; the period waits for 50 ms of quiet after it.
+    /// No idle period while a person's input is pending: one retry after the quiet, then no timer
+    /// until the input's dispatch, and the period comes 50 ms of quiet after it.
     @Test func noIdleWhileInputIsPending() {
         let rig = IdleRig()
         var ran = 0
         rig.input.pending = true
         rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+        rig.timer.run(ms: 101)
+        let fires = rig.timer.fires
+        #expect(fires == 2, "the first try and one retry")
         rig.timer.run(ms: 500)
         #expect(ran == 0, "an idle task ran while a key was pending")
+        #expect(rig.timer.fires == fires, "the idle timer polled while input stayed pending")
+        #expect(rig.timer.fireAt == nil)
         rig.input.pending = false
-        rig.timer.run(ms: 51)
+        rig.work.idle.noteInput()
+        rig.timer.run(ms: 49)
+        #expect(ran == 0, "the quiet starts at the input's dispatch")
+        rig.timer.run(ms: 2)
+        #expect(ran == 1)
+    }
+
+    /// A dispatched input pushes the next long period out to 50 ms after it.
+    @Test func noteInputRestartsTheQuiet() {
+        let rig = IdleRig()
+        var ran = 0
+        rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+        rig.timer.run(ms: 30)
+        rig.work.idle.noteInput()
+        rig.timer.run(ms: 21)
+        #expect(ran == 0, "a long period started 21 ms after a key")
+        rig.timer.run(ms: 30)
         #expect(ran == 1)
     }
 
@@ -93,17 +115,74 @@ import Testing
         #expect(ran == 1)
     }
 
-    /// A frame client ticking on another scheduler (a window animation) holds long periods too.
+    /// A display link on another scheduler (a window animation) holds long periods too, with no
+    /// timer armed; its end starts the quiet.
     @Test func noLongIdleWhileAnotherSchedulerHasAFrameClient() {
         let rig = IdleRig()
         var ran = 0
-        rig.otherFrames.active = true
+        rig.otherLinks.set(running: true)
         rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
         rig.timer.run(ms: 300)
         #expect(ran == 0)
-        rig.otherFrames.active = false
-        rig.timer.run(ms: 51)
+        #expect(rig.timer.fires == 0, "the idle timer polled while another scheduler's link ran")
+        #expect(rig.timer.fireAt == nil)
+        rig.otherLinks.set(running: false)
+        rig.timer.run(ms: 49)
+        #expect(ran == 0, "the quiet starts when the other link stops")
+        rig.timer.run(ms: 2)
         #expect(ran == 1)
+    }
+
+    /// Another scheduler's link frame opens a short period after its render pass.
+    @Test func anotherSchedulersFrameOpensAShortPeriod() {
+        let rig = IdleRig()
+        rig.otherLinks.set(running: true)
+        var deadlines: [UInt64] = []
+        rig.work.postIdle(owner: "test.idle") { deadline in deadlines.append(deadline.deadlineNanos) }
+        let timestamp = rig.clock.seconds
+        rig.otherLinks.frame(timestamp: timestamp, refreshInterval: 1.0 / 60)
+        rig.clock.advance(ms: 2)
+        rig.work.renderPassEnded(nanos: 500_000)
+        #expect(deadlines == [UInt64(max(0, timestamp + 1.0 / 60) * 1_000_000_000) - 1_000_000])
+        #expect(rig.work.idle.stats.shortPeriods == 1)
+        #expect(rig.timer.fires == 0)
+    }
+
+    /// Budgeted work an idle task posts runs before the next idle task (Chrome picks the higher
+    /// queue between idle tasks): the period ends, and the rest waits for the quiet after it.
+    @Test func aHigherClassPostEndsThePeriod() {
+        let rig = IdleRig()
+        var ran: [String] = []
+        rig.work.postIdle(owner: "test.first") { _ in
+            ran.append("first")
+            rig.work.post(.visible, owner: "test.visible") { ran.append("visible") }
+        }
+        rig.work.postIdle(owner: "test.second") { _ in ran.append("second") }
+        rig.timer.run(ms: 51)
+        #expect(ran == ["first"], "an idle task ran ahead of visible work")
+        #expect(rig.work.idle.stats.endedByHigherWork == 1)
+        spinMainRunLoop(until: { ran.count == 2 })
+        #expect(ran == ["first", "visible"])
+        rig.timer.run(ms: 51)
+        #expect(ran == ["first", "visible", "second"])
+    }
+
+    /// A display link an idle task starts (an animation) ends the long period.
+    @Test func aLinkStartedInAnIdleTaskEndsTheLongPeriod() {
+        let rig = IdleRig()
+        var ran: [String] = []
+        var keeper: IdleLinkKeeper?
+        rig.work.postIdle(owner: "test.first") { _ in
+            ran.append("first")
+            keeper = IdleLinkKeeper(on: rig.work)
+        }
+        rig.work.postIdle(owner: "test.second") { _ in ran.append("second") }
+        rig.timer.run(ms: 51)
+        #expect(ran == ["first"], "the long period went on while a link ran")
+        #expect(rig.timer.fireAt == nil)
+        keeper?.stop()
+        rig.timer.run(ms: 51)
+        #expect(ran == ["first", "second"])
     }
 
     /// A short period runs after a link frame's render pass with 2 ms or more left before the next
@@ -189,6 +268,107 @@ import Testing
         #expect(ran == ["bounded": true, "unbounded": false])
     }
 
+    /// A task whose node is released before its `maxDelay` is dropped, never promoted.
+    @Test func aReleasedNodesTaskIsDroppedAtItsMaxDelay() {
+        let rig = IdleRig()
+        let keeper = IdleLinkKeeper(on: rig.work)
+        let window = VisibilityNode(root: "window", own: .visible, uptime: rig.clock.uptime)
+        var tab: VisibilityNode? = VisibilityNode("tab", parent: window)
+        var ran = false
+        rig.work.postIdle(owner: "test.tab", maxDelay: .milliseconds(500), node: tab) { _ in ran = true }
+        tab = nil
+        rig.timer.run(ms: 501)
+        #expect(rig.work.idle.stats.dropped == 1)
+        #expect(rig.work.idle.stats.promoted == 0)
+        #expect(rig.work.postedCount(.background) == 0)
+        rig.work.frameDidFire(timestamp: rig.clock.seconds, refreshInterval: 1.0 / 60)
+        #expect(!ran)
+        #expect(rig.work.idle.trackedNodes == 0)
+        keeper.stop()
+    }
+
+    /// A promoted task of a node that is not visible is held as the node's background queue holds
+    /// it: posted when the node shows, or at a hidden wake.
+    @Test func aPromotedTaskOfAHiddenNodeWaitsForShowOrAHiddenWake() {
+        let rig = IdleRig()
+        let keeper = IdleLinkKeeper(on: rig.work)
+        let window = VisibilityNode(root: "window", own: .visible, uptime: rig.clock.uptime)
+        let tab = VisibilityNode("tab", own: .hidden, parent: window)
+        var ran: [String: Bool] = [:]
+        rig.work.postIdle(owner: "test.tab", maxDelay: .milliseconds(100), node: tab) { deadline in ran["tab"] = deadline.didTimeout }
+        rig.timer.run(ms: 101)
+        #expect(rig.work.idle.stats.promoted == 1)
+        #expect(rig.work.postedCount(.background) == 0, "a hidden node's promoted task was posted unthrottled")
+        tab.set(.visible)
+        #expect(rig.work.postedCount(.background) == 1)
+        rig.work.frameDidFire(timestamp: rig.clock.seconds, refreshInterval: 1.0 / 60)
+        #expect(ran == ["tab": true])
+
+        var wakes: [@MainActor () -> Void] = []
+        rig.work.hiddenWake = { _, wake in wakes.append(wake) }
+        let other = VisibilityNode("other", own: .hidden, parent: window)
+        rig.work.postIdle(owner: "test.other", maxDelay: .milliseconds(100), node: other) { deadline in ran["other"] = deadline.didTimeout }
+        rig.timer.run(ms: 101)
+        #expect(wakes.count == 1)
+        #expect(rig.work.postedCount(.background) == 0)
+        wakes.removeFirst()()
+        rig.work.frameDidFire(timestamp: rig.clock.seconds, refreshInterval: 1.0 / 60)
+        #expect(ran == ["tab": true, "other": true])
+        keeper.stop()
+    }
+
+    /// The tasks of one node share one record (one subscription), released when they ran.
+    @Test func aNodesTasksShareOneRecord() {
+        let rig = IdleRig()
+        let window = VisibilityNode(root: "window", own: .visible, uptime: rig.clock.uptime)
+        let tab = VisibilityNode("tab", parent: window)
+        var ran = 0
+        for _ in 0..<100 {
+            rig.work.postIdle(owner: "test.tab", node: tab) { _ in ran += 1 }
+        }
+        #expect(rig.work.idle.trackedNodes == 1)
+        tab.set(.hidden)
+        tab.set(.visible)
+        rig.timer.run(ms: 51)
+        #expect(ran == 100)
+        #expect(rig.work.idle.trackedNodes == 0)
+        #expect(rig.work.idle.count == 0)
+    }
+
+    /// Occluded is not hidden: an occluded app or node keeps its idle periods past 10 s.
+    @Test func anOccludedNodeKeepsIdlePeriodsPastTenSeconds() {
+        let rig = IdleRig()
+        let app = VisibilityNode(root: "app", own: .visible, uptime: rig.clock.uptime)
+        rig.work.idle.setAppNode(app)
+        let tab = VisibilityNode("tab", own: .occluded, parent: app)
+        app.set(.occluded)
+        rig.timer.run(ms: 11_000)
+        #expect(app.hiddenStateSince == nil)
+        var ran = 0
+        rig.work.postIdle(owner: "test.tab", node: tab) { _ in ran += 1 }
+        rig.timer.run(ms: 51)
+        #expect(ran == 1, "idle stopped 10 s after an occlusion")
+    }
+
+    /// An overdue next deadline holds long periods with no timer re-poll; the registry's change
+    /// call lets the next one start.
+    @Test func anOverdueDeadlineArmsNoTimerUntilTheRegistryReportsAChange() {
+        let rig = IdleRig()
+        let deadlines = FakeDeadlines()
+        deadlines.nextFireNanos = rig.clock.now - 1_000_000
+        rig.work.idle.deadlines = deadlines
+        var ran = 0
+        rig.work.postIdle(owner: "test.idle") { _ in ran += 1 }
+        rig.timer.run(ms: 1_000)
+        #expect(ran == 0)
+        #expect(rig.timer.fires == 1, "the idle timer re-polled an overdue deadline")
+        #expect(rig.timer.fireAt == nil)
+        deadlines.nextFireNanos = nil
+        deadlines.onNextFireChange?()
+        rig.timer.run(ms: 1)
+        #expect(ran == 1)
+    }
+
     /// Idle periods stop 10 s after the app node goes hidden (no timer armed, no wakeups) and
     /// resume when it shows.
     @Test func noIdleTenSecondsAfterTheAppIsHidden() {
@@ -270,21 +450,21 @@ import Testing
 private final class IdleRig {
     let clock: IdleClock
     let input: IdleFakeInput
-    let otherFrames: OtherFrames
+    let otherLinks: FakeOtherLinks
     let timer: FakeIdleTimer
     let ledger: WakeupLedger
     let work: MainWorkScheduler
 
     init() {
-        let clock = IdleClock(), input = IdleFakeInput(), otherFrames = OtherFrames(), ledger = WakeupLedger()
+        let clock = IdleClock(), input = IdleFakeInput(), otherLinks = FakeOtherLinks(), ledger = WakeupLedger()
         let timer = FakeIdleTimer(clock: clock)
         self.clock = clock
         self.input = input
-        self.otherFrames = otherFrames
+        self.otherLinks = otherLinks
         self.ledger = ledger
         self.timer = timer
         work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read), ledger: ledger,
-                                         idleTimer: timer, otherFramesActive: { otherFrames.active }) { _ in IdleFakeLink() }
+                                         idleTimer: timer, otherLinks: otherLinks) { _ in IdleFakeLink() }
     }
 
     /// Idle period timer fires recorded in the wakeup ledger.
@@ -344,11 +524,34 @@ private final class FakeIdleTimer: IdlePeriodTimer {
 @MainActor
 private final class FakeDeadlines: IdleNextDeadlineSource {
     var nextFireNanos: UInt64?
+    var onNextFireChange: (@MainActor () -> Void)?
 }
 
+/// Other schedulers' display links, flipped and ticked by hand.
 @MainActor
-private final class OtherFrames {
-    var active = false
+private final class FakeOtherLinks: OtherFrameLinks {
+    private(set) var anyRunning = false
+    private var subscriptions: [FrameLinksSubscription] = []
+
+    func add(_ subscription: FrameLinksSubscription) { subscriptions.append(subscription) }
+
+    func set(running: Bool) {
+        anyRunning = running
+        for subscription in subscriptions { subscription.changed(running) }
+    }
+
+    func frame(timestamp: CFTimeInterval, refreshInterval: Double) {
+        for subscription in subscriptions { subscription.frame(timestamp, refreshInterval) }
+    }
+}
+
+/// Runs main run loop passes (not main-queue jobs) until `done` or 5 s.
+@MainActor
+private func spinMainRunLoop(until done: () -> Bool) {
+    let end = Date(timeIntervalSinceNow: 5)
+    while !done(), Date() < end {
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+    }
 }
 
 @MainActor
