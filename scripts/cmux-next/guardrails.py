@@ -2160,6 +2160,326 @@ def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter
     return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
 
 
+# pool-blocking (p02-threads-010): a blocking call on a shared pool thread. Chrome's ThreadPool runs a task without
+# MayBlock() under ScopedDisallowBlocking (base/task/thread_pool/task_tracker.cc RunTask); cmux's pools are the Swift
+# cooperative pool (Task.detached, child tasks, `Task {` off any actor, default actor executors, @concurrent) and the
+# GCD root queues. One blocked pool thread is a whole core's worth of async work stalled (the pool has one per core).
+# The body as a trailing closure, or as the `operation:` argument (`Task.detached(operation: { ... })`).
+TASK_BODY = r"(?:\s*(\([^{]*\))?\s*\{$|\s*\([^{]*\boperation:\s*\{$)"
+POOL_DETACHED = re.compile(r"\bTask\.detached" + TASK_BODY)
+POOL_CHILD = re.compile(r"\baddTask(UnlessCancelled)?" + TASK_BODY + r"|\bDispatchQueue\.global\([^{]*\)\s*\.\s*"
+                        r"async(After)?\s*(\([^{]*\))?\s*\{$|\.concurrentPerform\s*\([^{]*\)\s*\{$")
+TASK_INHERITS = re.compile(r"(?<![\w.])Task\s*(<[^{]*>)?\s*(\([^{]*\))?\s*\{$")
+CLOSURE_ON_MAIN = re.compile(r"^\{\s*(\[[^\]]*\]\s*)?@MainActor\b")
+# Calls that run their trailing closure before they return, in the caller's isolation.
+INLINE_CALLS = (r"map|compactMap|flatMap|filter|forEach|reduce|contains|first|last|firstIndex|lastIndex|allSatisfy|"
+                r"sorted|sort|min|max|removeAll|mapValues|compactMapValues|partition|drop|prefix|split|merge|merging|"
+                r"withLock|withLockUnchecked|withUnsafe\w*|withCString|withMemoryRebound|withExtendedLifetime|"
+                r"autoreleasepool|with(?:Throwing)?(?:Discarding)?TaskGroup|with(?:Checked|Unsafe)(?:Throwing)?Continuation|"
+                r"withTaskCancellationHandler|withValue|withObservationTracking")
+INLINE_CLOSURE_CALL = re.compile(rf"\b(?:{INLINE_CALLS})\s*(?:\([^{{}}]*\))?\s*\{{$|\b(?:{INLINE_CALLS})\(\s*(?:\w+\s*:\s*)?\{{$")
+ACCESSOR_OPENER = re.compile(r"^\s*(get|set|willSet|didSet|_read|_modify)\b")
+FUNCTION_OPENER = re.compile(r"\b(func|subscript)\b|\bvar\s+`?\w+`?\s*:")
+INIT_OPENER = re.compile(r"\b(init[?!]?|deinit)\b")
+CONCURRENT = re.compile(r"@concurrent\b")
+# An isolation the declaration states for itself: a global actor, or none (`nonisolated`, a static member). Read on
+# the declaration's prefix only (declaration_prefix): a parameter's `@MainActor` closure type or `.static` default
+# says nothing about the function's own isolation.
+OWN_GLOBAL_ACTOR = re.compile(r"@[A-Z]\w*Actor\b")
+NOT_INSTANCE_ISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))|\bstatic\b|\bclass\s+(?=(func|var|subscript)\b)")
+DECLARATION_KEYWORD = re.compile(r"\b(func|init|deinit|subscript|var)\b")
+ASYNC_EFFECT = re.compile(r"^[^{]*?\basync\b")
+TYPE_OPENER = re.compile(r"(?:^|[\s)])(?P<kind>(?:distributed\s+)?actor|class|struct|enum|extension|protocol)\s+"
+                         r"(?!(?:func|var|let|subscript|init|deinit|override|static|in|where)\b)(?P<name>[A-Za-z_][\w.]*)")
+ACTOR_EXECUTOR = re.compile(r"\bvar\s+unownedExecutor\b")
+# An actor declaration line, for `git grep -E` over a revision's sources (actor_index_at).
+ACTOR_DECLARATION_GREP = (r"^[[:space:]]*(@[[:alnum:]_]+[[:space:]]+|(public|package|internal|private|fileprivate|final|"
+                          r"distributed|nonisolated)[[:space:]]+)*actor[[:space:]]+[A-Za-z_]")
+# `async let x = <call>`: the initializer runs as a child task on the cooperative pool.
+ASYNC_LET = re.compile(r"^\s*async\s+let\b[^=]*=(?!=)")
+ASYNC_LET_OPEN = re.compile(r"^\s*async\s+let\b[^=]*=\s*$")
+CALL_MARKERS_ONLY = re.compile(r"^\s*((try[?!]?|await)\s+)*$")  # the prefix of a call that starts its line
+NONISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))")
+TypeScope = tuple[str, str, int]  # (kind, name, 0-based line of its declaration)
+
+
+def type_scopes_of(lines: list[str]) -> list[TypeScope | None]:
+    """For each of LINES, the innermost type body that holds it as (kind, name, declaration line), else None: kind
+    is `actor` for any actor, and an extension's name is its last component (`extension Outer.Store` -> "Store")."""
+    scopes: list[TypeScope | None] = []
+    stack: list[tuple[int, TypeScope]] = []  # (brace depth, scope) per open type body
+    pending: TypeScope | None = None  # a type header whose `{` has not opened yet
+    depth = 0
+    for index, line in enumerate(lines):
+        code = code_of(line)
+        scopes.append(stack[-1][1] if stack else None)
+        match = TYPE_OPENER.search(code)
+        if match:
+            kind = "actor" if match.group("kind").endswith("actor") else match.group("kind")
+            pending = (kind, match.group("name").rsplit(".", 1)[-1], index)
+        for char in code:
+            if char == "{":
+                depth += 1
+                if pending is not None:
+                    stack.append((depth, pending))
+                    pending = None
+            elif char == "}":
+                while stack and stack[-1][0] >= depth:
+                    stack.pop()
+                depth -= 1
+    return scopes
+
+
+def type_scopes(version: Version) -> list[TypeScope | None]:
+    if "type_scopes" not in version.memo:
+        version.memo["type_scopes"] = type_scopes_of(version.lines)
+    return version.memo["type_scopes"]
+
+
+@dataclass
+class ActorIndex:
+    """The actors of some files and the types among them with a custom executor, as {(module, name): paths}.
+
+    An actor's extensions and its `unownedExecutor` may sit in files of their own (DaemonConnection+*.swift), so a
+    method's actor is resolved against every file of its module: the push's own files (one index per side) and
+    HEAD's other files (repo_actor_index, read only when a lookup misses). The custom executor is the HomeCache
+    pattern (Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Store/HomeCache.swift): `nonisolated var
+    unownedExecutor` over a named DispatchSerialQueue; a comment alone is no executor.
+    """
+    actors: dict[tuple[str, str], set[str]] = field(default_factory=dict)
+    executors: dict[tuple[str, str], set[str]] = field(default_factory=dict)
+    own_paths: set[str] = field(default_factory=set)  # the push's files: the repo index's entries for them don't count
+    unread: list[tuple[str, list[str]]] = field(default_factory=list)  # (path, lines) added on the first lookup
+
+    def add(self, path: str, lines: list[str]) -> None:
+        module = module_of(path)
+        for code, scope in zip((code_of(line) for line in lines), type_scopes_of(lines)):
+            for match in TYPE_OPENER.finditer(code):
+                if match.group("kind").endswith("actor"):
+                    self.actors.setdefault((module, match.group("name").rsplit(".", 1)[-1]), set()).add(path)
+            if scope is not None and ACTOR_EXECUTOR.search(code):
+                self.executors.setdefault((module, scope[1]), set()).add(path)
+
+    def knows(self, table: str, key: tuple[str, str]) -> bool:
+        while self.unread:
+            self.add(*self.unread.pop())
+        if key in getattr(self, table):
+            return True
+        repo = repo_actor_index()
+        return repo is not None and bool(getattr(repo, table).get(key, set()) - self.own_paths)
+
+    def actor_of(self, path: str, scope: TypeScope | None) -> tuple[str, str] | None:
+        """The (module, name) of the actor whose instance members a line of PATH in type body SCOPE belongs to."""
+        if scope is None or scope[0] not in ("actor", "extension"):
+            return None
+        key = (module_of(path), scope[1])
+        return key if scope[0] == "actor" or self.knows("actors", key) else None
+
+    def has_custom_executor(self, key: tuple[str, str]) -> bool:
+        return self.knows("executors", key)
+
+
+def actor_index_at(repo: Path, rev: str) -> ActorIndex:
+    """The actors and custom executors of REV's sources: a `git grep` for actor declaration lines, and the files
+    that name `unownedExecutor`, read whole to find the type each one belongs to."""
+    index = ActorIndex()
+    spec = ["--", SOURCES + "*.swift"]
+    found = git(repo, "grep", "-I", "-n", "-E", "-e", ACTOR_DECLARATION_GREP, rev, *spec, check=False)
+    for row in found.split("\n"):
+        parts = row[len(rev) + 1:].split(":", 2) if row.startswith(rev + ":") else []
+        if len(parts) == 3:
+            index.add(parts[0], [parts[2]])
+    named = git(repo, "grep", "-I", "-l", "-F", "unownedExecutor", rev, *spec, check=False)
+    paths = [row[len(rev) + 1:] for row in named.split("\n") if row.startswith(rev + ":")]
+    for (_, path), text in blobs(repo, [(rev, p) for p in paths]).items():
+        index.add(path, text.split("\n"))
+    return index
+
+
+def repo_actor_index() -> ActorIndex | None:
+    """HEAD's ActorIndex for check() (load_blocking_context names the tree), read once per run; None without one."""
+    if "actor_index" not in BLOCKING_CONTEXT:
+        tree = BLOCKING_CONTEXT.get("actor_tree")
+        BLOCKING_CONTEXT["actor_index"] = actor_index_at(*tree) if tree else None
+    return BLOCKING_CONTEXT["actor_index"]
+
+
+# A header line that continues the line above it, and a line that continues on the line below it.
+CONTINUES_ABOVE = re.compile(r"^\s*(\.|&&|\|\||\?\?|->|else\b|where\b|async\b|throws\b|rethrows\b)")
+CONTINUES_BELOW = re.compile(r"(,|\(|\[|->|=|&&|\|\||\?\?)\s*$")
+ATTRIBUTES_ONLY = re.compile(rf"^\s*(?:{ATTRIBUTE}\s*)+$")
+
+
+def statement_header(lines: list[str], number: int, opener: str) -> tuple[str, int]:
+    """The header of the block that opens on 1-based line NUMBER (whose code up to its `{` is OPENER), and the
+    0-based line it starts on. Unlike block_header it joins a line above only where the statement goes on (an
+    open parenthesis, a trailing `,` or a leading `.`, `else`, `async`): Swift statements end without `;`, so
+    `let x = 1` above `do {` is a statement of its own, and `@concurrent` above a signature is an attribute."""
+    parts, start = [opener], number - 1
+    depth = opener.count("(") + opener.count("[") - opener.count(")") - opener.count("]")
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES:
+        above = code_of(lines[j])
+        if not above.strip() or ATTRIBUTE_LINE.match(above):
+            break
+        if not (depth < 0 or CONTINUES_ABOVE.match(parts[0]) or CONTINUES_BELOW.search(above)):
+            break
+        parts.insert(0, above)
+        depth += above.count("(") + above.count("[") - above.count(")") - above.count("]")
+        start = j
+        j -= 1
+    return " ".join(part.strip() for part in parts), start
+
+
+def declaration_attributes(lines: list[str], start: int) -> str:
+    """The attribute-only lines right above a declaration whose header starts on 0-based line START (`@concurrent`
+    on its own line), past comment lines between them. The walk stops at any other line: a one-line member above
+    (`@MainActor var x = 0`, `@concurrent func a() async { }`) has attributes of its own."""
+    found = []
+    j = start - 1
+    while j >= 0 and start - j <= HEADER_LINES:
+        code = code_of(lines[j])
+        if ATTRIBUTES_ONLY.match(code):
+            found.append(code)
+        elif not COMMENT_LINE.match(lines[j]):
+            break
+        j -= 1
+    return " ".join(found)
+
+
+def declaration_prefix(header: str) -> str:
+    """HEADER (a declaration's joined header) through its keyword (`func`, `init`, `subscript`, `var`): its
+    attributes and modifiers, without the parameter list, the effects or the return type."""
+    match = DECLARATION_KEYWORD.search(header)
+    return header[:match.end()] if match else header
+
+
+def type_is_main(version: Version, scope: TypeScope | None) -> bool:
+    """Whether a member of type body SCOPE is main-actor code when it states no isolation of its own: the type's
+    own `@MainActor`, none for an actor, a `nonisolated` type or another global actor, else its enclosing type's,
+    else the target's default. Read from the type's attributes and modifiers only, as for a function."""
+    lines = version.lines
+    while scope is not None:
+        kind, _, line = scope
+        code = code_of(lines[line])
+        match = TYPE_OPENER.search(code)
+        stated = (code[:match.start("kind")] if match else code) + " " + declaration_attributes(lines, line)
+        if OWN_GLOBAL_ACTOR.search(stated):
+            return re.search(r"@MainActor\b", stated) is not None
+        if kind == "actor" or NONISOLATED.search(stated):
+            return False
+        scope = type_scopes(version)[line]
+    return module_of(version.path) in ui_targets()
+
+
+def declares_async(header: str) -> bool:
+    """Whether HEADER (a function or initializer header) is `async`: read in the effects after its parameter list,
+    so an `async` closure parameter does not count."""
+    match = DECLARATION_KEYWORD.search(header)
+    opening = header.find("(", match.end()) if match else -1
+    if opening < 0:
+        return False
+    depth = 0
+    for position in range(opening, len(header)):
+        depth += header[position] == "("
+        depth -= header[position] == ")"
+        if depth == 0:
+            return bool(ASYNC_EFFECT.search(header[position + 1:]))
+    return False
+
+
+def pool_context(version: Version, index: int) -> str | None:
+    """Where VERSION's line INDEX runs if that is a shared pool thread, else None: "Task.detached", "a child task"
+    (`addTask {`, a global queue, `concurrentPerform`), "a child task (async let)", "an @concurrent function", "a
+    `Task {` in a nonisolated function", or "an actor method" (an actor without a custom executor, resolved against
+    the ActorIndex in VERSION.memo["actors"]). Any other closure (`work.run {`, a completion handler, a serial
+    queue's `async {`) is not judged: it runs where its API says."""
+    answers = version.memo.setdefault("pool_context", {})
+    if index not in answers:
+        answers[index] = _pool_context(version, index)
+    return answers[index]
+
+
+def _pool_context(version: Version, index: int) -> str | None:
+    lines = version.lines
+    code = code_of(lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    if ASYNC_LET.search(prefix) or (CALL_MARKERS_ONLY.match(prefix) and index > 0
+                                    and ASYNC_LET_OPEN.search(code_of(lines[index - 1]))):
+        return "a child task (async let)"
+    return _pool_walk(version, index, prefix, False)
+
+
+def is_local_declaration(lines: list[str], start: int) -> bool:
+    """Whether the declaration whose header starts on 0-based line START sits in a function or closure body (a
+    local function), not in a type body or at file level."""
+    outer = enclosing_openers(lines, start, INNERMOST_BLOCK)
+    return bool(outer) and not TYPE_OPENER.search(statement_header(lines, outer[0][1], outer[0][0])[0])
+
+
+def _pool_walk(version: Version, index: int, prefix: str, in_task: bool) -> str | None:
+    """pool_context's walk out of the blocks around line INDEX (PREFIX: the code before the call on it)."""
+    lines = version.lines
+    for opener, number in enclosing_openers(lines, index, OPENER_STOP, prefix):
+        header, start = statement_header(lines, number, opener) if number - 1 != index else (opener, index)
+        line = code_of(lines[number - 1])
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(line) or CLOSURE_ON_MAIN.search(line[len(opener) - 1:]):
+            return None
+        if POOL_DETACHED.search(header):
+            return "Task.detached"
+        if POOL_CHILD.search(header):
+            return "a child task"
+        if TASK_INHERITS.search(header):
+            in_task = True
+            continue
+        if ACCESSOR_OPENER.search(header) or CONTROL_OPENER.search(header) or INLINE_CLOSURE_CALL.search(header):
+            continue
+        if not DECLARATION_OPENER.search(header):
+            return None  # a closure: it runs where its API says
+        if not FUNCTION_OPENER.search(header) and not INIT_OPENER.search(header):
+            return None  # a type body
+        stated = declaration_prefix(header) + " " + declaration_attributes(lines, start)
+        if CONCURRENT.search(stated):
+            return "an @concurrent function"
+        if OWN_GLOBAL_ACTOR.search(stated):
+            return None
+        if is_local_declaration(lines, start):
+            return _pool_walk(version, start, "", in_task)  # a local function runs in its enclosing context
+        actors = version.memo.get("actors") or ActorIndex()
+        actor = actors.actor_of(version.path, type_scopes(version)[number - 1])
+        if actor is not None and not NOT_INSTANCE_ISOLATED.search(stated):
+            # A synchronous init and deinit run on their caller. An `async` init is actor-isolated once `self` is
+            # initialized (SE-0327), so it runs on the actor's executor as a method does.
+            if INIT_OPENER.search(header) and not FUNCTION_OPENER.search(header) and not (
+                    declaration_prefix(header).endswith("init") and declares_async(header)):
+                return None
+            return None if actors.has_custom_executor(actor) else "an actor method"
+        # A `Task {` takes the function's isolation: the one its prefix states, else its type's.
+        if in_task and (NONISOLATED.search(stated) or not type_is_main(version, type_scopes(version)[start])):
+            return "a `Task {` in a nonisolated function"
+        return None
+    return None
+
+
+def blocking_on_pool(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw or seam) that run on a shared pool thread (pool_context)."""
+    changes = outside_seams(changes)
+    own = {c.path for c in changes}
+    # Each side's files are read only if a line of the push sits in an extension or an actor (most pushes: none).
+    head_actors = ActorIndex(own_paths=own, unread=[(c.path, c.head_lines) for c in changes])
+    base_actors = ActorIndex(own_paths=own, unread=[(c.path, c.base_lines) for c in changes])
+    for change in changes:
+        for version, _ in blocking_sides(change):
+            version.memo["actors"] = head_actors if version.lines is change.head_lines else base_actors
+            version.memo.pop("pool_context", None)  # its answers read the index the last call set
+
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and not runs_on_main(version, index) and pool_context(version, index) is not None)
+    return changed_debt(changes, judge)
+
+
 def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
     """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
     def judge(version: Version, index: int, code: str) -> bool:
@@ -2226,13 +2546,16 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
-def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
-    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
-    for key in ("threading_doc", "manifest", "ui_targets"):
+def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
+    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
+    and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
+    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
             BLOCKING_CONTEXT[key] = texts[(head, path)]
+    if repo is not None:
+        BLOCKING_CONTEXT["actor_tree"] = (repo, head)
 
 BLOCKING_RULES = (
     Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process launch or wait, a "
@@ -2260,6 +2583,17 @@ BLOCKING_RULES = (
          "`asyncAndWait`, LSCopy) use the async API",
          "// blocking-allow: <why the seam does not fit>",
          raw_blocking),
+    Rule("pool-blocking", "A blocking call (raw or seam) on a shared pool thread: in a `Task.detached` or child task "
+         "body or an `async let` initializer, a `Task {` in a nonisolated function, an @concurrent function, or a method of an actor that has no "
+         "custom executor",
+         "the Swift cooperative pool has one thread per core and the GCD root queues are shared: a blocked pool "
+         "thread stalls every async job queued behind it (Chrome's ThreadPool runs a task without MayBlock() under "
+         "ScopedDisallowBlocking, base/task/thread_pool/task_tracker.cc)",
+         "run it on a BackgroundWork lane (`work.run(priority, mayBlock: .files|.system) { ... }`, or a "
+         "MayBlockRunner below CmuxNextWakeups); an actor whose methods block gets a serial executor on a named "
+         "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
+         "// blocking-allow: <why this blocking call may hold a pool thread>",
+         blocking_on_pool),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
@@ -2603,7 +2937,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if late:
         texts.update(blobs(repo, [(head, p) for p in late] + [(base, p) for p in late], blob_ids))
     LEX_CACHE["dir"] = lex_cache_dir(repo)
-    load_blocking_context(texts, head)
+    load_blocking_context(texts, head, repo)
     for path in paths:
         change = changes[path]
         # A side with changed lines has the file: git lists no added line of a path absent at head.

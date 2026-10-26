@@ -21,9 +21,9 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     /// Do not call `withLock` on the same mutex from inside `body`: the lock
     /// is not recursive.
     ///
-    /// In Debug and bench builds (Nightly to come) a main-thread wait for the lock longer than
-    /// ``BlockingKind/lockWaitLimitNanos`` is recorded by the main-thread blocking detector at the
-    /// caller's `fileID`:`line` (never a trap: the wait includes scheduling time).
+    /// In Debug and bench-checks builds (Nightly to come) a main-thread wait for the lock longer than
+    /// ``BlockingKind/lockWaitLimitNanos`` is recorded, with the wait as its time, by the main-thread
+    /// blocking detector at the caller's `fileID`:`line` (never a trap: the wait includes scheduling time).
     ///
     /// - Parameters:
     ///   - fileID: The calling code's `#fileID` (names the call site; leave the default).
@@ -36,11 +36,11 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result {
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        // A long main-thread wait is recorded after the unlock (Debug and bench builds; Nightly to come).
+        // A long main-thread wait is recorded after the unlock (Debug and bench-checks builds; Nightly to come).
         let longWait = storage.lockNotingMainThreadWait()
         defer {
             storage.unlock()
-            longWait?.mainThreadWaitedForLock(fileID: fileID, line: line)
+            if let longWait { longWait.table.mainThreadWaitedForLock(fileID: fileID, line: line, nanos: longWait.nanos) }
         }
         #else
         storage.lock()
@@ -88,16 +88,16 @@ final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allo
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    /// Takes the lock. Returns the detector's table when the main thread waited for it longer than
-    /// the table's limit (``BlockingKind/lockWaitLimitNanos``); an uncontended lock is one
-    /// try-lock, as before, and only a contended one on the main thread is timed.
-    func lockNotingMainThreadWait() -> BlockingViolationTable? {
+    /// Takes the lock. Returns the detector's table and the measured wait when the main thread waited
+    /// for it longer than the table's limit (``BlockingKind/lockWaitLimitNanos``); an uncontended lock
+    /// is one try-lock, as before, and only a contended one on the main thread is timed.
+    func lockNotingMainThreadWait() -> (table: BlockingViolationTable, nanos: UInt64)? {
         if tryLock() { return nil }
         return lockContended()
     }
 
     @inline(never)
-    private func lockContended() -> BlockingViolationTable? {
+    private func lockContended() -> (table: BlockingViolationTable, nanos: UInt64)? {
         guard pthread_main_np() != 0 else {
             lock()
             return nil
@@ -105,7 +105,8 @@ final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allo
         let table = BlockingViolationTable.active
         let start = table.uptimeNanos()
         lock()
-        return table.uptimeNanos() &- start > table.lockWaitLimitNanos ? table : nil
+        let nanos = table.uptimeNanos() &- start
+        return nanos > table.lockWaitLimitNanos ? (table, nanos) : nil
     }
     #endif
 

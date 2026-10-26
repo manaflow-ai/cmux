@@ -64,7 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        // One display link per display, shared by the app, window and budgeted frame schedulers.
+        let displays = DisplayClock()
+        FrameScheduler.install(displays: displays)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+                                         displays: displays)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
@@ -204,8 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
-        // The page host is built here, its first read; the statics forward to it for page views not
-        // yet made through `webUI.open` (p13-webui-006 to 009 move them, 010 deletes the statics).
+        // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
+        // the statics forward to it for page views not yet made through `webUI.open`
+        // (p13-webui-006 to 009 move them, 010 deletes the statics).
         PageWebView.openPanel = services.webUI.openPanel
         PageWebView.chromiumHosting = services.webUI.chromium
         DebugTimings.markLaunch("dfl.home_history")
@@ -368,13 +373,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
-                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                // Socket focus policy: `open` makes the page first responder only with focus: true.
+                let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
+                                                         tunables: TunableStore.shared)
                 control.service?.router.register([
                     .mainActor("debug.chromium_host") { [weak services] call in
                         let controller = services?.windows.controllers.first
                         let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                         let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue != false)
+                                                         over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
                         return .value(JSONValue(foundation: fields) ?? .null)
                     },
                     .async("debug.chromium_host.measure") { call in

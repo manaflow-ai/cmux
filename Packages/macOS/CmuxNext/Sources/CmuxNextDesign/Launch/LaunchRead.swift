@@ -31,10 +31,12 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
     ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking`` (a pane's first frame).
     ///   - shutdown: What quit does with it before it has started; ``ShutdownBehavior/blockShutdown`` when a
     ///     ``finished()`` must end (quit itself awaits it), else dropped and ``value`` stays nil.
+    ///   - fileID: The caller's `#fileID`, which names a slow block-shutdown read (leave the default).
+    ///   - line: The caller's `#line`.
     ///   - body: The blocking read. It runs on a lane thread.
     public init(on work: BackgroundWork, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
-                _ body: @escaping @Sendable () -> Value) {
-        work.post(priority, mayBlock: .files, shutdown: shutdown) { [self] in
+                fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Value) {
+        work.post(priority, mayBlock: .files, shutdown: shutdown, fileID: fileID, line: line) { [self] in
             let value = body()
             let waiters = self.state.withLock { state in
                 state.value = value

@@ -3,28 +3,24 @@ import CmuxNextControl
 import CmuxNextMemory
 import CmuxNextSettings
 
-/// The memory diagnostics of the control socket:
+/// The memory methods of the control socket:
 ///
-/// - `debug.memory` (every build, read-only; memory-DESIGN.md section 7): pressure, mode, budget,
-///   consumers, processes, tabs, workspaces, terminal surfaces, spares and the last 32 pressure
-///   changes since the control socket started. The analog of Chrome's `chrome://memory-internals`.
+/// - `debug.memory` (every build, read-only): ``DebugMemoryControl``.
 /// - `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override and
 ///   hands the same level to browser tab hibernation, so the fleet benches
 ///   (scripts/measure/tab-hibernation.sh) measure pressure without `sudo memory_pressure`.
-///   `level` is normal, warning or critical; `none` clears the override and both go back to the
-///   kernel's level. The reply keeps `pressure` (hibernation's level) and adds the coordinator's
-///   `level` and the `override`. `debug.memory`'s history records each override.
+///   `level` is normal, warning or critical and holds for both, whatever the kernel reports, until
+///   `none` clears it and hands both the kernel's level again. The reply keeps `pressure`
+///   (hibernation's level) and adds the coordinator's `level` and the `override`. `debug.memory`'s
+///   pressure history records each override.
 @MainActor
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
-        let history = MemoryPressureHistory(pressure: services.memoryPressure)
-        let memory = memoryMethod(
-            read: { [weak services] in services?.resources.memorySnapshot(history: history.changes) },
-            sample: { await AppResourceSource.memoryProcesses($0) })
+        let memory = DebugMemoryControl(services: services)
         #if DEBUG || CMUX_BENCH_HOOKS
-        return [memory, pressureMethod(services, history: history)]
+        return [memory.method, pressureMethod(services, history: memory.history)]
         #else
-        return [memory]
+        return [memory.method]
         #endif
     }
 
@@ -37,36 +33,31 @@ enum DebugHibernationControl {
                 return .value(.object(["error": .string("level must be normal, warning, critical or none")]))
             }
             guard let services else { return .value(.null) }
-            let coordinatorLevel = services.overrideMemoryPressure(level)
-            history.record(coordinatorLevel, source: level == nil ? .kernel : .override)
-            var reply: [String: JSONValue] = [
-                "level": .string(coordinatorLevel.rawValue),
-                "override": level.map { .string($0.rawValue) } ?? .null,
-            ]
-            if let hibernation = services.cache.hibernation { reply["pressure"] = .string(hibernation.pressure.rawValue) }
-            return .value(.object(reply))
+            let coordinator = services.memoryCoordinator
+            let reply = applyOverride(level, coordinator: coordinator, hibernation: services.cache.hibernation)
+            history.overrideDidChange(coordinator.pressureOverride)
+            return .value(reply)
         }
     }
-    #endif
 
-    /// `debug.memory`: `read` copies the model in one main-actor work item (the control queue's
-    /// automation class, after the person's input), then `sample` reads the process footprints and
-    /// the report is encoded off the main actor. It changes nothing and its answer has no URL,
-    /// title or path (``MemoryDiagnosticsReport``), so release builds serve it too.
+    /// Sets `coordinator`'s pressure override (nil clears it) and hands its level to `hibernation` in
+    /// the same turn; a hibernation that follows the coordinator keeps the override until it is cleared.
     ///
     /// - Parameters:
-    ///   - read: The app's memory state; nil once the app's services are gone.
-    ///   - sample: Reads the footprints of the snapshot's processes, off the main actor.
-    static func memoryMethod(
-        read: @escaping @MainActor @Sendable () -> MemoryDiagnosticsSnapshot?,
-        sample: @escaping @concurrent @Sendable (MemoryDiagnosticsSnapshot) async -> MemoryDiagnosticsProcesses
-    ) -> ControlMethod {
-        ControlMethod.mainActor("debug.memory") { _ in
-            guard let snapshot = read() else { return .value(.null) }
-            return .followUp {
-                let report = MemoryDiagnosticsReport(snapshot: snapshot, processes: await sample(snapshot))
-                return try JSONValue.parse(report.jsonData())
-            }
-        }.servingRelease()
+    ///   - level: The level to hold, or nil for the kernel's level.
+    ///   - coordinator: The app's memory coordinator.
+    ///   - hibernation: The app's browser hibernation, nil before it starts.
+    /// - Returns: The reply: the coordinator's `level`, the `override` and hibernation's `pressure`.
+    static func applyOverride(_ level: MemoryPressureLevel?, coordinator: MemoryCoordinator,
+                              hibernation: BrowserHibernation?) -> JSONValue {
+        coordinator.pressureOverride = level
+        hibernation?.pressureDidChange(coordinator.level)
+        var reply: [String: JSONValue] = [
+            "level": .string(coordinator.level.rawValue),
+            "override": level.map { .string($0.rawValue) } ?? .null,
+        ]
+        if let hibernation { reply["pressure"] = .string(hibernation.pressure.rawValue) }
+        return .object(reply)
     }
+    #endif
 }

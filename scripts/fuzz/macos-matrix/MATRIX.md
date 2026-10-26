@@ -37,6 +37,7 @@ cmux worktree, with a done fleet DEV build job (`cmux-ci build cmux --ref SHA --
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15                         # smoke, about 3 min a major
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 15 --suite fuzz --seed 7 --minutes 20
 scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-close-14
+scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14,15,26 --suite chaos             # one row per fault
 ```
 
 It submits one `cmux-ci run --class vm --script scripts/fuzz/macos-matrix/vm.sh` step with one `tart-<digest>`
@@ -76,6 +77,41 @@ under the router's 2 s request deadline),
 `design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
+
+### Chaos suite
+
+`os-matrix.sh --build JOB --os 14,15,26 --suite chaos` (by hand: `vm.sh --suite chaos [--faults a,b] BUILD`) runs
+`chaos.py`, which drives the guest like the smoke (SSH `cmux app call`, VNC screenshots; needs a DEV build). The
+tour makes two terminal panes (a split) and a third pane with a Chromium tab and a WebKit tab on a page served in
+the guest, so each terminal stays its pane's selected tab (`debug.surfaces` reads only that one). Then one
+fault at a time. Keys are typed into a terminal right before and right after each fault, and a typed echo is
+checked after recovery. Each fault has its own expected outcome:
+
+| Fault | Injection | Expected |
+|-------|-----------|----------|
+| `terminal-host` | SIGKILL the host pid `debug.surfaces` names for a terminal | the daemon respawns it: new host pid, same terminal id, link connected, an echo runs |
+| `chromium-renderer` | SIGKILL the app's `--type=renderer` children | the crash page with Reload (`debug.browser.page_status`); Reload brings the page back |
+| `chromium-gpu` | SIGKILL `--type=gpu-process` | a new GPU process; the page answers (after Reload if it crashed) |
+| `chromium-utility` | SIGKILL `--type=utility` (network service and the rest) | new utility processes; a reload loads the page |
+| `webkit-webcontent` | SIGKILL the WebKit tab's `page_pid` | the crash page with Reload; Reload loads it in a new WebContent |
+| `agent-webcontent` | SIGKILL an agent page's WebContent (`debug.agent_pane`) | the page reloads in a new process by itself |
+| `acpmux` | SIGKILL the app's acpmux daemon | the app answers; terminals work |
+| `daemon` | SIGKILL the cmux-tui daemon (`debug.daemon` pid) | a new daemon connects; every terminal pane re-attaches; an echo runs |
+| `memory-pressure` | `sudo memory_pressure -S -l critical` for 15 s; `skip` when the level never reads critical (4) | the app answers; an echo runs |
+| `network-off` | a pf anchor drops all but loopback and SSH, for at most 45 s (the guest turns it off by itself) | the app answers; an echo runs; an unreachable page shows a load error (`page_status` `error` or `enginePage`), not the crash page; the local page answers |
+| `holder` | relaunch with `CMUX_TUI_TERMINAL_HOST_MODEL=holder`, SIGKILL the holder (`cmux-holder`, or `__holder` in cmux-tui-host) whose child is the left terminal's shell | the app stays up; each pane of that holder shows the ended state with "Restart Shell Here" (`debug.surfaces` `status_text`, `restart_offered`) and Restart (`tab.restart`, the button's action) brings its shell back, or kept the same shell while a new holder runs (it adopted the masters); other holders and their shells are untouched |
+| `fd-limit` | relaunch under `ulimit -n 256` (soft and hard), then 12 workspaces and 8 pages | the app stays up (refusals are errors, recorded); an echo runs |
+| `full-disk` | relaunch with HOME on a 512 MB sparse image, then the image filled | a new workspace, a split and Settings with a full home volume (`skip` when 1 MB or more stayed free), none refused; an echo runs in the new workspace; the app answers after the space is freed |
+
+Every fault also needs the same app pid, every main-thread ping answered within 10 s (one a second on a thread
+of its own while the fault and its recovery run, three after; their times are labeled "VM, not comparable") and
+no crash report (`.ips`) of a cmux process in its window. A report counts at its crash time (its `captureTime`,
+not when ReportCrash wrote it), and every window is in the guest's clock. A crash in a launch, a tour or a quit
+is no fault's (`crashes_outside_faults` names the stretch) and fails the run. `result.json` has one row per
+fault: `fault`, `expected`, `outcome` (`ok`, `FAIL` or `skip`), `detail` (what was killed and what was observed),
+`window`, `app_pid_kept`, `ping_ms_vm` and `crash_reports`. A fault the guest cannot inject (no passwordless sudo,
+no holder process, no acpmux, a pressure level or a full volume that never came) is `skip` with its reason; a skip makes the major NO-VERDICT, never PASS. The suite never pulls an image,
+and the guest is deleted after the run, so pf, the pressure level and the home image never outlive it.
 
 ### Exec suite (OS probes)
 

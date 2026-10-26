@@ -30,7 +30,11 @@ from typing import Callable
 
 _TYPE = re.compile(r"\s--type=(\S+)")
 _TYPE_KINDS = {"renderer": "cef-renderer", "gpu-process": "cef-gpu", "utility": "cef-utility"}
-# The executable of a CEF helper app ("<App> Helper (Renderer).app", "<App> Helper.app") or of the Chromium Host app.
+# The Chromium Host: a second executable of the app (embed-cef.sh), "<App>.app/Contents/MacOS/<App> Chromium Host".
+# No " -" before it: a shell whose arguments name the host is not the host.
+_HOST = re.compile(r"^/(?:(?! -).)*\.app/Contents/MacOS/[^/]* Chromium Host$")
+# The executable of a CEF helper app ("<App> Helper (Renderer).app", "<App> Helper.app"), or of the Chromium Host
+# app of older builds ("<App> Chromium Host.app" in Contents/Frameworks).
 _BUNDLE = re.compile(r"/[^/]* (Helper|Chromium Host)[^/]*\.app/")
 
 # browser-idle-cost-live.py's class names of the `process_type_kind` kinds (its report and budget file key on them).
@@ -51,10 +55,13 @@ def process_type_kind(cmd: str) -> str | None:
 
 
 def chromium_kind(cmd: str) -> str | None:
-    """The kind of a Chromium process from its command line, or None when its executable is not in a Helper
-    or Chromium Host app: cef-host (the Chromium Host app's browser process), the `process_type_kind`
+    """The kind of a Chromium process from its command line, or None when its executable is neither the
+    Chromium Host nor in a Helper app: cef-host (the Chromium Host's browser process), the `process_type_kind`
     kinds, or cef-helper for a Helper app started without --type."""
-    bundle = _BUNDLE.search(cmd.split(" --", 1)[0])
+    exe = cmd.split(" --", 1)[0]
+    if _HOST.search(exe):
+        return "cef-host"
+    bundle = _BUNDLE.search(exe)
     if bundle is None:
         return None
     if bundle.group(1) == "Chromium Host":
