@@ -100,6 +100,12 @@ async fn a_subagent_a_503_failed_is_resumed_in_its_chat() {
     let last = entries_of(&hub, &id, subagent).last().cloned().unwrap();
     assert_eq!(last["state"], "running", "{last}");
     assert_eq!(last["agentId"], "a503a503a503a503");
+    // Running again, it is no longer retryable.
+    let resumed = entries_of(&hub, &id, subagent);
+    assert!(
+        resumed.iter().any(|e| e["state"] == "running" && e["retryable"] == false),
+        "{resumed:?}"
+    );
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
     assert_eq!(user_messages(&hub, &id).len(), 2);
@@ -152,8 +158,9 @@ async fn stop_skips_the_wait() {
     tokio::time::sleep(Duration::from_millis(600)).await;
     assert_eq!(outcomes(&hub, &id), ["scheduled", "skipped:stopped"]);
     assert_eq!(user_messages(&hub, &id).len(), 1);
+    // A person can still retry it.
     let skipped = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();
-    assert_eq!(skipped["retryable"], false, "{skipped}");
+    assert_eq!(skipped["retryable"], true, "{skipped}");
 }
 
 /// A bad request would only fail again: it is never retried.
@@ -212,8 +219,11 @@ async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
         .map(|m| m["_meta"]["provenance"]["attempt"].clone())
         .collect();
     assert_eq!(attempts, [json!(1), json!(2)]);
+    // The automatic attempts are over; a person's retry still works.
     let given_up = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();
-    assert_eq!(given_up["retryable"], false, "{given_up}");
+    assert_eq!(given_up["state"], "failed", "{given_up}");
+    assert_eq!(given_up["retry"], Value::Null, "{given_up}");
+    assert_eq!(given_up["retryable"], true, "{given_up}");
 }
 
 /// A person's turn runs when the retry fires: its prompt waits in the queue behind that turn
@@ -259,4 +269,31 @@ async fn close_skips_the_wait() {
     hub.kill(&session, false).await.unwrap();
     let got = until(&hub, &id, |o| o.len() >= 2).await;
     assert_eq!(got, ["scheduled", "skipped:closed"]);
+    // With its chat closed, nothing can retry it.
+    let closed = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();
+    assert_eq!(closed["retryable"], false, "{closed}");
+}
+
+/// A resume the translator can no longer name (it forgot the agent after 64 other failures)
+/// still ends the retry: Claude Code's raw `task_started` for its agent id says it runs again.
+#[tokio::test]
+async fn a_resume_of_a_forgotten_agent_ends_its_retry() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned())]);
+    let (hub, _c, id) = chat_env("agent-503", vec![50], env).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
+    messages_until(&hub, &id, 2).await;
+    let subagent = retried(&hub, &id);
+    for _ in 0..200 {
+        if entries_of(&hub, &id, &subagent).last().is_some_and(|e| e["state"] == "running") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    // Only acpmux's own entry says it runs again: the translator forgot it.
+    let last = entries_of(&hub, &id, &subagent).last().cloned().unwrap();
+    assert_eq!((&last["state"], &last["retryable"]), (&json!("running"), &json!(false)), "{last}");
+    // Its turn ended with nothing more to retry.
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(outcomes(&hub, &id), ["scheduled", "fired"]);
+    assert_eq!(user_messages(&hub, &id).len(), 2);
 }

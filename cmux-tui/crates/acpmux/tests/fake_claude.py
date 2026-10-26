@@ -67,7 +67,8 @@ replies with the process's argv (spawn flags such as `--disallowedTools`).
 turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
 holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
 a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
-again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again).
+again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again; with
+FAKE_CLAUDE_FORGET_AGENTS=1, 64 other agents fail first).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
@@ -790,6 +791,18 @@ while True:
         if 'SendMessage to "%s"' % AGENT_503 in said:
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_send", "name": "SendMessage",
                   "input": {"to": AGENT_503, "message": "Continue where you stopped."}}]}})
+            # FAKE_CLAUDE_FORGET_AGENTS=1: 64 other agents fail first (a bad request each), so the
+            # translator forgot A503 by its resume.
+            for i in range(64 if os.environ.get("FAKE_CLAUDE_FORGET_AGENTS") == "1" else 0):
+                tool, task = "toolu_other%d" % i, "b%015d" % i
+                send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": tool, "name": "Agent",
+                      "input": {"description": "Other %d" % i, "prompt": "Other", "run_in_background": True}}]}})
+                send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": tool,
+                      "content": "Async agent launched"}]}})
+                send({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": tool,
+                      "description": "Other %d" % i, "task_type": "local_agent", "is_backgrounded": True})
+                send({"type": "system", "subtype": "task_notification", "task_id": task, "tool_use_id": tool,
+                      "status": "failed", "output_file": "", "summary": AGENT_ERRORS["agent-400"]})
             send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_send",
                   "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
