@@ -47,10 +47,13 @@ public protocol RemoteFramePresenter: AnyObject, Sendable {
 public struct RemoteFramePresenters {
     public nonisolated init() {}
     /// The presenter for `kind`. B falls back to A where Metal is missing.
-    public func make(_ kind: RemotePresenterKind) -> any RemoteFramePresenter {
+    ///
+    /// - Parameter inputLatency: The input send times B times shown frames'
+    ///   input echoes against (the pane's input controller's table).
+    public func make(_ kind: RemotePresenterKind, inputLatency: RemoteInputLatency = RemoteInputLatency()) -> any RemoteFramePresenter {
         switch kind {
         case .layerContents: return LayerContentsPresenter()
-        case .metal: return MetalFramePresenter() ?? LayerContentsPresenter()
+        case .metal: return MetalFramePresenter(inputLatency: inputLatency) ?? LayerContentsPresenter()
         case .sampleBuffer: return SampleBufferPresenter()
         }
     }

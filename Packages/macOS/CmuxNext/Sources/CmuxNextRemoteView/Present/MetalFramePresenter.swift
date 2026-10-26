@@ -17,10 +17,14 @@ final class MetalFramePresenter: RemoteFramePresenter {
     var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private nonisolated let renderer: MetalYUVRenderer
+    /// `remote.frame_decoded`, `remote.present` and the stream's latency and drop histograms.
+    private nonisolated let presentLog: RemotePresentLog
     private var frameSize: CGSize = .zero
     private(set) var shownFrame: RemoteDecodedFrame?
 
-    init?() {
+    /// - Parameter inputLatency: The pane's input send times, which shown
+    ///   frames' input echoes are timed against.
+    init?(inputLatency: RemoteInputLatency) {
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = true
         metalLayer.maximumDrawableCount = 2
@@ -29,12 +33,14 @@ final class MetalFramePresenter: RemoteFramePresenter {
         metalLayer.actions = RemoteLayerActions.none
         guard let renderer = MetalYUVRenderer(layer: SharedMetalLayer(metalLayer)) else { return nil }
         self.renderer = renderer
+        presentLog = RemotePresentLog(inputLatency: inputLatency)
     }
 
     nonisolated func present(_ frame: RemoteDecodedFrame) {
+        presentLog.frameDecoded(frame.frame)
         guard mailbox.post(frame) else { return }
-        Task { [renderer, mailbox, weak self] in
-            guard let shown = await renderer.drawNewest(from: mailbox) else { return }
+        Task { [renderer, mailbox, presentLog, weak self] in
+            guard let shown = await renderer.drawNewest(from: mailbox, presentLog: presentLog) else { return }
             await self?.rendered(shown)
         }
     }

@@ -17,6 +17,9 @@ final class RemoteInputController {
     }
 
     weak var sink: (any RemoteViewInputSink)?
+    /// Each sent event's number and send time (`remote.input`); the pane's
+    /// presenter times shown frames' input echoes against the same table.
+    let inputLatency: RemoteInputLatency
     var settings = RemoteDesktopSettings()
     var releaseChord = RemoteReleaseChord.default
     /// The App's cmux shortcut matcher (KeyboardShortcutSettings).
@@ -35,6 +38,11 @@ final class RemoteInputController {
     private var systemShortcuts = RemoteSystemShortcuts()
     /// Keys whose down went to the input method: their ups are not sent.
     private var textRoutedKeys: Set<UInt16> = []
+    private var sequencer = RemoteInputLatency.Sequencer()
+
+    init(inputLatency: RemoteInputLatency = RemoteInputLatency()) {
+        self.inputLatency = inputLatency
+    }
 
     func keyDown(_ event: NSEvent) -> KeyDecision {
         let route = RemoteKeyboardPolicy().route(
@@ -135,7 +143,10 @@ final class RemoteInputController {
 
     private func emit(_ events: [RemoteInputEvent]) {
         guard let sink else { return }
-        for event in events { sink.send(event) }
+        for event in events {
+            inputLatency.recordSent(sequencer.next())
+            sink.send(event)
+        }
     }
 
     /// Whether the selected input source can type ASCII (false for an IME

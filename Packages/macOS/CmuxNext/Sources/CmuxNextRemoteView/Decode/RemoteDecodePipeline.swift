@@ -71,7 +71,7 @@ public actor RemoteDecodePipeline {
             stats.hardware = decoder.isHardware
             deliver(RemoteDecodedFrame(
                 pixelBuffer: image, frame: unit.frame, tCaptureMicros: unit.tCaptureMicros,
-                decodedAtNanos: DispatchTime.now().uptimeNanoseconds))
+                decodedAtNanos: DispatchTime.now().uptimeNanoseconds, inputEcho: unit.inputEcho))
             return .decoded
         } catch {
             stats.decodeErrors += 1

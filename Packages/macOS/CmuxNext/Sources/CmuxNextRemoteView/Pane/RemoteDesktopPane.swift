@@ -96,7 +96,7 @@ public final class RemoteDesktopPane {
         self.inputSink = inputSink
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
-        self.presenter = RemoteFramePresenters().make(presenter)
+        self.presenter = RemoteFramePresenters().make(presenter, inputLatency: view.capture.controller.inputLatency)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
         view.video.scaling = scaling

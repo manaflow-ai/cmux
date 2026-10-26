@@ -50,16 +50,22 @@ actor MetalYUVRenderer {
 
     /// Takes the mailbox's newest frame and draws it. Returns the frame when
     /// it is on its way to the screen, nil when there was none or it could
-    /// not be drawn.
-    func drawNewest(from mailbox: LatestFrameMailbox<RemoteDecodedFrame>) -> RemoteDecodedFrame? {
-        guard let frame = mailbox.take(), render(frame) else { return nil }
+    /// not be drawn. A drawn frame's present result (when the display showed
+    /// it, or that it never did) goes to `presentLog`.
+    func drawNewest(
+        from mailbox: LatestFrameMailbox<RemoteDecodedFrame>, presentLog: RemotePresentLog? = nil
+    ) -> RemoteDecodedFrame? {
+        guard let frame = mailbox.take(), render(frame, presentLog: presentLog) else { return nil }
         return frame
     }
 
     /// Draws `frame` and presents it at the next refresh. Returns false when
     /// the frame could not be drawn (no drawable within the layer's timeout,
-    /// or a plane that does not map to a texture).
-    private func render(_ frame: RemoteDecodedFrame) -> Bool {
+    /// or a plane that does not map to a texture), and `presentLog` hears
+    /// nothing. Otherwise `presentLog` hears once, on a Metal thread, the time
+    /// the display showed the frame (`MTLDrawable.presentedTime`), or 0 when
+    /// the drawable was never shown.
+    private func render(_ frame: RemoteDecodedFrame, presentLog: RemotePresentLog?) -> Bool {
         let layer = shared.layer
         let buffer = frame.pixelBuffer
         let width = CVPixelBufferGetWidth(buffer)
@@ -95,6 +101,12 @@ actor MetalYUVRenderer {
         // The cache textures must outlive the GPU's reads: the completed handler holds them.
         let retained = [RemoteFrameBuffer(luma), RemoteFrameBuffer(chroma)]
         commands.addCompletedHandler { _ in withExtendedLifetime(retained) {} }
+        if let presentLog {
+            let (number, echo) = (frame.frame, frame.inputEcho)
+            drawable.addPresentedHandler { @Sendable shown in
+                presentLog.presentCompleted(frame: number, echo: echo, presentedAt: shown.presentedTime)
+            }
+        }
         commands.present(drawable)
         commands.commit()
         return true

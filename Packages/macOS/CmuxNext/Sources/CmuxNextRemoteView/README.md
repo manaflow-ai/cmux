@@ -12,6 +12,10 @@ A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&
 
 `RemoteRdCore` wraps the shared Rust core (crate `cmux-tui/crates/cmux-rd-ffi`, the same reassembly, FEC and feedback code as the host's bench viewer) through the client xcframework `CCmuxRdFFI`: `cmux.rd/1` datagrams or stream-carrier bytes in; access units, transport messages and feedback datagrams out; `nextDeadlineMicros` names the one timer the owner arms. Every build links it: it ships inside `CCmuxAppFFI`, the app's one Rust static library (`cmux-tui/crates/cmux-app-ffi`, built by `scripts/cmux-next/build-app-ffi.sh` and pinned in `Package.swift`).
 
+## Trace points and histograms
+
+The input controller numbers every event it sends (`RemoteInputLatency.Sequencer`, from 1) and writes `remote.input` with that number. The Metal presenter writes `remote.frame_decoded` as each frame arrives and `remote.present` when the display shows it (`MTLDrawable.presentedTime`), with the input the frame echoes (`RemoteAccessUnit.inputEcho`, the newest input the host had applied at capture; 0 when the host does not say). A shown frame records `remote.input_to_present` for each input it shows first, and every 100 host frames record `smoothness.dropped_pct.remote_stream` (`RemoteStreamPresentLedger`). The mock host echoes; `cmux.rd/1` frames carry no echo yet.
+
 ## Settings the viewer reads
 
 

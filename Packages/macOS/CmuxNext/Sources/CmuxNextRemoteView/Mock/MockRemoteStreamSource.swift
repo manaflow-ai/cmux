@@ -26,6 +26,8 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         var scene = SyntheticFramePainter.Scene(counter: 0, pointer: CGPoint(x: 200, y: 200))
         var nextFrame: UInt32 = 0
         var forceKeyframe = true
+        /// The newest viewer input applied (``inputApplied(_:)``); frames echo it.
+        var appliedInput: UInt32 = 0
         var keyframeRequests = 0
         var encoded = 0
     }
@@ -106,6 +108,14 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         damage()
     }
 
+    /// Records that the host applied viewer input `sequence` (the viewer's
+    /// numbering, ``RemoteInputLatency/Sequencer``): every frame captured
+    /// after this echoes it (``RemoteAccessUnit/inputEcho``), as a real
+    /// host's frames would carry the input they show.
+    public func inputApplied(_ sequence: UInt32) {
+        state.withLock { $0.appliedInput = max($0.appliedInput, sequence) }
+    }
+
     /// Paints and encodes the next frame (the counter advances).
     /// The encoder numbers each frame when it paints it, so frames stream in order whatever
     /// order these tasks reach it in.
@@ -122,23 +132,23 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         continuations.1?.finish()
     }
 
-    /// The next frame's scene, number and whether it must be a keyframe; the counter advances.
-    fileprivate func takeNextFrame() -> (scene: SyntheticFramePainter.Scene, frame: UInt32, keyframe: Bool) {
+    /// The next frame's scene, number, whether it must be a keyframe and the input it echoes; the counter advances.
+    fileprivate func takeNextFrame() -> (scene: SyntheticFramePainter.Scene, frame: UInt32, keyframe: Bool, echo: UInt32) {
         state.withLock { state in
             state.scene.counter &+= 1
             defer {
                 state.nextFrame &+= 1
                 state.forceKeyframe = false
             }
-            return (state.scene, state.nextFrame, state.forceKeyframe)
+            return (state.scene, state.nextFrame, state.forceKeyframe, state.appliedInput)
         }
     }
 
     /// Streams one encoded frame (called on a VideoToolbox output thread).
-    fileprivate func emit(_ output: (data: Data, keyframe: Bool), frame: UInt32, capturedMicros: UInt64) {
+    fileprivate func emit(_ output: (data: Data, keyframe: Bool), frame: UInt32, capturedMicros: UInt64, echo: UInt32) {
         let unit = RemoteAccessUnit(
             frame: frame, flags: output.keyframe ? .keyframe : [], tCaptureMicros: capturedMicros,
-            data: output.data, codec: codec)
+            data: output.data, codec: codec, inputEcho: echo)
         let continuation = state.withLock { state in
             state.encoded += 1
             return state.units
@@ -166,10 +176,10 @@ private actor MockFrameEncoder {
         let next = source.takeNextFrame()
         let captured = DispatchTime.now().uptimeNanoseconds / 1000
         SyntheticFramePainter.paint(next.scene, into: buffer)
-        let frame = next.frame
+        let (frame, echo) = (next.frame, next.echo)
         encoder.encode(buffer, index: Int(frame), forceKeyframe: next.keyframe) { [weak source] output in
             guard let output else { return }
-            source?.emit(output, frame: frame, capturedMicros: captured)
+            source?.emit(output, frame: frame, capturedMicros: captured, echo: echo)
         }
         encoder.flush()
     }
