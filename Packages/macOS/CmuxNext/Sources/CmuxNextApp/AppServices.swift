@@ -400,10 +400,14 @@ final class AppServices {
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
     var glassWatch: GlassModeWatch?
     /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
-    /// its Low Power Mode goes out by init and its inputs are pushed (end of `init`), never a shared instance.
-    let energyMonitor = EnergyMonitor()
-    /// Pushes the monitor's inputs to WebKit's render rate and KeepAwake's battery rule.
-    private var energyLink: MainActorHandlerRegistration<EnergyInputs>?
+    /// its Low Power Mode goes out by init and its inputs are pushed (`startEnergy`), never a shared instance.
+    let energyMonitor: EnergyMonitor
+    /// Pushes the monitor's inputs to the consumers below the App and ``energyDriver`` (`startEnergy`).
+    var energyLink: MainActorHandlerRegistration<EnergyInputs>?
+    /// Writes `mainWork.energy`, the policy every scheduler reads, from the inputs and `energy.saver`.
+    private(set) lazy var energyDriver = EnergyPolicyDriver(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energyDriver`` (`followEnergySaver`).
+    private var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -473,12 +477,16 @@ final class AppServices {
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
+    /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
+    ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
-         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
+         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
+         energyMonitor: EnergyMonitor = EnergyMonitor()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
+        self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
@@ -670,10 +678,27 @@ final class AppServices {
             keyRouter.cancelChord()
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+    }
+    /// Starts the energy monitor and pushes its inputs, now and on each change, to the consumers that cannot
+    /// import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
+    /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
+    func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared) {
         energyMonitor.start()
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
-            KeepAwakeService.shared.setOnBattery(inputs.onBattery)
+            keepAwake.setOnBattery(inputs.onBattery)
+            videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
+            self?.energyDriver.update(inputs: inputs)
+        }
+    }
+    /// Follows `energy.saver` into ``energyDriver`` once the settings have loaded, so the first policy it
+    /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
+    func followEnergySaver(_ settings: SettingsController) {
+        guard energySaverObservation == nil else { return }
+        // task-owner: app lifetime; event-driven (Observation)
+        energySaverObservation = Task { [weak self] in
+            await settings.waitForLoad(atLeast: 1)
+            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energyDriver.update(setting: mode) }
         }
     }
     // MARK: Lookup
