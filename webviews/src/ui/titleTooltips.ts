@@ -322,12 +322,14 @@ export function installTooltips(
       intent.hover(element);
     }, SCROLL_QUIET);
   };
-  doc.addEventListener("pointerover", onOver);
-  doc.addEventListener("pointerout", onOut);
-  doc.addEventListener("pointerdown", dismiss, true);
-  doc.addEventListener("keydown", dismiss, true);
-  doc.addEventListener("scroll", onScroll, true);
-  win.addEventListener("blur", dismiss);
+  // All passive: the tooltip only watches, it never cancels a press, a key or a scroll. Over and
+  // out fire on crossing an element's edge, not per move, so they need no frame coalescing.
+  doc.addEventListener("pointerover", onOver, { passive: true });
+  doc.addEventListener("pointerout", onOut, { passive: true });
+  doc.addEventListener("pointerdown", dismiss, { capture: true, passive: true });
+  doc.addEventListener("keydown", dismiss, { capture: true, passive: true });
+  doc.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  win.addEventListener("blur", dismiss, { passive: true });
   return () => {
     dismiss();
     intent.dispose();

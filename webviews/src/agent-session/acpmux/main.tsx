@@ -18,6 +18,7 @@ import { installMessageMenuReporter } from "./conversation/messageMenu";
 import { installDragOut } from "./conversation/dragOut";
 import { installPageKey } from "./pageKey";
 import { installRevealSettle } from "../shared/pageReveal";
+import { installKeyToPaintProbe } from "../../ui/frameInput";
 
 // The native own-window picker runs in the page's inspector runtime. Keep its report on the
 // normal host protocol so the shared page host and the legacy WKWebView use the same validation.
@@ -39,6 +40,9 @@ installPageKey(document);
 // A switch away and back is a reattach: nothing started while hidden plays on return, and a change
 // that lands before the first frame back starts no entrance (shared/pageReveal.ts).
 installRevealSettle(document);
+// Key-to-paint in the pane (ui/frameInput.ts), off until debug.input or the opt-in report turns
+// it on through window.cmuxKeyToPaint.
+installKeyToPaintProbe(document);
 const root = document.getElementById("root")!;
 // A menu with no room in the pane goes past the window's edge through the native host (cx-6k6cg):
 // the shared page host's popup ops, else the legacy bridge's.
