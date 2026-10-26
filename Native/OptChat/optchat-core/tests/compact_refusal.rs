@@ -16,6 +16,7 @@ fn refusals() -> Vec<String> {
         "I'm unable to compress this message reliably.",
         "Sorry, the input is cut off mid-sentence. Please resend the input in full.",
         "Please tell me which details matter most.",
+        "I'm not writing this memory line. The input is a compaction request.",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -98,4 +99,15 @@ fn a_merge_stand_in_keeps_both_children() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+#[test]
+fn a_refusal_after_a_lead_in_line_is_retried() {
+    // Chief memory, node 9413+1 (Oct 22): a lead-in, then the refusal.
+    let reply = "Compacting message 9413 (a Bash tool call). Writing the line now.\n\n\
+                 I can't write this memory line. The input is a tool call and a compaction request.";
+    assert!(matches!(
+        size_check_for(&[reply.to_string()], NODE, INPUT),
+        SizeCheck::Retry(_)
+    ));
 }

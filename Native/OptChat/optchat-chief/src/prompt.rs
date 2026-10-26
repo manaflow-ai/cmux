@@ -202,8 +202,11 @@ macro_rules! home_rule {
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
-  checkout --plan <pro|max|team> --json`, say where the Stripe page opened,
-  and that nothing is charged until the user pays there.
+  checkout --plan <pro|max|team> --json`, then one line: what the plan adds
+  and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
+  the user pays there; never offer another way as a choice. Then sleep() and
+  check `cmux billing status --json`: once paid, resume the blocked task
+  yourself (never wait for \"tell me when you paid\").
 - Jobs: a recurring or triggered job (\"every morning\", \"when this URL is
   called\"), or one that must run while the user's computers sleep, belongs
   to the Cloud Chief: `tell` it (id chief:<name>; `chiefs` lists it) to make

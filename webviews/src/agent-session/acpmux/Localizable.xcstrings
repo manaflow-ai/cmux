@@ -34824,6 +34824,138 @@
         }
       }
     },
+    "permission.error.refused": {
+      "comment": "Agent pane: acpmux refused an answer given on the chat's permission card",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم تصل هذه الإجابة. ربما أُجيب عن الطلب أو سُحب في مكان آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taj odgovor nije prošao. Zahtjev je možda odgovoren ili povučen negdje drugdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret gik ikke igennem. Anmodningen er måske besvaret eller trukket tilbage et andet sted."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Antwort kam nicht an. Die Anfrage wurde vielleicht an anderer Stelle beantwortet oder zurückgezogen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That answer didn't go through. The ask may have been answered or withdrawn elsewhere."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esa respuesta no se envió. Es posible que la solicitud se haya respondido o retirado en otro lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette réponse n'est pas passée. La demande a peut-être été traitée ou retirée ailleurs."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La risposta non è andata a buon fine. La richiesta potrebbe essere stata gestita o ritirata altrove."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この回答は届きませんでした。リクエストは別の場所で回答済みか、取り下げられた可能性があります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លើយនោះមិនបានទៅដល់ទេ។ សំណើប្រហែលជាត្រូវបានឆ្លើយ ឬដកចេញនៅកន្លែងផ្សេង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 답변은 전달되지 않았습니다. 요청이 다른 곳에서 이미 응답되었거나 철회되었을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svaret gikk ikke gjennom. Forespørselen kan ha blitt besvart eller trukket tilbake et annet sted."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta odpowiedź nie dotarła. Prośba mogła zostać obsłużona lub wycofana gdzie indziej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essa resposta não foi enviada. O pedido pode ter sido respondido ou retirado em outro lugar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот ответ не прошёл. Возможно, на запрос уже ответили или его отозвали в другом месте."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำตอบนั้นส่งไม่สำเร็จ คำขออาจได้รับคำตอบหรือถูกถอนไปแล้วที่อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu yanıt iletilmedi. İstek başka bir yerde yanıtlanmış veya geri çekilmiş olabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю відповідь не надіслано. Можливо, на запит уже відповіли або його відкликали деінде."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Câu trả lời đó không được gửi đi. Yêu cầu có thể đã được trả lời hoặc rút lại ở nơi khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "该回答未送达。此请求可能已在别处被回答或撤回。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這個回答未送達。此請求可能已在別處被回答或撤回。"
+          }
+        }
+      }
+    },
     "permission.error.selectSession": {
       "comment": "Agent pane",
       "extractionState": "manual",

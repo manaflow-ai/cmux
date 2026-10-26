@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextChiefMemory
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -131,8 +132,11 @@ final class TopHomePageView: NSView {
                     ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
                 // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
                 let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage + delete }
-                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
+                // Import Memories… (chief.importMemories): into this Mac's Chief, or into the Cloud Chief the row is.
+                let cloudChief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first
+                let bring = item(ChiefMemoryImportHandlers.actionID, nil, cloudChief.map { ["chief": .string($0.id)] } ?? [:])
+                guard let chief = cloudChief else { return usage + bring + delete }
+                return usage + bring + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
