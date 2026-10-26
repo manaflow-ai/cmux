@@ -170,7 +170,7 @@ final class ChromiumHostMirror {
         guard body.count <= ChromiumHostControlMessage.maxBody else { return nil }
         var frame: [UInt8] = []
         frame.reserveCapacity(ChromiumHostControlMessage.headerSize + body.count)
-        withUnsafeBytes(of: UInt32(body.count).littleEndian) { frame.append(contentsOf: $0) }
+        frame.appendLittleEndian(UInt32(body.count))
         frame.append(contentsOf: [UInt8](repeating: 0, count: ChromiumHostControlMessage.headerSize - 4))
         frame.append(contentsOf: body)
         var fds: [Int32] = []

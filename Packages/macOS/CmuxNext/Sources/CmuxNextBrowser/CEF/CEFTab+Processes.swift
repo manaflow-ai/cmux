@@ -5,12 +5,9 @@ extension CEFTab: BrowserProcessReporting {
     /// Renderer client ids hosting this tab's frames (main frame, out-of-process iframes; one per site).
     public var contentProcesses: BrowserContentProcesses {
         guard let browserID, let shim = runtime.shim else { return .none }
-        var ids = [Int32](repeating: 0, count: 32)
-        let count = ids.withUnsafeMutableBufferPointer { buffer in
-            shim.rendererClientIDs(browserID, buffer.baseAddress, Int32(buffer.count))
-        }
-        guard count > 0 else { return .none }
-        return .chromiumRendererClients(Array(ids.prefix(Int(count))))
+        let ids = shim.rendererClientIDs(browserID, 32)
+        guard !ids.isEmpty else { return .none }
+        return .chromiumRendererClients(ids)
     }
 
     /// Each renderer client id that hosts this tab's frames, with how many of its frames it hosts (the main
@@ -21,16 +18,7 @@ extension CEFTab: BrowserProcessReporting {
     public var rendererFrames: [(clientID: Int32, frames: Int)]? {
         guard runtime.hostStart == nil else { return nil }
         guard let browserID, let shim = runtime.shim else { return [] }
-        let capacity = 32
-        var ids = [Int32](repeating: 0, count: capacity), frames = [Int32](repeating: 0, count: capacity)
-        let count = ids.withUnsafeMutableBufferPointer { idBuffer in
-            frames.withUnsafeMutableBufferPointer { frameBuffer in
-                shim.rendererFrameCounts(browserID, idBuffer.baseAddress, frameBuffer.baseAddress, Int32(capacity))
-            }
-        }
-        let renderers = Int(max(count, 0))
-        guard renderers <= capacity else { return nil }
-        return (0 ..< renderers).map { (clientID: ids[$0], frames: Int(frames[$0])) }
+        return shim.rendererFrameCounts(browserID, 32)
     }
 
     /// The pid of the renderer that hosts this tab's main frame (the fork's

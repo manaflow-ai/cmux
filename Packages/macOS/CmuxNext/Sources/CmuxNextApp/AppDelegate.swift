@@ -189,6 +189,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
+        // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
+        order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in
+            guard let services else { return }
+            services.startIdleWakeups(watchdog: control.watchdog)
+            control.idleWakeups = services.idleWakeups  // the person's input ends an idle period at that input
+        }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()

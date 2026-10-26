@@ -502,29 +502,21 @@ class LiveSchemaTests(unittest.TestCase):
         document["commands"]["send"]["request"]["fields"]["paste"]["presence"] = "required"
         self.validate(document, self.inventory)
 
-    def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
-        fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
-
-        self.assertEqual(set(fields), {
-            "operation",
-            "origin",
-            "receipt",
-            "idempotency_key",
-            "selectors",
-            "selector_fallbacks",
-            "pane",
-            "workspace",
-            "argv",
-            "cwd",
-            "url",
-            "width",
-            "cols",
-            "rows",
-        })
-        self.assertEqual(
-            CHECKER._runtime_type_shape(fields["selectors"].rust_type),
-            "ref<ResourceSelectors>",
-        )
+    def test_tabs_family_commands_are_generated_not_written(self) -> None:
+        # p05-ipc-029: tabs joined terminal-io in server-families.json, so its
+        # Command variants (the boxed create-surface-with-receipt and
+        # move-tab-to-column with its refused `sticky`) are no longer read
+        # from server.rs, and a schema change to them is not drift.
+        generated = CHECKER.generated_command_names()
+        runtime = set(CHECKER.runtime_command_fields())
+        for name in ("create-surface-with-receipt", "new-tab", "move-tab-to-column", "close-tabs"):
+            self.assertIn(name, generated)
+            self.assertNotIn(name, runtime)
+        document = copy.deepcopy(self.document)
+        fields = document["commands"]["new-tab"]["request"]["fields"]
+        fields["keep"]["presence"] = "required"
+        fields["keep"].pop("default")
+        self.validate(document, self.inventory)
 
     def test_struct_fields_accept_restricted_visibility(self) -> None:
         fields = CHECKER._parse_rust_fields(
