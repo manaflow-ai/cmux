@@ -102,7 +102,7 @@ enum WindowHintTargets {
                 }
             }
             // The deadline; resuming twice is guarded by the collection, which cancels it on finish.
-            collection.deadline.schedule(after: pageDeadline) { @MainActor in
+            collection.deadline.scheduleOnMain(after: pageDeadline) {
                 collection.finish()
             }
         }
