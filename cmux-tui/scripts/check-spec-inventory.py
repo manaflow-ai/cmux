@@ -690,13 +690,12 @@ CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "serv
 
 # server/ modules (and their child directories) whose events are not in the
 # raw SDK catalog yet: they speak their own wire families (agent session
-# attach, scripts, terminal snapshot digests). The inventory does not read
-# them until the spec covers those events (cx-chun).
+# attach, terminal snapshot digests). The inventory does not read them
+# until the spec covers those events (cx-chun).
 SERVER_MODULES_OUTSIDE_RAW_SDK = frozenset(
     {
         "agent_session_attach",
         "agent_session_stream",  # Existing attach events moved here; same wire family.
-        "scripts",
         "terminal_snapshot",
     }
 )

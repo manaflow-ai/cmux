@@ -5,6 +5,15 @@ mod crash_forward;
 mod memory_guard;
 mod owner_panic;
 
+/// Debug builds only: the owner's hang log test trigger, once its mux
+/// exists (tests/owner_panic.rs).
+#[cfg(debug_assertions)]
+pub(crate) fn hang_for_test(headless: bool) {
+    if headless {
+        owner_panic::hang_for_test();
+    }
+}
+
 /// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft

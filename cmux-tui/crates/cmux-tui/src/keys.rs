@@ -485,6 +485,9 @@ fn key_input_from_parts(
     Some(input)
 }
 
+#[cfg(feature = "fuzzing")]
+pub(crate) mod fuzz;
+
 #[cfg(test)]
 mod tests {
     use super::*;

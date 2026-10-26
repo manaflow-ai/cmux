@@ -698,6 +698,12 @@ requests may be missing. `watchdog_wakeups` counts wakes of the
 `mux-request-watchdog` thread: it has no periodic timer, so the count stays
 still while the daemon is idle, and it wakes only on a 250 ms grid, so the
 count grows by at most four a second (plus one) under any request pattern.
+The same thread is the daemon's one hang watcher: it also watches each batch
+commit of the journal writer and each frame a holder link routes, and writes a
+scope busy past its hang tier (`hang_ms`, 2000, for a request or a journal
+commit; 1 s for a holder-link frame) once to the owner's hang log
+`owner-hangs-<session>.jsonl`, with its method and its thread's stack.
+`hangs` counts those lines, over every kind of scope.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
@@ -9995,6 +10001,10 @@ at most two hours. One apply runs at a time per daemon
 (`agent_update.busy`); `agent_update.timeout` and `agent_update.refused`
 report an acpmux that did not answer or refused.
 
+spec/sdk-schema.json types the params and results of both commands
+(`AgentUpdateHarness`, `AgentUpdateOutcome`); `expected_machine_id` may be
+absent but never null.
+
 ## Agent chat transfer
 
 `agent-transfer-v1` lets a trusted local (Unix) client move an agent chat
@@ -10023,7 +10033,8 @@ receives and 16 moves remembered for 24 h), `agent_transfer.timeout`,
 machine kind rule of `agent-session-start`, below), and
 `agent_transfer.refused` (acpmux refused; the error text carries acpmux's
 message, such as `transfer.exists` or `transfer.incomplete`). Pages carry at
-most 4 MiB of data (base64).
+most 4 MiB of data (base64). spec/sdk-schema.json types the params and
+results of all nine commands.
 
 ### agent-transfer-receive
 
@@ -10182,7 +10193,10 @@ both sides is `cmux link access` (`request` on the machine, `triage` and
 Who: trusted local (Unix) connections that are not remote clients. Others
 get `access_request.not_trusted`; the remote relay (`cmux link`) answers
 `remote_denied`. A command-bearing or unknown param is
-`access_request.bad_request`. 64 requests are kept, pending or answered;
+`access_request.bad_request`, and so is any frame that does not decode (a
+missing param, a non-string value): the frame is checked before its
+`request_id` is looked up, so only a well-formed frame gets
+`access_request.unknown_request`. 64 requests are kept, pending or answered;
 each is forgotten 15 minutes after it was made or answered
 (`access_request.limit` when full; the machine's own agents can fill it, which only stalls that machine's requests). Other codes:
 `access_request.unknown_request` and `access_request.answered`.
@@ -10213,6 +10227,9 @@ Mac shares one only for one request the person answered
 byte, no newline removed). An agent's `request --secret` that stops waiting
 withdraws its request (denies it), so a later answer is
 `access_request.answered`.
+
+spec/sdk-schema.json types the four commands; a status answer is the
+`AccessRequestStatus` union tagged by `state`.
 
 ## File system (fs-v1)
 
@@ -10276,6 +10293,10 @@ answers `{"ready":true}` after the path, mode and free space are checked,
 then reads exactly `size` raw bytes (at most 64 GiB) and answers `{entry}`.
 A write stream that closes or stays idle for 60 seconds before `size` bytes
 leaves no file at `path`.
+
+spec/sdk-schema.json types the seven line ops (`FsEntry`, `FsPage`,
+`FsStatResult`, and `FsReadResult` tagged by `encoding`); the byte streams
+are not in it.
 
 ## Guest browser opening
 

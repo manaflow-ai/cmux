@@ -10,9 +10,11 @@ import Observation
 /// browser domain, read by the settings controller) on every load.
 @MainActor
 enum BrowserManagedPolicyPreference {
-    static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
-        cef.chromePolicyID = {
-            ChromePolicyDocument.nativePolicyDomain(cmuxBrowser: CFChromePolicyReader(domain: ChromePolicyDocument.cmuxDomain).read())
+    static func follow(_ settings: SettingsController, webKit: WebKitEngine, chromium: ChromiumEngineSlot) {
+        chromium.whenBuilt { cef in  // asked once, at Chromium's start: following builds no engine
+            cef.chromePolicyID = {
+                ChromePolicyDocument.nativePolicyDomain(cmuxBrowser: CFChromePolicyReader(domain: ChromePolicyDocument.cmuxDomain).read())
+            }
         }
         // task-owner: app-lifetime observation of the managed policy; settings and engine weak.
         Task { [weak settings, weak webKit] in

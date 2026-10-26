@@ -19,6 +19,7 @@ use super::{
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
+use cmux_threads::ThreadQos;
 
 /// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
@@ -439,6 +440,13 @@ fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     let _ = stream.flush();
 }
 
+/// The QoS of an accept loop: the request class. Every connection (each CLI
+/// command, hook, agent call and app reconnect) waits on an accept before its
+/// own thread exists, and the threads started here inherit this class.
+/// Chromium accepts IPC connections on the browser IO thread, which serves
+/// requests (content/browser/browser_process_io_thread.cc).
+pub(super) const ACCEPT_THREAD_QOS: ThreadQos = super::connection_scheduler::REQUEST_THREAD_QOS;
+
 /// Start the accept loop for `listener`. Every accepted connection goes to
 /// `slot`: served by the session once it is attached, parked until then.
 pub(super) fn spawn_accept_loop(
@@ -446,7 +454,7 @@ pub(super) fn spawn_accept_loop(
     slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    cmux_threads::spawn("mux-server", ACCEPT_THREAD_QOS, move || {
         // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
         // accepts, and an immediate retry ran this thread at 100% CPU until
         // descriptors freed up. Space those retries; per-connection errors

@@ -1631,6 +1631,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
                 "CmuxNextTrace",
                 "CmuxNextMetrics",
+                // SwitchFrameTimerTests: the switch.* trace names.
+                "CmuxNextSignposts",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -1886,7 +1888,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSettingsTests",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

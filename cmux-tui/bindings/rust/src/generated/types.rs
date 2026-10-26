@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692.
+// cmux-tui mux protocol 12, IR 4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -26,6 +26,48 @@ pub type JsonValue = serde_json::Value;
 pub type PaneRef = serde_json::Value;
 #[rustfmt::skip]
 pub type TabRef = serde_json::Value;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AccessRequestKind {
+    #[serde(rename = "file")]
+    File,
+    #[serde(rename = "secret")]
+    Secret,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccessRequestPending {
+    pub age_ms: u64,
+    pub kind: AccessRequestKind,
+    pub name: Nullable<String>,
+    pub path: Nullable<String>,
+    pub reason: Nullable<String>,
+    pub request_id: String,
+    pub session: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "state")]
+pub enum AccessRequestStatus {
+    #[serde(rename = "delivered")]
+    Delivered {
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        taken: Option<bool>,
+        #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+    #[serde(rename = "denied")]
+    Denied {
+        reason: Nullable<String>,
+    },
+    #[serde(rename = "pending")]
+    Pending,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -210,6 +252,29 @@ pub enum AgentState {
     Done,
     #[serde(rename = "unknown")]
     Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateHarness {
+    pub id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub latest: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUpdateOutcome {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub id: String,
+    pub ok: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1118,6 +1183,128 @@ pub struct FrontendProjection {
     pub schema_version: u32,
     pub scope: String,
     pub subject_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsEntry {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    pub kind: FsEntryKind,
+    pub mtime: Nullable<u64>,
+    pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    pub size: Nullable<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<FsEntryKind>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsEntryKind {
+    #[serde(rename = "file")]
+    File,
+    #[serde(rename = "dir")]
+    Dir,
+    #[serde(rename = "symlink")]
+    Symlink,
+    #[serde(rename = "other")]
+    Other,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsEntryResult {
+    pub entry: FsEntry,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsFilter {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kinds: Optional<Vec<FsEntryKind>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub query: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsPage {
+    pub cursor: Nullable<String>,
+    pub entries: Vec<FsEntry>,
+    pub listing: String,
+    pub revision: String,
+    pub total: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "encoding")]
+pub enum FsReadResult {
+    #[serde(rename = "base64")]
+    Base64 {
+        bytes_base64: Base64,
+        size: u64,
+        truncated: bool,
+    },
+    #[serde(rename = "utf-8")]
+    Utf8 {
+        size: u64,
+        text: String,
+        truncated: bool,
+    },
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FsSort {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dir: Option<FsSortDirection>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dirs_first: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub key: Option<FsSortKey>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsSortDirection {
+    #[serde(rename = "asc")]
+    Asc,
+    #[serde(rename = "desc")]
+    Desc,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FsSortKey {
+    #[serde(rename = "name")]
+    Name,
+    #[serde(rename = "modified")]
+    Modified,
+    #[serde(rename = "size")]
+    Size,
+    #[serde(rename = "kind")]
+    Kind,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FsStatResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hidden: Option<bool>,
+    pub kind: FsEntryKind,
+    pub mode_display: String,
+    pub mtime: Nullable<u64>,
+    pub name: String,
+    pub owner_display: String,
+    pub revision: String,
+    pub size: Nullable<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub target_kind: Option<FsEntryKind>,
 }
 
 #[rustfmt::skip]

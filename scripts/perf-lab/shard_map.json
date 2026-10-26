@@ -5,12 +5,14 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 10200,
+            "T1": 12000,
             "T2": 960
           },
           "stories": {
             "T1": [
+              "blocking-hangs",
               "chat-anim",
+              "daemon-ops",
               "home-idle",
               "launch-cold",
               "launch-cold-realistic",
@@ -63,14 +65,15 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 5100
+            "T1": 6000
           },
           "stories": {
             "T0": [
               "new-surfaces"
             ],
             "T1": [
-              "chat-anim",
+              "blocking-hangs",
+              "daemon-ops",
               "launch-cold",
               "launch-cold-realistic",
               "motion",
@@ -85,13 +88,14 @@
           "index": 1,
           "seconds": {
             "T0": 120,
-            "T1": 5100
+            "T1": 6000
           },
           "stories": {
             "T0": [
               "launch-warm"
             ],
             "T1": [
+              "chat-anim",
               "home-idle",
               "launch-warm-realistic",
               "memory-hidden",

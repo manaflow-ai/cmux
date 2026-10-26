@@ -3,7 +3,7 @@ public nonisolated struct AgentInventoryProviderChangedRequest: DaemonRequest {
     /// Empty acknowledgement; it is never a job result.
     public typealias Response = EmptyResponse
     /// Strict native invalidation command.
-    public static let command = "apps-agent-inventory-changed"
+    public static let commandName: DaemonCommandName = "apps-agent-inventory-changed"
     /// Permissioned native invalidation carrier.
     public static let requiredCapability: String? = "agent-cli-app-invalidation-v1"
     /// Exact generation of the still-enabled native demand.

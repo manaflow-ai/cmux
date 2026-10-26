@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import QuartzCore
 import Testing
 
@@ -60,7 +61,7 @@ struct SplitRenderMotionTests {
         init(renderServer: Bool, reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(.leaf("a")))], activeScreenID: "s",
                                 focusedPane: "a")
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

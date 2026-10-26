@@ -218,7 +218,7 @@ final class QuitCoordinator {
             beginDrain: { services.work.beginShutdown() },
             stopBrowserEngines: {
                 wedgeIfAsked()
-                await services.cache.cef.shutdown()
+                await services.cache.chromium.shutdown()  // a never-built engine started no Chromium: none is built here
             },
             finishDrain: { await services.work.shutdown() }
         ))

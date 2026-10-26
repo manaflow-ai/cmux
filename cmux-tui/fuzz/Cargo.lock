@@ -10,12 +10,14 @@ dependencies = [
  "base64",
  "clap",
  "cmux-agent-pane-policy",
+ "cmux-blocking",
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-git",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-trace",
@@ -69,6 +71,31 @@ checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
 dependencies = [
  "crypto-common",
  "generic-array",
+]
+
+[[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures",
+]
+
+[[package]]
+name = "aes-gcm"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
+dependencies = [
+ "aead",
+ "aes",
+ "cipher",
+ "ctr",
+ "ghash",
+ "subtle",
 ]
 
 [[package]]
@@ -170,6 +197,17 @@ name = "arbitrary"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
+
+[[package]]
+name = "async-trait"
+version = "0.1.92"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82f6aeea286b8eb4dd3431a1be1b59d290ace00f5bfd8e2a159bc2a05e2c1667"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
 
 [[package]]
 name = "atomic"
@@ -591,6 +629,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-blocking"
+version = "0.1.0"
+dependencies = [
+ "cmux-panic-log",
+ "cmux-threads",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-build-identity"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-source-watch",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -615,8 +670,10 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -719,6 +776,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-blocking",
+ "cmux-panic-log",
+ "cmux-server",
+ "cmux-server-core",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-ipc"
 version = "0.1.0"
 dependencies = [
@@ -768,13 +838,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-lock-rank"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
  "bytes",
+ "cmux-blocking",
  "cmux-local-auth",
+ "cmux-panic-log",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -822,6 +898,47 @@ name = "cmux-rd-proto"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-remote"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "bytes",
+ "cmux-blocking",
+ "cmux-link",
+ "cmux-panic-log",
+ "cmux-pty",
+ "cmux-remote-protocol",
+ "cmux-tui-core",
+ "cmux-wg",
+ "diffy",
+ "flate2",
+ "fs4",
+ "futures-util",
+ "getrandom 0.3.4",
+ "ghostty-vt",
+ "hmac",
+ "http",
+ "hyper",
+ "hyper-util",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "snow",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "tower-http",
+ "url",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
@@ -842,6 +959,43 @@ dependencies = [
  "serde_json",
  "uds_windows",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-server"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-blocking",
+ "cmux-panic-log",
+ "cmux-server-core",
+ "flate2",
+ "futures-util",
+ "getrandom 0.3.4",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-server-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "hmac",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -877,6 +1031,72 @@ name = "cmux-transport"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-tui"
+version = "1.0.0"
+dependencies = [
+ "acpmux",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "bytes",
+ "cmux-agent-pane-policy",
+ "cmux-blocking",
+ "cmux-build-identity",
+ "cmux-config",
+ "cmux-holder",
+ "cmux-host",
+ "cmux-link",
+ "cmux-lock-rank",
+ "cmux-panic-log",
+ "cmux-process",
+ "cmux-remote",
+ "cmux-remote-protocol",
+ "cmux-server",
+ "cmux-server-core",
+ "cmux-trace",
+ "cmux-tui-cdp",
+ "cmux-tui-core",
+ "cmux-tui-hooks",
+ "cmux-tui-machine-agent-protocol",
+ "cmux-tui-machine-protocol",
+ "cmux-unix-socket",
+ "cmux-wg",
+ "crossbeam-channel",
+ "crossterm",
+ "futures-util",
+ "getrandom 0.3.4",
+ "ghostty-vt",
+ "glob",
+ "libc",
+ "parking_lot",
+ "plist",
+ "ratatui",
+ "regex",
+ "reqwest",
+ "ring",
+ "rquickjs",
+ "rusqlite",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "smallvec",
+ "terminput",
+ "terminput-crossterm",
+ "tokio",
+ "tokio-tungstenite",
+ "toml",
+ "unicode-segmentation",
+ "unicode-width",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "windows-sys 0.61.2",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-tui-cdp"
 version = "0.1.0"
 dependencies = [
@@ -908,6 +1128,7 @@ dependencies = [
  "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
+ "cmux-blocking",
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
@@ -919,6 +1140,8 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-lock-rank",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
@@ -972,7 +1195,9 @@ dependencies = [
  "cmux-pane-protocol",
  "cmux-rd-proto",
  "cmux-remote-protocol",
+ "cmux-server-core",
  "cmux-transport",
+ "cmux-tui",
  "cmux-tui-core",
  "cmux-wg",
  "ghostty-vt",
@@ -981,6 +1206,21 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "cmux-tui-hooks"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-process",
+ "cmux-tui-platform",
+ "getrandom 0.3.4",
+ "libc",
+ "serde_json",
+ "sha2",
+ "toml_edit",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -993,6 +1233,25 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-tui-machine-agent-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-tui-machine-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -1025,6 +1284,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tui-source-watch"
+version = "0.0.0"
+
+[[package]]
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
@@ -1050,6 +1313,8 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-blocking",
+ "cmux-panic-log",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
@@ -1151,6 +1416,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98b0cc327b5bc766e7fda9c9260cc0fa81b43a8e240440422dff70788e3f9ef1"
+dependencies = [
+ "crossbeam-utils",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
+
+[[package]]
 name = "crossterm"
 version = "0.29.0"
 dependencies = [
@@ -1195,6 +1475,15 @@ checksum = "eb2a7d3066da2de787b7f032c736763eb7ae5d355f81a68bab2675a96008b0bf"
 dependencies = [
  "lab",
  "phf",
+]
+
+[[package]]
+name = "ctr"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
+dependencies = [
+ "cipher",
 ]
 
 [[package]]
@@ -1326,6 +1615,15 @@ dependencies = [
  "quote",
  "rustc_version",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "diffy"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b545b8c50194bdd008283985ab0b31dba153cfd5b3066a92770634fbc0d7d291"
+dependencies = [
+ "nu-ansi-term",
 ]
 
 [[package]]
@@ -1495,6 +1793,16 @@ dependencies = [
  "libc",
  "thiserror 1.0.69",
  "winapi",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -1718,6 +2026,16 @@ dependencies = [
  "cfg-if",
  "libc",
  "r-efi 6.0.0",
+]
+
+[[package]]
+name = "ghash"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
+dependencies = [
+ "opaque-debug",
+ "polyval",
 ]
 
 [[package]]
@@ -2909,6 +3227,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "polyval"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1fe60d06143b2430aa532c94cfe9e29783047f06c0d7fd359a9a51b729fa25"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "opaque-debug",
+ "universal-hash",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3251,6 +3581,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "relative-path"
+version = "2.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38540a682c6e9bca04a8bca9e5ec5a6ba168dfbb04c9998fe517a9befb92eb68"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3258,6 +3597,7 @@ checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
 dependencies = [
  "base64",
  "bytes",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "http",
@@ -3302,6 +3642,35 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0a22bf72f515cc4189dd7c63d016f6de92a11eee98ddf7dd64794198f6eb34e"
+dependencies = [
+ "rquickjs-core",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path",
+ "rquickjs-sys",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cee271d0eeba64f0915b846cb7ae02e16faf3dfdffdca91731101d9d30fe3423"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -3761,6 +4130,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "snow"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
+dependencies = [
+ "aes-gcm",
+ "blake2",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+ "ring",
+ "rustc_version",
+ "sha2",
+ "subtle",
+]
+
+[[package]]
 name = "socket2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3902,6 +4288,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3937,6 +4333,23 @@ dependencies = [
  "nom",
  "phf",
  "phf_codegen",
+]
+
+[[package]]
+name = "terminput"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86a8a2c741a146c297baff16b315401ab7ec4b4817eff783606e89734242408a"
+dependencies = [
+ "bitflags 2.13.1",
+]
+
+[[package]]
+name = "terminput-crossterm"
+version = "0.4.7"
+dependencies = [
+ "crossterm",
+ "terminput",
 ]
 
 [[package]]
@@ -5095,7 +5508,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "terminput-crossterm"
-version = "0.4.7"

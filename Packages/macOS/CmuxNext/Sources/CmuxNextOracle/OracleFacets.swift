@@ -9,11 +9,17 @@
 public struct OracleFacets: Sendable {
     private let list: [any OracleFacetProvider]
     private let providers: [OracleFacet: any OracleFacetProvider]
+    /// The run's path prefixes the captures hash with (``rewriting(_:)``).
+    private let paths: OraclePaths
     /// Facets that more than one provider named; the first provider in the list answers. The App
     /// test of its own list expects none.
     public let duplicates: [OracleFacet]
 
     public init(_ list: [any OracleFacetProvider]) {
+        self.init(list, paths: .unchanged)
+    }
+
+    private init(_ list: [any OracleFacetProvider], paths: OraclePaths) {
         var providers: [OracleFacet: any OracleFacetProvider] = [:]
         var duplicates: [OracleFacet] = []
         for provider in list {
@@ -26,12 +32,19 @@ public struct OracleFacets: Sendable {
         self.list = list
         self.providers = providers
         self.duplicates = duplicates
+        self.paths = paths
+    }
+
+    /// This list capturing with `paths`, the prefixes a `debug.oracle.snapshot` or recorder arm names: a path in a
+    /// hashed field becomes `$ROOT` or `$HOME` before the hash, as normalize.py would write it.
+    public func rewriting(_ paths: OraclePaths) -> OracleFacets {
+        OracleFacets(list, paths: paths)
     }
 
     /// This list followed by `more`: the facets a server owns (the control router's topology) join the
     /// host's list where the methods are registered. A facet already in this list keeps its provider.
     public func adding(_ more: [any OracleFacetProvider]) -> OracleFacets {
-        OracleFacets(list + more)
+        OracleFacets(list + more, paths: paths)
     }
 
     /// The facets this build has a provider for, in catalog order.
@@ -79,7 +92,7 @@ public struct OracleFacets: Sendable {
                 values[facet.rawValue] = .notComparable(reason: "no provider for \(facet.rawValue) in this build", task: facet.task)
                 continue
             }
-            switch provider.capture {
+            switch provider.capturing(paths: paths) {
             case .mainActor(let read):
                 do throws(OracleFacetError) {
                     values[facet.rawValue] = try read()

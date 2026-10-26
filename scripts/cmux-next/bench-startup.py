@@ -138,6 +138,7 @@ MARKS = [
     ("main.nsapp", "main: NSApp and delegate"),
     ("main.run", "main: run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
+    ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
     ("dfl.settings_read", "dfl: settings read"),
     ("dfl.theme", "dfl: Ghostty runtime and theme"),
     ("services.crash_reporting", "services: crash reporting"),

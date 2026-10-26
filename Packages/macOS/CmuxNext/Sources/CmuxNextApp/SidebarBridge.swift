@@ -62,7 +62,7 @@ final class SidebarBridge {
         let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) },
                                  observations: services.mainWork.observationOwner("SidebarRows"))
-        container = SidebarContainerView(model: model)
+        container = SidebarContainerView(model: model, mainWork: services.mainWork)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.

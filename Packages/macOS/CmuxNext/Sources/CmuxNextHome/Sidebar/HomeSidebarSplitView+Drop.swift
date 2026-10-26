@@ -6,10 +6,10 @@ public import AppKit
 /// split view; the conversation's own view decides, takes the drop and draws the highlight. The New
 /// Message page takes no attachments (its view has no preparer), so it takes no drop.
 extension HomeSidebarSplitView {
-    /// The split registers the composer's drag types once it is in a window.
-    override public func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        if registeredDraggedTypes.isEmpty { registerForDraggedTypes(HomeNativeTranscriptView.attachmentDragTypes) }
+    /// The split registers the composer's drag types once it is in a window (from `viewDidMoveToWindow`).
+    func registerDropTypes() {
+        guard registeredDraggedTypes.isEmpty else { return }
+        registerForDraggedTypes(HomeNativeTranscriptView.attachmentDragTypes)
     }
 
     /// The shown conversation's view in the chat column: visible and taking attachments.

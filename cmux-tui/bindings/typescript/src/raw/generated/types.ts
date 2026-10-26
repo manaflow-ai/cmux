@@ -1,10 +1,34 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
+/* cmux-tui mux protocol 12, IR 4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type AccessRequestKind = "file" | "secret";
+
+export type AccessRequestPending = {
+  "age_ms": bigint;
+  "kind": AccessRequestKind;
+  "name": (string) | null;
+  "path": (string) | null;
+  "reason": (string) | null;
+  "request_id": string;
+  "session": (string) | null;
+};
+
+export type AccessRequestStatus = ({ "state": "delivered" } & {
+  "path"?: string;
+  "state": "delivered";
+  "taken"?: true;
+  "value"?: string;
+}) | ({ "state": "denied" } & {
+  "reason": (string) | null;
+  "state": "denied";
+}) | ({ "state": "pending" } & {
+  "state": "pending";
+});
 
 export type ActivitySnapshot = {
   "attached_clients": number;
@@ -120,6 +144,20 @@ export type AgentSessionSummary = JsonValue;
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type AgentUpdateHarness = {
+  "id": string;
+  "latest"?: string;
+  "name"?: string;
+  "version"?: string;
+};
+
+export type AgentUpdateOutcome = {
+  "error"?: string;
+  "id": string;
+  "ok": boolean;
+  "version"?: string;
+};
 
 export type AppGrant = {
   "granted": boolean;
@@ -676,6 +714,70 @@ export type FrontendProjection = {
   "schema_version": number;
   "scope": string;
   "subject_key": string;
+};
+
+export type FsEntry = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mtime": (bigint) | null;
+  "name": string;
+  "revision"?: string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
+};
+
+export type FsEntryKind = "file" | "dir" | "symlink" | "other";
+
+export type FsEntryResult = {
+  "entry": FsEntry;
+};
+
+export type FsFilter = {
+  "hidden"?: boolean;
+  "kinds"?: (Array<FsEntryKind>) | null;
+  "query"?: (string) | null;
+};
+
+export type FsPage = {
+  "cursor": (string) | null;
+  "entries": Array<FsEntry>;
+  "listing": string;
+  "revision": string;
+  "total": bigint;
+};
+
+export type FsReadResult = ({ "encoding": "base64" } & {
+  "bytes_base64": Base64;
+  "encoding": "base64";
+  "size": bigint;
+  "truncated": boolean;
+}) | ({ "encoding": "utf-8" } & {
+  "encoding": "utf-8";
+  "size": bigint;
+  "text": string;
+  "truncated": boolean;
+});
+
+export type FsSort = {
+  "dir"?: FsSortDirection;
+  "dirs_first"?: boolean;
+  "key"?: FsSortKey;
+};
+
+export type FsSortDirection = "asc" | "desc";
+
+export type FsSortKey = "name" | "modified" | "size" | "kind";
+
+export type FsStatResult = {
+  "hidden"?: boolean;
+  "kind": FsEntryKind;
+  "mode_display": string;
+  "mtime": (bigint) | null;
+  "name": string;
+  "owner_display": string;
+  "revision": string;
+  "size": (bigint) | null;
+  "target_kind"?: FsEntryKind;
 };
 
 export type GetCellPixelsResult = {

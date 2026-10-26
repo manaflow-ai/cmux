@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextHibernation
 import CmuxNextPages
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
@@ -98,15 +99,7 @@ extension TabContentCache {
     /// `key`'s content phase (`debug.surfaces`, hibernation, the tab strip).
     func phase(of key: String) -> ContentLifecycle<String>.Phase { lifecycle.phase(key) }
 
-    // MARK: Warm set
-
-    /// Applies a new warm set budget (memory pressure changed).
-    func setWarmBudget(_ budget: WarmSetBudget) {
-        guard budget != warmBudget else { return }
-        let shrinks = budget.terminalCapacity < warmBudget.terminalCapacity
-        warmBudget = budget
-        apply(ledger.setCapacity(budget.terminalCapacity), evictsAtOnce: shrinks)
-    }
+    // MARK: Warm set (memory pressure: `WarmSetRelease`, below)
 
     /// `evictsAtOnce`: a smaller warm budget evicts, so the closed surfaces keep no last picture.
     func apply(_ effects: SurfaceLedger<String, ObjectIdentifier>.Effects, evictsAtOnce: Bool = false) {
@@ -129,7 +122,7 @@ extension TabContentCache {
 
     /// A hidden terminal leaves the warm set: its last frame stays (no copy), then it closes.
     private func evict(_ entry: TerminalEntry, key: String, atOnce: Bool) {
-        lastFrames.evict(entry.session, key: key, capacity: warmBudget.terminalCapacity, atOnce: atOnce)
+        lastFrames.evict(entry.session, key: key, atOnce: atOnce)
         entry.session.view.removeFromSuperview()
         entry.close()
     }
@@ -223,5 +216,22 @@ extension TabContentCache {
 
     func trace(_ key: String, _ event: String) {
         InputJournal.shared.append(window: nil, .content(tab: key, event: event))
+    }
+}
+
+extension TabContentCache: WarmSetHost {
+    var warmCapacity: Int { ledger.capacity }
+    var warmHiddenCount: Int { ledger.hiddenCount }
+    var leastRecentlyHiddenAge: Duration? { ledger.leastRecentlyHiddenAge }
+    func warmBudgetDidChange(to capacity: Int) {
+        warmBudget = WarmSetBudget(terminalCapacity: capacity)
+        // Bounds the frames kept from now on; it drops no stored frame (the memory coordinator's
+        // critical release slices do, `memoryTerminalLastFrames`).
+        lastFrames.setCapacity(capacity)
+    }
+    func setWarmCapacity(_ capacity: Int) -> Int {
+        let effects = ledger.setCapacity(capacity)
+        apply(effects, evictsAtOnce: true) // only a smaller capacity evicts
+        return effects.evicted.count
     }
 }

@@ -5,9 +5,11 @@ server/connection_frame.rs offers each line to the handler modules'
 command when its production source has a `try_handle` and an enum tagged
 `#[serde(tag = "cmd")]` with that command as a variant: the enum is what the
 handler decodes, so its variants are both the served wire names and the
-request fields. A struct that flattens the enum (`#[serde(flatten)] command:
-Command`) adds its other fields, apart from the `id` every request carries,
-to every variant. check-sdk-schema.py and check-spec-inventory.py share this
+request fields. A tuple variant's type is a struct of the same module, or
+`crate::<path>::Type`, a struct of the file that path names (server/fs_wire.rs
+decodes into `crate::fs_ops::ops::ReadParams`). A struct that flattens the
+enum (`#[serde(flatten)] command: Command`) adds its other fields, apart from
+the `id` every request carries, to every variant. check-sdk-schema.py and check-spec-inventory.py share this
 one rule.
 """
 
@@ -44,6 +46,8 @@ class HandlerCommand:
 
 _TAGGED_ENUM = re.compile(r"(?m)^((?:#\[[^\n]*\]\n)+)(?:pub(?:\([a-z]+\))? )?enum (\w+) \{\n")
 _UNIT = re.compile(r"    ([A-Z][A-Za-z0-9]*),")
+# `Variant {},`: no fields, but unlike a unit variant it refuses unknown ones.
+_EMPTY_STRUCT = re.compile(r"    ([A-Z][A-Za-z0-9]*) \{\},")
 _TUPLE = re.compile(r"    ([A-Z][A-Za-z0-9]*)\(([A-Za-z0-9_:<>, ]+)\),")
 _INLINE_STRUCT = re.compile(r"    ([A-Z][A-Za-z0-9]*) \{ (.*) \},")
 _STRUCT = re.compile(r"    ([A-Z][A-Za-z0-9]*) \{")
@@ -100,6 +104,8 @@ def _variants(body: str, label: str, rename_all: str | None) -> list[tuple[str, 
             raise HandlerCommandError(f"cannot read attribute {stripped!r} in {label}")
         if unit := _UNIT.fullmatch(line):
             variant, kind, payload = unit.group(1), "unit", ""
+        elif empty := _EMPTY_STRUCT.fullmatch(line):
+            variant, kind, payload = empty.group(1), "struct", ""
         elif tuple_ := _TUPLE.fullmatch(line):
             variant, kind, payload = tuple_.group(1), "tuple", tuple_.group(2)
         elif inline := _INLINE_STRUCT.fullmatch(line):

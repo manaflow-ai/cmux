@@ -240,7 +240,7 @@ mod websocket_listener;
 use cmd_subscribe::subscribed_event_json;
 use cmd_subscribe::subscription_overflow_json;
 #[cfg(unix)]
-pub use fs_wire::FsGate;
+pub use fs_wire::{FsGate, answer_fs_request};
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -2622,7 +2622,12 @@ mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
 mod request_watchdog;
-pub(crate) use request_watchdog::{FrameStage, RequestScope, RequestWatchdog, WatchedMethod};
+#[cfg(debug_assertions)]
+pub(crate) use request_watchdog::spawn_owner_hang_test;
+pub(crate) use request_watchdog::{
+    FrameStage, RequestScope, RequestWatchdog, WatchKind, WatchedMethod, process_enter,
+    process_exit,
+};
 
 mod connection_scheduler;
 #[cfg(test)]

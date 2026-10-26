@@ -16,7 +16,7 @@ import Testing
         TunableStore.shared.set(HomeTunables.chatHeader.key, .bool(false))
         defer { TunableStore.shared.set(HomeTunables.chatHeader.key, nil) }
         let home = HomeStore(source: MockHomeSource(options: .immediate))
-        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_bare_top"), me: ParticipantID("user_me"))
+        let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_bare_top"), me: ParticipantID("user_me"), mainWork: linklessMainWork())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }

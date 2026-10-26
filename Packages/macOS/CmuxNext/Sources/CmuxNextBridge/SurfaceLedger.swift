@@ -55,9 +55,12 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     private var rendering: Set<Key> = []
     /// Away state (``Effects/away``) last reported to the caller.
     private var awayKeys: Set<Key> = []
+    /// The clock of hide times (``leastRecentlyHiddenAge``); tests set it.
+    private let now: @Sendable () -> ContinuousClock.Instant
 
-    public init(capacity: Int = 8) {
+    public init(capacity: Int = 8, now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }) {
         retention = SurfaceRetention(capacity: capacity)
+        self.now = now
     }
 
     // MARK: Queries
@@ -77,6 +80,15 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     }
 
     public var capacity: Int { retention.capacity }
+
+    /// Hidden keys the LRU holds now (at most ``capacity``).
+    public var hiddenCount: Int { retention.recent.count }
+
+    /// How long the least recently hidden key, the next one a smaller capacity evicts, has been hidden;
+    /// nil when the LRU holds none.
+    public var leastRecentlyHiddenAge: Duration? {
+        retention.leastRecentlyHiddenAt.map { $0.duration(to: now()) }
+    }
 
     // MARK: Changes
 
@@ -182,7 +194,7 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
             effects.away[key] = away
         }
         guard !unretained.contains(key) else { return }
-        for evicted in retention.setVisible(key, presence != .hidden) { evict(evicted, into: &effects) }
+        for evicted in retention.setVisible(key, presence != .hidden, at: now()) { evict(evicted, into: &effects) }
     }
 
     private mutating func evict(_ key: Key, into effects: inout Effects) {

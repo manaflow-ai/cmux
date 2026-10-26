@@ -58,6 +58,11 @@ public final class ControlWorkspaceInfoCache {
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
     public var onStale: @MainActor () -> Void = {}
+    /// An entry, list or memo whose tracking fired and that no publish has rebuilt yet. Set inside the mutation, so
+    /// code later in the same turn sees it before ``onStale`` runs.
+    public var hasStaleEntries: Bool {
+        !stale.withLock { $0.isEmpty } || !memoGenerations.withLock { $0.stale.isEmpty }
+    }
     /// Workspaces a topology pass looked up, rebuilt or applied app facts
     /// to, since the cache was made (tests read the per-publish delta).
     private(set) var workspaceVisits = 0
