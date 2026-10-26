@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -152,18 +153,24 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
+    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
+    /// until then (a spy runtime in tests).
+    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
 
     private init() {}
 
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
     init(storage: CEFProfileStorage) { self.storage = storage }
 
-    /// Takes the engine's stores and sign-in tabs (the process has one Chromium, so the App's one
-    /// engine hands them over before its first start or tab), and its host supervisor, which puts
-    /// a runtime that has not started in host mode. Idempotent for the same stores.
-    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, hostSupervisor: (any ChromiumHostSupervising)? = nil) {
+    /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
+    /// App's one engine hands them over before its first start or tab), and its host supervisor, which
+    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
+    /// own queue. Idempotent for the same stores.
+    func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
+               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
         self.signInCallbacks = signInCallbacks
+        if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
         guard stores !== self.stores else { return }
         self.stores = stores
         // The pages profile belonged to the old stores: no key of these takes its spare.

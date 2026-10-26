@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -27,6 +28,9 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
+    /// deadline queue, shared with the WebKit engine as the stores are.
+    public let waitDeadlines: MainWakeUpQueue
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -39,12 +43,15 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
+    ///     nil (tests, fixtures): a queue of the engine's own.
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
-                            contextMenus: BrowserContextMenuBuilder = .shared) {
+                            contextMenus: BrowserContextMenuBuilder = .shared,
+                            waitDeadlines: MainWakeUpQueue? = nil) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
-                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -55,15 +62,19 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
+    ///     nil (tests, fixtures): a queue of the engine's own.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
-                contextMenus: BrowserContextMenuBuilder = .shared) {
+                contextMenus: BrowserContextMenuBuilder = .shared,
+                waitDeadlines: MainWakeUpQueue? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
+        self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
     }
 
     public var availability: BrowserEngineAvailability {
@@ -392,12 +403,13 @@ public final class CEFEngine: BrowserEngine {
         return makeReadyTab(configuration)
     }
 
-    /// Hands the stores, sign-in tabs and host supervisor (``CEFRuntimeSource/backend``) to the
+    /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
     private func adoptStores() {
         let runtime = CEFRuntime.shared
-        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, hostSupervisor: runtimeSource.hostSupervisor)
+        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
+                      hostSupervisor: runtimeSource.hostSupervisor)
         if let pagesProfileID { runtime.spareWindow.pagesProfile = pagesProfileID }
     }
 

@@ -2690,8 +2690,14 @@ AWAITABLE = ("wait", "unregister")
 # The checked seams: fine off the main thread, a violation on it.
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
-    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\(|\bblockingCall\("
+    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run|ForReading|ForWriting|ForUpdating|SeekToEnd|Seek|"
+    r"Synchronize|CanEvaluatePolicy)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|PosixSpawn"
+    # POSIX files, waitpid, ImageIO file I/O, SQLite, kernel and directory queries (p02-threads-127)
+    r"|Open|Pread|Pwrite|Fsync|Flock|Ftruncate|Rename|Unlink|Stat|Lstat|Realpath|Access|Chmod|Mkdir|Rmdir|Waitpid|Waitid"
+    r"|Sysctl|SysctlByName|ProcPidInfo|ProcPidPath|ProcPidFDInfo|ProcListPids|ProcPidRusage|Getpwuid|Getpwnam"
+    r"|ImageSource|ImageSourceCount|ImageSourceCopyProperties|ImageSourceCreateImage|ImageSourceCreateThumbnail"
+    r"|ImageDestination|ImageDestinationFinalize"
+    r"|SQLiteOpen|SQLitePrepare|SQLiteStep|SQLiteExec|SQLiteClose|SQLiteCloseV2|SQLiteBackupStep)\(|\bblockingCall\("
     # the system-call seams (p02-threads-003)
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"

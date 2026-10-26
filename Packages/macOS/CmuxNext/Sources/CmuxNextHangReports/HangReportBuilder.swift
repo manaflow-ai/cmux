@@ -1,4 +1,5 @@
 public import CmuxNextInputCore
+public import CmuxNextTrace
 public import Foundation
 
 /// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
@@ -88,6 +89,12 @@ public nonisolated struct HangReportBuilder: Sendable {
         var launches = LaunchAggregate()
         launches.merge(recorded)
         return launches.isEmpty ? nil : launches
+    }
+
+    /// The events a report's `blackbox[]` may carry: the merged rings' records through the upload decoder, so
+    /// no key-timing, per-key PTY or flow record leaves the Mac (``TraceBlackBoxUpload``, p09-observability-128).
+    public func blackbox(_ records: [TraceBlackBoxUpload.Record]) -> [TraceBlackBoxUpload.Record] {
+        TraceBlackBoxUpload().events(records)
     }
 
     /// Frames of a watchdog sample (return addresses, innermost first).
