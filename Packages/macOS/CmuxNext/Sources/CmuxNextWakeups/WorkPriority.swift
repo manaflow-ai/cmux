@@ -54,7 +54,7 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
         switch workClass {
         case .input, .frame: self = .userBlocking
         case .visible: self = .userVisible
-        case .automation, .background: self = .bestEffort
+        case .automation, .background, .idle: self = .bestEffort
         }
     }
 

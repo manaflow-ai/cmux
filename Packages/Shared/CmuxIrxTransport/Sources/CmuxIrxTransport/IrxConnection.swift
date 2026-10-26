@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSafeConcurrency
 public import Foundation
 public import IrohLib
 
@@ -45,23 +46,20 @@ public actor IrxStreamWriter {
 /// keep-alives prove the peer's network stack is up, not that the host
 /// process is serving the connection. Written from every stream reader, so it
 /// is a lock rather than an actor hop per read.
-public final class IrxInboundActivityClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var last: ContinuousClock.Instant?
+public final class IrxInboundActivityClock: Sendable {
+    private let last = Mutex<ContinuousClock.Instant?>(nil)
 
     public init() {}
 
     public func record(at instant: ContinuousClock.Instant = .now) {
-        lock.lock()
-        defer { lock.unlock() }
-        if let last, last >= instant { return }
-        last = instant
+        last.withLock { last in
+            if let previous = last, previous >= instant { return }
+            last = instant
+        }
     }
 
     public var lastActivity: ContinuousClock.Instant? {
-        lock.lock()
-        defer { lock.unlock() }
-        return last
+        last.withLock { $0 }
     }
 }
 
