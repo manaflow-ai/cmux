@@ -436,6 +436,7 @@ async fn unstarted_prompts_a_daemon_held_keep_their_place_in_the_restored_queue(
     })
     .await;
     assert_eq!(ids, ["p-1", "p-3", "p-0", "p-2"], "the restored queue is out of order");
+}
 
 /// A person's queued prompt (chat multiplayer, `author.rs`) is still theirs after a crash: the
 /// rebuilt queue keeps its `person_message` provenance, through that person's own edit, so only
