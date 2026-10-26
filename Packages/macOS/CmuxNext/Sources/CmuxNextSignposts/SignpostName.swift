@@ -224,7 +224,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 037, PL-motion-core; perf-hot `frame-tick`). One display-link tick (`FrameScheduler`).
     /// Ring: instant; arg0 the tick's timestamp, arg1 its target timestamp (uptime ns).
     case frameTick = 45
-    /// Reserved (task 037, PL-motion-core). The end of a Core Animation commit (``CommitBoundary``). Ring: instant.
+    /// Task 037. A Core Animation commit's end, per ``CommitBoundary``. Ring: instant; arg0 its key flow (0: none).
     case frameCommit = 46
     /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
     case frameGPUDone = 47

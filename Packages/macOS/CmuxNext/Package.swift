@@ -1406,8 +1406,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextWakeupsTests",
-            // Trace: the black-box file steps' tests read the ring.
-            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            // Trace: the black-box file steps' tests read the ring. Signposts: the frame.tick and present tests (037).
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
