@@ -75,7 +75,7 @@ extension HomeChiefSettingsView {
     ) async -> Result<[ChiefAutomation], HomeChiefEngineError> {
         // The card shows the answer: a person looks at it, nothing waits on a key for it.
         await Task.detached(priority: WorkPriority.userVisible.taskPriority) { () async -> Result<[ChiefAutomation], HomeChiefEngineError> in
-            do { return .success(try await body()) } catch { return .failure(error) }
+            do throws(HomeChiefEngineError) { return .success(try await body()) } catch { return .failure(error) }
         }.value
     }
 }
