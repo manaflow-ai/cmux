@@ -179,10 +179,11 @@ export function HomeChannelsPage({
       rows.flatMap((row) => (row.kind === "message" && !row.message.id.startsWith("pending:") ? [row.message] : [])),
     [rows],
   );
-  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts).
+  // The people here and typing, as the agent chat shows them (multiplayer/chiefAdapter.ts): only
+  // this conversation's members, so a stray id never draws someone from another conversation.
   const presence = useMemo(
-    () => chiefPresence(people, me ?? "", snap.typing, snap.viewing),
-    [people, me, snap.typing, snap.viewing],
+    () => chiefPresence(new Map(open?.participants.map((p) => [p.id, p])), me ?? "", snap.typing, snap.viewing),
+    [open?.participants, me, snap.typing, snap.viewing],
   );
   const typingNames = snap.typing
     .filter((id) => id !== me && id !== snap.draft?.participant)

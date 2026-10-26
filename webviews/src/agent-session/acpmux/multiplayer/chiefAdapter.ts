@@ -16,10 +16,11 @@ export function chiefParticipant(person: HomeParticipant | undefined): Participa
   return participant(person.id, person.name);
 }
 
-/// The chat's presence from Home: `typing` the participant ids typing now (store.ts), `viewing`
-/// the ids its owner says have it open, when it says. The reader and agents are left out.
+/// The chat's presence from Home: `members` the conversation's own participants, `typing` the
+/// participant ids typing now (store.ts), `viewing` the ids its owner says have it open, when it
+/// says. Only members draw; the reader and agents are left out.
 export function chiefPresence(
-  people: ReadonlyMap<string, HomeParticipant>,
+  members: ReadonlyMap<string, HomeParticipant>,
   me: string,
   typing: readonly string[],
   viewing: readonly string[] = [],
@@ -30,7 +31,7 @@ export function chiefPresence(
     for (const id of ids) {
       if (id === me || seen.has(id)) continue;
       seen.add(id);
-      const person = chiefParticipant(people.get(id));
+      const person = chiefParticipant(members.get(id));
       if (person) out.push(person);
     }
     return out;

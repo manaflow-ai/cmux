@@ -24,6 +24,8 @@ test("presence: typers are here too, the reader and agents are not", () => {
   expect(presence.typing.map((p) => p.id)).toEqual(["ana"]);
   expect(presence.viewing.map((p) => p.id)).toEqual(["sam", "ana"]);
   expect(chiefPresence(people, "me", [])).toEqual({ viewing: [], typing: [] });
+  // Someone who is not a member of this conversation never draws.
+  expect(chiefPresence(people, "me", ["zoe"], ["zoe"])).toEqual({ viewing: [], typing: [] });
 });
 
 test("a Home name is cleaned and bounded like an acpmux one", () => {
