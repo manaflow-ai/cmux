@@ -645,7 +645,7 @@ private final class Box<Value: Sendable>: Sendable {
 /// A frame source with the app's budget: frames fire by hand and run as one automation batch
 /// (as the app's control `FrameBatcher` does); `scheduleSoon` hops through the main run loop,
 /// or (`soonOnRunLoop: false`) waits for the next hand-fired frame too.
-private final class BudgetedFrameSource: ControlFrameSource {
+final class BudgetedFrameSource: ControlFrameSource {
     private let frames = ManualFrameSource()
     nonisolated(unsafe) private let budgetRef: MainFrameBudget // crash-allow: read only on the main actor (mainFrameBudget, fire)
     let mainTaskBoard: MainTaskBoard?

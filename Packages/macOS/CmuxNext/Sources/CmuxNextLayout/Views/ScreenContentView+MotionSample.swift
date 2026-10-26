@@ -33,21 +33,26 @@ extension ScreenContentView {
         }
         var panes: [Any] = [], dividers: [Any] = []
         for (index, subview) in screen.stackedSubviews.enumerated() {
+            // Where it shows: a strip pan on the strip container moves it by the translation shown now.
+            let dx = subview.superview === screen.stripContainer ? screen.stripContainer.shownTranslation : 0
             if let host = subview as? PaneHostView {
                 let shown = host.stripShownRect
-                let rect = shown.isEmpty ? CGRect.zero : screen.convert(shown, from: host)
-                let header = CGRect(x: host.frame.minX + host.contentRect.minX, y: host.frame.minY + host.contentRect.minY,
+                let rect = shown.isEmpty ? CGRect.zero : screen.convert(shown, from: host).offsetBy(dx: dx, dy: 0)
+                let frame = host.frame.offsetBy(dx: dx, dy: 0)
+                let header = CGRect(x: frame.minX + host.contentRect.minX, y: frame.minY + host.contentRect.minY,
                                     width: host.contentRect.width, height: host.headerHeight)
                 let shownHeader = header.intersection(rect)
                 let headerShare = header.width * header.height > 0 && !shownHeader.isNull
                     ? Double(shownHeader.width * shownHeader.height / (header.width * header.height)) : 0
-                let laidOut = topLeft(host.frame, in: screen) + [Double(host.content.frame.width), Double(host.content.frame.height), (headerShare * 1000).rounded() / 1000]
-                    + topLeft(host.content.bounds, in: host.content)
+                let content = screen.convert(host.content.bounds, from: host.content).offsetBy(dx: dx, dy: 0)
+                let laidOut = topLeft(frame, in: screen) + [Double(host.content.frame.width), Double(host.content.frame.height), (headerShare * 1000).rounded() / 1000]
+                    + topLeft(content, in: screen)
                 let row: [Any] = [host.pane.rawValue as Any] + topLeft(rect, in: screen).map { $0 as Any } + [Double(host.alphaValue) as Any, index as Any]
                     + laidOut.map { $0 as Any }
                 panes.append(row)
             } else if let divider = subview as? DividerHandleView, !divider.isHidden {
-                let row: [Any] = [divider.kind.mouseAreaID as Any] + topLeft(divider.frame, in: screen).map { $0 as Any } + [Double(divider.alphaValue) as Any, index as Any]
+                let row: [Any] = [divider.kind.mouseAreaID as Any] + topLeft(divider.frame.offsetBy(dx: dx, dy: 0), in: screen).map { $0 as Any }
+                    + [Double(divider.alphaValue) as Any, index as Any]
                 dividers.append(row)
             }
         }

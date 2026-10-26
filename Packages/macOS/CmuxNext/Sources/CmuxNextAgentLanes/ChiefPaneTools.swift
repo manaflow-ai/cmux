@@ -29,7 +29,6 @@ public final class ChiefPaneTools: NSView, PaneMoreMenuContributing {
         self.registry = registry
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
-        indicator.tracksWindowOcclusion = true
         addSubview(indicator)
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
         watch = Task { [weak self, chief] in
