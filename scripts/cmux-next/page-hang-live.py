@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live check: a hung Chromium page shows cmux's inline "Page unresponsive" card (cx-d0d.36).
 
-  scripts/cmux-next/page-hang-live.py --socket /tmp/cmux-debug-<tag>.sock [--out DIR]
+  scripts/cmux-next/page-hang-live.py --socket /tmp/cmux-debug-<tag>.sock [--out DIR] [--page]
 
 Drives a running tagged build (a capture slot's, or one launched with CMUX_NEXT_NO_ACTIVATE=1
 and CMUX_NEXT_SOCKET_MODE=automation). For each page, a click reaches Chromium's page view
@@ -13,6 +13,12 @@ through `debug.mouse {"target": "page"}` (an in-app event, no system event), and
   3. Wait hides it and restarts Chromium's timer, so the card comes back while the page
      still hangs; Exit page ends the renderer and the pane shows the page-gone view.
 
+With --page, a cmux page tab in Chromium instead (p13-webui-057; launch with
+CMUX_ENABLE_FEATURES=pageHangNotice and browser.defaultEngine chromium): `debug.page hangOnClick`
+makes the page's next mousedown loop, a click hangs it, and the tab shows the "Page unresponsive"
+cmux dialog (`debug.dialog`, identifier page.unresponsive) scoped to the tab; Wait takes it down and
+it comes back while the page hangs; Exit page ends the renderer and the shown page reloads.
+
 Until the CEF fork stops counting its own DevTools controller as a debugger, Chromium drops
 every hang in a cmux tab and the card checks fail (plans/cmux-next/browser-isolation.md,
 Verification). GUI host only. Leaves the app running. Exits 1 when a check fails.
@@ -22,6 +28,9 @@ import argparse, json, os, socket, sys, tempfile, time
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="page-hang-"))
+parser.add_argument("--page", action="store_true", help="hang a cmux page tab instead of browser tabs")
+parser.add_argument("--page-id", default="cmux.apps")
+parser.add_argument("--page-action", default="appStore.show")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 # Chromium's hang delay is 15 s; its ping adds a few more.
@@ -135,12 +144,59 @@ def run_page(name, url, hangs_on_click, typed=None):
     time.sleep(1)
 
 
-scratch = tempfile.mkdtemp(prefix="page-hang-page-")
-loop = os.path.join(scratch, "loop.html")
-with open(loop, "w") as f:
-    f.write(LOOP_PAGE)
+def hang_card():
+    """The page tab's "Page unresponsive" dialog, visible; None while there is none."""
+    dialogs = rpc("debug.dialog").get("dialogs") or []
+    return next((d for d in dialogs if d.get("identifier") == "page.unresponsive" and d.get("visible")), None)
+
+
+def page_state():
+    return rpc("debug.page", {"page": opts.page_id}, timeout=10)
+
+
+def run_cmux_page():
+    name = opts.page_id
+    print(f"== {name} (cmux page tab)", flush=True)
+    rpc("action.run", {"action": opts.page_action, "focus": True}, timeout=60)
+    painted = quiet_wait(lambda: page_state().get("painted") is True, 30)
+    check(bool(painted), f"{name}: the page tab paints ({page_state()})")
+    armed = rpc("debug.page", {"page": name, "action": "hangOnClick"}, timeout=10)
+    check(armed.get("armed") is True, f"{name}: the page loops on its next mousedown ({armed})")
+    before = set(app_windows())
+    click_page()
+    time.sleep(1)
+    click_page()
+    card = quiet_wait(hang_card, HANG_SECONDS)
+    check(bool(card), f"{name}: the tab shows the Page unresponsive card")
+    if not card:
+        return
+    check(card.get("scope") == "tab", f"{name}: the card blocks only its tab ({card.get('scope')})")
+    opened = {id: w for id, w in app_windows().items() if id not in before}
+    check(not opened, f"{name}: the card is a cmux dialog, no window or alert opened ({opened})")
+    reply = rpc("debug.dialog", {"id": card["id"], "press": "wait"})
+    hidden = quiet_wait(lambda: not hang_card(), 5)
+    check(reply.get("pressed") is True and bool(hidden), f"{name}: Wait takes the card down ({reply})")
+    click_page()
+    card = quiet_wait(hang_card, HANG_SECONDS)
+    check(bool(card), f"{name}: the card comes back while the page still hangs")
+    if not card:
+        return
+    reply = rpc("debug.dialog", {"id": card["id"], "press": "exit"})
+    check(reply.get("pressed") is True, f"{name}: Exit page runs ({reply})")
+    # The renderer ends; the shown page's crash recovery reloads it at once (p13-webui-039).
+    back = quiet_wait(lambda: not hang_card() and page_state().get("painted") is True, 30)
+    check(bool(back), f"{name}: Exit page ends the renderer and the page reloads ({page_state()})")
+
+
 check("error" not in rpc("debug.cef"), "app socket answers")
-run_page("chrome://hang", "file://" + loop, hangs_on_click=False, typed="chrome://hang")
-run_page("a page that loops on click", "file://" + loop, hangs_on_click=True)
+if opts.page:
+    run_cmux_page()
+else:
+    scratch = tempfile.mkdtemp(prefix="page-hang-page-")
+    loop = os.path.join(scratch, "loop.html")
+    with open(loop, "w") as f:
+        f.write(LOOP_PAGE)
+    run_page("chrome://hang", "file://" + loop, hangs_on_click=False, typed="chrome://hang")
+    run_page("a page that loops on click", "file://" + loop, hangs_on_click=True)
 print(f"{len(failures)} failure(s); artifacts in {opts.out}")
 sys.exit(1 if failures else 0)
