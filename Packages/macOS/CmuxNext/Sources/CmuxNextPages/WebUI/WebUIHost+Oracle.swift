@@ -47,18 +47,23 @@ extension WebUIHost {
             for page in pages {
                 let id = ObjectIdentifier(page)
                 group.addTask { @MainActor in
-                    let answer: Result<PageWebView.OracleStateAnswer?, PageError>
-                    do throws(PageError) {
-                        answer = .success(try await page.oracleState(within: deadline, clock: clock))
-                    } catch {
-                        answer = .failure(error)
-                    }
-                    return (id, answer)
+                    (id, await Self.oracleAnswer(of: page, within: deadline, clock: clock))
                 }
             }
             var answers: [ObjectIdentifier: Result<PageWebView.OracleStateAnswer?, PageError>] = [:]
             for await (id, answer) in group { answers[id] = answer }
             return answers
+        }
+    }
+
+    /// One page's answer as a `Result`. The typed `do throws` lives here, not in the task group's closure, where the
+    /// region-based isolation checker cannot check it (swiftc reports "pattern ... does not understand").
+    private static func oracleAnswer(of page: PageWebView, within deadline: Duration, clock: any Clock<Duration>)
+        async -> Result<PageWebView.OracleStateAnswer?, PageError> {
+        do throws(PageError) {
+            return .success(try await page.oracleState(within: deadline, clock: clock))
+        } catch {
+            return .failure(error)
         }
     }
 }
