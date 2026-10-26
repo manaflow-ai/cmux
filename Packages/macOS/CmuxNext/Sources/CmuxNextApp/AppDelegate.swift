@@ -41,9 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await self?.services?.home.flushCacheForQuit()
     })
     private var settings: SettingsController?
-    /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
-    /// person's pending-input check and task signposts. Built here, the composition root, and
-    /// handed to the control socket and the services.
+    /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard), handed to control and services.
     private let mainWork: MainWorkScheduler
     private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
@@ -67,8 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         FrameScheduler.install(displays: displays)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+        let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
                                          displays: displays)
+        starvation.watch(mainWork.frames, FrameScheduler.app)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()

@@ -37,9 +37,8 @@ import Darwin
 /// pending input, at the first frame without an open input response (``InputResponse``), in place
 /// of the every-other-frame rule, which visible keeps.
 ///
-/// A late frame comes first (``RenderStarvationGuard``, Chrome's `kRenderingStarved`): while a
-/// shown window's link with active frame clients is over 100 ms past its last tick, every budgeted
-/// class waits for that link's next tick, whatever the rules above say.
+/// A late shown frame comes first (``RenderStarvationGuard``, Chrome's `kRenderingStarved`): every
+/// budgeted class waits for that link's next tick, whatever the rules above say.
 ///
 /// This is batching to the display cadence, not a throttle: work over budget runs on the next
 /// frame, never later. The app builds one at its composition root and hands it to the one
@@ -211,16 +210,7 @@ public final class MainFrameBudget {
         return min(totalNanos, left)
     }
 
-    /// Whether work outside the budget that only a late frame holds back must wait now: idle
-    /// periods, CEF pump slices past one per frame, posted deadlines and the drain's automation
-    /// tail ask before they run (``RenderStarvationGuard``). False without a guard, or when the
-    /// guard only reports.
-    public var isRenderStarved: Bool {
-        guard let starvation else { return false }
-        return starvation.isStarved() && starvation.holdsWork
-    }
-
-    /// Whether a task of `workClass` may start now. Unbudgeted classes always may. No budgeted class
+    /// Whether a task of `workClass` may start now. Unbudgeted classes always may; no budgeted one
     /// may while a shown frame is late (``isRenderStarved``). Automation and
     /// background may not while an input response is open; in a typing burst they follow its rate
     /// (``InputResponse/Burst``), and a due task runs under pending input. Otherwise a budgeted
@@ -231,10 +221,7 @@ public final class MainFrameBudget {
     /// render pass). A refusal is counted: the caller keeps the task for the next frame.
     public func mayRun(_ workClass: MainWorkClass) -> Bool {
         guard let index = Self.index(workClass), let budget = budgets.budget(workClass) else { return true }
-        if isRenderStarved {
-            starvation?.noteHeld(index)
-            return false
-        }
+        if heldForLateFrame(index) { return false }
         let now = uptimeNanos()
         // A task outside any tick while no budgeted link runs (a request on an idle app): a window
         // older than one frame is over. Never while the link runs (its ticks own the window) and
@@ -407,18 +394,5 @@ public final class MainFrameBudget {
         if open.isEmpty { checkSpent &+= took }
         inputAnswer = (now, pending)
         return pending
-    }
-
-    private static func index(_ workClass: MainWorkClass) -> Int? {
-        switch workClass {
-        case .input, .frame: nil
-        case .visible: 0
-        case .automation: 1
-        case .background: 2
-        }
-    }
-
-    private static func milliseconds(_ nanos: UInt64) -> String {
-        String(format: "%.2f", Double(nanos) / 1_000_000)
     }
 }

@@ -13,8 +13,8 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
-/// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
+/// ``stallMainTask``, ``stallOverBudget``, ``stallRenderStarved``, ``webuiOpen`` and ``webuiScheme`` have an emitter
+/// today. The other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
 ///
@@ -183,12 +183,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     case stallPaletteOpen = 42
     /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
     case stallIconPickerOpen = 43
-    /// A point event: rendering starved (Chrome's `kRenderingStarved`). A shown window's display link
-    /// with active frame clients went over 100 ms without a tick, so the main-thread scheduler holds
-    /// its budgeted work until that tick (`RenderStarvationGuard`, p06-scheduler task 004). Once per
-    /// late period. Message: `link=<scheduler> gap_ms=<time since its last tick> turn=<the turn meter's
-    /// top unattributed turn, or unattributed> turn_ms=<its length> unattributed_ms=<its unattributed part>`.
-    /// Ring: instant.
+    /// A point event: rendering starved (Chrome's `kRenderingStarved`). A display link that paces
+    /// active frame clients and whose frames show went over 100 ms and a frame without a tick
+    /// (`RenderStarvationGuard`, p06-scheduler task 004; the app's composition root builds it). With
+    /// the feature `renderStarvationGuard` on, the main-thread scheduler holds its budgeted work until
+    /// that tick. Once per late period, at the first budget check or the late tick. Message:
+    /// `link=<scheduler> gap_ms=<time since its last tick> turn=<the turn meter's top unattributed turn,
+    /// or unattributed> turn_ms=<its length> unattributed_ms=<its unattributed part>`. Ring: instant.
     case stallRenderStarved = 73
 
     // MARK: daemon (reserved: task 025, PL-daemon)

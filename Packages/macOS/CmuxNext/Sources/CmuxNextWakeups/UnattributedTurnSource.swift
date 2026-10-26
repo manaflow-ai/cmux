@@ -6,9 +6,12 @@
 /// main-actor job, a timer or a callout nobody posted through the scheduler.
 @MainActor
 public protocol UnattributedTurnSource: AnyObject {
-    /// The turn with the most unattributed time among those that started at or after `sinceNanos`
-    /// (`CLOCK_UPTIME_RAW` nanoseconds), or nil when none had any. Called once per starvation.
-    func topUnattributedTurn(since sinceNanos: UInt64) -> UnattributedTurn?
+    /// The turn with the most unattributed time among those that ended after `sinceNanos`
+    /// (`CLOCK_UPTIME_RAW` nanoseconds), the one still running included, or nil when none had any.
+    /// A turn that started before `sinceNanos` counts: the late link's last tick is a callout inside
+    /// a turn, and a job later in that turn is what kept the next tick from running. Called once
+    /// per starvation.
+    func topUnattributedTurn(endingAfter sinceNanos: UInt64) -> UnattributedTurn?
 }
 
 /// One main run loop turn, as the turn meter names it.

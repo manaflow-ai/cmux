@@ -23,8 +23,9 @@ public struct FrameStall: Sendable, Equatable {
 }
 
 /// One rendering starvation ``RenderStarvationGuard`` saw (Chrome's `kRenderingStarved`): frame
-/// clients were active on a display link whose frames show, and its last tick was more than
-/// ``RenderStarvationGuard/threshold`` ago when the main thread came back to scheduled work.
+/// clients were active on a display link that paced them and whose frames show, and its last tick
+/// was more than ``RenderStarvationGuard/threshold`` and a frame old when a budget check or the late
+/// tick itself saw it.
 ///
 /// A ``FrameStall`` says the link stopped, whatever the main thread did; a starvation says the
 /// frame waited for the main thread, and ``turn`` names the turn that kept it. The times are
@@ -36,7 +37,7 @@ public struct RenderStarvation: Sendable, Equatable {
     public var lastTick: CFTimeInterval
     /// When the guard saw the starvation.
     public var detectedAt: CFTimeInterval
-    /// The turn meter's top unattributed turn since ``lastTick``; nil without a meter or when no
+    /// The turn meter's top unattributed turn of those that ended after ``lastTick``; nil without a meter or when no
     /// turn had unattributed time.
     public var turn: UnattributedTurn?
 

@@ -6,7 +6,7 @@ extension MainFrameBudget {
     /// its budget, tasks run, input yields, input-response yields, typing-burst rate waits, over-budget deferrals, tasks run on idle frame time past
     /// its share, over-budget tasks, longest task and the most it spent in one frame; the input checks
     /// and the render passes (before-waiting phase) with their longest times; input responses that hit
-    /// the 100 ms cap and the longest input response.
+    /// the 100 ms cap and the longest input response; with a starvation guard, its `render_starvation` part.
     public var report: JSONValue {
         let stats = stats
         var classes: [String: JSONValue] = [:]
@@ -24,10 +24,26 @@ extension MainFrameBudget {
                 "max_frame_ms": .number(Double((stats.maxFrameNanos[checked: index] ?? 0)) / 1_000_000),
             ]
         }
-        return ["frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
-                "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
-                "render_passes": JSONValue(stats.renderPasses), "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000),
-                "input_response_cap_hits": JSONValue(stats.inputResponseCapHits),
-                "max_input_response_ms": .number(Double(stats.maxInputResponseNanos) / 1_000_000)]
+        var fields: [String: JSONValue] = [
+            "frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
+            "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
+            "render_passes": JSONValue(stats.renderPasses), "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000),
+            "input_response_cap_hits": JSONValue(stats.inputResponseCapHits),
+            "max_input_response_ms": .number(Double(stats.maxInputResponseNanos) / 1_000_000),
+        ]
+        if let starvation { fields["render_starvation"] = Self.starvationReport(starvation) }
+        return .object(fields)
+    }
+
+    /// The rendering starvation guard's part: whether it holds work, the late periods it reported,
+    /// the longest gap, and the work it held (per budgeted class, and the CEF pump's slices).
+    private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
+        let stats = starvation.stats
+        var held: [String: JSONValue] = [:]
+        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+            held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
+        }
+        return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),
+                "max_gap_ms": .number(stats.maxGap * 1000), "held_tasks": .object(held), "held_slices": JSONValue(stats.heldSlices)]
     }
 }

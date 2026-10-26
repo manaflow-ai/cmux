@@ -12,6 +12,11 @@ import os
 /// A request for "now" runs on the next run loop pass, never synchronously
 /// inside the CEF call that made it. The timer is owned, re-armed for each
 /// request and invalidated by `stop()`; there is no `asyncAfter`.
+///
+/// While a shown frame is late (`RenderStarvationGuard`, Chrome's
+/// `kRenderingStarved`) a pump with the guard runs one pass per late frame;
+/// the next waits for that link's tick (`afterLateFrame`), then runs on the
+/// next run loop pass.
 final class CEFMessagePump {
     private let work: () -> Void
     private let timer: any CEFPumpTimer
@@ -22,6 +27,12 @@ final class CEFMessagePump {
     /// Why the timer is armed (for the wakeup ledger).
     private var armedReason = CEFPumpSchedule.Wake.Reason.scheduled
     private var counters = CEFPumpStats()
+    /// Holds passes past one per late frame (nil: never).
+    private let starvation: RenderStarvationGuard?
+    /// The late frame the last pass ran in.
+    private var slices = RenderStarvationGuard.Slices()
+    /// A held fire waits for the late frame's tick.
+    private var waitsForLateFrame = false
     /// What Chromium threads ask whether a delayed request must wake the main thread.
     let gate: CEFPumpCrossThreadGate
 
@@ -31,16 +42,20 @@ final class CEFMessagePump {
         return stats
     }
 
-    /// `clock` is monotonic seconds (tests inject one).
+    /// `clock` is monotonic seconds (tests inject one). `starvation`: the app's
+    /// rendering starvation guard; `CEFRuntime` passes none until the pump is
+    /// on the main-thread board (p06-scheduler task 048).
     init(
         work: @escaping () -> Void,
         safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
         timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
-        gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate()
+        gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
+        starvation: RenderStarvationGuard? = nil
     ) {
         self.work = work
+        self.starvation = starvation
         self.timer = timer
         self.clock = clock
         self.ledger = ledger
@@ -92,7 +107,24 @@ final class CEFMessagePump {
         guard isRunning else { return }
         ledger.record("CEFMessagePump", reason: armedReason.rawValue)
         if armedReason == .fallback { counters.followUpRuns += 1 }
+        if let starvation, !starvation.admitsSlice(&slices) {
+            waitForLateFrame(starvation)
+            return
+        }
         fire()
+    }
+
+    /// A late frame holds this fire: the schedule keeps its request, and the
+    /// timer is armed again from it once the late link ticks.
+    private func waitForLateFrame(_ starvation: RenderStarvationGuard) {
+        counters.lateFrameHolds += 1
+        guard !waitsForLateFrame else { return }
+        waitsForLateFrame = true
+        starvation.afterLateFrame { [weak self] in
+            guard let self else { return }
+            self.waitsForLateFrame = false
+            self.rearm()
+        }
     }
 
     private func fire() {

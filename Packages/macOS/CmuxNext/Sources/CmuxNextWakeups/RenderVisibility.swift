@@ -11,12 +11,16 @@ import AppKit
 @MainActor
 public protocol RenderVisibility {
     /// Whether frames `scheduler` drives show now. A screen-hosted scheduler (no window) serves every
-    /// window: its frames show while any of the app's windows shows. Asked once per late period.
+    /// window: its frames show while its own display is there and awake and any of the app's windows
+    /// shows. Asked once per late period.
     func showsFrames(of scheduler: FrameScheduler) -> Bool
 }
 
 /// ``RenderVisibility`` from AppKit: a window shows when it is on screen, not miniaturized, at least
-/// partly unoccluded, and its display is awake (`CGDisplayIsAsleep`).
+/// partly unoccluded, and its display is awake (`CGDisplayIsAsleep`). A screen-hosted scheduler's
+/// frames show only while the display its link is on (``FrameScheduler/display``) is still connected
+/// and awake, and some window of the app shows, on any display: its frames (the daemon drain, the
+/// posted work) reach every window.
 @MainActor
 public struct AppKitRenderVisibility: RenderVisibility {
     public nonisolated init() {}
@@ -24,6 +28,11 @@ public struct AppKitRenderVisibility: RenderVisibility {
     public func showsFrames(of scheduler: FrameScheduler) -> Bool {
         if let window = scheduler.window { return Self.shows(window) }
         guard scheduler.isScreenHost, let app = NSApp else { return false }
+        if let display = scheduler.display {
+            guard NSScreen.screens.contains(where: { Self.number(of: $0) == display }), CGDisplayIsAsleep(display) == 0 else {
+                return false
+            }
+        }
         return app.windows.contains(where: Self.shows)
     }
 
@@ -31,7 +40,11 @@ public struct AppKitRenderVisibility: RenderVisibility {
         guard window.isVisible, !window.isMiniaturized, window.occlusionState.contains(.visible), let screen = window.screen else {
             return false
         }
-        guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return true }
-        return CGDisplayIsAsleep(CGDirectDisplayID(number.uint32Value)) == 0
+        guard let display = number(of: screen) else { return true }
+        return CGDisplayIsAsleep(display) == 0
+    }
+
+    private static func number(of screen: NSScreen) -> CGDirectDisplayID? {
+        (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
     }
 }
