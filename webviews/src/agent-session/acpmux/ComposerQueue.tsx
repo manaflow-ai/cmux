@@ -379,13 +379,22 @@ export function ComposerQueue({
   // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
   // moves one place in the whole queue then.
   const queueIndex = (entry: QueuedEntry) => queue.findIndex((q) => q.id === entry.id);
+  // Where a move to the row shown at `index` lands in the whole queue, or undefined when it cannot:
+  // past either end, or across a teammate's prompt (each row it passes shifts one place, and a
+  // teammate's prompt is theirs to move).
+  const moveTarget = (entry: QueuedEntry, index: number): number | undefined => {
+    const target = shown[index];
+    const from = queueIndex(entry);
+    const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
+    if (from < 0 || to < 0 || to >= queue.length || to === from) return undefined;
+    const passed = to < from ? queue.slice(to, from) : queue.slice(from + 1, to + 1);
+    return passed.some((q) => q.author !== undefined) ? undefined : to;
+  };
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      const target = shown[index];
-      const from = queueIndex(entry);
-      const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
-      if (from < 0 || to < 0 || to >= queue.length) return;
+      const to = moveTarget(entry, index);
+      if (to === undefined) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -490,12 +499,12 @@ export function ComposerQueue({
             ? [
                 {
                   ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-                  disabled: queueIndex(entry) <= 0,
+                  disabled: moveTarget(entry, index - 1) === undefined,
                   separatorBefore: true,
                 },
                 {
                   ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-                  disabled: queueIndex(entry) === queue.length - 1,
+                  disabled: moveTarget(entry, index + 1) === undefined,
                 },
               ]
             : []),

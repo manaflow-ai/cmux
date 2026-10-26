@@ -581,3 +581,76 @@ test("a teammate's queued prompt shows their name and offers no action", async (
     "queued-more",
   ]);
 });
+
+// Every other path to a queue change stays shut on a teammate's row: its right-click opens no menu
+// (so no Steer, Edit, move, side chat or Delete), it has no cancel-and-edit, and a neighbour's move
+// never passes it (each row a move passes shifts one place).
+test("a teammate's queued prompt has no menu and no neighbour moves it", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const touched: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[queue[0]!, { id: "p-ana", prompt: "from ana", author: ana }, queue[1]!]}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async (id) => {
+          touched.push(`remove ${id}`);
+          return true;
+        }}
+        onSideChat={async (id) => {
+          touched.push(`side ${id}`);
+          return true;
+        }}
+        onCancelEdit={async (id) => {
+          touched.push(`cancel ${id}`);
+          return true;
+        }}
+      />,
+    );
+  });
+  const row = (id: string) => container.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
+  const menuItems = () => [...dom!.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  // On the row's menu host, as a right-click on its text lands.
+  const rightClick = async (row: HTMLElement) => {
+    const target = row.querySelector<HTMLElement>(".acpmux-queued-menu")!;
+    let opened = false;
+    await act(async () => {
+      opened = !target.dispatchEvent(
+        new dom!.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 60 }),
+      );
+    });
+    await settle();
+    return opened;
+  };
+  expect(await rightClick(row("p-ana"))).toBe(false);
+  expect(menuItems()).toEqual([]);
+  expect(row("p-ana").querySelector('[data-action="cancel-edit"]')).toBeNull();
+  expect(actions(container, "p-1").some((b) => b.dataset.action === "cancel-edit")).toBe(true);
+  // Alt+↓ on the row above Ana's, and Alt+↑ on the row below it, change nothing.
+  for (const [id, key] of [
+    ["p-1", "ArrowDown"],
+    ["p-2", "ArrowUp"],
+  ] as const) {
+    row(id).focus();
+    await act(async () => {
+      row(id).dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true }));
+    });
+  }
+  expect(edits).toEqual([]);
+  // The own row's menu offers the move only where it passes no teammate.
+  expect(await rightClick(row("p-1"))).toBe(true);
+  const down = menuItems().find((item) => itemLabel(item) === "composer.queueMoveDown");
+  expect(down?.hasAttribute("disabled") || down?.getAttribute("aria-disabled") === "true").toBe(true);
+  await act(async () => down!.click());
+  await settle();
+  expect(edits).toEqual([]);
+  expect(touched).toEqual([]);
+});
