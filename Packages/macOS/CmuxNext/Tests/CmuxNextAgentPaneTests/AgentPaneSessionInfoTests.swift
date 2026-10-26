@@ -11,11 +11,29 @@ struct AgentPaneSessionInfoTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
+    /// Subscribing queues the replay and flushes it in a task, so a command published right
+    /// after arrives later: wait for it instead of reading the events at once.
     private final class Received {
         var events: [JSONValue] = []
+        private var waiter: (command: JSONValue, continuation: CheckedContinuation<Void, Never>)?
+
+        var commands: [JSONValue] { events.filter { $0["kind"] == .string("command") } }
+
+        func append(_ event: JSONValue) {
+            events.append(event)
+            if let waiter, commands.contains(waiter.command) {
+                self.waiter = nil
+                waiter.continuation.resume()
+            }
+        }
+
+        func waitFor(_ command: JSONValue) async {
+            guard !commands.contains(command) else { return }
+            await withCheckedContinuation { waiter = (command, $0) }
+        }
     }
 
-    @Test func paletteSessionInfoReachesItsOwnPageCommand() async throws {
+    @Test(.timeLimit(.minutes(1))) func paletteSessionInfoReachesItsOwnPageCommand() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: "session-a"), source: .bundled(file), pageHost: true))
         let received = Received()
@@ -29,9 +47,9 @@ struct AgentPaneSessionInfoTests {
         registry.context = ActionContext(rawValue: .max)
         #expect(registry.bindAgentPaneSessionInfo { _ in view.toggleSessionInfo() })
         #expect(registry.perform("agentPane.toggleSessionInfo"))
-        #expect(received.events.filter { $0["kind"] == .string("command") } == [
-            AgentPageEvent.command("toggleSessionInfo").data,
-        ])
+        let command = AgentPageEvent.command("toggleSessionInfo").data
+        await received.waitFor(command)
+        #expect(received.commands == [command])
     }
 
     @Test func automationMustRequestFocusBeforeTogglingSessionInfo() {
