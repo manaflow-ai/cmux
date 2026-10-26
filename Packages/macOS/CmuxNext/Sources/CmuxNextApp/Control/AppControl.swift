@@ -125,7 +125,7 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
         ])
-        service.router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        service.router.register(DebugHibernationControl.methods(services) + Self.traceMethods(services)) // debug.memory and trace.* serve release
         // Other diagnostics are for tagged DEV builds: release registers no other debug.* (Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).

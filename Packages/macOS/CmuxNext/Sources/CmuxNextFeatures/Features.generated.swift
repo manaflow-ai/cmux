@@ -189,9 +189,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The control socket serves trace.start, trace.stop and trace.status, which record a trace of the app, the daemon and its children into local ring files.
+    public static let traceControl = Feature(
+        index: 11,
+        name: "traceControl",
+        owner: "PL-telemetry",
+        description: "The control socket serves trace.start, trace.stop and trace.status, which record a trace of the app, the daemon and its children into local ring files.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: true, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: true,
+        runtimeMutable: false
+    )
+
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 11,
+        index: 12,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -209,7 +226,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 12,
+        index: 13,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -226,7 +243,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 13,
+        index: 14,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -256,6 +273,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .taskManagerMemorySaved,
         .topPageDiscard,
+        .traceControl,
         .vsyncHub,
         .perfLabCanary,
         .perfLabKillProbe,
@@ -274,6 +292,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .taskManagerMemorySaved,
         .topPageDiscard,
+        .traceControl,
         .vsyncHub,
     ]
     #endif

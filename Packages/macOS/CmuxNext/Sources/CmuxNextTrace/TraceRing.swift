@@ -19,8 +19,17 @@ public final class TraceRing: Sendable {
     /// The header's process fields.
     public let identity: Identity
 
-    /// The address of the active ring's ``TraceRingActive`` (never freed): the heap ring, then the file.
-    private let activeCell = Atomic<UInt64>(0)
+    /// The address of the active ring's ``TraceRingActive`` (never freed): the black box (the heap ring,
+    /// then its file), or the recording ring while a `trace.start` recording runs.
+    let activeCell = Atomic<UInt64>(0)
+    /// The address of the black box's ``TraceRingActive``: the heap ring, then the file. A stopped recording
+    /// moves the writers back here.
+    let blackBoxCell = Atomic<UInt64>(0)
+    /// The address of the recording ring's ``TraceRingActive`` (slot 2), 0 until ``attachRecording(_:path:)``.
+    /// Mapped once and never freed or unmapped: each recording reuses it (trace.md "Recording ring").
+    let recordingCell = Atomic<UInt64>(0)
+    /// ``RecordingPhase``: one start or stop changes the active ring at a time (Rust's `Tracer::control`).
+    let recordingPhase = Atomic<UInt64>(0)
     /// The calling thread's ``TraceRingThreadState``; its destructor completes the thread's chunk and
     /// marks its thread entries exited.
     private let threadKey: pthread_key_t
@@ -47,7 +56,9 @@ public final class TraceRing: Sendable {
         threadKey = key
         let heap = TraceRingStorage.allocateHeap(TraceRingLayout(sizes))
         heap.initialize(identity: identity, catalog: catalog)
-        activeCell.store(UInt64(UInt(bitPattern: TraceRingActive.make(heap, slot: TraceRingActive.heapSlot))), ordering: .releasing)
+        let heapActive = UInt64(UInt(bitPattern: TraceRingActive.make(heap, slot: TraceRingActive.heapSlot)))
+        blackBoxCell.store(heapActive, ordering: .releasing)
+        activeCell.store(heapActive, ordering: .releasing)
     }
 
     /// A heap ring with room for `records` records and small tables (tests and tools); `pid` nil is this
@@ -136,9 +147,9 @@ public final class TraceRing: Sendable {
         TraceRingStorage.withValidated(bytes: bytes) { $0.decode() }
     }
 
-    /// Whether writes go to a mapped file rather than the heap.
+    /// Whether the black box writes to its mapped file rather than the heap.
     public var isFileBacked: Bool {
-        activeRing?.pointee.slot == TraceRingActive.fileSlot
+        blackBoxRing?.pointee.slot == TraceRingActive.fileSlot
     }
 
     /// The records the active ring holds when full.
@@ -214,6 +225,11 @@ public final class TraceRing: Sendable {
         UnsafeMutablePointer(bitPattern: UInt(activeCell.load(ordering: .acquiring)))
     }
 
+    /// The black box: the heap ring, then its file (what an adoption copies and replaces).
+    var blackBoxRing: UnsafeMutablePointer<TraceRingActive>? {
+        UnsafeMutablePointer(bitPattern: UInt(blackBoxCell.load(ordering: .acquiring)))
+    }
+
     /// Starts the one adoption this ring gets; false when one ran or runs.
     func beginAdoption() -> Bool {
         adoption.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged
@@ -224,10 +240,13 @@ public final class TraceRing: Sendable {
         adoption.store(adopted ? 2 : 0, ordering: .releasing)
     }
 
-    /// Points writers at the file, whose header, tables and chunks are written. The heap is never freed:
-    /// a writer that loaded it may still finish one record there.
+    /// Makes the file the black box, whose header, tables and chunks are written, and points writers at it
+    /// unless a recording holds them (the recording's stop moves them to the file). The heap is never
+    /// freed: a writer that loaded it may still finish one record there.
     func activateFile(_ storage: TraceRingStorage) {
-        activeCell.store(UInt64(UInt(bitPattern: TraceRingActive.make(storage, slot: TraceRingActive.fileSlot))), ordering: .releasing)
+        let file = UInt64(UInt(bitPattern: TraceRingActive.make(storage, slot: TraceRingActive.fileSlot)))
+        let heap = blackBoxCell.exchange(file, ordering: .acquiringAndReleasing)
+        _ = activeCell.compareExchange(expected: heap, desired: file, ordering: .acquiringAndReleasing)
     }
 
     func countAdoptFailure() {
@@ -257,18 +276,22 @@ public final class TraceRing: Sendable {
     }
 }
 
-/// One ring a ``TraceRing`` writes or wrote to, and its slot (0 heap, 1 file). Allocated once per
-/// activation and never freed, so its address also tells a writer that the active ring changed.
+/// One ring a ``TraceRing`` writes or wrote to, and its slot (0 heap, 1 black-box file, 2 recording).
+/// Allocated once per activation and never freed, so its address also tells a writer that the active ring
+/// changed.
 struct TraceRingActive {
     static let heapSlot = 0
     static let fileSlot = 1
+    static let recordingSlot = 2
 
     let storage: TraceRingStorage
     let slot: Int
+    /// The mapped file of a recording ring; nil for the black box (``TraceBlackBox/filePath`` names its file).
+    let path: String?
 
-    static func make(_ storage: TraceRingStorage, slot: Int) -> UnsafeMutablePointer<TraceRingActive> {
+    static func make(_ storage: TraceRingStorage, slot: Int, path: String? = nil) -> UnsafeMutablePointer<TraceRingActive> {
         let pointer = UnsafeMutablePointer<TraceRingActive>.allocate(capacity: 1)
-        pointer.initialize(to: TraceRingActive(storage: storage, slot: slot))
+        pointer.initialize(to: TraceRingActive(storage: storage, slot: slot, path: path))
         return pointer
     }
 }
@@ -290,6 +313,7 @@ struct TraceRingThreadState {
     var nextSlot = 0
     var heapEntry = Entry()
     var fileEntry = Entry()
+    var recordingEntry = Entry()
     let tid: UInt64
     let info: TraceRingThreadInfo
 
@@ -301,14 +325,22 @@ struct TraceRingThreadState {
     /// The thread's entry in `active`'s ring, registered at its first claim there.
     static func entry(_ state: UnsafeMutablePointer<TraceRingThreadState>,
                       in active: UnsafeMutablePointer<TraceRingActive>) -> (index: UInt32, generation: UInt32) {
-        let isFile = active.pointee.slot == TraceRingActive.fileSlot
-        let known = isFile ? state.pointee.fileEntry : state.pointee.heapEntry
+        let slot = active.pointee.slot
+        let known = switch slot {
+        case TraceRingActive.heapSlot: state.pointee.heapEntry
+        case TraceRingActive.fileSlot: state.pointee.fileEntry
+        default: state.pointee.recordingEntry
+        }
         if let ring = known.ring, ring.pointee.storage.base == active.pointee.storage.base {
             return (known.index, known.generation)
         }
         let made = active.pointee.storage.registerThread(tid: state.pointee.tid, info: state.pointee.info)
         let entry = Entry(ring: active, index: made.index, generation: made.generation)
-        if isFile { state.pointee.fileEntry = entry } else { state.pointee.heapEntry = entry }
+        switch slot {
+        case TraceRingActive.heapSlot: state.pointee.heapEntry = entry
+        case TraceRingActive.fileSlot: state.pointee.fileEntry = entry
+        default: state.pointee.recordingEntry = entry
+        }
         return made
     }
 
@@ -319,7 +351,7 @@ struct TraceRingThreadState {
         if state.pointee.nextSlot != 0, let owner = state.pointee.owner {
             owner.pointee.storage.complete(chunk: state.pointee.chunk, lap: state.pointee.lap)
         }
-        for entry in [state.pointee.heapEntry, state.pointee.fileEntry] {
+        for entry in [state.pointee.heapEntry, state.pointee.fileEntry, state.pointee.recordingEntry] {
             guard let ring = entry.ring, entry.index != TraceRing.noThread else { continue }
             ring.pointee.storage.exitThread(index: entry.index, generation: entry.generation)
         }

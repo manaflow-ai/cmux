@@ -2,6 +2,7 @@
 // `UInt64: AtomicValue` conformance comes from swift-atomics, so inlinable code needs that import too.
 public import Atomics
 public import CmuxNextCompat
+import Darwin
 
 /// The process's one trace runtime: the category flags every trace point reads, and (as the later
 /// p09-observability tasks land) the black-box and recording rings, the name and thread tables, the
@@ -19,7 +20,8 @@ public import CmuxNextCompat
 /// The write methods publish into the ring its owner attaches (``attach(_:)``): the black box, which
 /// `TraceBlackBox` makes and attaches at launch (task 005), so the runtime holds it from then on. Catalog
 /// names go by id and interned names by their id in the active ring (tasks 003 and 004). The category
-/// defaults are ``TraceCategories`` (task 005). The API is frozen (task 000); recording (020) and crash keys
+/// defaults are ``TraceCategories`` (task 005). Recording (task 020) swaps the ring's writers to the recording
+/// ring its black box mapped (``TraceBlackBox/prepareRecording()``). The API is frozen (task 000); crash keys
 /// (078) are still stubs.
 ///
 /// ```swift
@@ -51,6 +53,8 @@ public final class TraceRuntime: Sendable {
     /// once by ``attach(_:)`` and never released: a ring lives as long as its process), 0 until its owner
     /// attaches it.
     private let ringAddress = Atomic<UInt64>(0)
+    /// The category flags a running recording replaced, restored by ``stopRecording()``.
+    private let categoriesBeforeRecording = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off and no ring yet.
     ///
@@ -186,24 +190,46 @@ public final class TraceRuntime: Sendable {
 
     // MARK: recording
 
-    /// Starts a recording: the larger ring and the requested categories, on top of the black box.
+    /// Starts a recording: the writers move to the recording ring the black box mapped
+    /// (``TraceBlackBox/prepareRecording()``), and the requested categories record on top of the black box's.
+    /// Without `keys` the key category is off for the recording's length, so no per-key record lands in it
+    /// (p09-observability.md section 3C). No disk I/O and no lock: any thread. As Chrome's
+    /// `TraceLog::SetEnabled` (base/trace_event/trace_log.cc), one recording runs at a time.
     ///
-    /// - Returns: The recording's state after the call.
+    /// - Returns: ``RecordingStatus/recording(ringPath:bytes:)`` when this call started it; otherwise the state
+    ///   it found (a recording that already runs, or no recording ring yet: ``RecordingStatus/idle``).
     @discardableResult
     public func startRecording(_ request: RecordingRequest) -> RecordingStatus {
-        .idle // Task 020.
+        guard let ring else { return .idle }
+        let times = TraceRing.RecordingStart(uptimeNanos: clock.nowNanos(), unixNanos: clock_gettime_nsec_np(CLOCK_REALTIME),
+                                             continuousNanos: clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW))
+        guard ring.beginRecording(at: times) else { return recordingStatus }
+        let before = categoryMask
+        categoriesBeforeRecording.store(before, ordering: .relaxed)
+        var mask = before | request.categoryMask
+        if !request.keys { mask &= ~TraceCategories.key.rawValue }
+        setCategoryMask(mask)
+        return recordingStatus
     }
 
-    /// Stops the recording and restores the black-box categories.
+    /// Stops the recording: the categories it replaced come back, then the writers move back to the black box.
+    /// The recording ring keeps its records until the next start.
     ///
-    /// - Returns: The finished recording's ring path and size, or ``RecordingStatus/idle``.
+    /// - Returns: The finished recording's ring path and size, or ``RecordingStatus/idle`` when none ran.
     @discardableResult
     public func stopRecording() -> RecordingStatus {
-        .idle // Task 020.
+        guard let ring, ring.isRecording, let file = ring.recordingFile else { return .idle }
+        setCategoryMask(categoriesBeforeRecording.load(ordering: .relaxed))
+        guard ring.endRecording() else { return recordingStatus }
+        return .stopped(ringPath: file.path, bytes: file.bytes)
     }
 
-    /// The current recording's state.
-    public var recordingStatus: RecordingStatus { .idle }
+    /// The current recording's state: ``RecordingStatus/recording(ringPath:bytes:)`` while one runs, else
+    /// ``RecordingStatus/idle``.
+    public var recordingStatus: RecordingStatus {
+        guard let ring, ring.isRecording, let file = ring.recordingFile else { return .idle }
+        return .recording(ringPath: file.path, bytes: file.bytes)
+    }
 
     // MARK: crash keys
 
@@ -319,7 +345,8 @@ extension TraceRuntime {
     public struct RecordingRequest: Sendable, Equatable {
         /// The categories to record (bits as ``categoryMask``), added to the black box's.
         public var categoryMask: UInt64
-        /// The recording ring's size in records (capped by role).
+        /// The recording ring's size in records. The ring is the role's (``Role/recordingSizes``), mapped once
+        /// by ``TraceBlackBox/prepareRecording()``, so this is what the caller expects, not a resize.
         public var recordCapacity: Int
         /// Whether per-key records and key flows are on (off by default; never while secure input is on).
         public var keys: Bool
