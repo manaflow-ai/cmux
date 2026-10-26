@@ -33577,7 +33577,8 @@
         "machine-blue",
         "moon",
         "moon-blue",
-        "fox"
+        "fox",
+        "mochi"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -33644,6 +33645,13 @@
             "text" : "Fox"
           },
           "value" : "fox"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.mochi",
+            "text" : "Mochi"
+          },
+          "value" : "mochi"
         }
       ],
       "consumers" : [
