@@ -136,6 +136,12 @@ type PendingSource = { file: File | Promise<File>; uploads: boolean };
 /// by its name and type, and it is read once `file` settles.
 export type MadeFile = { name: string; type: string; file: Promise<File> };
 
+/// Whether `file` is a MadeFile, by its shape: a File from another window (a test's DOM, a drop
+/// from a frame) is not `instanceof` this one's File.
+function isMadeFile(file: File | MadeFile): file is MadeFile {
+  return "file" in file && typeof (file as MadeFile).file?.then === "function";
+}
+
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
 /// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
@@ -200,7 +206,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     }));
     shown.forEach((chip, index) => {
       const file = files[index]!;
-      sources.current.set(chip.id, { file: file instanceof File ? file : file.file, uploads });
+      sources.current.set(chip.id, { file: isMadeFile(file) ? file.file : file, uploads });
     });
     const gesture = (gestures.current += 1);
     batches.current.add(batch);
@@ -247,7 +253,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     try {
       // A file still being made (a huge paste's text, made a slice per task) is awaited here, after
       // its tile drew.
-      const settled = await Promise.all(files.map((file) => (file instanceof File ? file : file.file)));
+      const settled = await Promise.all(files.map((file) => (isMadeFile(file) ? file.file : file)));
       // The bytes are made: Retry reads these, never the promise again.
       settled.forEach((file, index) => {
         const id = shown[index]!.id;
@@ -305,11 +311,12 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
+    const file = source?.file;
     // A file whose bytes were never made (making them failed) has nothing to retry.
-    if (!source || !(source.file instanceof File)) return;
+    if (!source || !file || "then" in file) return;
     cancel(id);
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void attach([source.file], source.uploads);
+    void attach([file], source.uploads);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
