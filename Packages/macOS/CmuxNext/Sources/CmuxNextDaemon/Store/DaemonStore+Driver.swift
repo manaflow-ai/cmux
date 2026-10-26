@@ -238,7 +238,10 @@ extension DaemonStore {
     /// and the echo of a person's action with no intent (close other tabs, close a workspace from
     /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
     /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
-    /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
+    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), the unread sum and the
+    /// workspace-list check cost the workspaces that joined, left or changed their own count, and
+    /// the sidebar is flattened only by a batch that changed the order, the membership or a group.
+    /// Each batch is one sample of ``drainCost``.
     func drain() {
         guard let driver, !isResyncing else { return }
         let batch = driver.inbox.take()
@@ -246,13 +249,19 @@ extension DaemonStore {
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
-        let followup = apply(batch: batch)
+        let (followup, cost) = DrainCost.measured(on: drainClock) { apply(batch: batch) }
+        drainCost.record(cost, events: batch.count)
         if followup == .resync || needsResync {
             causes.resync = max(causes.resync, batch.lazy.map(\.cause).max() ?? .program)
             resync(seedAgents: connected)
         } else if followup == .personal {
             refetchPersonal()
         }
+    }
+
+    /// Clears ``drainCost`` (`debug.drain_cost` with `reset`).
+    public func resetDrainCost() {
+        drainCost = DrainCost()
     }
 
     /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room
