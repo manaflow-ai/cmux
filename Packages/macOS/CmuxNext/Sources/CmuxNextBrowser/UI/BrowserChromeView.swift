@@ -84,11 +84,18 @@ public final class BrowserChromeView: NSView {
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
-    /// Bound in setup (first read there), never an IUO.
+    /// Bound in setup (first read there), never an IUO. A hidden row keeps this height and sits past
+    /// its edge (`hiddenToolbarOffset`), so Toggle Omnibar moves the row and resizes only the page.
     lazy var toolbarHeight: NSLayoutConstraint = density.bind(toolbar.heightAnchor.constraint(equalToConstant: 0)) { [weak self] in
         // A deallocated chrome view's constraint is never laid out again.
-        guard let self else { return 0 }
-        return isToolbarHidden ? 0 : currentToolbarHeight
+        self?.currentToolbarHeight ?? 0
+    }
+    /// The row's edge pins for the top and the bottom position (`toolbarEdge`).
+    lazy var toolbarTopPin: NSLayoutConstraint = density.bind(toolbar.topAnchor.constraint(equalTo: topAnchor)) { [weak self] in
+        -(self?.hiddenToolbarOffset ?? 0)
+    }
+    lazy var toolbarBottomPin: NSLayoutConstraint = density.bind(toolbar.bottomAnchor.constraint(equalTo: bottomAnchor)) { [weak self] in
+        self?.hiddenToolbarOffset ?? 0
     }
     private var observation: ObservationLoop?
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
@@ -101,6 +108,8 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// Counts toolbar show/hide changes; only the latest one's landing hides the row.
+    var toolbarToggles = 0
     /// The edge the toolbar rows sit on (`browser.toolbarPosition`); the pane sets it.
     public var toolbarPosition: ToolbarPosition = .top {
         didSet { if toolbarPosition != oldValue { applyToolbarPosition() } }
@@ -246,7 +255,7 @@ public final class BrowserChromeView: NSView {
         // From the top: toolbar, separator, accessory bar, band, page. From the bottom: the same
         // rows mirrored, the page on top (`ToolbarEdgeConstraints`).
         toolbarEdge.top += [
-            toolbar.topAnchor.constraint(equalTo: topAnchor),
+            toolbarTopPin,
             density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { OmnibarStyle.barTop(scale: scale()) }, // R101 gaps
             separator.topAnchor.constraint(equalTo: toolbar.bottomAnchor),
             progressLine.bottomAnchor.constraint(equalTo: separator.bottomAnchor),
@@ -259,7 +268,7 @@ public final class BrowserChromeView: NSView {
             density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
         ]
         toolbarEdge.bottom += [
-            toolbar.bottomAnchor.constraint(equalTo: bottomAnchor),
+            toolbarBottomPin,
             density.bind(addressBar.bottomAnchor.constraint(equalTo: toolbar.bottomAnchor)) { -OmnibarStyle.barTop(scale: scale()) },
             separator.bottomAnchor.constraint(equalTo: toolbar.topAnchor),
             progressLine.topAnchor.constraint(equalTo: separator.topAnchor),

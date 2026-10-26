@@ -26,7 +26,10 @@ import Testing
         chrome.toggleOmnibar()
         #expect(chrome.isOmnibarHidden)
         #expect(chrome.isToolbarHidden)
-        #expect(chrome.toolbarHeight.constant == 0, "the toolbar row still takes space")
+        #expect(chrome.toolbarTopPin.constant == -chrome.toolbarHeight.constant, "the toolbar row still takes space")
+        chrome.layoutSubtreeIfNeeded()
+        #expect(chrome.toolbar.isHidden, "outside a window the row hides at once")
+        #expect(chrome.contentContainer.frame.maxY == chrome.bounds.maxY, "the page did not take the row's space")
 
         chrome.toggleOmnibar()
         #expect(!chrome.isOmnibarHidden)
