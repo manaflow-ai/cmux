@@ -1593,7 +1593,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextIPC",
-            // CmuxNextCompat: the Mutex of FrameWriter's priority FIFOs (p05-ipc-055).
+            // CmuxNextCompat: the Mutex of FrameWriter's priority FIFOs (p05-ipc-055)
+            // and of StreamDemux's sinks (p05-ipc-056).
             dependencies: ["CmuxNextCompat", "CmuxNextWireDigest"],
             swiftSettings: daemonSwiftSettings,
             plugins: [.plugin(name: "CmuxNextWireGenPlugin")]
