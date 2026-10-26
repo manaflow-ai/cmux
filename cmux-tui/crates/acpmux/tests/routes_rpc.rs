@@ -301,7 +301,8 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
     // An overload with no status code is the route's failure too (it also retries in place).
-    let overloaded = json!({"sessionId": id, "prompt": [{"type": "text", "text": "overloaded: now"}]});
+    let overloaded =
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "overloaded: now"}]});
     let (failed, _) = local.call_text("session/prompt", overloaded).await;
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
