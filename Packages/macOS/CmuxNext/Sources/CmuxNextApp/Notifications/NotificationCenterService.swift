@@ -483,8 +483,8 @@ final class NotificationCenterService {
             return
         }
         // A turn that finished in front of the user is already seen (cx-slk1h) when the dismissal
-        // reads a pane on sight (`focus`): the history keeps it, read. Under the default `click`
-        // (2026-10-20) its ring stays until the pane is clicked or typed in. An agent that asks or
+        // reads a pane on sight (`focus`, the default): the history keeps it, read. Under `click`
+        // its ring stays until the pane is clicked or typed in. An agent that asks or
         // fails stays unread even there, and so does an earlier ask or error the tab still holds
         // (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)

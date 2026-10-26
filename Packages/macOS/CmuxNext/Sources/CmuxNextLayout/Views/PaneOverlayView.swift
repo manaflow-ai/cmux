@@ -339,15 +339,15 @@ final class PaneOverlayView: NSView {
         attention.removeAnimation(forKey: "attention-dismiss")
         attention.removeAnimation(forKey: "attention-dismiss-glow")
         dismissingColor = nil
-        guard previous?.generation != mark.generation else { return }
-        // A new notification: run the style's animation from the start and
-        // rest at its final opacity (the steady ring swells from its rest when
-        // it already shows, rather than dropping out first).
+        // Attention is on or off, not a queue (https://github.com/manaflow-ai/cmux/issues/25662): a
+        // further event on a ring that already shows leaves it as it is, so it never comes back.
+        guard previous == nil else { return }
+        // Off to on: run the style's animation from the start and rest at its final opacity.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
+        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()
