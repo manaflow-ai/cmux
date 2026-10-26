@@ -80,6 +80,9 @@ final class NewTabSparePool {
     /// until normal (Chrome's spare rule).
     private var spareMemory: SpareMemoryConsumer?
     private var usedThisSession = false
+    /// No spare before a New Tab page first showed this session (feature `pageRendererAtFirstShow`,
+    /// Chrome's `PreloadMode::kPreloadOnMakeVisible`): Home idle then runs no renderer for a page nobody opened.
+    private let preloadOnMakeVisible: Bool
     /// Set by `start(holdingWarm: true)` until ``startWarming()``: no spare is made meanwhile.
     private var warmHeld = false
     private var windowObservers: [any NSObjectProtocol] = []
@@ -95,9 +98,11 @@ final class NewTabSparePool {
     ///   - memory: The app's memory coordinator; the pool registers its spare with it at once.
     ///   - input: The app's input tap.
     ///   - clock: The warm and fit deadlines' clock (tests: a manual one).
+    ///   - preloadOnMakeVisible: The first spare waits for the first New Tab page of the session.
     init(services: AppServices, memory: any MemoryConsumerRegistry, input: any InputObserving,
-         clock: any Clock<Duration> = ContinuousClock()) {
+         clock: any Clock<Duration> = ContinuousClock(), preloadOnMakeVisible: Bool = false) {
         self.services = services
+        self.preloadOnMakeVisible = preloadOnMakeVisible
         self.input = input
         warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
         fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
@@ -322,7 +327,8 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard !warmHeld, allowsSpare, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
+        guard !warmHeld, allowsSpare, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil,
+              usedThisSession || !preloadOnMakeVisible || unparked != nil else { return }
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }
         }
