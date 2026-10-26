@@ -126,29 +126,28 @@ extension WKPreferences {
     /// WebKit's hidden-page throttling (`WKPreferencesPrivate.h`): the DOM timers of a hidden page are
     /// throttled, the throttle grows while it stays hidden, and the web process may be suppressed
     /// (App Nap) while it shows no page. Each acts only on a hidden page.
-    private static let hiddenPageThrottling = [
-        ("_hiddenPageDOMTimerThrottlingEnabled", "_setHiddenPageDOMTimerThrottlingEnabled:"),
-        ("_hiddenPageDOMTimerThrottlingAutoIncreases", "_setHiddenPageDOMTimerThrottlingAutoIncreases:"),
-        ("_pageVisibilityBasedProcessSuppressionEnabled", "_setPageVisibilityBasedProcessSuppressionEnabled:"),
+    static let hiddenPageThrottlingSetters = [
+        "_setHiddenPageDOMTimerThrottlingEnabled:",
+        "_setHiddenPageDOMTimerThrottlingAutoIncreases:",
+        "_setPageVisibilityBasedProcessSuppressionEnabled:",
     ]
 
-    /// Turns on every hidden-page throttling preference this WebKit has; one already on is not set
-    /// again (a set sends the page a preferences update). A WebKit without a selector keeps its default.
+    /// Turns on every hidden-page throttling preference this WebKit has. WebKit sends the page a
+    /// preferences update only for a value that changed, so a second call costs no update. A WebKit
+    /// without one of them keeps its default.
     ///
-    /// - Returns: How many it turned on now (0 when all were on, or this WebKit has none).
+    /// - Returns: How many of them this WebKit has.
     @MainActor @discardableResult
     func enableHiddenPageThrottling() -> Int {
-        typealias GetFlag = @convention(c) (AnyObject, Selector) -> Bool
         typealias SetFlag = @convention(c) (AnyObject, Selector, Bool) -> Void
-        var turnedOn = 0
-        for (getterName, setterName) in Self.hiddenPageThrottling {
-            let getter = NSSelectorFromString(getterName), setter = NSSelectorFromString(setterName)
-            guard let get = class_getInstanceMethod(WKPreferences.self, getter),
-                  let set = class_getInstanceMethod(WKPreferences.self, setter),
-                  !unsafeBitCast(method_getImplementation(get), to: GetFlag.self)(self, getter) else { continue }
-            unsafeBitCast(method_getImplementation(set), to: SetFlag.self)(self, setter, true)
-            turnedOn += 1
+        var found = 0
+        for name in Self.hiddenPageThrottlingSetters {
+            // crash-allow: WebKit private selector, called only through the IMP class_getInstanceMethod found (no unknown-selector exception).
+            let selector = NSSelectorFromString(name)
+            guard let method = class_getInstanceMethod(WKPreferences.self, selector) else { continue }
+            unsafeBitCast(method_getImplementation(method), to: SetFlag.self)(self, selector, true)
+            found += 1
         }
-        return turnedOn
+        return found
     }
 }

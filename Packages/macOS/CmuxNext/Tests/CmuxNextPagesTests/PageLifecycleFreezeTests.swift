@@ -104,6 +104,23 @@ struct PageLifecycleFreezeTests {
 
     // MARK: WebKit
 
+    /// Whether every hidden-page throttling preference reads on, through the getter of each setter
+    /// (`_setHiddenPageDOMTimerThrottlingEnabled:` reads as `_hiddenPageDOMTimerThrottlingEnabled`).
+    private static func throttlingIsOn(_ preferences: WKPreferences) -> Bool {
+        WKPreferences.hiddenPageThrottlingSetters.allSatisfy { setter in
+            let property = String(setter.dropFirst("_set".count).dropLast())
+            let getter = "_" + property.prefix(1).lowercased() + String(property.dropFirst())
+            guard preferences.responds(to: NSSelectorFromString(getter)) else { return false }
+            return preferences.value(forKey: getter) as? Bool == true
+        }
+    }
+
+    /// Every throttling preference exists in this WebKit (a missing one would leave hidden pages
+    /// at WebKit's default).
+    @Test func thisWebKitHasEveryHiddenPageThrottlingPreference() {
+        #expect(WKPreferences().enableHiddenPageThrottling() == WKPreferences.hiddenPageThrottlingSetters.count)
+    }
+
     @Test func aWebKitPageStaysInItsWindowHiddenAndThrottledAndThawsBeforeItShows() throws {
         let view = try webKitView()
         defer { finish(view) }
@@ -112,7 +129,7 @@ struct PageLifecycleFreezeTests {
         #expect(target.freeze())
         #expect(view.webKitView.isHidden)
         #expect(view.webKitView.window === window, "WebKit is not detached")
-        #expect(view.webKitView.configuration.preferences.enableHiddenPageThrottling() == 0, "the throttling was not on")
+        #expect(Self.throttlingIsOn(view.webKitView.configuration.preferences))
         // The lifecycle's show thaws while the tab is still hidden.
         target.thaw()
         #expect(!view.webKitView.isHidden)
