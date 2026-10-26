@@ -7,10 +7,11 @@
 //!
 //! `Hub::save_meta` now takes a snapshot of the record under its lock, stamped with a version
 //! from the same lock hold, and queues it. The thread writes the newest snapshot of each
-//! session; a newer save replaces a queued older one, so a burst of saves costs one write and
-//! the record on disk is never older than the last save queued before it (two racing saves
-//! used to land in either order). The log stays the source of truth for what a crash cuts
-//! off: a record behind its log is caught up from the log's tail at the next start
+//! session; a newer save replaces a queued older one, so a burst of saves costs one write. A
+//! save older than one already accepted (queued, being written or written) is dropped, so the
+//! record on disk is never older than the newest snapshot taken before it (two saves race from
+//! their snapshot to `queue`, and the newer one can be queued and written first). The log
+//! stays the source of truth for what a crash cuts off: a record behind its log is caught up from the log's tail at the next start
 //! (`Hub::catch_up`), as it always was for a hard stop. `flush` waits for every queued save
 //! (shutdown); `Forget::forget` drops a session's queued save and waits for one being written, so a
 //! purge's delete always comes after the last write of the purged session.
@@ -23,13 +24,15 @@ use std::sync::{Arc, Condvar, Mutex};
 /// One queued save: the newest snapshot of a session's record.
 struct Queued {
     meta: SessionMeta,
-    version: u64,
     purged: Arc<AtomicBool>,
 }
 
 #[derive(Default)]
 struct State {
     queued: HashMap<String, Queued>,
+    /// The newest snapshot version accepted for each session: queued, being written or written.
+    /// An older one never reaches the disk after it.
+    newest: HashMap<String, u64>,
     /// The session whose record the thread is writing now.
     writing: Option<String>,
     stop: bool,
@@ -78,7 +81,7 @@ impl MetaWriter {
     }
 
     /// Queues `meta` (snapshot `version`) for writing, unless a newer snapshot of the same
-    /// session is queued already.
+    /// session was accepted already (queued, being written or written).
     pub(crate) fn queue(
         &self,
         store: &dyn Store,
@@ -91,11 +94,12 @@ impl MetaWriter {
             return;
         }
         let mut state = self.lock();
-        let newer = state.queued.get(&meta.id).is_some_and(|q| q.version > version);
-        if !newer {
-            state.queued.insert(meta.id.clone(), Queued { meta, version, purged });
-            self.shared.work.notify_one();
+        if state.newest.get(&meta.id).is_some_and(|newest| *newest > version) {
+            return;
         }
+        state.newest.insert(meta.id.clone(), version);
+        state.queued.insert(meta.id.clone(), Queued { meta, purged });
+        self.shared.work.notify_one();
     }
 
     /// Waits until every save queued before this call is on disk.
@@ -140,6 +144,7 @@ impl Forget {
     pub(crate) fn forget(&self, id: &str) {
         let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
         state.queued.remove(id);
+        state.newest.remove(id);
         while state.writing.as_deref() == Some(id) {
             state = self.0.written.wait(state).unwrap_or_else(|e| e.into_inner());
         }
@@ -265,6 +270,61 @@ mod tests {
         let newer = writer.next_version();
         writer.queue(&*store, meta("s1", "newer"), newer, purged.clone());
         writer.queue(&*store, meta("s1", "older"), older, purged.clone());
+        writer.flush();
+        assert_eq!(store.load("s1").unwrap().unwrap().name, "newer");
+    }
+
+    /// A store whose first save of session `s1` waits until the test releases it, so a second
+    /// save can be queued while the first is being written.
+    struct GatedStore {
+        inner: MemoryStore,
+        entered: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    impl Store for GatedStore {
+        fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
+            self.inner.list()
+        }
+        fn load(&self, id: &str) -> anyhow::Result<Option<SessionMeta>> {
+            self.inner.load(id)
+        }
+        fn save(&self, meta: &SessionMeta) -> anyhow::Result<()> {
+            if let Some(entered) = self.entered.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            self.inner.save(meta)
+        }
+        fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+            self.inner.append(id, record)
+        }
+        fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+            self.inner.events(id, after, limit)
+        }
+        fn delete(&self, id: &str) -> anyhow::Result<()> {
+            self.inner.delete(id)
+        }
+    }
+
+    #[test]
+    fn an_older_snapshot_queued_while_a_newer_one_is_written_never_lands() {
+        let (entered_tx, entered) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let store = Arc::new(GatedStore {
+            inner: MemoryStore::default(),
+            entered: Mutex::new(Some(entered_tx)),
+            release: Mutex::new(release_rx),
+        });
+        let writer = MetaWriter::start(store.clone());
+        let purged = Arc::new(AtomicBool::new(false));
+        let older = writer.next_version();
+        let newer = writer.next_version();
+        writer.queue(&*store, meta("s1", "newer"), newer, purged.clone());
+        // The thread has taken the newer snapshot and is writing it.
+        entered.recv().unwrap();
+        writer.queue(&*store, meta("s1", "older"), older, purged.clone());
+        release.send(()).unwrap();
         writer.flush();
         assert_eq!(store.load("s1").unwrap().unwrap().name, "newer");
     }

@@ -87,10 +87,14 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     Ok((lines, start + end as u64 + 1))
 }
 
+/// The watcher to keep alive while a transcript is followed, and its wakes.
+type Changes = (notify::RecommendedWatcher, tokio::sync::mpsc::Receiver<()>);
+
 /// A watch on `file`'s folder that sends once per batch of changes to `file`, and the watcher
-/// to keep alive while it is read. None, logged, when the folder cannot be watched (it is gone):
-/// the chat keeps what it showed, and the next daemon start follows it again.
-fn changes(file: &Path) -> Option<(notify::RecommendedWatcher, tokio::sync::mpsc::Receiver<()>)> {
+/// to keep alive while it is read. None, logged, when the folder cannot be watched (it is gone,
+/// or the system is out of watches): the chat shows what the transcript holds now and follows
+/// it again at the next daemon start.
+fn changes(file: &Path) -> Option<Changes> {
     use notify::Watcher;
     let (folder, name) = (file.parent()?.to_owned(), file.file_name()?.to_owned());
     // One pending wake is enough: each wake reads everything new.
@@ -145,16 +149,25 @@ impl Hub {
     /// Starts showing `session`'s watched transcript and following it (a new watch, or one a
     /// daemon restart found in the store).
     pub(super) fn start_watch(self: &Arc<Self>, session: &Arc<Session>) {
-        if session.meta().watching.is_none() {
-            return;
-        }
+        self.follow_watch(session, changes);
+    }
+
+    /// [`Hub::start_watch`] with the folder watch `watch` makes (`changes`; a test's fails).
+    /// The transcript is read once whether or not the watch was made.
+    fn follow_watch(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        watch: impl FnOnce(&Path) -> Option<Changes> + Send + 'static,
+    ) -> Option<tokio::task::JoinHandle<()>> {
+        session.meta().watching.as_ref()?;
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             // The transcript's folder, watched for a change to the file (the file itself may be
             // replaced or appear later): each change reads what the app appended. No change, no
-            // wake (D6); it replaced a 400 ms poll of every watched chat.
+            // wake (D6); it replaced a 400 ms poll of every watched chat. It is made before the
+            // first read, so a change after that read wakes the next.
             let Some(watching) = session.meta().watching else { return };
-            let Some((_watch, mut changed)) = changes(&watching.file) else { return };
+            let mut changes = watch(&watching.file);
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -172,15 +185,18 @@ impl Hub {
                 if offset != watching.offset {
                     hub.show_watched(&session, &lines, offset);
                 }
-                if !more {
-                    tokio::select! {
-                        change = changed.recv() => if change.is_none() { return },
-                        // A take-over, a close or a purge: the loop's checks above end it.
-                        () = session.watch_end.notified() => {}
-                    }
+                if more {
+                    continue;
+                }
+                // No watch: what the transcript holds now is shown, and nothing follows it.
+                let Some((_watcher, changed)) = changes.as_mut() else { return };
+                tokio::select! {
+                    change = changed.recv() => if change.is_none() { return },
+                    // A take-over, a close or a purge: the loop's checks above end it.
+                    () = session.watch_end.notified() => {}
                 }
             }
-        });
+        }))
     }
 
     /// Appends what `lines` add as history and moves the read position to `offset`, unless the
@@ -398,6 +414,58 @@ mod tests {
         assert!(lines.is_empty());
         std::fs::OpenOptions::new().append(true).open(&file).unwrap().write_all(b"{}\n").unwrap();
         assert_eq!(read_lines(&file, offset).unwrap().0, ["{}"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A watcher can fail to start (Linux allows 128 inotify instances per user by default, one
+    /// per watched chat): the chat still shows what its transcript holds.
+    #[tokio::test]
+    async fn a_watch_whose_folder_watcher_fails_still_shows_the_transcript() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-watch-nowatcher-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("rollout.jsonl");
+        let event = |kind: &str, message: &str| json!({"timestamp": "2026-10-18T09:00:00.000Z", "type": "event_msg", "payload": {"type": kind, "message": message}});
+        let records = [
+            json!({"type": "session_meta", "payload": {"id": "a", "cwd": "/"}}),
+            event("user_message", "first prompt"),
+            event("agent_message", "first answer"),
+            json!({"type": "event_msg", "payload": {"type": "task_complete"}}),
+        ];
+        let text: String = records.iter().map(|r| format!("{r}\n")).collect();
+        std::fs::write(&file, text).unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let mut meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s-watch", "name": "watch",
+            "harness": "codex", "cwd": "/", "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        meta.watching = Some(Watching {
+            family: "codex".into(),
+            file: file.clone(),
+            offset: 0,
+            codex_items: false,
+            open: None,
+        });
+        let session = hub.make_session(meta);
+        let follow = hub.follow_watch(&session, |_| None).expect("a watched session is followed");
+        follow.await.unwrap();
+        let prompts: Vec<String> = hub
+            .events(&session.id, 0, 100)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.kind == "user_message")
+            .filter_map(|e| e.msg["text"].as_str().map(str::to_owned))
+            .collect();
+        assert_eq!(prompts, ["first prompt"]);
+        let len = std::fs::metadata(&file).unwrap().len();
+        assert_eq!(session.meta().watching.map(|w| w.offset), Some(len));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

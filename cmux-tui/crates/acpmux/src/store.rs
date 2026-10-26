@@ -608,46 +608,81 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
 
 // ---------------------------------------------------------------- memory
 
+/// A session's record and its log. The record is written on the record writer's thread
+/// (`hub/meta_writer.rs`), so a session's first records can be logged before its first save
+/// lands: the log is kept either way, as a file store's is.
+#[derive(Default)]
+struct MemorySession {
+    meta: Option<SessionMeta>,
+    events: Vec<EventRecord>,
+}
+
 #[derive(Default)]
 pub struct MemoryStore {
-    inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
+    inner: Mutex<HashMap<String, MemorySession>>,
 }
 
 impl Store for MemoryStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
+        Ok(self.inner.lock_or_recover().values().filter_map(|s| s.meta.clone()).collect())
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
+        Ok(self.inner.lock_or_recover().get(id).and_then(|s| s.meta.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        let mut g = self.inner.lock_or_recover();
-        g.entry(meta.id.clone())
-            .and_modify(|(m, _)| *m = meta.clone())
-            .or_insert_with(|| (meta.clone(), Vec::new()));
+        self.inner.lock_or_recover().entry(meta.id.clone()).or_default().meta = Some(meta.clone());
         Ok(())
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut g = self.inner.lock_or_recover();
-        if let Some((_, events)) = g.get_mut(id) {
-            events.push(record.clone());
-            // Bound memory: keep the newest 20k events.
-            if events.len() > 20_000 {
-                let drop = events.len() - 20_000;
-                events.drain(..drop);
-            }
+        let events = &mut g.entry(id.to_owned()).or_default().events;
+        events.push(record.clone());
+        // Bound memory: keep the newest 20k events.
+        if events.len() > 20_000 {
+            let drop = events.len() - 20_000;
+            events.drain(..drop);
         }
         Ok(())
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         let g = self.inner.lock_or_recover();
         Ok(g.get(id)
-            .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
+            .map(|s| s.events.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
             .unwrap_or_default())
     }
     fn delete(&self, id: &str) -> Result<()> {
         self.inner.lock_or_recover().remove(id);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn a_memory_log_keeps_records_appended_before_the_first_save() {
+        let store = MemoryStore::default();
+        let record = |seq| EventRecord {
+            seq,
+            at: 0,
+            dir: "mux".into(),
+            kind: "created".into(),
+            msg: Value::Null,
+            host_seq: None,
+        };
+        store.append("s1", &record(1)).unwrap();
+        assert!(store.list().unwrap().is_empty(), "a log alone is not a session record");
+        let meta: SessionMeta = serde_json::from_value(serde_json::json!({
+            "schema": META_SCHEMA, "id": "s1", "name": "n", "harness": "fake",
+            "cwd": "/", "status": "idle", "createdAt": 0, "updatedAt": 0,
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+        store.append("s1", &record(2)).unwrap();
+        let seqs: Vec<u64> = store.events("s1", 0, 10).unwrap().iter().map(|e| e.seq).collect();
+        assert_eq!(seqs, [1, 2]);
+        assert_eq!(store.load("s1").unwrap().map(|m| m.id), Some("s1".to_owned()));
     }
 }
 
