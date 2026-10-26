@@ -132,6 +132,33 @@ no frame of that session reaches the presenter" hold, as Chrome's `RenderWidgetH
 (content/browser/renderer_host/render_widget_host_impl.cc) stops a hidden widget's frames before it returns;
 an atomic flag alone would let a frame that passed the check before the close be presented after it.
 
+## Process roles (p02-threads-234)
+
+Every cmux process, its launchd `ProcessType` and whether a person's input passes through it. Rule: no
+process on the input path runs as `Background`. launchd.plist(5): `Background` puts the job under darwinbg
+(low CPU priority, throttled I/O and network); `Standard` keeps launchd's daemon limits; `Interactive` gets an
+app's limits (none); `Adaptive` is `Background` except while an XPC message is in flight. cmux processes talk
+over Unix sockets and QUIC, not XPC, so `Adaptive` would leave them at `Background`: a launchd job on the
+input path is `Interactive`. This is Chrome's model: a process the person uses is never lowered, only a hidden
+renderer drops below the browser (base/process/process_mac.cc `Process::SetPriority`, from
+content/browser/renderer_host/render_process_host_impl.cc `UpdateProcessPriority`). The Rust table is
+`cmux_server_core::units::LaunchdJob`; each plist generator reads it and has a test that asserts its value.
+
+| Process | Started by | launchd ProcessType | Input path |
+|---|---|---|---|
+| App (`cmux.app`, CmuxNext) | Launch Services | none (an app; the system's app policy) | yes: every key and click |
+| Daemon `cmux host run`: `com.cmux.server` agent and daemon (cmux-server-core `launch_agent_plist`, `launch_daemon_plist`), the app's `<bundle id>.server` (`app_service_agent_plist`, stamped by scripts/cmux-next/bundle-server-helper.sh, registered by ServerLaunchAgent.swift) | launchd | `Interactive` (was `Standard`) | yes: every terminal key and frame |
+| Link `cmux link serve` (`com.cmuxterm.link`, cmux-tui link/launchd.rs) | launchd | `Interactive` (was `Background`) | yes: a paired peer's session streams |
+| Remote host `cmux host serve` (`com.cmuxterm.host-remote`, cmux-tui remote_host/service.rs) | launchd | `Interactive` (was `Background`) | yes: a remote client's keys |
+| Holder (`cmux-holder`) | the daemon | none: runs in the daemon's launchd job | yes: PTY bytes |
+| acpmux (`cmux acp`) | the daemon or an agent CLI | none: runs in its parent's job | agent sessions a person watches |
+| Chromium helpers and the out-of-process browser host | the app | none: run in the app's job | yes: page input |
+| Other helpers (`cmux-server-helper`, CLI calls) | the app or a shell | none: run in the parent's job | short-lived |
+
+A process with no launchd job of its own runs in its parent's. Mach task roles (`TASK_CATEGORY_POLICY`,
+foreground or background per process) are task 235. On Linux the systemd units set no CPU or I/O class, so
+every process runs at the default priority.
+
 ## Renderer QoS (rendering-DESIGN R5)
 
 Threads that produce frames, by state. Chrome sets the QoS of a thread from its thread type

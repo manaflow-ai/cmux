@@ -138,11 +138,12 @@ stamp_agent() {
   plutil -insert KeepAlive -dictionary "$plist.tmp"
   plutil -insert KeepAlive.SuccessfulExit -bool NO "$plist.tmp"
   plutil -insert ThrottleInterval -integer 10 "$plist.tmp"
-  # Standard, not Background: the job hosts the user's terminals and app
-  # servers, which must not run under background CPU and I/O limits. Same as
-  # cmux-server-core's app_service_agent_plist, which writes this plist byte for
+  # Interactive: every terminal key and frame passes through the job, so it
+  # runs with an app's limits (process roles in plans/cmux-next/threading-model.md,
+  # cmux-server-core LaunchdJob::Server). Same as cmux-server-core's
+  # app_service_agent_plist, which writes this plist byte for
   # byte (golden: cmux-tui/crates/cmux-server-core/tests/fixtures/app-service-agent.plist).
-  plutil -insert ProcessType -string Standard "$plist.tmp"
+  plutil -insert ProcessType -string Interactive "$plist.tmp"
   plist_commit "$plist"
   echo "bundle-server-helper: $label"
 }

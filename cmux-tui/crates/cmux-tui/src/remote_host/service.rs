@@ -15,7 +15,10 @@ use anyhow::anyhow;
 use anyhow::{Context as _, bail};
 use cmux_process::{Command, Stdio};
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+use cmux_server_core::units::LaunchdJob;
+
+#[cfg(any(target_os = "macos", test))]
 const LAUNCHD_LABEL: &str = "com.cmuxterm.host-remote";
 #[cfg(target_os = "linux")]
 const SYSTEMD_UNIT: &str = "cmux-host-remote.service";
@@ -302,6 +305,38 @@ fn run_quiet(program: &str, args: &[&str]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The launchd agent plist that runs `exe host serve --dir dir`, logging to
+/// `log`. Built outside `imp` so its tests run on every platform.
+#[cfg(any(target_os = "macos", test))]
+fn launchd_plist(exe: &Path, dir: &Path, log: &Path) -> String {
+    let escape = |path: &Path| {
+        path.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>{LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array><string>{}</string><string>host</string><string>serve</string><string>--dir</string><string>{}</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>ProcessType</key><string>{}</string>
+  <key>StandardOutPath</key><string>{}</string>
+  <key>StandardErrorPath</key><string>{}</string>
+</dict>
+</plist>
+"#,
+        escape(exe),
+        escape(dir),
+        LaunchdJob::RemoteHost.process_type(),
+        escape(log),
+        escape(log),
+    )
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use super::*;
@@ -312,39 +347,13 @@ mod imp {
         Ok(home.join("Library").join("LaunchAgents").join(format!("{LAUNCHD_LABEL}.plist")))
     }
 
-    fn escape(path: &Path) -> String {
-        path.display().to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-    }
-
     fn domain() -> String {
         format!("gui/{}", cmux_tui_core::platform::effective_uid())
     }
 
     pub(super) fn write(exe: &Path, dir: &Path) -> anyhow::Result<String> {
         let path = plist_path()?;
-        let log = log_path()?;
-        let plist = format!(
-            r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{LAUNCHD_LABEL}</string>
-  <key>ProgramArguments</key>
-  <array><string>{}</string><string>host</string><string>serve</string><string>--dir</string><string>{}</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
-  <key>ThrottleInterval</key><integer>10</integer>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>{}</string>
-  <key>StandardErrorPath</key><string>{}</string>
-</dict>
-</plist>
-"#,
-            escape(exe),
-            escape(dir),
-            escape(&log),
-            escape(&log),
-        );
+        let plist = launchd_plist(exe, dir, &log_path()?);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -508,5 +517,33 @@ mod imp {
 
     pub(super) fn installed() -> Option<String> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_launchd_agent_runs_at_the_process_roles_table_value_never_background() {
+        let plist = launchd_plist(
+            Path::new("/Applications/cmux.app/Contents/Resources/bin/cmux"),
+            Path::new("/Users/ana/.cmux/host"),
+            Path::new("/Users/ana/.cmux/host-serve.log"),
+        );
+        let process_type = format!(
+            "<key>ProcessType</key><string>{}</string>",
+            LaunchdJob::RemoteHost.process_type()
+        );
+        assert!(plist.contains(&process_type), "{plist}");
+        assert!(plist.contains("<key>ProcessType</key><string>Interactive</string>"), "{plist}");
+        assert!(plist.contains("<string>host</string><string>serve</string>"), "{plist}");
+    }
+
+    #[test]
+    fn the_launchd_agent_escapes_paths() {
+        let plist = launchd_plist(Path::new("/a&b/cmux"), Path::new("/d<i>r"), Path::new("/l.log"));
+        assert!(plist.contains("<string>/a&amp;b/cmux</string>"), "{plist}");
+        assert!(plist.contains("<string>/d&lt;i&gt;r</string>"), "{plist}");
     }
 }

@@ -17,7 +17,9 @@ mod sync_cli;
 #[cfg_attr(not(test), allow(dead_code))]
 mod host_inbound;
 mod inbound;
-#[cfg(target_os = "macos")]
+// Tests build it everywhere so the plist checks run on Linux CI too.
+#[cfg(any(target_os = "macos", test))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
