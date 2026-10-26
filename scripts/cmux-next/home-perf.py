@@ -20,7 +20,8 @@ Usage: home-perf.py --tag <tag> --out results.json [--messages 300]
        home-perf.py --app BUNDLE --out DIR [--messages 300]     (the lab story; DIR/home-perf-<tag>.json)
 
 --out is the report file when it ends in .json, else the folder that gets home-perf-<tag>.json; result-v1 goes
-into the report's folder.
+into the report's folder. A run that writes no result-v1 series (no build sha, no features snapshot) still writes
+its report, then exits non-zero, so the lab sees a failed story and not an empty one.
 """
 import argparse, json, os, re, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
@@ -149,3 +150,5 @@ finally:
     with open(out_path, "w") as handle:
         json.dump(results, handle, indent=1)
     print("wrote", out_path, flush=True)
+if not report.any_written(results.get("result_v1")):
+    sys.exit("RESULT-V1 FAIL: no series written")

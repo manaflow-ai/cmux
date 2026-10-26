@@ -30,7 +30,8 @@ export type AcpmuxDebug = {
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
   agentLatency(): Record<string, unknown>;
-  typingStats(): Record<string, unknown>;
+  /** The composer keys' latency; `raw` adds every key's times (perf.ts typingSummary). */
+  typingStats(options?: { raw?: boolean }): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
   openMenu(label: string): Promise<Record<string, unknown>>;
@@ -206,9 +207,9 @@ export function createAcpmuxDebug(
       return acpmuxPerf.agentLatency();
     },
 
-    typingStats() {
+    typingStats(options = {}) {
       acpmuxPerf.enable();
-      return typingSummary(acpmuxPerf.typing);
+      return typingSummary(acpmuxPerf.typing, options.raw === true);
     },
 
     resetTyping() {

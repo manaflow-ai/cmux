@@ -30,7 +30,9 @@ With --app the daemon is the bundle's own acpmux (Contents/Resources/bin/acpmux,
 another), and --out writes every run's raw samples as cmux-perf-result/v1 (story acpmux-overhead, engine
 none: no app runs; the bundle names the build). Per harness and side: each time, the model requests and
 the request bytes; `overhead.<time>` is acpmux minus raw of the same run; each per-run series has a
-`.missed_runs` count and each side an `errors` count.
+`.missed_runs` count and each side an `errors` count. With --out, the build and host are read before any
+harness runs (exit 2 when result-v1 cannot name them), and a run that writes no result-v1 exits non-zero after
+its --json and --md reports.
 """
 
 from __future__ import annotations
@@ -469,16 +471,30 @@ def measured_build(app, stated):
     return build, report.perf_result.Host.from_dict(bench_launch.read_host())
 
 
-def record(args, paired, measure=measured_build):
+def measure_first(args, measure=measured_build):
+    """(build, host) of --app before any harness runs, so a bundle or host result-v1 cannot name fails the bench in
+    seconds (exit 2), not after the whole run with its samples lost."""
+    try:
+        return measure(args.app, args.build_config)
+    except (bench_launch.RecordError, report.perf_result.ResultError) as error:
+        reason = error
+    except SystemExit as error:  # bench_launch.main_binary: the bundle has no executable
+        reason = error.code
+    print(f"acpmux-overhead-bench: --out cannot record result-v1: {reason}", file=sys.stderr)
+    sys.exit(2)
+
+
+def record(args, paired, measured):
     """Every harness's series into one result-v1 file in --out; returns its path, or why nothing was written.
-    `paired`: {harness: (its measured runs as {raw, acpmux} pairs, its failed runs per side)}."""
+    `paired`: {harness: (its measured runs as {raw, acpmux} pairs, its failed runs per side)}; `measured`: the
+    (build, host) of measure_first."""
     entries = []
     for h, (pairs, error_counts) in paired.items():
         entries += report.acpmux_series(h, pairs, error_counts)
     try:
-        build, host = measure(args.app, args.build_config)
+        build, host = measured
         return str(report.write_all(args.out, entries, build, host, session=args.session, root=bench_launch.ROOT))
-    except (bench_launch.RecordError, report.perf_result.ResultError) as error:
+    except report.perf_result.ResultError as error:
         print(f"result-v1: not recorded: {error}", file=sys.stderr)
         return f"not recorded: {error}"
 
@@ -571,6 +587,7 @@ def side_summaries(rows):
 
 def main(argv=None):
     args = parse_args(argv)
+    measured = measure_first(args) if args.out else None
 
     stand = StandIn()
     threading.Thread(target=stand.serve_forever, daemon=True).start()
@@ -629,7 +646,7 @@ def main(argv=None):
     results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n,
                         "host": socket.gethostname(), "load": os.getloadavg()}
     if args.out:
-        results["_meta"]["result_v1"] = record(args, paired)
+        results["_meta"]["result_v1"] = record(args, paired, measured)
     if args.json:
         with open(args.json, "w") as f:
             json.dump(results, f, indent=1)
@@ -650,6 +667,8 @@ def main(argv=None):
         with open(args.md, "a") as f:
             f.write(text + "\n")
     shutil.rmtree(scratch, ignore_errors=True)
+    if args.out and not report.any_written({"result_v1": results["_meta"]["result_v1"]}):
+        sys.exit(f"RESULT-V1 FAIL: {results['_meta']['result_v1']}")
 
 
 if __name__ == "__main__":

@@ -19,9 +19,9 @@ teardown at the end). Runs on a fleet mini, never a laptop:
 
 With --story (one mode only; agent-engine is chromium, agent-engine-webkit is webkit) the run also writes
 cmux-perf-result/v1 into --out through BenchApp.record (agent_bench_report.py): each chat's content and
-interactive ms, the session's composer, every fling frame and each fling's dropped frames, the footprint at
-each stage, and the chats that showed in another engine. The composer typing numbers stay in the report only:
-the page's typingStats gives no raw samples.
+interactive ms, the session's composer, each composer key's time to the next frame and to its paint (the page's
+`typing_stats raw`), every fling frame and each fling's dropped frames, the footprint at each stage, and the chats
+that showed in another engine (their samples never enter the story's series).
 """
 import argparse, json, os, subprocess, sys, tempfile, time
 
@@ -133,15 +133,21 @@ def typing():
         time.sleep(0.08)  # test harness: about a fast typist's pace
     time.sleep(0.5)  # test harness: the last key's frame lands
     errors = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")]
+    stats = pane("typing_stats", raw=True)
+    # Every key's times go to result-v1 as two flat lists; the report keeps the page's summary keys.
+    samples = {f"{key}_samples_ms": bench_report.frame_samples(stats, f"{key}_ms") for key in ("to_frame", "to_paint")}
+    stats.pop("samples", None)
     return {"composer_focused": focused, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
-            "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
+            "composer_text_length": pane("readiness").get("composer_text_length"), **stats, **samples}
 
 
 def fling():
     """One 3 s fling over the seeded transcript (the page's flingStats), with each of its frame intervals
-    (`frames_ms`, from the page's per-frame samples, which the fling reset at its start)."""
+    (`frames_ms`, from the page's per-frame samples, which the fling reset at its start; none when the fling
+    failed or the read is not this fling's: bench_report.run_frames)."""
     stats = pane("fling", seconds=3, wait=True, timeout=60)
-    stats["frames_ms"] = bench_report.frame_samples(pane("perf_stats", raw=True, timeout=30))
+    frames = pane("perf_stats", raw=True, timeout=30) if "error" not in stats else {}
+    stats["frames_ms"] = bench_report.frame_samples(bench_report.run_frames(stats, frames))
     return stats
 
 
@@ -224,7 +230,7 @@ def record(mode, result):
         return {}
     entries = bench_report.agent_engine_series(mode, result, opts.chats, story=opts.story)
     written = bench_report.record_all(bench, entries, engine=mode, session=opts.session)
-    if not any(not path.startswith("not recorded") for path in written.values()):
+    if not bench_report.any_written(written):
         print(f"RESULT-V1 FAIL {mode}: no series written", flush=True)
     return written
 
@@ -270,7 +276,7 @@ def run_mode(mode):
 
 def recorded(result):
     """Without --story, True; with it, whether the mode wrote at least one series."""
-    return not opts.story or any(not path.startswith("not recorded") for path in result.get("result_v1", {}).values())
+    return not opts.story or bench_report.any_written(result.get("result_v1"))
 
 
 def main():

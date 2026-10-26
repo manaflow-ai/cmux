@@ -142,20 +142,51 @@ class AcpmuxTests(StoryMatch):
         args = acpmux_bench.parse_args(["--app", "/nonexistent/cmux DEV t.app", "--out", out])
         self.assertTrue(args.acpmux.endswith("cmux DEV t.app/Contents/Resources/bin/acpmux"))
         paired = {"codex": ([{"raw": self.run_rows(5), "acpmux": self.run_rows(6)}], {"raw": 0, "acpmux": 0})}
-        path = acpmux_bench.record(args, paired, measure=lambda app, stated: (BUILD, HOST))
+        path = acpmux_bench.record(args, paired, (BUILD, HOST))
         results = pr.read_dir(out)
         self.assertEqual(str(Path(path).parent), out)
         self.assertEqual({r.engine for r in results}, {"none"})
         self.assertEqual({r.build.sha for r in results}, {SHA})
         self.assertIn("acpmux_overhead.codex.overhead.ready", {r.metric for r in results})
 
-    def test_record_says_why_when_the_build_has_no_name(self):
+    def test_record_says_why_when_nothing_can_be_written(self):
+        args = acpmux_bench.parse_args(["--app", "/nonexistent/x.app", "--out", tempfile.mkdtemp()])
+        with redirect_stderr(io.StringIO()):
+            self.assertTrue(acpmux_bench.record(args, {}, (BUILD, HOST)).startswith("not recorded: "))
+
+    def test_an_unnamed_build_or_host_fails_before_any_harness_runs(self):
         args = acpmux_bench.parse_args(["--app", "/nonexistent/x.app", "--out", tempfile.mkdtemp()])
 
         def unnamed(app, stated):
             raise bench_launch.RecordError("no build sha")
-        with redirect_stderr(io.StringIO()):
-            self.assertEqual(acpmux_bench.record(args, {}, measure=unnamed), "not recorded: no build sha")
+
+        def no_executable(app, stated):
+            raise SystemExit("bench-launch: no executable in x.app/Contents/MacOS")
+        for measure in (unnamed, no_executable):
+            with redirect_stderr(io.StringIO()) as err, self.assertRaises(SystemExit) as done:
+                acpmux_bench.measure_first(args, measure)
+            self.assertEqual(done.exception.code, 2)
+            self.assertIn("cannot record result-v1", err.getvalue())
+        # main measures first: a bundle result-v1 cannot name never starts the daemon or a harness.
+        with unittest.mock.patch.object(acpmux_bench, "Daemon") as daemon, \
+                unittest.mock.patch.dict("os.environ", {"CMUX_CI_SHA": ""}), \
+                redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as done:
+            acpmux_bench.main(["--app", "/nonexistent/x.app", "--out", tempfile.mkdtemp()])
+        self.assertEqual(done.exception.code, 2)
+        daemon.assert_not_called()
+
+    def test_a_run_that_records_nothing_exits_non_zero_after_its_reports(self):
+        out = tempfile.mkdtemp(prefix="acpmux-fail-")
+        report_path = str(Path(out) / "report.json")
+        with unittest.mock.patch.object(acpmux_bench, "Daemon"), \
+                unittest.mock.patch.object(acpmux_bench, "measure_first", return_value=(BUILD, HOST)), \
+                unittest.mock.patch.object(acpmux_bench, "record", return_value="not recorded: boom"), \
+                redirect_stderr(io.StringIO()), unittest.mock.patch("builtins.print"), \
+                self.assertRaises(SystemExit) as done:
+            acpmux_bench.main(["--app", "/nonexistent/x.app", "--out", out, "--harness", "claude", "-n", "0",
+                               "--warmup", "0", "--json", report_path])
+        self.assertNotIn(done.exception.code, (0, None))
+        self.assertEqual(json.loads(Path(report_path).read_text())["_meta"]["result_v1"], "not recorded: boom")
 
     def test_out_needs_the_bundle(self):
         with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -168,8 +199,9 @@ class AgentEngineTests(StoryMatch):
     def result(self):
         chat = {"content_ms": 120.0, "interactive_ms": 180.0, "engine": "cef"}
         return {"first_chat": chat, "more_chats": [dict(chat, content_ms=v) for v in VECTOR[:3]] + [
-                    {"content_ms": None, "interactive_ms": None, "engine": "webkit:agentChat"}, {"error": "boom"}],
+                    {"content_ms": 50.0, "interactive_ms": 70.0, "engine": "webkit:agentChat"}, {"error": "boom"}],
                 "session": {"composer_ms": 90.0},
+                "typing": {"to_frame_samples_ms": [4.1, 6.5], "to_paint_samples_ms": [9.9, 12.3]},
                 "flings": [{"dropped_frames": 2, "frames_ms": [8.3, 8.4]}, {"dropped_frames": 0, "frames_ms": [8.2]}],
                 "baseline": {"total_footprint_bytes": 100}, "one_chat": {"total_footprint_bytes": 150},
                 "chats_10": {"total_footprint_bytes": 400}}
@@ -185,15 +217,41 @@ class AgentEngineTests(StoryMatch):
         self.assertEqual(by["agent_engine.fling.frame_interval"], [8.3, 8.4, 8.2])
         self.assertEqual(by["agent_engine.fling.dropped_frames"], [2, 0])
         self.assertEqual(by["agent_engine.memory.chats_10.footprint"], [400])
+        self.assertEqual(by["agent_engine.typing.to_frame"], [4.1, 6.5])
+        self.assertEqual(by["agent_engine.typing.to_paint"], [9.9, 12.3])
         self.assertEqual(by["agent_engine.engine_fallback"], [1], "the WebKit chat of a Chromium run")
+        self.assertEqual(by["agent_engine.next_interactive"], [180.0] * 3, "its 70 ms is WebKit's, not Chromium's")
+
+    def test_a_chat_in_another_engine_never_enters_the_series(self):
+        by = {e.metric: e.samples for e in report.agent_engine_series("chromium", self.result(), 10)}
+        self.assertNotIn(50.0, by["agent_engine.next_content"])
+        self.assertEqual(by["agent_engine.next_content.missed_runs"], [2], "the WebKit chat and the failed one")
+
+    def test_a_first_chat_in_another_engine_records_no_session_work(self):
+        """The session, typing, flings and memory run in the first chat's page: a mode whose page showed in the other
+        engine measured that engine, so none of it is a sample of the story's."""
         webkit = {e.metric: e.samples for e in report.agent_engine_series("webkit", self.result(), 10)}
         self.assertEqual(webkit["agent_engine.engine_fallback"], [4])
+        self.assertEqual(webkit["agent_engine.next_content"], [50.0])
+        self.assertNotIn("agent_engine.first_content", webkit)
+        self.assertEqual(webkit["agent_engine.first_content.missed_runs"], [1])
+        self.assertEqual(webkit["agent_engine.session_composer.missed_runs"], [1])
+        self.assertEqual(webkit["agent_engine.fling.dropped_frames.missed_runs"], [2])
+        for gone in ("agent_engine.session_composer", "agent_engine.fling.frame_interval",
+                     "agent_engine.fling.dropped_frames", "agent_engine.typing.to_frame",
+                     "agent_engine.memory.baseline.footprint", "agent_engine.memory.chats_10.footprint"):
+            self.assertNotIn(gone, webkit)
+        unread = dict(self.result(), first_chat={"content_ms": 120.0, "interactive_ms": 180.0, "engine": None})
+        by = {e.metric: e.samples for e in report.agent_engine_series("chromium", unread, 10)}
+        self.assertNotIn("agent_engine.first_content", by, "an unread engine is not the story's")
+        self.assertNotIn("agent_engine.fling.frame_interval", by)
 
     def test_summary_keeps_its_keys(self):
         result = self.result()
         summary = report.agent_engine_summary_stats(result["first_chat"], result["more_chats"])
         self.assertEqual(summary, {"first_content_ms": 120.0, "first_interactive_ms": 180.0,
-                                   "next_content_ms_median": 4.0, "next_interactive_ms_median": 180.0})
+                                   "next_content_ms_median": 4.1, "next_interactive_ms_median": 180.0},
+                         "the report's medians cover every chat, as before; its engines_seen names the fallback")
 
     def test_frame_samples_and_engines(self):
         reply = {"samples": [{"interval_ms": 8.3, "layout_ms": 1.0}, {"interval_ms": None}, "x"], "frames": 2}
@@ -202,6 +260,19 @@ class AgentEngineTests(StoryMatch):
         self.assertEqual(report.frame_samples({"error": "no page"}), [])
         self.assertEqual([report.page_engine(n) for n in ("cef", "webkit:agentChat", "gone", None)],
                          ["chromium", "webkit", None, None])
+        typing = {"keys": 2, "samples": [{"to_frame_ms": 4.1, "to_paint_ms": 9.9}, {"to_frame_ms": 6.5}]}
+        self.assertEqual(report.frame_samples(typing, "to_paint_ms"), [9.9])
+
+    def test_run_frames_takes_only_the_frames_of_a_run_that_worked(self):
+        ring = {"frames": 3, "samples": [{"interval_ms": 8.3}, {"interval_ms": 8.4}, {"interval_ms": 8.2}]}
+        self.assertEqual(report.run_frames({"frames": 4, "p95_ms": 9.0}, ring), ring)
+        # A fling or stream that failed before it reset the ring: the ring still holds the last run's frames.
+        self.assertEqual(report.frame_samples(report.run_frames({"error": "no transcript"}, ring)), [])
+        # A socket timeout: the page still runs, so the ring is partial or another run's.
+        self.assertEqual(report.run_frames({"error": "timed out", "unreachable": True}, ring), {})
+        self.assertEqual(report.run_frames({"frames": 400}, ring), {}, "the reply counted other frames")
+        self.assertEqual(report.run_frames({"frames": 4}, {"error": "no page"}), {})
+        self.assertEqual(report.run_frames({"running": False, "frames": 0}, {"frames": 0, "samples": []}), {})
 
     def run_cli(self, *args):
         return subprocess.run([sys.executable, "-I", str(HERE / "agent-engine-bench.py"),
@@ -234,8 +305,16 @@ class AgentStreamTests(StoryMatch):
         self.assertEqual(by["agent_stream.dropped_frames"], [1])
         self.assertEqual(by["agent_stream.dropped_frames.missed_runs"], [1])
         self.assertEqual(by["agent_stream.engine_fallback"], [0])
-        webkit = {e.metric: e.samples for e in report.stream_series("webkit", self.runs(), "cef")}
-        self.assertEqual(webkit["agent_stream.engine_fallback"], [1])
+
+    def test_a_tab_in_another_or_an_unread_engine_records_no_frame(self):
+        """A WebKit tab of a chromium story (CEF missing), or an engine read that failed: its frames are not the
+        story's engine's, so only engine_fallback and the missed runs record."""
+        for engine, shown in (("webkit", "cef"), ("chromium", "webkit:agentChat"), ("chromium", None)):
+            by = {e.metric: e.samples for e in report.stream_series(engine, self.runs(), shown)}
+            self.assertEqual(by["agent_stream.engine_fallback"], [1], (engine, shown))
+            for key in ("frame_interval", "layout", "react", "dropped_frames", "detached_frames", "growing_frames"):
+                self.assertNotIn(f"agent_stream.{key}", by, (engine, shown))
+            self.assertEqual(by["agent_stream.dropped_frames.missed_runs"], [2], (engine, shown))
 
     def test_table_keeps_its_columns_and_adds_p99(self):
         old = [("nominal_ms",), ("frames",), ("p95_ms",), ("max_ms",), ("dropped_frames",), ("detached_frames",),
@@ -283,6 +362,12 @@ class HomeTests(StoryMatch):
 
 
 class RecordTests(unittest.TestCase):
+    def test_any_written(self):
+        self.assertTrue(report.any_written({"a/m": "/out/m.ndjson", "a/n": "not recorded: no sha"}))
+        self.assertFalse(report.any_written({"a/m": "not recorded: no sha"}))
+        self.assertFalse(report.any_written({}))
+        self.assertFalse(report.any_written(None))
+
     def test_record_all_reports_each_series(self):
         class Bench:
             perf_session = None

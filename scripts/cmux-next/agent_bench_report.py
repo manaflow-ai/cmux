@@ -14,8 +14,9 @@ scripts/perf-lab/perf_stats.py (linear interpolation, Chromium's perf dashboard 
 A value measured once per run (a chat, a fling, a stream, a turn) has a `<metric>.missed_runs` count next to it (the
 runs that gave no value), so a failed run shows in the lab instead of leaving the percentiles of the runs that worked
 (as new_tab_bench_report.py). A per-frame series holds every frame of every run. A story names one engine
-(bench_story.py); a run whose page showed in another engine than its story's counts it in `engine_fallback`, and its
-samples stay in the story it was asked for (as cef-tab-bench's cases).
+(bench_story.py); a run whose page showed in another engine than its story's, or whose engine could not be read,
+counts in `engine_fallback` and its samples never enter the story's series: its once-per-run values count as missed
+runs (as new_tab_bench_report.case_value drops a fallback case).
 """
 import collections
 import math
@@ -97,10 +98,34 @@ def fallbacks(engine, shown):
     return sum(1 for name in shown if page_engine(name) != engine)
 
 
+def shown_in(engine, name):
+    """Whether the page showed in `engine`: a missing or unknown name is not, since its samples' engine is unknown."""
+    return page_engine(name) == engine
+
+
 def frame_samples(reply, key="interval_ms"):
-    """One field of each frame of a `debug.agent_pane perf_stats raw` answer (acpmuxPerf.stats(true).samples)."""
+    """One field of each sample of a `debug.agent_pane perf_stats raw` answer (acpmuxPerf.stats(true).samples) or
+    of a `typing_stats raw` one (typingSummary's per-key `samples`)."""
     rows = reply.get("samples") if isinstance(reply, dict) else None
     return numbers(row.get(key) for row in rows or [] if isinstance(row, dict))
+
+
+def run_frames(reply, frames):
+    """The per-frame samples of one fling or stream: `frames` (the `perf_stats raw` answer read after it) only when
+    the run's `reply` has no error and counted the frames the page's ring holds (the ring takes an interval from
+    the second frame on, so it holds `reply.frames - 1`). A run that failed before it reset the ring, or a read that
+    got another run's or a partial ring, gives {} (no frames), so no stale frame enters a series."""
+    if not isinstance(reply, dict) or "error" in reply or not isinstance(frames, dict) or "error" in frames:
+        return {}
+    count, rows = reply.get("frames"), frames.get("samples")
+    if not is_sample(count) or not isinstance(rows, list) or count - 1 != len(rows):
+        return {}
+    return frames
+
+
+def any_written(written):
+    """Whether a bench's {`story/metric`: path or `not recorded: ...`} holds at least one written file."""
+    return any(not str(path).startswith("not recorded") for path in (written or {}).values())
 
 
 # ---------- acpmux-overhead-bench.py ----------
@@ -143,22 +168,36 @@ def agent_engine_summary_stats(first, more):
 
 def agent_engine_series(engine, result, chats, story=None):
     """agent-engine-bench.py, one mode's `result`: the first chat and each next one (content and interactive ms), the
-    session's composer, every fling frame (the raw `frames_ms` the bench reads after each fling) and each fling's
-    dropped frames, the footprint at each stage, and the chats that showed in another engine. `story` defaults to
-    the engine's (AGENT_ENGINE_STORIES)."""
+    session's composer, each composer key's time to the next frame and to its paint (the raw typing samples), every
+    fling frame (the raw `frames_ms` the bench reads after each fling) and each fling's dropped frames, the footprint
+    at each stage, and the chats that showed in another engine. A chat that showed in another engine is a missed run;
+    the session, typing, flings and memory run in the first chat's page, so none of them records when it did not
+    show in `engine`. `story` defaults to the engine's (AGENT_ENGINE_STORIES)."""
     story = story or AGENT_ENGINE_STORIES[engine]
     first, more = result.get("first_chat") or {}, result.get("more_chats") or []
+
+    def value(chat, key):
+        return chat.get(key) if shown_in(engine, chat.get("engine")) else None
+
+    in_engine = shown_in(engine, first.get("engine"))
     out = []
     for key, metric in (("content_ms", "content"), ("interactive_ms", "interactive")):
-        out += per_run(story, f"agent_engine.first_{metric}", "ms", [first.get(key)])
-        out += per_run(story, f"agent_engine.next_{metric}", "ms", [c.get(key) for c in more])
-    out += per_run(story, "agent_engine.session_composer", "ms", [(result.get("session") or {}).get("composer_ms")])
+        out += per_run(story, f"agent_engine.first_{metric}", "ms", [value(first, key)])
+        out += per_run(story, f"agent_engine.next_{metric}", "ms", [value(c, key) for c in more])
+    composer = (result.get("session") or {}).get("composer_ms")
+    out += per_run(story, "agent_engine.session_composer", "ms", [composer if in_engine else None])
     flings = result.get("flings") or []
-    out += series(story, "agent_engine.fling.frame_interval", "ms", [v for f in flings for v in f.get("frames_ms") or []])
-    out += per_run(story, "agent_engine.fling.dropped_frames", "count", [f.get("dropped_frames") for f in flings])
-    for stage, key in (("baseline", "baseline"), ("one_chat", "one_chat"), (f"chats_{chats}", f"chats_{chats}")):
-        out += series(story, f"agent_engine.memory.{stage}.footprint", "bytes",
-                      [(result.get(key) or {}).get("total_footprint_bytes")])
+    out += per_run(story, "agent_engine.fling.dropped_frames", "count",
+                   [f.get("dropped_frames") if in_engine else None for f in flings])
+    if in_engine:
+        typing = result.get("typing") or {}
+        for key, metric in (("to_frame_samples_ms", "to_frame"), ("to_paint_samples_ms", "to_paint")):
+            out += series(story, f"agent_engine.typing.{metric}", "ms", typing.get(key) or [])
+        out += series(story, "agent_engine.fling.frame_interval", "ms",
+                      [v for f in flings for v in f.get("frames_ms") or []])
+        for stage in ("baseline", "one_chat", f"chats_{chats}"):
+            out += series(story, f"agent_engine.memory.{stage}.footprint", "bytes",
+                          [(result.get(stage) or {}).get("total_footprint_bytes")])
     shown = [c.get("engine") for c in [first] + list(more) if "error" not in c]
     if shown:
         out.append(Series(story, "agent_engine.engine_fallback", "count", [fallbacks(engine, shown)]))
@@ -192,16 +231,19 @@ def stream_series(engine, runs, shown=None, story=None):
     """agent-stream-e2e.py, the runs of one launch: per run its stream `reply` and the frames read after it
     (`interval_ms`, `layout_ms`, `react_ms`: frame_samples of the page's per-frame samples). Every frame's interval,
     layout and React time, and per run the dropped, detached-from-bottom and content-growing frames. `shown` is the
-    engine name the agent tab showed in (`debug.agent_pane engine`); `story` defaults to the engine's."""
+    engine name the agent tab showed in (`debug.agent_pane engine`; None when it could not be read). A tab that did
+    not show in `engine` records no frame and makes every run a missed one; `engine_fallback` says so. `story`
+    defaults to the engine's."""
     story = story or AGENT_STREAM_STORIES[engine]
-    replies = [r.get("reply") or {} for r in runs]
+    in_engine = shown_in(engine, shown)
+    replies = [(r.get("reply") or {}) if in_engine else {} for r in runs]
     out = []
-    for key, metric in (("interval_ms", "frame_interval"), ("layout_ms", "layout"), ("react_ms", "react")):
-        out += series(story, f"agent_stream.{metric}", "ms", [v for r in runs for v in r.get(key) or []])
+    if in_engine:
+        for key, metric in (("interval_ms", "frame_interval"), ("layout_ms", "layout"), ("react_ms", "react")):
+            out += series(story, f"agent_stream.{metric}", "ms", [v for r in runs for v in r.get(key) or []])
     for key in ("dropped_frames", "detached_frames", "growing_frames"):
         out += per_run(story, f"agent_stream.{key}", "count", [r.get(key) for r in replies])
-    if shown is not None:
-        out.append(Series(story, "agent_stream.engine_fallback", "count", [fallbacks(engine, [shown])]))
+    out.append(Series(story, "agent_stream.engine_fallback", "count", [fallbacks(engine, [shown])]))
     return out
 
 

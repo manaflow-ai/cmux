@@ -18,8 +18,8 @@ Usage: agent-stream-e2e.py --tag <tag> --variant before=/dir/with/index.html --v
 tunable on; webkit: the tunable off); without it the app's own settings decide. With --story (it needs --engine and
 the bundle's own page) the run also writes cmux-perf-result/v1 into --out through BenchApp.record: every frame's
 interval, layout and React ms (the page's per-frame samples, read after each run), per run the dropped, detached
-and growing frames, and whether the tab showed in another engine. A variant page is not the measured build's, so a
-variant run never records.
+and growing frames, and whether the tab showed in another engine (or one it could not read: then no frame records
+and every run counts as missed). A variant page is not the measured build's, so a variant run never records.
 """
 import argparse, glob, json, os, sys, tempfile, time
 
@@ -121,8 +121,12 @@ def run_variant(opts, app, name, directory, scratch):
                                               "chunk_chars": opts.chunk_chars, "chunk_ms": opts.chunk_ms},
                          timeout=opts.seconds + 120)
             print(f"{name} run {run + 1}: {json.dumps(result)}", flush=True)
-            # The stream reset the page's frame samples at its start, so these are this run's frames.
-            frames = rpc("debug.agent_pane", {"action": "perf_stats", "raw": True}, timeout=30)
+            # The stream reset the page's frame samples at its start, so a run that worked reads its own frames; a
+            # failed or timed-out one gets none (report.run_frames), never the last run's ring.
+            frames = {}
+            if "error" not in result:
+                frames = rpc("debug.agent_pane", {"action": "perf_stats", "raw": True}, timeout=30)
+            frames = report.run_frames(result, frames)
             runs.append({"reply": result, **{key: report.frame_samples(frames, key)
                                              for key in ("interval_ms", "layout_ms", "react_ms")}})
     finally:
@@ -157,7 +161,7 @@ def main(argv=None):
         print(f"{name:8} " + "  ".join(str(report.stream_median(results, *column)) for column in report.STREAM_COLUMNS))
     if opts.story:
         written = (recorded.get(BUNDLED) or {}).get("result_v1") or {}
-        if not any(not path.startswith("not recorded") for path in written.values()):
+        if not report.any_written(written):
             sys.exit("RESULT-V1 FAIL: no series written")
         print(f"result-v1: {len(written)} series under {opts.story}", flush=True)
 
