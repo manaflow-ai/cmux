@@ -812,3 +812,33 @@ async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The reviewer of cmux#(this PR), 2026-10-25: "creation-time argv can authorize a different
+/// harness after adoption/respawn". An adopt may find a session already running, created on
+/// another profile than the one it names now, so it never takes the Codex bridge's `read-only`
+/// without the person: a running bridge chat in `ask` that an agent adopts in `read-only` (which
+/// runs commands in its sandbox without asking) is refused and stays in `ask`.
+#[tokio::test]
+async fn an_adopt_never_moves_a_running_bridge_chat_to_read_only() {
+    let dir = home("narrow-adopt", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let start = |mode: &str, adopt: Option<Value>| {
+        let mut acpmux = json!({"harness": "codex", "mode": mode});
+        if let Some(adopt) = adopt {
+            acpmux["adopt"] = adopt;
+        }
+        json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": acpmux}})
+    };
+    let r = agent.call("session/new", start("ask", None)).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "ask");
+    let info = agent.call("_acpmux/info", json!({"sessionId": id})).await;
+    let conversation =
+        info["result"]["agentSessionId"].as_str().unwrap_or_else(|| panic!("{info}"));
+    let adopt = json!({"harness": "codex", "agentSessionId": conversation, "ifLive": "open"});
+    let r = agent.call("session/new", start("read-only", Some(adopt))).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    assert_eq!(agent.mode(&id).await, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+}
