@@ -215,7 +215,7 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(calls).toEqual(["open s-1"]);
 
   await openMenu();
-  expect(host.querySelector('.cv-received:has([aria-expanded="true"])')).not.toBeNull();
+  expect(host.querySelector('.cv-received:has([aria-haspopup][aria-expanded="true"])')).not.toBeNull();
   expect(items()).toEqual([
     t("composer.queueSteer"),
     t("composer.queueEditMessage"),
