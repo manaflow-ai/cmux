@@ -204,6 +204,31 @@ def safe_members(archive: tarfile.TarFile) -> list[tarfile.TarInfo]:
     return members
 
 
+def inside(root: str, path: str) -> bool:
+    return path == root or path.startswith(root + os.sep)
+
+
+def extract(source: tarfile.TarFile, members: list[tarfile.TarInfo], staging: Path) -> None:
+    """Every file and directory first, then the symlinks, so nothing is ever written through a
+    link (the names are checked case-sensitively, the volume may not be). Each write's directory,
+    and then each link, is resolved by the filesystem itself and must stay inside staging."""
+    root = os.path.realpath(staging)
+    links = [member for member in members if member.issym()]
+    for member in [member for member in members if not member.issym()]:
+        parent = os.path.realpath(os.path.join(root, os.path.dirname(member.name)))
+        if not inside(root, parent):
+            raise reuse.Miss(f"the archive member {member.name!r} would land outside it")
+        source.extract(member, root, set_attrs=member.isfile())  # noqa: S202 - checked above
+    for member in links:
+        parent = os.path.realpath(os.path.join(root, os.path.dirname(member.name)))
+        if not inside(root, parent):
+            raise reuse.Miss(f"the archive's symlink {member.name!r} would land outside it")
+        os.symlink(member.linkname, os.path.join(parent, os.path.basename(member.name)))
+    for member in links:
+        if not inside(root, os.path.realpath(os.path.join(root, member.name))):
+            raise reuse.Miss(f"the archive's symlink {member.name!r} points outside it")
+
+
 def unpack(archive: Path, products: Path) -> None:
     """Unpack verified bytes into an empty products directory, or raise Miss (leaving it empty)."""
     if products.exists() and any(products.iterdir()):
@@ -215,7 +240,7 @@ def unpack(archive: Path, products: Path) -> None:
     try:
         prescan(archive)
         with tarfile.open(archive, "r:gz") as source:
-            source.extractall(staging, members=safe_members(source))  # noqa: S202 - members checked
+            extract(source, safe_members(source), staging)
         app = staging / APP
         if app.is_symlink() or not app.is_dir() or (app / "Contents").is_symlink() \
                 or not (app / "Contents/Info.plist").is_file():

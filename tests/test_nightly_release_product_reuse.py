@@ -141,6 +141,9 @@ class Products(unittest.TestCase):
             "chain": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/b", "a/../../..", None)],
             "through a link": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/a/payload", None, None)],
             "loop": [("cmux.app/Contents/a", "b", None), ("cmux.app/Contents/b", "a", None)],
+            # On a case-insensitive volume A is a, so b leads three levels up and B/payload follows it.
+            "mixed case": [("cmux.app/Contents/a", ".", None), ("cmux.app/Contents/b", "A/../../..", None),
+                           ("cmux.app/Contents/B/payload", None, None)],
             "duplicate": [("cmux.app/Contents/x", None, None), ("cmux.app/Contents/x", None, None)],
             "huge pax header": [("cmux.app/Contents/y", None, {"comment": "z" * (nightly.MAX_EXTENSION_HEADER_BYTES + 1)})],
         }
