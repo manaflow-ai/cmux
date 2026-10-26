@@ -6,6 +6,9 @@
 //
 // - Several large screenshots pasted at once never block typing: their decode, scale and encode
 //   run in a worker (composer/imageWorker.ts), so the page's main thread never stalls on them.
+// - A host that never answers (`chat.attach.dropped`, `chat.upload.*`) never leaves a tile loading
+//   forever: an image becomes its chip once its preview is made, whatever its original's upload does.
+// - A loading tile spins and has a working ×; a tile that failed says why, and Retry tries again.
 // The page is the pane's dev entry with the in-page mock transport.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -120,8 +123,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
 
   /// Pastes the screenshots made by `makeScreenshots` into the prompt, as ⌘V does, and starts a
   /// heartbeat that records the main thread's longest stall from then on.
-  const pasteScreenshots = (page: Page) =>
-    page.evaluate(() => {
+  /// `paste` false only starts the heartbeat (a baseline with nothing pasted).
+  const pasteScreenshots = (page: Page, paste = true) =>
+    page.evaluate((paste) => {
       const state = window as unknown as { screenshots: File[]; stall: number; beat: number };
       state.stall = 0;
       let last = performance.now();
@@ -130,11 +134,12 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
         state.stall = Math.max(state.stall, now - last);
         last = now;
       }, 4);
+      if (!paste) return;
       const data = new DataTransfer();
       for (const file of state.screenshots) data.items.add(file);
       const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-    });
+    }, paste);
 
   const longestStall = (page: Page) =>
     page.evaluate(() => {
@@ -169,6 +174,62 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
+  test("a host that never answers never leaves a pasted screenshot loading", async () => {
+    const page = await newChat({ "chat.attach.dropped": "hang", "chat.upload.begin": "hang" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 2);
+    await pasteScreenshots(page);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-attachment-image img").length === 2,
+      undefined,
+      { timeout: 20_000 },
+    );
+    expect(await page.locator(".acpmux-attachment-pending").count()).toBe(0);
+    // The host was asked, and its silence held nothing up.
+    expect(await page.evaluate(() => (window as unknown as { calls: string[] }).calls)).toContain("chat.upload.begin");
+    await page.close();
+  });
+
+  test("a loading tile spins and its × takes it away for good", async () => {
+    const page = await newChat();
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 1);
+    await pasteScreenshots(page);
+    const loading = page.locator(".acpmux-attachment-pending");
+    await loading.waitFor();
+    expect(await loading.locator(".acpmux-attachment-spinner").count()).toBe(1);
+    await loading.locator(".acpmux-attachment-remove").click();
+    expect(await loading.count()).toBe(0);
+    // Its read ending later brings nothing back: nothing on the page says when a cancelled read
+    // ends, so the test gives it the time a read of this screenshot takes here.
+    // fixed-wait: a cancelled read has no observable end; the assertion is that nothing appears.
+    await page.waitForTimeout(3000);
+    expect(await page.locator(".acpmux-attachment").count()).toBe(0);
+    await page.close();
+  });
+
+  test("a file whose upload failed says why, and Retry attaches it", async () => {
+    const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const failed = page.locator(".acpmux-attachment-failed");
+    await failed.waitFor();
+    expect(await failed.textContent()).toContain("The disk is full.");
+    // The host takes it this time.
+    await page.evaluate(() => {
+      (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
+    });
+    await failed.locator(".acpmux-attachment-retry").click();
+    await page.locator(".acpmux-attachment-link").waitFor();
+    expect(await failed.count()).toBe(0);
+    await page.close();
+  });
+
   // Leo, 2026-10-24: "a 5.2mb heif image froze the composer and i had to relaunch". An iPhone photo
   // is converted to JPEG or PNG in the worker, never on the page. (Chromium has no HEIF decoder, so
   // here it goes as a file; the app's WebKit decodes it in the worker.)
@@ -183,15 +244,39 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
         new File([bytes], "IMG_0412.HEIC", { type: "image/heic" }),
       ];
     });
+    // The page's own stalls while typing with nothing attached (a loaded host adds its own), then
+    // with the photo: the photo adds less than 50 ms to the longest one.
+    await pasteScreenshots(page, false);
+    await page.keyboard.type(" idle", { delay: 20 });
+    const idle = await longestStall(page);
+    for (let at = 0; at < 5; at += 1) await page.keyboard.press("Backspace");
     await pasteScreenshots(page);
     // Its tile is there at once.
     expect(await page.locator(".acpmux-attachment").count()).toBe(1);
     await page.keyboard.type(" a photo from my phone", { delay: 20 });
     await page.waitForFunction(() => !document.querySelector(".acpmux-attachment-pending"));
     const stall = await longestStall(page);
-    console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms`);
+    console.log(`a 5.2 MB HEIF: longest main-thread stall ${stall.toFixed(0)} ms (${idle.toFixed(0)} ms idle)`);
     expect(await promptText(page)).toBe(" a photo from my phone");
-    expect(stall).toBeLessThan(50);
+    expect(stall).toBeLessThan(Math.max(50, idle + 50));
+    await page.close();
+  });
+
+  // Review (Codex): an image is a chip before the strip draws it; its original's upload must not
+  // read "not in the strip" as removed. In a chat with no local path, the original streams to the
+  // session's machine and the chip gets its path; removing the chip later stops it.
+  test("a pasted screenshot's original uploads, and its chip's x stops the upload", async () => {
+    const page = await newChat({ "chat.upload.begin": "ok", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 1);
+    await pasteScreenshots(page);
+    await page.locator(".acpmux-attachment-image img").waitFor();
+    // Its original went up, chunk by chunk, to the end.
+    await page.waitForFunction(() => (window as unknown as { calls: string[] }).calls.includes("chat.upload.finish"));
+    const chunks = await page.evaluate(
+      () => (window as unknown as { calls: string[] }).calls.filter((call) => call === "chat.upload.chunk").length,
+    );
+    expect(chunks).toBeGreaterThan(1);
     await page.close();
   });
 });

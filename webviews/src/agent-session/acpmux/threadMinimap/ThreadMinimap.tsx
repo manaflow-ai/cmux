@@ -19,6 +19,7 @@ import { PreviewCard } from "./PreviewCard";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
 import { LIT_OPACITY, threadMinimapLit } from "./lit.experiment";
+import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { experimentArm } from "../../../experiments/experiment";
 import {
   CARD_DELAY,
@@ -123,6 +124,8 @@ export function ThreadMinimap({
   const [arm] = useState(() => experimentArm(threadMinimapLayout));
   /// How bright the prompts on screen draw (lit.experiment.ts), read once per pane.
   const [lit] = useState(() => LIT_OPACITY[experimentArm(threadMinimapLit)]);
+  /// How bright a bookmarked prompt draws at rest (mark.experiment.ts), read once per pane.
+  const [mark] = useState(() => MARK_OPACITY[experimentArm(threadMinimapMark)]);
   const full = arm === "full";
   const marks = usePromptMarks(sessionId);
   /// The turns of the last commit: the next render reads from them and leaves them as they are, so
@@ -150,7 +153,8 @@ export function ThreadMinimap({
   const dismiss = preview.dismiss;
   const [scrubbing, setScrubbing] = useState(false);
   const [, setBandMoves] = useState(0);
-  const [reduce, setReduce] = useState(false);
+  // Read at mount too, so the ticks' entrance (threadMinimap.css) does not run under the app's gate.
+  const [reduce, setReduce] = useState(reducedMotion);
   const [listTop, setListTop] = useState(0);
   const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
@@ -268,7 +272,8 @@ export function ThreadMinimap({
   }, [scroller, sessionId]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
+  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
@@ -280,12 +285,16 @@ export function ThreadMinimap({
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
     // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
-    // corrected from the bubble itself, frame by frame, until it holds.
+    // corrected from the prompt's row itself, frame by frame, until it holds. The row's top, not the
+    // bubble's: a prompt's sent images draw above its bubble, and a settle on the bubble slid the
+    // landing down past them (Leo, 2026-10-25: "it jumps all the way up to the attachment area ...
+    // Then it just sends me back down to the, like, only the text area"). The row's top does not
+    // move when its images load and it grows; that growth goes below it.
     const settle = () =>
       settleScroll(
         node,
         () => {
-          const box = bubbleOf(mountedRow(node, turn.id))?.getBoundingClientRect();
+          const box = mountedRow(node, turn.id)?.getBoundingClientRect();
           // Not drawn yet, or no layout to measure (a hidden pane).
           if (!box || box.height === 0) return undefined;
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
@@ -607,6 +616,8 @@ export function ThreadMinimap({
             width: minimal ? placement.restWidth : ROW_WIDTH,
             height,
             "--acpmux-minimap-lit": lit,
+            "--acpmux-minimap-mark": mark.bar,
+            "--acpmux-minimap-mark-dot": mark.dot,
           } as React.CSSProperties
         }
         data-narrow={placement.narrow || undefined}
@@ -634,7 +645,14 @@ export function ThreadMinimap({
           // The edge fades: 2.5rem, a quarter of a short rail, and never over the band (railFades).
           data-fade-top={fades.top || undefined}
           data-fade-bottom={(overflow && fades.bottom) || undefined}
-          style={{ "--acpmux-minimap-fade": `${railFade(height)}px` } as React.CSSProperties}
+          style={
+            {
+              "--acpmux-minimap-fade": `${railFade(height)}px`,
+              // The ticks' entrance staggers down the rows in the rail's room (threadMinimap.css).
+              "--acpmux-minimap-first": Math.floor(listTop / ROW_PITCH),
+              "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
+            } as React.CSSProperties
+          }
           onScroll={(event) => {
             setListTop(event.currentTarget.scrollTop);
             followPointer(event.currentTarget);
@@ -832,6 +850,7 @@ const Tick = memo(function Tick({
       className="acpmux-minimap__tick"
       data-tone={active ? "active" : current ? "current" : "rest"}
       data-bookmarked={marked || undefined}
+      style={{ "--acpmux-minimap-row": index } as React.CSSProperties}
       aria-label={label}
       aria-current={current ? "true" : undefined}
       aria-describedby={describedBy}

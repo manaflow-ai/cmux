@@ -112,7 +112,8 @@
   background: none;
 }
 .acpmux-effort-track {
-  --acpmux-effort-inset: calc(13px * var(--cmux-interface-scale, 1));
+  /* The thumb's center is the stop: the first and last centers sit on the physical track ends. */
+  --acpmux-effort-inset: 0px;
   position: relative;
   height: calc(23.5px * var(--cmux-interface-scale, 1));
   margin-top: calc(12px * var(--cmux-interface-scale, 1));

@@ -57,7 +57,8 @@ export const RAIL_MAX_SHARE = 0.7;
 const PROGRESS = [1, 0.7, 0.4, 0.2] as const;
 /// Space kept free above and below the card inside the transcript's viewport.
 export const EDGE_MARGIN = 8;
-/// A jump lands the prompt's bubble this far below the top of the transcript's viewport.
+/// A jump lands the top of the prompt's row (its sent images, else its bubble) this far below the
+/// top of the transcript's viewport.
 export const LANDING_OFFSET = 35;
 /// The transcript thread's top padding (.acpmux-thread): row tops start this far down the scroller.
 export const THREAD_PADDING_TOP = 16;
@@ -422,7 +423,8 @@ export function visibleTurns(
   return { first, last };
 }
 
-/// The scroll offset that lands a turn's prompt bubble LANDING_OFFSET below the viewport's top.
+/// The scroll offset that lands a turn's prompt row (its images, else its bubble) LANDING_OFFSET
+/// below the viewport's top.
 export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
   return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
 }

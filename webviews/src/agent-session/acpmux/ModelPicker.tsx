@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -13,12 +14,14 @@ import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
+import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
+import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
+import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenu, type QuickAccount, type QuickFamily, type QuickModel } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
@@ -147,6 +150,19 @@ function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
 /// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
 export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
   return uniqueHarnesses(catalog)[0]?.id;
+}
+
+/// The models a typed query finds among `entries`, each with its harness, in rail order: the full
+/// picker's search and the compact menu's search field both list these.
+function searchModels(
+  entries: readonly HarnessChoice[],
+  query: ParsedQuery,
+): { model: ModelChoice; entry: HarnessChoice }[] {
+  return entries.flatMap((entry) =>
+    choicesFor(entry)
+      .filter((model) => fitsQuery(model, entry.name, query))
+      .map((model) => ({ model, entry })),
+  );
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -316,6 +332,7 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
   /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
   /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
@@ -358,6 +375,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
+  // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
+  const toPrompt = useRef(false);
+  const focusPrompt = usePromptFocus();
+  // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
+  // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
+  const quickPicked = useRef(false);
   const menuId = useId();
   const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
@@ -395,9 +418,10 @@ export function ModelPicker(props: ModelPickerProps) {
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
-      for (const entry of harnesses)
-        if (entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
+      const searchable = harnesses.filter(
+        (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
+      );
+      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
         if (!entry.folder && loginFor(entry) === undefined)
@@ -446,9 +470,10 @@ export function ModelPicker(props: ModelPickerProps) {
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   // Opens on the side that has room for the picker's floor, not only for what it measures before its
-  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  // models load: above the chip, else below it (Leo: the menu stays inside the page). On New Tab,
+  // below first (newTabComposer.ts).
   const menuStyle = useUiAnchor(trigger, menu, open, {
-    side: "above",
+    side: newTab ? "below" : "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
     // Inside the chat column, never over the session rail or sidebar beside it.
@@ -472,7 +497,12 @@ export function ModelPicker(props: ModelPickerProps) {
     [onHarnessHint],
   );
   useEffect(() => {
-    if (open || !restoreFocus.current) return;
+    if (open) return;
+    // A pick's prompt focus belongs to its own close: a reopen before the frames below run cancels
+    // them, and the next close (Escape) returns to the model button.
+    const picked = toPrompt.current;
+    toPrompt.current = false;
+    if (!restoreFocus.current) return;
     restoreFocus.current = false;
     // A pointerup can still apply its default focus after React closes the popup. Defer the
     // restoration until that browser action has finished. A second frame also covers the
@@ -480,13 +510,20 @@ export function ModelPicker(props: ModelPickerProps) {
     // press-drag-release selection.
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }));
+      second = requestAnimationFrame(() => {
+        if (!(picked && focusPrompt())) trigger.current?.focus({ preventScroll: true });
+      });
     });
     return () => {
       cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
     };
-  }, [open]);
+  }, [open, focusPrompt]);
+  useEffect(() => {
+    if (quickOpen || !quickPicked.current) return;
+    quickPicked.current = false;
+    focusPrompt();
+  }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
@@ -588,6 +625,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -604,6 +642,35 @@ export function ModelPicker(props: ModelPickerProps) {
     }
     onLand(model.id);
     close();
+  };
+  /// The compact menu's search field: the full picker's search over the harnesses the menu offers.
+  /// A row names its harness when the menu has a rail, and the effort and fast mode the query named
+  /// ("gpt high fast"), which its pick lands with.
+  const quickSearch = (text: string): QuickModel[] => {
+    const typed = parseQuery(text, vocabulary);
+    // The chat's own harness once it has started, else every one the rail offers.
+    const searchable = (harnessFixed ? ownHarness : harnesses).filter(
+      (entry) =>
+        entry.pickable &&
+        !blockedProfile(entry) &&
+        entry.folder?.state !== "needs-enable" &&
+        loginFor(entry) === undefined,
+    );
+    return searchModels(searchable, typed).map(({ model, entry }) => {
+      const effort = modelEffort(model, typed.effort);
+      const hint = [!harnessFixed ? entry.name : undefined, effort, typed.fast ? fastText : undefined]
+        .filter(Boolean)
+        .join(" · ");
+      return {
+        id: model.id,
+        name: model.name,
+        family: entry.id,
+        ...(model.unavailable ? { disabled: true } : {}),
+        ...(hint ? { hint } : {}),
+        ...(effort ? { effort } : {}),
+        ...(typed.fast ? { fast: true } : {}),
+      };
+    });
   };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
@@ -680,16 +747,26 @@ export function ModelPicker(props: ModelPickerProps) {
     signedOut,
   ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
+  /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
     if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
-    if (owner.ids.includes(harness ?? "")) {
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    const here = owner.ids.includes(harness ?? "");
+    if (onCombo && (model.effort || model.fast || !here)) {
+      onCombo({ harness: harnessId, model: model.id, effort: model.effort, fast: model.fast });
+      return;
+    }
+    if (here) {
       onLand(model.id);
       return;
     }
-    const harnessId = owner.acpmuxHarness ?? owner.id;
-    if (onCombo) onCombo({ harness: harnessId, model: model.id });
-    else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+    if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+  };
+  /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
+  const pickQuickToPrompt = (model: QuickModel) => {
+    quickPicked.current = true;
+    pickQuick(model);
   };
   /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
   /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
@@ -944,13 +1021,17 @@ export function ModelPicker(props: ModelPickerProps) {
                   ? quickSections(current, props.model, (model) => !model.unavailable).shown
                   : [],
               current: props.model,
-              onModel: (id) => onLand(id),
+              onModel: (id) => {
+                quickPicked.current = true;
+                onLand(id);
+              },
+              search: { find: quickSearch, pick: pickQuickToPrompt },
               ...(quickFamilies
                 ? {
                     families: {
                       list: quickFamilies,
                       current: current?.id,
-                      onPick: pickQuick,
+                      onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                       ...(harnessFixed ? {} : onHarness ? { onAccount: pickAccount } : {}),
                       ...(harnessFixed && fork
