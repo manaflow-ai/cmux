@@ -113,6 +113,9 @@ fn home(name: &str) -> PathBuf {
             // `self-reporter` whose report names an empty session id (review 70).
             "self-blank": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
                            "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_STARTUP_SID": ""}},
+            // `self-reporter` that then holds its `session/new` answer while `hold` exists.
+            "self-holder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1",
+                            "FAKE_STARTUP_MODE": "bypassPermissions", "FAKE_NEW_HOLD": dir.join("hold")}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -505,6 +508,36 @@ const PROBES: &[Case] = &[
             assert!(kept.is_empty(), "probes in full access kept under the off: {kept:?}");
         })
     }),
+    (
+        "review 71: a probe that reported full access ends at the off, an unset after it too",
+        |name| {
+            Box::pin(async move {
+                let (dir, _daemon, mut app) = daemon(name, true).await;
+                let hold = dir.join("hold");
+                std::fs::write(&hold, "").unwrap();
+                let refresh = app.send("_acpmux/models", json!({"refresh": true})).await;
+                // Its harness reported bypassPermissions and holds its `session/new` answer.
+                let pid = started_pid(&dir.join("hold.reported")).await;
+                app.push(off()).await;
+                app.push(json!({})).await;
+                let answered =
+                    tokio::time::timeout(Duration::from_secs(8), app.reply(refresh)).await;
+                let _ = std::fs::remove_file(&hold);
+                let listed =
+                    answered.expect("the refresh waited on a probe in full access past the off");
+                assert!(ends(pid).await, "the probe in full access runs on past the off");
+                let all = listed["result"]["harnesses"].as_array().cloned().unwrap_or_default();
+                let entry = all.iter().find(|h| h["harness"] == "self-holder");
+                let refused = entry.is_some_and(|e| {
+                    e["probeError"].as_str().is_some_and(|m| m.contains("full access"))
+                });
+                assert!(
+                    refused,
+                    "the probe in full access kept its models past the off: {entry:?}"
+                );
+            })
+        },
+    ),
 ];
 
 /// The profiles whose harness is in full access as its session starts (reviews 32, 41, 46 and

@@ -98,6 +98,9 @@ impl Daemon {
             // Each marker file here stalls one agent host's hello (debug
             // builds' seam): `stall_hellos`.
             .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
+            // A mode in this file is reported by the next pooled agent a chat takes, after the
+            // take's check (debug builds' seam): `adopt_report`.
+            .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -727,6 +730,29 @@ async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_n
         let (_daemon, _rpc, kept) = prewarmed_under_an_off(tag, env).await;
         assert!(!kept, "a pooled agent that {why} was kept under the MDM off");
     }
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 71): a report of full access that
+/// comes after the take's check, before the entry's lines go to the chat, still keeps the agent
+/// from the chat, though the chat may not have read it yet when the start is capped.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_report_held_past_the_take_keeps_the_agent_from_the_chat() {
+    let env = [("FAKE_NO_MODES", "1")];
+    let (daemon, mut rpc, kept) = prewarmed_under_an_off("faadopt", &env).await;
+    assert!(kept, "fakeb reports nothing before it is taken, so it is kept");
+    std::fs::write(daemon.home.join("adopt-report"), "bypassPermissions").unwrap();
+    let home = daemon.home.clone();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["message"].as_str().is_some_and(|m| m.contains("full-access"));
+    assert!(
+        refused,
+        "a chat took a pooled agent that reported full access under the off: {created}"
+    );
 }
 
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 46): a ready pooled agent that

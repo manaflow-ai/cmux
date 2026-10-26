@@ -1270,6 +1270,16 @@ def main():
             # FAKE_STARTUP_SID=<sid>: that report names <sid> (empty allowed) instead of the new one.
             if os.environ.get("FAKE_STARTUP_MODE"):
                 update(os.environ.get("FAKE_STARTUP_SID", new_sid), {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})
+            # FAKE_NEW_HOLD=<path>: then it writes its pid to <path>.reported and holds its answer
+            # while <path> exists (at most 30 s), as a harness slow to answer.
+            if os.environ.get("FAKE_NEW_HOLD"):
+                import time as pause  # main() binds `time` locally
+                hold = os.environ["FAKE_NEW_HOLD"]
+                with open(hold + ".reported", "w") as f:
+                    f.write(f"{os.getpid()}\n")
+                until = pause.monotonic() + 30
+                while os.path.exists(hold) and pause.monotonic() < until:
+                    pause.sleep(0.05)
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_LATE_MODE=<id>: half a second after it answers, the harness reports that mode.
             if os.environ.get("FAKE_LATE_MODE"):

@@ -679,6 +679,8 @@ impl Hub {
             started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
         }
         self.append(session, "mux", "host_started", started);
+        #[cfg(debug_assertions)]
+        adopt_report(&p);
         {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {
@@ -906,6 +908,25 @@ pub(super) async fn end_pooled(p: Pooled) {
     }
     let _ = tokio::time::timeout(END_GRACE, p.child.terminate(END_GRACE)).await;
     end_pooled_host(&p.record).await;
+}
+
+/// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_ADOPT_REPORT_FILE` names is held as a
+/// report of `p`'s harness that came after the take's check and before its lines go to the chat
+/// (review 71 of #23322); the chat's own reading of it never comes. Release builds have no seam.
+#[cfg(debug_assertions)]
+fn adopt_report(p: &Pooled) {
+    let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE") else { return };
+    let Ok(mode) = std::fs::read_to_string(file) else { return };
+    let sid = p.new_result.as_ref().and_then(|r| r["sessionId"].as_str()).unwrap_or_default();
+    let update = json!({"sessionId": sid, "update": {"sessionUpdate": "current_mode_update",
+                                                     "currentModeId": mode.trim()}});
+    let msg = Message::Notification {
+        method: crate::rpc::method::SESSION_UPDATE.to_owned(),
+        params: Some(update),
+    };
+    if let TapSlot::Held(held) = &mut *p.tap.lock().unwrap_or_else(|e| e.into_inner()) {
+        held.push((Direction::In, msg, None));
+    }
 }
 
 /// End a pooled host by nonce proof (when it still runs) and remove its
