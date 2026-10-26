@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 import Darwin
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// An immutable picture of everything read-only control methods answer
 /// from (plans/cmux-next/architecture.md section 5a).
@@ -66,7 +67,7 @@ public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
         let isReady: @Sendable (ControlSnapshot) -> Bool
-        let continuation: CheckedContinuation<ControlSnapshot?, Never>
+        let continuation: OnceContinuation<ControlSnapshot?, Never>
     }
 
     private struct State {
@@ -164,7 +165,7 @@ public final class ControlSnapshotStore: Sendable {
         }
         defer { timer.cancel() }
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation(ifDropped: nil) { continuation in
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in

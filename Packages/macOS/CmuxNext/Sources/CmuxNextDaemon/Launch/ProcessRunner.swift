@@ -2,6 +2,7 @@ public import Foundation
 import CmuxNextCompat
 import Darwin
 import Dispatch
+import CmuxSafeConcurrency
 
 public struct ProcessResult: Sendable {
     public var status: Int32
@@ -66,7 +67,7 @@ public struct ProcessRunner {
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
+                    await withOnceContinuation(ifDropped: nil) { (continuation: OnceContinuation<Int32?, Never>) in
                         box.process.terminationHandler = { process in
                             continuation.resume(returning: process.terminationStatus)
                         }

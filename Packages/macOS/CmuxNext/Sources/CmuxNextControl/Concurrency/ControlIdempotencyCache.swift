@@ -1,5 +1,6 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// Recent `action.run` and `action.batch` results by idempotency key (plans/cmux-next/state-ownership.md 4.4).
 ///
@@ -28,7 +29,7 @@ public final class ControlIdempotencyCache: Sendable {
         let key: String
 
         func outcome() async -> Outcome? {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation(ifDropped: nil) { continuation in
                 cache.addWaiter(continuation, key: key)
             }
         }
@@ -45,7 +46,7 @@ public final class ControlIdempotencyCache: Sendable {
     private struct Entry {
         var fingerprint: Fingerprint
         var outcome: Outcome?
-        var waiters: [CheckedContinuation<Outcome?, Never>] = []
+        var waiters: [OnceContinuation<Outcome?, Never>] = []
     }
 
     private struct State {
@@ -83,7 +84,7 @@ public final class ControlIdempotencyCache: Sendable {
 
     /// Stores the outcome of a run that started and wakes its joiners.
     func finish(_ key: String, with outcome: Outcome) {
-        let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Outcome?, Never>] in
             guard var entry = state.entries[key], entry.outcome == nil else { return [] }
             entry.outcome = outcome
             let waiters = entry.waiters
@@ -96,14 +97,14 @@ public final class ControlIdempotencyCache: Sendable {
 
     /// Drops the entry of a run that never started, so a retry runs.
     func forget(_ key: String) {
-        let waiters = state.withLock { state -> [CheckedContinuation<Outcome?, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Outcome?, Never>] in
             state.order.removeAll { $0 == key }
             return state.entries.removeValue(forKey: key)?.waiters ?? []
         }
         for waiter in waiters { waiter.resume(returning: nil) }
     }
 
-    fileprivate func addWaiter(_ waiter: CheckedContinuation<Outcome?, Never>, key: String) {
+    fileprivate func addWaiter(_ waiter: OnceContinuation<Outcome?, Never>, key: String) {
         let ready = state.withLock { state -> Outcome?? in
             guard var entry = state.entries[key] else { return .some(nil) }
             if let outcome = entry.outcome { return .some(outcome) }

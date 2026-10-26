@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSafeConcurrency
 
 /// Transaction echoes and read-your-writes waiters: what runs once the
 /// store holds the daemon's result of a command.
@@ -35,7 +36,7 @@ extension DaemonStore {
     /// connection. A create pressed on a create in flight waits on it, so it names the daemon's pane.
     public func applied(_ transaction: ClientTransactionID, connection: DaemonConnection?) async {
         guard let connection, let sequence = await connection.eventSequence() else { return }
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (done: OnceContinuation<Void, Never>) in
             whenApplied(transaction, reaching: sequence) { done.resume() }
         }
     }

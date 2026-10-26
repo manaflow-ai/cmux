@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// One request for `LineTransport.pipeline`: its command name (for errors)
 /// and its encoder, which receives the allocated id.
@@ -14,7 +15,7 @@ struct PipelinedLine {
 /// come before or after the resolution.
 final class ReplySlot: Sendable {
     private enum State {
-        case waiting(CheckedContinuation<LineTransport.Response, any Error>?)
+        case waiting(OnceContinuation<LineTransport.Response, any Error>?)
         case done(Result<LineTransport.Response, any Error>)
     }
 
@@ -22,7 +23,7 @@ final class ReplySlot: Sendable {
 
     /// First resolution wins; later ones are ignored.
     func resolve(_ result: Result<LineTransport.Response, any Error>) {
-        let waiter: CheckedContinuation<LineTransport.Response, any Error>?? = state.withLock { state in
+        let waiter: OnceContinuation<LineTransport.Response, any Error>?? = state.withLock { state in
             guard case .waiting(let waiter) = state else { return nil }
             state = .done(result)
             return .some(waiter)
@@ -31,7 +32,7 @@ final class ReplySlot: Sendable {
     }
 
     func value() async throws -> LineTransport.Response {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { continuation in
             let done: Result<LineTransport.Response, any Error>? = state.withLock { state in
                 switch state {
                 case .done(let result): return result

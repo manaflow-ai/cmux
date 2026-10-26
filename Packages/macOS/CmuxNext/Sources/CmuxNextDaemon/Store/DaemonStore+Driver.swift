@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// Off-main event buffer. The pump appends; the main actor takes whole
 /// batches. At most one frame is requested per non-empty buffer.
@@ -310,7 +311,7 @@ extension DaemonStore {
     /// store keeps what it had.
     public func refresh() async {
         guard driver != nil else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
             refreshWaiters.append(continuation)
             // A resync in flight was requested before this call: it fetches
             // another one when it finishes.

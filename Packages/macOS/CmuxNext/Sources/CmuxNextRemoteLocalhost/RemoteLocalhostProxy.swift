@@ -3,6 +3,7 @@ import CmuxNextWakeups
 import Network
 import CmuxNextCompat
 import os
+import CmuxSafeConcurrency
 
 /// The in-process HTTP proxy that remote-localhost browser stores use
 /// (plans/cmux-next/remote-localhost.md section 5).
@@ -214,7 +215,8 @@ public final class RemoteLocalhostProxy: Sendable {
             }
             self.accept(connection, localPort: port, machineListener: machine)
         }
-        let result: Result<UInt16, StartError> = await withCheckedContinuation { continuation in
+        let dropped: Result<UInt16, StartError> = .failure(.listener("the listener dropped its state handler"))
+        let result: Result<UInt16, StartError> = await withOnceContinuation(ifDropped: dropped) { continuation in
             let resumed = Mutex(false)
             listener.stateUpdateHandler = { update in
                 let outcome: Result<UInt16, StartError>?

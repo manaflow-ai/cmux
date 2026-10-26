@@ -1,5 +1,6 @@
 import CmuxNextWakeups
 import Foundation
+import CmuxSafeConcurrency
 
 /// A handoff of this connection's daemon that cuts no request (hq-6d 2026-10-14: a cut Home send is
 /// the "Not Delivered" class). `quietHandoff` holds every new `request` and `resourceRequest`, waits
@@ -22,9 +23,9 @@ extension DaemonConnection {
     /// `quietHandoff` for a handoff whose result says whether the daemon accepted it.
     public func quietHandoff<Result: Sendable>(_ handoff: @Sendable () async -> Result,
                                                accepted: (Result) -> Bool) async -> Result {
-        while handoffHold != nil { await withCheckedContinuation { handoffQueue.append($0) } }
+        while handoffHold != nil { await withOnceContinuation(ifDropped: ()) { handoffQueue.append($0) } }
         handoffHold = [:]
-        if inFlight > 0 { await withCheckedContinuation { quietWaiters.append($0) } }
+        if inFlight > 0 { await withOnceContinuation(ifDropped: ()) { quietWaiters.append($0) } }
         let startSerial = serial
         // concurrency-allow: async binding on the connection actor, always inside a Swift task (no fallback storage, cx-bpcj)
         let result = await Self.$passesHandoffHold.withValue(true) { await handoff() }
@@ -44,7 +45,7 @@ extension DaemonConnection {
             handoffHoldNext += 1
             let key = handoffHoldNext
             await withTaskCancellationHandler {
-                await withCheckedContinuation { continuation in
+                await withOnceContinuation(ifDropped: ()) { continuation in
                     if handoffHold == nil { continuation.resume() } else { handoffHold?[key] = continuation }
                 }
             } onCancel: {

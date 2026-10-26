@@ -1,6 +1,7 @@
 import CmuxNextSettings
 import Darwin
 import Foundation
+import CmuxSafeConcurrency
 
 /// One accepted client. All socket IO runs on a private serial queue:
 /// nonblocking reads split lines for a single consumer task, and responses
@@ -42,7 +43,7 @@ final class ControlConnection: @unchecked Sendable {
     private var isClosed = false
     private var continuation: AsyncStream<String>.Continuation?
     private var consumer: Task<Void, Never>?
-    private var hangupWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hangupWaiters: [OnceContinuation<Void, Never>] = []
     /// Called once on the connection queue after the descriptor closed.
     var onClosed: (@Sendable () -> Void)?
 
@@ -88,7 +89,7 @@ final class ControlConnection: @unchecked Sendable {
     /// Returns once the client stopped sending (EOF, error) or the
     /// connection closed (a failed write to a gone client closes it).
     func hangup() async {
-        await withCheckedContinuation { waiter in
+        await withOnceContinuation(ifDropped: ()) { waiter in
             queue.async { [self] in
                 if isInputFinished || isClosed { waiter.resume() } else { hangupWaiters.append(waiter) }
             }

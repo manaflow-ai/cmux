@@ -2,6 +2,7 @@ public import CmuxNextWakeups
 import Foundation
 public import Observation
 import os
+import CmuxSafeConcurrency
 
 public enum DaemonConnectionState: Sendable, Equatable {
     case connecting
@@ -169,7 +170,7 @@ public final class DaemonStore: StateResourceQueries {
     /// The `list-personal` refetch a `personal-changed` asks for (`refetchPersonal`).
     @ObservationIgnored var personalRefetch = PersonalRefetch()
     /// `refresh()` callers waiting for a snapshot requested after their call.
-    @ObservationIgnored var refreshWaiters: [CheckedContinuation<Void, Never>] = []
+    @ObservationIgnored var refreshWaiters: [OnceContinuation<Void, Never>] = []
     /// Spacing and budget of failed-snapshot retries; reset by the next applied one.
     @ObservationIgnored var resyncPacer = RetryPacer(.resync)
     /// The pending retry of a failed snapshot (cancelled when the driver ends).

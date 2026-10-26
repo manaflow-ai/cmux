@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// Races async work against a deadline without waiting for the loser. Time
 /// the main thread spends in Chromium's start moves the deadline out
@@ -23,7 +24,7 @@ public struct ControlDeadline: Sendable {
         let engineStart = MainThreadEngineStart.shared
         let mark = mark ?? engineStart.total
         let race = Race<T>()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { continuation in
             race.begin(continuation)
             let work = Task {
                 do {
@@ -43,14 +44,14 @@ public struct ControlDeadline: Sendable {
 
     private final class Race<T: Sendable>: Sendable {
         private struct State {
-            var continuation: CheckedContinuation<T, any Error>?
+            var continuation: OnceContinuation<T, any Error>?
             var done = false
             var cleanup: (@Sendable () -> Void)?
         }
 
         private let state = Mutex(State())
 
-        func begin(_ continuation: CheckedContinuation<T, any Error>) {
+        func begin(_ continuation: OnceContinuation<T, any Error>) {
             state.withLock { $0.continuation = continuation }
         }
 
@@ -67,7 +68,7 @@ public struct ControlDeadline: Sendable {
         /// Returns true for the first caller, which resumes the waiter.
         @discardableResult
         func finish(_ result: Result<T, any Error>) -> Bool {
-            let (continuation, cleanup) = state.withLock { state -> (CheckedContinuation<T, any Error>?, (@Sendable () -> Void)?) in
+            let (continuation, cleanup) = state.withLock { state -> (OnceContinuation<T, any Error>?, (@Sendable () -> Void)?) in
                 guard !state.done else { return (nil, nil) }
                 state.done = true
                 defer {

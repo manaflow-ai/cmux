@@ -1,6 +1,7 @@
 public import CmuxNextSettings
 import CmuxNextCompat
 public import CmuxNextWakeups
+import CmuxSafeConcurrency
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).
@@ -164,7 +165,7 @@ public final class MainActorWorkQueue: Sendable {
         // Interned when the method was registered; otherwise here, off the main thread. Either way
         // the drain starts the task without a lock.
         let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
             let item = MainActorWorkItem(
                 connection: connection,
                 method: method,

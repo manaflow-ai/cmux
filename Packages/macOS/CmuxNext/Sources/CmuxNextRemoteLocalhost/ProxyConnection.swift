@@ -2,6 +2,7 @@ import CmuxNextWakeups
 import Foundation
 import Network
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// One browser connection to the proxy: read the head, check the route
 /// credential, then tunnel to the machine (loopback) or connect directly
@@ -266,7 +267,7 @@ extension NWConnection {
     /// The next chunk and whether the peer finished sending. Throws on a
     /// connection error.
     func receiveChunk(max: Int) async throws -> (Data?, Bool) {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { continuation in
             receive(minimumIncompleteLength: 1, maximumLength: max) { data, _, isComplete, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -278,7 +279,7 @@ extension NWConnection {
     }
 
     func sendAll(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             send(content: data, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             })
@@ -287,7 +288,7 @@ extension NWConnection {
 
     /// Half-closes the write side (TCP FIN).
     func sendFinal() async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             })
@@ -296,7 +297,7 @@ extension NWConnection {
 
     /// Starts the connection and waits for ready (true) or failure (false).
     func ready(on queue: DispatchQueue) async -> Bool {
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation(ifDropped: false) { continuation in
             let resumed = Mutex(false)
             stateUpdateHandler = { state in
                 let outcome: Bool? = switch state {

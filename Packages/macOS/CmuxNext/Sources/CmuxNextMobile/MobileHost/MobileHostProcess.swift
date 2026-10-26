@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// One running `cmux-mobile-host` child: its stdout as event lines, its stdin for
 /// control lines, its stderr appended to a log file. Reading happens on
@@ -10,7 +11,7 @@ public final class MobileHostProcess: Sendable {
         var process: Process?
         var input: FileHandle?
         var exitStatus: Int32?
-        var exitWaiters: [CheckedContinuation<Int32, Never>] = []
+        var exitWaiters: [OnceContinuation<Int32, Never>] = []
     }
 
     /// hostd's stdout lines (bounded: oldest dropped past 256 pending).
@@ -47,7 +48,7 @@ public final class MobileHostProcess: Sendable {
         }
         process.terminationHandler = { [weak self] finished in
             let status = finished.terminationStatus
-            let waiters = self?.state.withLock { state -> [CheckedContinuation<Int32, Never>] in
+            let waiters = self?.state.withLock { state -> [OnceContinuation<Int32, Never>] in
                 state.exitStatus = status
                 try? state.input?.close()
                 state.input = nil
@@ -79,8 +80,12 @@ public final class MobileHostProcess: Sendable {
 
     public var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
 
+    /// What ``waitForExit()`` returns when its waiter was dropped without the child's status
+    /// (OnceContinuation faults then): the supervisor's "status unknown" value.
+    static let unknownExitStatus: Int32 = -1
+
     public func waitForExit() async -> Int32 {
-        await withCheckedContinuation { waiter in
+        await withOnceContinuation(ifDropped: Self.unknownExitStatus) { waiter in
             let done = state.withLock { state -> Int32? in
                 if let status = state.exitStatus { return status }
                 state.exitWaiters.append(waiter)

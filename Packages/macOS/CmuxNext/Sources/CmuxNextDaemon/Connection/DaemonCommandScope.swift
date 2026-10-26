@@ -1,6 +1,7 @@
 import CryptoKit
 public import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// Everything one app action sent to its daemons (plans/cmux-next/state-ownership.md 4).
 ///
@@ -55,7 +56,7 @@ public final class DaemonCommandScope: Sendable {
         var created: [DaemonCreatedObject] = []
         var barriers: [String: UInt64] = [:]
         var closed = false
-        var idleWaiters: [CheckedContinuation<Void, Never>] = []
+        var idleWaiters: [OnceContinuation<Void, Never>] = []
         /// What the run did and when (`stageLog`): the first 16 entries and
         /// the last 32 (`appendKeepingHead`).
         var stages: [String] = []
@@ -134,7 +135,7 @@ public final class DaemonCommandScope: Sendable {
     public func end(_ ticket: Ticket?, failure: Failure? = nil, label: String? = nil) {
         guard let ticket else { return }
         let entry = stamped("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
-        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let waiters = state.withLock { state -> [OnceContinuation<Void, Never>] in
             guard state.open.remove(ticket.id) != nil else { return [] }
             state.stages.appendKeepingHead(entry)
             if let failure { state.failures.append(failure) }
@@ -170,7 +171,7 @@ public final class DaemonCommandScope: Sendable {
     /// commands start from, because a task may open its next ticket right
     /// after closing one.
     public func waitUntilIdle() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
             let idle = state.withLock { state -> Bool in
                 if state.open.isEmpty { return true }
                 state.idleWaiters.append(continuation)

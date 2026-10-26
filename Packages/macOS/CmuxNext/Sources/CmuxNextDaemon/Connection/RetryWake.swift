@@ -3,6 +3,7 @@ import CmuxNextCompat
 import Darwin
 import Dispatch
 import Foundation
+import CmuxSafeConcurrency
 
 /// An event that can make a retry succeed. Fired by callers (network path
 /// change, app activation) and by a kernel vnode watch on a socket file's
@@ -63,7 +64,7 @@ public final class RetryWake: Sendable {
     private struct State {
         /// An event that came with no waiter (`.event` wins over `.socket`).
         var latched: Cause?
-        var waiter: CheckedContinuation<Cause, Never>?
+        var waiter: OnceContinuation<Cause, Never>?
         /// The waiter wakes on a socket change too.
         var waiterTakesSocket = true
         var timer: DemandTimer?
@@ -164,7 +165,7 @@ public final class RetryWake: Sendable {
     /// wait and a pending one is dropped (a crash loop, ``RetryPacer``).
     public func awaitWake(delay: Duration?, clock: any Clock<Duration>, socket: Bool = true) async -> Cause {
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Cause, Never>) in
+            await withOnceContinuation(ifDropped: Cause.cancelled) { (continuation: OnceContinuation<Cause, Never>) in
                 let immediate = state.withLock { state -> Cause? in
                     if Task.isCancelled { return .cancelled }
                     if let latched = state.latched {
@@ -195,7 +196,7 @@ public final class RetryWake: Sendable {
 
     private func resume(_ cause: Cause, latchIfIdle: Bool) {
         // A socket change that the waiting loop ignores (a crash loop) is dropped.
-        let (waiter, ignored) = state.withLock { state -> (CheckedContinuation<Cause, Never>?, Bool) in
+        let (waiter, ignored) = state.withLock { state -> (OnceContinuation<Cause, Never>?, Bool) in
             if cause == .socket, state.waiter != nil, !state.waiterTakesSocket { return (nil, true) }
             state.timer?.cancel()
             state.timer = nil

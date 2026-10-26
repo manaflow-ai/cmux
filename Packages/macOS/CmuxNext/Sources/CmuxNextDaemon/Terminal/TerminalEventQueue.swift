@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSafeConcurrency
 
 /// Bounded, demand-driven buffer between an attach connection's reader
 /// thread and the terminal view that consumes `events`.
@@ -24,7 +25,7 @@ final class TerminalEventQueue: @unchecked Sendable {
     private var items: [TerminalChannelEvent] = []
     private var head = 0
     private var outputBytes = 0
-    private var waiter: CheckedContinuation<TerminalChannelEvent?, Never>?
+    private var waiter: OnceContinuation<TerminalChannelEvent?, Never>?
     private var finished = false
     private var armed = false
 
@@ -121,14 +122,14 @@ final class TerminalEventQueue: @unchecked Sendable {
 
     /// Next event, merging consecutive plain output chunks up to `mergeLimit`.
     func next() async -> TerminalChannelEvent? {
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation(ifDropped: nil) { continuation in
             takeOrWait(continuation)
         }
     }
 
     /// Resumes at once when an event is queued or the stream ended;
     /// otherwise parks the continuation for the next `push`/`finish`.
-    private func takeOrWait(_ continuation: CheckedContinuation<TerminalChannelEvent?, Never>) {
+    private func takeOrWait(_ continuation: OnceContinuation<TerminalChannelEvent?, Never>) {
         condition.lock()
         if let event = popMerged() {
             condition.unlock()

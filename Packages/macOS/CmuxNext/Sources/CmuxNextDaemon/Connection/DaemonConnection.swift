@@ -2,6 +2,7 @@ import CmuxNextWakeups
 public import Foundation
 import CmuxNextCompat
 import os
+import CmuxSafeConcurrency
 
 /// The control-plane connection: one socket for `subscribe` and mutations.
 ///
@@ -65,10 +66,10 @@ public actor DaemonConnection {
     /// Quiet handoff (`DaemonConnection+QuietHandoff`): requests in flight, the waits for none, and
     /// the requests held while a handoff runs (nil: none runs).
     var inFlight = 0
-    var quietWaiters: [CheckedContinuation<Void, Never>] = []
-    var handoffHold: [UInt64: CheckedContinuation<Void, Never>]?
+    var quietWaiters: [OnceContinuation<Void, Never>] = []
+    var handoffHold: [UInt64: OnceContinuation<Void, Never>]?
     var handoffHoldNext: UInt64 = 0
-    var handoffQueue: [CheckedContinuation<Void, Never>] = []
+    var handoffQueue: [OnceContinuation<Void, Never>] = []
     var handoffHoldTimer: DemandTimer?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?

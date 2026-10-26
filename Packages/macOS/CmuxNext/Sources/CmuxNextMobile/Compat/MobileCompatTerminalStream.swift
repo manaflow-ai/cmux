@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import Foundation
+import CmuxSafeConcurrency
 
 /// One phone's live view of one terminal: a dedicated daemon byte attach,
 /// renumbered into the shipped phone's byte sequence space.
@@ -16,7 +17,7 @@ actor MobileCompatTerminalStream {
     private var replay: TerminalReplay?
     /// Offset where live bytes continue after `replay`.
     private var replaySeq: UInt64 = 0
-    private var replayWaiters: [CheckedContinuation<TerminalReplay?, Never>] = []
+    private var replayWaiters: [OnceContinuation<TerminalReplay?, Never>] = []
     private(set) var nextSeq: UInt64
     private var pump: Task<Void, Never>?
     private var ended = false
@@ -50,7 +51,7 @@ actor MobileCompatTerminalStream {
     func initialReplay() async -> (replay: TerminalReplay, seq: UInt64)? {
         if let replay { return (replay, replaySeq) }
         if ended { return nil }
-        guard let replay = await withCheckedContinuation({ replayWaiters.append($0) }) else { return nil }
+        guard let replay = await withOnceContinuation(ifDropped: nil, { replayWaiters.append($0) }) else { return nil }
         return (replay, replaySeq)
     }
 
