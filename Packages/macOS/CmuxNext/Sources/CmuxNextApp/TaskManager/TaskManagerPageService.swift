@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFeatures
 import CmuxNextResources
 import Darwin
 import SwiftUI
@@ -12,7 +13,8 @@ extension InternalPageID {
 /// internal page tab, one per window, over one ``TaskManagerModel`` that
 /// samples once per second while any Task Manager tab is open. Kill Process
 /// (`taskManager.killProcess`) checks ``TaskManagerKillPolicy`` and sends
-/// SIGTERM through `signaler`.
+/// SIGTERM through `signaler`. With `taskManagerMemorySaved` on, the page also
+/// lists the pages Memory Saver discarded and what each saved.
 @MainActor
 final class TaskManagerPageService: InternalPageProvider {
     private weak var services: AppServices?
@@ -21,10 +23,19 @@ final class TaskManagerPageService: InternalPageProvider {
     private let signaler: any ProcessSignaling
     private(set) var model: TaskManagerModel?
 
+    /// Whether the page lists the discarded items and what they saved (`taskManagerMemorySaved`).
+    let memorySaved: Bool
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The `task-manager` capture scene's samples: the next page opens over them, the feature on.
+    private var captureFixture: (any TaskManagerSampleSource)?
+    #endif
+
     init(services: AppServices, lineage: any ProcessLineage = SystemProcessLineage(),
          signaler: any ProcessSignaling = SystemProcessSignaler()) {
         self.services = services
-        self.source = AppTaskManagerSource(services: services)
+        let memorySaved = services.features.isEnabled(.taskManagerMemorySaved)
+        self.memorySaved = memorySaved
+        self.source = AppTaskManagerSource(services: services, memorySaved: memorySaved)
         self.lineage = lineage
         self.signaler = signaler
     }
@@ -84,7 +95,8 @@ final class TaskManagerPageService: InternalPageProvider {
     var symbol: String { "gauge.with.dots.needle.33percent" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let model = self.model ?? TaskManagerModel(source: source, kill: { [weak services] key in
+        let sampling = self.sampling
+        let model = self.model ?? TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
             // The row menu and the button run the action, which asks first.
             _ = services?.registry.perform("taskManager.killProcess",
                                            invocation: ActionInvocation(arguments: ["process": .string(key.description)]))
@@ -98,5 +110,27 @@ final class TaskManagerPageService: InternalPageProvider {
         guard services?.pageIsOpen(.taskManager) != true, let model else { return }
         model.stop()
         self.model = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        captureFixture = nil
+        #endif
     }
+
+    /// What the next page samples, and whether it lists the discarded items: the app's source and
+    /// the feature, or the capture scene's fixture with the feature on.
+    private var sampling: (source: any TaskManagerSampleSource, memorySaved: Bool) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let captureFixture { return (captureFixture, true) }
+        #endif
+        return (source, memorySaved)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The `task-manager` capture scene: the next Task Manager page samples `fixture`, with
+    /// `taskManagerMemorySaved` on. False when a page is open already (its model keeps its source).
+    func useCaptureFixture(_ fixture: any TaskManagerSampleSource) -> Bool {
+        guard model == nil else { return false }
+        captureFixture = fixture
+        return true
+    }
+    #endif
 }

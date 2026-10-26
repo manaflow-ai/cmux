@@ -670,7 +670,7 @@ impl Surface {
         if let Ok(delay_ms) = std::env::var("CMUX_TUI_TEST_HOSTED_SPAWN_FAIL_AFTER_CONNECT")
             && let Ok(delay_ms) = delay_ms.parse::<u64>()
         {
-            std::thread::sleep(Duration::from_millis(delay_ms));
+            crate::request_path::sleep(Duration::from_millis(delay_ms));
             anyhow::bail!("injected hosted surface setup failure after attachment");
         }
         let control_responses = attachment.control_responses();
@@ -942,7 +942,7 @@ impl Surface {
             let test_surface = surface.clone();
             let _ = std::thread::Builder::new().name("terminal-host-test-disconnect".into()).spawn(
                 move || {
-                    std::thread::sleep(delay);
+                    crate::request_path::sleep(delay);
                     if let Some(pty) = test_surface.as_pty()
                         && let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
                     {

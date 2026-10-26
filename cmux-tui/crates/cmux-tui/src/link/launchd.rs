@@ -58,7 +58,7 @@ fn gui_domain() -> String {
 }
 
 fn launchctl(arguments: &[&str]) -> io::Result<()> {
-    let status = std::process::Command::new("/bin/launchctl").args(arguments).status()?;
+    let status = cmux_process::Command::new("/bin/launchctl").args(arguments).status()?;
     if status.success() {
         Ok(())
     } else {

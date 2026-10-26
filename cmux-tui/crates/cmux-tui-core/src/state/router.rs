@@ -261,6 +261,7 @@ fn strip_request(request: &ParsedResourceRequest) -> Result<StripRequest, Resour
     ))
 }
 
+#[track_caller]
 fn read<T>(
     mux: &Mux,
     read: impl FnOnce(&rusqlite::Connection) -> anyhow::Result<T>,
@@ -279,6 +280,7 @@ fn found(value: Option<Value>, scope: &str, id: &str) -> Result<Value, ResourceE
     })
 }
 
+#[track_caller]
 pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,

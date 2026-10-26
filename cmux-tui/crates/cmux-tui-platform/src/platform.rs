@@ -890,7 +890,9 @@ pub fn restrict_file(path: &Path) -> io::Result<()> {
     restrict_permissions(path, 0o600)
 }
 
+#[track_caller]
 pub fn sync_directory(path: &Path) -> io::Result<()> {
+    crate::request_path::note(crate::request_path::BlockingKind::FsWrite);
     #[cfg(windows)]
     {
         if std::fs::metadata(path)?.is_dir() {
@@ -932,7 +934,9 @@ pub fn is_executable_file(path: &Path) -> bool {
 /// its leader's PID, so the leader's working directory is read at request
 /// time. Returns `None` when the child or leader is gone, the child has no
 /// controlling terminal, or the platform denies the lookup.
+#[track_caller]
 pub fn foreground_cwd(pid: u32) -> Option<String> {
+    note_proc_scan();
     process_cwd(foreground_process_group(pid)?)
 }
 
@@ -942,14 +946,18 @@ pub fn foreground_cwd(pid: u32) -> Option<String> {
 /// foreground applications.
 /// Returns `None` when the leader is gone, the child has no controlling
 /// terminal, or the platform denies the lookup.
+#[track_caller]
 pub fn foreground_process_name(pid: u32) -> Option<String> {
+    note_proc_scan();
     process_name(foreground_process_group(pid)?)
 }
 
 /// PID of a terminal's live foreground process-group leader (see
 /// [`foreground_cwd`] for the leader resolution contract): the program that
 /// holds the terminal now. `None` when the lookup fails.
+#[track_caller]
 pub fn foreground_leader(pid: u32) -> Option<u32> {
+    note_proc_scan();
     foreground_process_group(pid)
 }
 
@@ -959,7 +967,9 @@ pub fn foreground_leader(pid: u32) -> Option<u32> {
 /// itself is in the foreground (an idle shell, or a command terminal whose
 /// command is the child, or login(1)'s shell), or when the lookup fails. One
 /// PTY query of a known process, never a process scan.
+#[track_caller]
 pub fn foreground_job_name(pid: u32) -> Option<String> {
+    note_proc_scan();
     let leader = foreground_process_group(pid)?;
     if leader == pid || crate::kinfo_proc::login_session_shell(pid, leader) {
         return None;
@@ -976,9 +986,19 @@ pub fn foreground_job_name(pid: u32) -> Option<String> {
 /// Whether the terminal's own PTY child `pid` (its shell) holds the
 /// terminal's foreground: no job it started (a program from its startup
 /// files: tmux, ssh, a REPL) does. False when the lookup fails.
+#[track_caller]
 pub fn shell_holds_foreground(pid: u32) -> bool {
+    note_proc_scan();
     foreground_process_group(pid)
         .is_some_and(|leader| leader == pid || crate::kinfo_proc::login_session_shell(pid, leader))
+}
+
+/// The foreground lookups read the process table (`/proc`, proc_pidinfo,
+/// sysctl): one `proc_scan` per public call on a request thread
+/// (`request_path`), noted at its caller.
+#[track_caller]
+fn note_proc_scan() {
+    crate::request_path::note(crate::request_path::BlockingKind::ProcScan);
 }
 
 #[cfg(target_os = "linux")]

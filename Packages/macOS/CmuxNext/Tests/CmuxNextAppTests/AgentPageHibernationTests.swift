@@ -79,6 +79,8 @@ struct AgentPageHibernationTests {
 
     @Test func aChatHiddenPastTheThresholdLetsItsPageGoAndShowsTheSameChatAgain() async throws {
         let rig = Rig()
+        let released = Asked()
+        rig.hibernation.onRelease = { released.count += 1 }
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let page = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
@@ -95,6 +97,7 @@ struct AgentPageHibernationTests {
         #expect(rig.displaced == ["tab_quiet"], "the pane still holding the page was not told")
         #expect(rig.tabs.existingView("tab_busy") === busy, "a chat whose agent works keeps its page")
         #expect(rig.hibernation.keepsPage("tab_busy") == .agentBusy)
+        #expect(released.count == 1, "the memory histograms' release hook did not fire once for the one released page")
 
         // Shown again: a new page on the same chat.
         #expect(rig.tabs.session(of: "tab_quiet") == "s-quiet")

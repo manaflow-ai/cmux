@@ -80,6 +80,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// flushes it before every discrete event; owners that post get it by injection.
     private(set) lazy var frameInput = FrameInputCoalescers()
 
+    /// The `key.frame` signposts of every key-down, ended by one main run-loop observer it installs once
+    /// (made at the first key-down).
+    private lazy var keyFrames = KeyFrameSignpost()
+
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
@@ -113,7 +117,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     private func route(_ event: NSEvent) {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
-            KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }

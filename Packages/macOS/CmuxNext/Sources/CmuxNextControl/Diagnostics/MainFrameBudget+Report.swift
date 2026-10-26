@@ -6,10 +6,10 @@ extension MainFrameBudget {
     /// its budget, tasks run, input yields, input-response yields, typing-burst rate waits, over-budget deferrals, tasks run on idle frame time past
     /// its share, over-budget tasks, longest task and the most it spent in one frame; the input checks
     /// and the render passes (before-waiting phase) with their longest times; input responses that hit
-    /// the 100 ms cap and the longest input response; and the main run loop's turns (``MainTurnMeter``):
-    /// the turn and task time distributions, the share of busy time no span or render phase covers, and
-    /// the turns with the most of it. This folds it all on the main thread; the control method folds the
-    /// turns off it (``reportParts``).
+    /// the 100 ms cap and the longest input response; with a starvation guard, its `render_starvation` part;
+    /// and the main run loop's turns (``MainTurnMeter``): the turn and task time distributions, the share of
+    /// busy time no span or render phase covers, and the turns with the most of it. This folds it all on the
+    /// main thread; the control method folds the turns off it (``reportParts``).
     public var report: JSONValue {
         let parts = reportParts
         return parts.turns.report(merging: parts.fields)
@@ -34,14 +34,27 @@ extension MainFrameBudget {
                 "max_frame_ms": .number(Double((stats.maxFrameNanos[checked: index] ?? 0)) / 1_000_000),
             ]
         }
-        let fields: [String: JSONValue] = [
+        var fields: [String: JSONValue] = [
             "frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
             "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
             "render_passes": JSONValue(stats.renderPasses), "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000),
             "input_response_cap_hits": JSONValue(stats.inputResponseCapHits),
             "max_input_response_ms": .number(Double(stats.maxInputResponseNanos) / 1_000_000),
         ]
+        if let starvation { fields["render_starvation"] = Self.starvationReport(starvation) }
         return (fields, turns.snapshot())
+    }
+
+    /// The rendering starvation guard's part: whether it holds work, the late periods it reported,
+    /// the longest gap, and the work it held (per budgeted class, and the CEF pump's slices).
+    private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
+        let stats = starvation.stats
+        var held: [String: JSONValue] = [:]
+        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+            held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
+        }
+        return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),
+                "max_gap_ms": .number(stats.maxGap * 1000), "held_tasks": .object(held), "held_slices": JSONValue(stats.heldSlices)]
     }
 }
 
@@ -82,4 +95,59 @@ nonisolated extension MainTurnMeter.Snapshot {
     }
 
     private static func ms(_ nanos: UInt64) -> JSONValue { .number(Double(nanos) / 1_000_000) }
+}
+
+extension MainTaskBoard {
+    /// The whole `debug.main_budget` reply: the budget's ``MainFrameBudget/report`` (its own fields
+    /// copied on the main actor, its turn fields folded here from ``MainFrameBudget/reportParts``),
+    /// plus `owners`, per owner and class the wait and run percentiles, node states and posting sites
+    /// of the finished tasks (``MainOwnerLedger``, highest run p99 first), and `owner_ledger`, how many
+    /// records it folded, dropped and has pending. The ledger and the turns are folded here, off the
+    /// main thread, so the main thread never takes the ledger's lock.
+    ///
+    /// - Parameters:
+    ///   - budget: The budget whose board this is.
+    ///   - reset: Clears the budget's counters and the ledger after reading them.
+    @concurrent
+    public func mainBudgetReport(_ budget: MainFrameBudget, reset: Bool) async -> JSONValue {
+        let snapshot = ownerSnapshot()
+        if reset { ledger.reset() }
+        let parts = await MainActor.run {
+            let parts = budget.reportParts
+            if reset { budget.resetStats() }
+            return parts
+        }
+        var fields = parts.fields.merging(parts.turns.reportFields) { current, _ in current }
+        fields["owners"] = .array(snapshot.owners.map(\.report))
+        fields["owner_ledger"] = .object([
+            "recorded": .number(Double(snapshot.recorded)), "dropped": .number(Double(snapshot.dropped)), "pending": JSONValue(snapshot.pending),
+        ])
+        return .object(fields)
+    }
+}
+
+extension MainOwnerLedger.Owner {
+    /// One `owners` row: owner, class, tasks, wait and run percentiles in milliseconds, total run
+    /// time, tasks per node state and the top posting sites.
+    var report: JSONValue {
+        var nodes: [String: JSONValue] = [:]
+        for (state, count) in self.nodes { nodes[state.description] = JSONValue(count) }
+        let postedFrom: [JSONValue] = sites.map { site in ["location": .string(site.location), "tasks": JSONValue(site.tasks)] }
+        let row: [String: JSONValue] = [
+            "owner": .string(owner), "class": .string(workClass.description), "tasks": JSONValue(tasks), "wait": wait.report,
+            "run": run.report, "run_total_ms": .number(Double(runTotalNanos) / 1_000_000), "nodes": .object(nodes),
+            "posted_from": .array(postedFrom),
+        ]
+        return .object(row)
+    }
+}
+
+extension MainOwnerLedger.Distribution {
+    /// `{count, p50_ms, p95_ms, p99_ms, max_ms}`.
+    var report: JSONValue {
+        [
+            "count": JSONValue(count), "p50_ms": .number(Double(p50Nanos) / 1_000_000), "p95_ms": .number(Double(p95Nanos) / 1_000_000),
+            "p99_ms": .number(Double(p99Nanos) / 1_000_000), "max_ms": .number(Double(maxNanos) / 1_000_000),
+        ]
+    }
 }

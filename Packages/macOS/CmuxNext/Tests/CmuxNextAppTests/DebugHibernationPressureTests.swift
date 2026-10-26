@@ -9,9 +9,10 @@ import Foundation
 import Testing
 
 #if DEBUG || CMUX_BENCH_HOOKS
-/// `debug.hibernation.pressure` sets the app's one memory coordinator's override and hands the same
-/// level to browser hibernation in the same turn (p07-memory-004), so a bench that feeds pressure
-/// through the socket measures what the coordinator and hibernation do together.
+/// `debug.hibernation.pressure` sets the app's one memory coordinator's override, and the coordinator
+/// hands the same level to browser hibernation (its registered level consumer) in the same turn
+/// (p07-memory-004, p07-memory-017), so a bench that feeds pressure through the socket measures what
+/// the coordinator and hibernation do together.
 @MainActor @Suite(.serialized)
 struct DebugHibernationPressureTests {
     @Test func overrideChangesCoordinatorAndHibernationTogether() async throws {
@@ -55,8 +56,7 @@ struct DebugHibernationPressureTests {
         let kernel = ManualMemoryPressureSource()
         let pressure = MemoryPressureEvents(source: kernel)
         let coordinator = MemoryCoordinator(pressure: pressure, slicer: HeldSlices())
-        let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: pressure, lowPower: LowPowerMode(enabled: false))
-        AppServices.follow(coordinator, in: hibernation)
+        let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator)
         hibernation.start()
 
         _ = DebugHibernationControl.applyOverride(.critical, coordinator: coordinator, hibernation: hibernation)
@@ -91,14 +91,14 @@ struct DebugHibernationPressureTests {
         }
     }
 
-    /// An app whose hibernation follows a source the test never drives, so only the override moves it.
+    /// An app whose hibernation is registered with the app's memory coordinator, so the override reaches
+    /// it only through the coordinator.
     static func app() -> App {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
-                                             lowPower: LowPowerMode(enabled: false))
-        AppServices.follow(services.memoryCoordinator, in: hibernation)
+        let hibernation = BrowserHibernation(cache: services.cache, memory: services.memoryCoordinator)
         services.cache.hibernation = hibernation
+        hibernation.start()
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: services.registry), settings: nil)

@@ -235,9 +235,11 @@ final class PageTraceRecorder: PageTraceSink {
     private var open: [UInt64] = []
     private var endedParts: [UInt64] = []
 
-    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64) {
+    @discardableResult
+    func begin(_ name: SignpostName, arg0: UInt64, arg1: UInt64) -> Bool {
         records.append(Record(phase: .begin, name: name, arg0: arg0, arg1: arg1))
         open.append(arg0)
+        return true
     }
 
     func end(_ name: SignpostName, arg0: UInt64, arg1: UInt64) {
@@ -247,8 +249,10 @@ final class PageTraceRecorder: PageTraceSink {
         onEnd?(part)
     }
 
-    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64) {
+    @discardableResult
+    func asyncBegin(_ name: SignpostName, id: UInt64, arg0: UInt64) -> Bool {
         records.append(Record(phase: .asyncBegin, name: name, arg0: arg0, arg1: id))
+        return true
     }
 
     func asyncEnd(_ name: SignpostName, id: UInt64, arg0: UInt64) {

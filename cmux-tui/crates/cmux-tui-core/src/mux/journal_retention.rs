@@ -237,6 +237,7 @@ impl Mux {
     /// O(1) reconnect bookkeeping, called by the hosted reader after its
     /// gap record is enqueued (surface/journal_reconnect.rs): mark the
     /// terminal for the next coalesced checkpoint.
+    #[track_caller]
     pub(crate) fn note_terminal_host_reconnect(self: &Arc<Self>, terminal_id: TerminalPublicId) {
         let retention = &self.journal_retention;
         retention
@@ -277,6 +278,7 @@ impl Mux {
         self.journal_retention.captures.load(Ordering::Acquire)
     }
 
+    #[track_caller]
     fn capture_coalesced_checkpoint(&self, batch: &[TerminalPublicId]) -> CaptureOutcome {
         // A daemon that is shutting down or handing off its hosts (also right
         // after shutdown-daemon end_terminals) captures nothing more.
@@ -351,6 +353,7 @@ impl Mux {
     /// readers drained and the journal is fenced: while a terminal still
     /// writes, every capture is rejected as racing the journal. A failure
     /// only costs the screen.
+    #[track_caller]
     pub(super) fn capture_shutdown_checkpoint(&self) {
         let key = format!(
             "shutdown:{}:{}",
@@ -371,11 +374,12 @@ impl Mux {
                 eprintln!("cmux-tui: no terminal screen checkpoint at shutdown: {error:#}");
                 return;
             }
-            std::thread::sleep(SHUTDOWN_CAPTURE_RETRY);
+            crate::request_path::sleep(SHUTDOWN_CAPTURE_RETRY);
         }
     }
 }
 
+#[track_caller]
 fn run_retention_worker(shared: &RetentionShared, mux: &Weak<Mux>) {
     let mut schedule = shared.schedule.lock().unwrap_or_else(PoisonError::into_inner);
     loop {

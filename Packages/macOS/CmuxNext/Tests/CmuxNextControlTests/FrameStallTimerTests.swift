@@ -98,7 +98,7 @@ import Testing
 
 /// `CACurrentMediaTime` for tests.
 @MainActor
-private final class MediaTime {
+final class MediaTime {
     private(set) var now: CFTimeInterval = 1000
     // Strong, as MainFrameBudgetTests' BudgetClock: a stall timer can read it after its test returned.
     var read: @MainActor () -> CFTimeInterval { { [self] in self.now } }
@@ -112,7 +112,7 @@ private final class StallFakeLink: FrameLink {
 }
 
 /// A clock that moves only when the test advances it.
-private final class StallClock: Clock, Sendable {
+final class StallClock: Clock, Sendable {
     struct Instant: InstantProtocol {
         var offset: Duration
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }

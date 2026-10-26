@@ -1,41 +1,36 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextEnergy
+import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextMemory
+import CmuxNextResources
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
-    /// Creates the browser and agent page hibernation, follows `browser.hibernation`, and starts the
-    /// memory pressure source that also sizes the terminal warm set (the one budget of hidden GPU surfaces).
-    /// It subscribes to the app's one ``MemoryPressureEvents`` (`memoryPressure`), which the new tab
-    /// and page host spare pools share.
+    /// Creates the browser and agent page hibernation, follows `browser.hibernation`, and follows the
+    /// memory pressure level that also sizes the terminal warm set (the one budget of hidden GPU surfaces).
+    /// It registers with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer,
+    /// which hands it each level.
     func startHibernation(settings: SettingsController) {
-        let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure)
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
-        Self.follow(memoryCoordinator, in: hibernation)
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in
             guard let self else { return [:] }
-            return await self.resources.sample(.everything).browserTabMemory()
+            return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
-        hibernation.agentPages = AgentPageHibernation(services: self)
+        hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
+        let agentPages = AgentPageHibernation(services: self)
+        memoryHistograms.follow(hibernation, agentPages: agentPages)
+        hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
-    }
-
-    /// Makes `hibernation` act on `coordinator`'s level: its pressure override while one is set
-    /// (`debug.hibernation.pressure`), else the level the kernel reports. That is the coordinator's own
-    /// rule, applied to the reported level because pressure handlers run in no fixed order, so the
-    /// coordinator may not have the event yet.
-    ///
-    /// - Parameters:
-    ///   - coordinator: The app's one memory coordinator.
-    ///   - hibernation: The browser hibernation, before `start()`.
-    static func follow(_ coordinator: MemoryCoordinator, in hibernation: BrowserHibernation) {
-        hibernation.effectiveLevel = { [weak coordinator] reported in coordinator?.pressureOverride ?? reported }
+        memoryFootprints.start()
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
@@ -43,5 +38,21 @@ extension AppServices {
         cache.setWarmBudget(budget)
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+    }
+}
+
+// The memory histograms' discard and wake counts come from the page hibernation (p07-memory-016).
+extension MemoryHistograms {
+    /// The content kinds whose discards are counted: those whose discard path calls
+    /// ``recordDiscard(kind:)`` through ``follow(_:agentPages:)``. Any other kind has no histogram
+    /// (absent, never a measured 0) until its discard path records too.
+    static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
+
+    /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a
+    /// discard of its kind, and records each woken page's time to be back.
+    func follow(_ hibernation: BrowserHibernation, agentPages: AgentPageHibernation) {
+        hibernation.onHibernate = { [weak self] in self?.recordDiscard(kind: ContentKind.browser.rawValue) }
+        hibernation.onWakeMounted = { [weak self] in self?.recordWake($0) }
+        agentPages.onRelease = { [weak self] in self?.recordDiscard(kind: ContentKind.agentPage.rawValue) }
     }
 }

@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextKeepAwake
 import CmuxNextLaunch
 import CmuxNextPages
@@ -51,9 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await self?.services?.home.flushCacheForQuit()
     })
     private var settings: SettingsController?
-    /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
-    /// person's pending-input check and task signposts. Built here, the composition root, and
-    /// handed to the control socket and the services.
+    /// The app's one main-thread scheduler (budget, input check, task signposts, starvation guard), handed to control and services.
     private let mainWork: MainWorkScheduler
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
     var turnMeter: MainTurnMeter { mainWork.budget.turns }
@@ -91,8 +90,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchReveal = reveal
         launchSettle = LaunchSettle(reveal: reveal)
         startupReferences = StartupReferences(startup: startup, reveal: reveal)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+        let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
                                          displays: displays, startup: startup)
+        starvation.watch(mainWork.frames, FrameScheduler.app)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
         super.init()
@@ -147,6 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
         AppProcessRoot.shared.adopt(services)
         self.services = services
+        // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
+        let rateClasses = services.features.isEnabled(.frameRateClasses)
+        FrameScheduler.appDisplays.followsClientRates = rateClasses
+        DesignSettings.shared.loopsFollowFrameRate = rateClasses
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.
