@@ -44,6 +44,8 @@ final class LaneScheduler: Sendable {
         var posted: Bool
         /// The capped class it belongs to, if any.
         var cap: LaneCap?
+        /// A ``WorkHandle`` item, which ``raise(_:to:awaited:)`` may boost while it runs.
+        var raisable: Bool
     }
 
     /// What one busy slot runs: its item, level and capped class, and the overrides a raise started on it.
@@ -51,7 +53,9 @@ final class LaneScheduler: Sendable {
         var id: UInt64
         var priority: WorkPriority
         var cap: LaneCap?
-        /// The slot thread's Mach port once the item runs on it; 0 before.
+        /// Whether a raise may boost it; only such an item records its thread.
+        var raisable: Bool
+        /// The slot thread's Mach port once a raisable item runs on it; 0 before.
         var thread: mach_port_t = 0
         /// The level a raise asked for above `priority`; nil when none did.
         var raised: WorkPriority?
@@ -124,6 +128,7 @@ final class LaneScheduler: Sendable {
         var job: LaneJob
         var slot: Int
         var priority: WorkPriority
+        var raisable: Bool
     }
 
     let policy: Policy
@@ -179,13 +184,15 @@ final class LaneScheduler: Sendable {
     /// ``remove(_:)`` either finds the item or makes this refuse it) or the lane is shut down and `job`
     /// may not run any more (only a ``ShutdownBehavior/blockShutdown`` item is still taken).
     /// A `posted` item (nobody awaits it) at ``WorkPriority/idle`` or ``WorkPriority/bestEffort`` waits
-    /// while a fence is up. An item of the `cap` class waits while the class runs its cap.
-    func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil,
+    /// while a fence is up. An item of the `cap` class waits while the class runs its cap. Only a `raisable` item
+    /// (a ``WorkHandle``'s) gets a QoS override when ``raise(_:to:awaited:)`` finds it running; the others skip
+    /// recording their thread.
+    func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil, raisable: Bool = false,
                 unless cancelled: () -> Bool) -> Submitted {
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = priority
-            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap))
+            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap, raisable: raisable))
             return (pump(&state), level)
         }
         guard let taken else { return .refused }
@@ -227,10 +234,12 @@ final class LaneScheduler: Sendable {
         launch(starts)
     }
 
-    /// Starts an override at `priority` on the thread of the item running on `slot`, when that is above its level
-    /// and every earlier raise; before the item has its thread, ``began(slot:)`` starts it.
+    /// Starts an override at `priority` on the thread of the raisable item running on `slot`, when that is above its
+    /// level and every earlier raise; before the item has its thread, ``began(slot:)`` starts it. The start runs under
+    /// the lock: the lock is what keeps the target thread inside this item until the override is recorded.
     private func boost(_ slot: Int, to priority: WorkPriority, in state: inout State) {
-        guard var running = state.running[slot], priority > max(running.priority, running.raised ?? running.priority) else {
+        guard var running = state.running[slot], running.raisable,
+              priority > max(running.priority, running.raised ?? running.priority) else {
             return
         }
         running.raised = priority
@@ -297,14 +306,14 @@ final class LaneScheduler: Sendable {
     /// Takes the pending item `index` at `level` and marks `slot` busy with it.
     private func claim(_ level: WorkPriority, _ index: Int, slot: Int, in state: inout State) -> Start {
         let entry = state.pending[level.rawValue].remove(at: index)
-        state.running[slot] = Running(id: entry.job.id, priority: level, cap: entry.cap)
-        return Start(job: entry.job, slot: slot, priority: level)
+        state.running[slot] = Running(id: entry.job.id, priority: level, cap: entry.cap, raisable: entry.raisable)
+        return Start(job: entry.job, slot: slot, priority: level, raisable: entry.raisable)
     }
 
     private func launch(_ starts: [Start]) {
         for start in starts {
             slots[start.slot].async(qos: start.priority.qos, flags: .enforceQoS) { [self] in
-                began(slot: start.slot)
+                if start.raisable { began(slot: start.slot) }
                 // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
                 // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
                 if mayBlock {
@@ -312,7 +321,7 @@ final class LaneScheduler: Sendable {
                 } else {
                     BlockingContext.runAsCPULane { run(start.job) }
                 }
-                finish(start.job.id, slot: start.slot)
+                finish(slot: start.slot, raisable: start.raisable)
             }
         }
     }
@@ -323,22 +332,25 @@ final class LaneScheduler: Sendable {
         hangWatched.run { job.execute() }
     }
 
-    /// Records the thread the item on `slot` runs on, and starts the override a raise asked for before it had one.
+    /// Records the thread the raisable item on `slot` runs on, and starts the override a raise asked for before it
+    /// had one. That start runs outside the lock: this is the item's own thread, so it lives until
+    /// ``finish(slot:raisable:)``, which runs after this on the same thread. A raise between the two locks sees the
+    /// thread and starts its own override only for a higher level.
     private func began(slot: Int) {
         let thread = pthread_mach_thread_np(pthread_self())
-        state.withLock { state in
-            guard var running = state.running[slot] else { return }
-            running.thread = thread
-            if let raised = running.raised, let token = qosOverride.start(thread, raised) { running.overrides.append(token) }
-            state.running[slot] = running
+        let raised = state.withLock { state -> WorkPriority? in
+            state.running[slot]?.thread = thread
+            return state.running[slot]?.raised
         }
+        guard let raised, let token = qosOverride.start(thread, raised) else { return }
+        state.withLock { $0.running[slot]?.overrides.append(token) }
     }
 
-    /// Frees `slot`, ends the overrides its item got (on its own thread, before the slot runs anything else) and
-    /// starts what may run now.
-    private func finish(_ id: UInt64, slot: Int) {
+    /// Frees `slot`, ends the overrides its raisable item got (on its own thread, before the slot runs anything else)
+    /// and starts what may run now.
+    private func finish(slot: Int, raisable: Bool) {
         let (overrides, starts) = state.withLock { state -> ([ThreadQoSOverride.Token], [Start]) in
-            let overrides = state.running[slot]?.overrides ?? []
+            let overrides = raisable ? state.running[slot]?.overrides ?? [] : []
             state.running[slot] = nil
             return (overrides, pump(&state))
         }

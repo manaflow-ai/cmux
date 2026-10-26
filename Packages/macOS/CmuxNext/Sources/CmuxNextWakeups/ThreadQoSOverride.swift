@@ -13,8 +13,8 @@ struct ThreadQoSOverride: Sendable {
     }
 
     /// Starts an override of `thread` (a Mach port, from `pthread_mach_thread_np`) at `priority`'s QoS; nil when
-    /// there is no such thread or the kernel refused it. The thread must be alive: lane callers hold the lane's
-    /// lock while it runs their item.
+    /// there is no such thread or the kernel refused it. The thread must be alive: a lane starts it on the item's
+    /// own thread, or under the lane's lock while the target thread runs the item.
     let start: @Sendable (_ thread: mach_port_t, _ priority: WorkPriority) -> Token?
     /// Ends the override `token` names; called once per token.
     let end: @Sendable (_ token: Token) -> Void

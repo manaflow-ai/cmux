@@ -177,6 +177,23 @@ import Testing
         #expect(runs.order == ["after"])
     }
 
+    /// A plain post/run item is not raisable: it records no thread and a raise of it while it runs starts no override.
+    @Test func raisingARunningPlainItemStartsNoOverride() async {
+        let started = Signal(), finished = Signal(), release = DispatchSemaphore(value: 0), overrides = OverrideLog()
+        let lane = LaneScheduler(label: "test.raise-plain", policy: .shared(width: 1), mayBlock: true,
+                                 qosOverride: overrides.hook)
+        let job = LaneJob(id: 1, shutdown: .skipOnShutdown, work: {
+            started.send()
+            release.wait()
+        }, abandoned: {}, done: { finished.send() })
+        _ = lane.submit(job, at: .bestEffort, posted: true, unless: { false })
+        await started.wait(1)
+        lane.raise(1, to: .userBlocking, awaited: true)
+        release.signal()
+        await finished.wait(1)
+        #expect(overrides.recorded.isEmpty)
+    }
+
     /// An awaited item is never held by the best-effort fence, even when the awaiter's priority does not raise it.
     @Test func anAwaitedRaiseFreesAFencedItemWithoutMovingIt() async {
         let runs = RunOrder()

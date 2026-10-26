@@ -36,7 +36,7 @@ extension BackgroundWork {
             handle.complete(.failure(CancellationError()))
             return handle
         }
-        submitted(scheduler.submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
+        submitted(scheduler.submit(job, at: priority, posted: true, raisable: true, unless: { false }), job, on: lane)
         return handle
     }
 }
