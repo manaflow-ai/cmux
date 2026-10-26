@@ -7,7 +7,7 @@ import * as Layer from "effect/Layer";
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { createVm } from "../services/vms/workflows";
+import { createVm, forkVm } from "../services/vms/workflows";
 
 // A sandboxed Run's VM (hq#3367) is the launcher's alone: created under the sandbox key with the
 // server-set marker, which must survive the provider's metadata, and no other row may be reused
@@ -90,6 +90,35 @@ describe("the sandbox VM key in createVm", () => {
     expect(failureTag(exit)).toBe("VmOperationUnsupportedError");
     expect(captured).toEqual([]);
   });
+  test("a retry under a sandbox key never hands back another user's marked machine", async () => {
+    const captured: Array<Record<string, unknown>> = [];
+    const someoneElses = row({ userId: "user-2", status: "running", providerVmId: "vm-other", providerMetadata: { cmuxSandboxRun: KEY } });
+    const repo = { ...baseRepo(captured), findCreateByIdempotencyKey: () => Effect.succeed(someoneElses) };
+    const exit = await Effect.runPromiseExit(create({ cmuxSandboxRun: KEY }).pipe(Effect.provide(layers(repo, {}))));
+    expect(failureTag(exit)).toBe("VmOperationUnsupportedError");
+    expect(captured).toEqual([]);
+  });
+
+  test("a fork never takes a sandbox key, so its retry lookup can't return a sandbox's machine", async () => {
+    let looked = false;
+    const sandbox = row({ status: "running", providerVmId: "vm-sandbox", providerMetadata: { cmuxSandboxRun: KEY } });
+    const source = row({ id: "00000000-0000-4000-8000-000000000202", status: "running", providerVmId: "vm-src", idempotencyKey: null });
+    const repo = {
+      ...baseRepo([]),
+      findUserVm: () => Effect.succeed(source),
+      findCreateByIdempotencyKey: () => {
+        looked = true;
+        return Effect.succeed(sandbox);
+      },
+    } as unknown as Partial<VmRepositoryShape>;
+    const exit = await Effect.runPromiseExit(forkVm({
+      userId: "user-1", billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "pro", maxActiveVms: 5,
+      providerVmId: "vm-src", idempotencyKey: KEY, teamIds: ["team-1"],
+    }).pipe(Effect.provide(layers(repo, {}))));
+    expect(failureTag(exit)).toBe("VmOperationUnsupportedError");
+    expect(looked).toBe(false);
+  });
+
   test("a sandbox key whose machine was destroyed ends the create instead of handing back a dead machine", async () => {
     const captured: Array<Record<string, unknown>> = [];
     const destroyed = row({ status: "destroyed", providerVmId: "vm-gone", destroyedAt: NOW, providerMetadata: { cmuxSandboxRun: KEY } });

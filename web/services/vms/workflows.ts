@@ -1327,9 +1327,9 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
     const existingRetry = idempotencyKey && repo.findCreateByIdempotencyKey
       ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey })
       : null;
-    // A retry under a sandbox key reuses only the sandbox launcher's own machine.
-    if (existingRetry && idempotencyKey?.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX) && !isSandboxRunVm(existingRetry)
-      && !isFailedVmCreate(existingRetry) && existingRetry.status !== "destroyed") {
+    // A retry under a sandbox key reuses only the sandbox launcher's own machine for the same user.
+    if (existingRetry && idempotencyKey?.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)
+      && !(isSandboxRunVm(existingRetry) && existingRetry.userId === input.userId)) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: input.provider, operation: "reuse a machine under a sandbox run's key" }));
     }
     const existingEntry = yield* existingCreateRetry(repo, providers, existingRetry, idempotencyKey);
@@ -2955,6 +2955,10 @@ export function forkVm(input: {
     const billing = yield* VmBillingGateway;
     const source = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     yield* refuseSandboxRunVm(source, "fork");
+    // A fork never takes a sandbox run's key, so its retry lookup can't hand back a sandbox's machine.
+    if (input.idempotencyKey?.trim().startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX)) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: source.provider, operation: "fork under a sandbox run's key" }));
+    }
     const existingRetry = input.idempotencyKey?.trim() && repo.findCreateByIdempotencyKey
       ? yield* repo.findCreateByIdempotencyKey({ billingTeamId: input.billingTeamId, idempotencyKey: input.idempotencyKey.trim() })
       : null;
