@@ -81,7 +81,7 @@ public final class WebUIHost {
 
     /// The memory pressure level the preload slot follows (the coordinator's, the debug override
     /// included); normal until the registration hands the first one.
-    public var memoryLevel: MemoryPressureLevel { preloadMemory?.level ?? .normal }
+    private var memoryLevel: MemoryPressureLevel { preloadMemory?.level ?? .normal }
 
     /// Hands the slot the coordinator's level: anything but normal drops its page and holds new ones.
     private func preloadLevelDidChange() {

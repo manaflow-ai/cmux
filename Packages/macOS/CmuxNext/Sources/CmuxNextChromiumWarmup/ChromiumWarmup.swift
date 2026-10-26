@@ -40,9 +40,10 @@ public import Foundation
 ///   thread for about 0.8 s (os-smoke, 2026-10-18): two idle steps, none at
 ///   the first tab.
 /// - Spare windows follow memory pressure through one memory consumer (``SpareMemoryConsumer``,
-///   Chrome's spare rule): at warning or critical the untaken spares close and none is made or
-///   given back (`ChromiumWarmupEngine.holdSpareWindows`); back at normal the next idle moment
-///   makes one again. `CefInitialize` itself is not held: it builds no spare.
+///   Chrome's spare rule): at warning or critical none is made or given back
+///   (`ChromiumWarmupEngine.holdSpareWindows`) and the untaken ones stay, as Chrome keeps its spare
+///   renderer; critical closes them too (`closeUntakenSpareWindows`, p13-webui-047). Back at normal
+///   the next idle moment makes one again. `CefInitialize` itself is not held: it builds no spare.
 @MainActor
 public final class ChromiumWarmup {
     public enum Reason: String, Sendable {
@@ -99,7 +100,8 @@ public final class ChromiumWarmup {
     /// settle (`pagesSettled`), not at a later idle check.
     private var spareWaitsForPages = false
     private var stopped = false
-    /// The spare windows' memory consumer: no spare at warning or critical, none again until normal.
+    /// The spare windows' memory consumer: no new spare at warning or critical, none again until
+    /// normal; critical closes the untaken ones.
     private var spareMemory: SpareMemoryConsumer?
 
     /// - Parameters:
@@ -125,8 +127,10 @@ public final class ChromiumWarmup {
         self.now = now
         self.isTrackingMenu = isTrackingMenu
         spareMemory = SpareMemoryConsumer(
-            name: "chromium-spare-windows", registry: memory, spares: { [weak self] in self?.engine.spareWindowCount ?? 0 },
-            drop: { [weak self] in self?.sparesHeld() }, refill: { [weak self] in self?.sparesAllowed() })
+            name: "chromium-spare-windows", registry: memory, closing: .atCritical,
+            spares: { [weak self] in self?.engine.spareWindowCount ?? 0 },
+            hold: { [weak self] in self?.sparesHeld(closingUntaken: false) },
+            drop: { [weak self] in self?.sparesHeld(closingUntaken: true) }, refill: { [weak self] in self?.sparesAllowed() })
     }
 
     private var isAvailable: Bool { engine.availability == .available }
@@ -134,12 +138,14 @@ public final class ChromiumWarmup {
     /// Whether memory pressure lets a spare window be made now (normal only).
     private var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
-    /// Memory pressure rose above normal: the untaken spares close, and a spare's pending idle wait
-    /// ends now with its input subscription and timers (as `NewTabSparePool.dropForPressure` cancels
-    /// its armed warm), instead of waking the main thread for up to `maxWait` for a spare that cannot
-    /// be made. A `CefInitialize` wait goes on: it builds no spare.
-    private func sparesHeld() {
+    /// Memory pressure rose above normal: no spare is made or given back, and a spare's pending idle
+    /// wait ends now with its input subscription and timers (as `NewTabSparePool.dropForPressure`
+    /// cancels its armed warm), instead of waking the main thread for up to `maxWait` for a spare that
+    /// cannot be made. A `CefInitialize` wait goes on: it builds no spare. At warning the untaken spares
+    /// stay, as Chrome keeps its spare renderer; at critical (`closingUntaken`) they close.
+    private func sparesHeld(closingUntaken: Bool) {
         engine.holdSpareWindows(true)
+        if closingUntaken { engine.closeUntakenSpareWindows() }
         spareWaitsForPages = false
         if waitingForSpare { finishWaiting() }
     }
@@ -357,9 +363,11 @@ public protocol ChromiumWarmupEngine: AnyObject {
     func dropPagesSpareWindow()
     /// How many untaken spare windows are up (or being built).
     var spareWindowCount: Int { get }
-    /// Holds the spare windows for memory pressure: `true` closes the untaken ones and refuses new
-    /// ones and give-backs until `false`.
+    /// Holds the spare windows for memory pressure: `true` refuses new ones and give-backs until
+    /// `false`, and keeps the untaken ones.
     func holdSpareWindows(_ held: Bool)
+    /// Closes the untaken spare windows (critical memory pressure).
+    func closeUntakenSpareWindows()
     /// Runs when a wanted spare window is not ready, so the warmup makes one at an idle moment.
     var onSpareWindowNeeded: (@MainActor () -> Void)? { get set }
 }

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -10,14 +11,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ChiefViewsPageHostTests {
-    /// A memory registry that stays at normal pressure: these tests do not drive the preload slot.
-    private final class QuietMemoryRegistry: MemoryConsumerRegistry {
-        func addMemoryConsumer(_ entry: MemoryConsumerEntry) {
-            entry.liveConsumer?.updateMemoryLimit(.default)
-            (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(.normal)
-        }
-    }
-
     /// A root for the gallery's page when the generated page bundle is missing on the test runner.
     /// The first registration wins (`PageID.registerBundledRoot`) and the bundled directory, when
     /// present, is served before it, so this never moves a real page.
