@@ -35,7 +35,7 @@ nonisolated enum DiffOpenFailure: Error, Sendable, Equatable {
 /// folder (``DiffFolderChoosing``, the cmux picker) or takes a dropped one.
 /// Every open records the repository in ``DiffRecents``.
 final class DiffPageService: InternalPageProvider {
-    private struct Tab {
+    struct Tab {
         var repository: DiffRepository?
         var source: DiffOpenSource
         /// The chat turn its Last turn scope shows (D2), from the chat that opened it.
@@ -45,8 +45,7 @@ final class DiffPageService: InternalPageProvider {
         var host: DiffTabHost?
         /// The reopen on a card's turn in flight (``retarget(_:to:source:)``), one at a time.
         var reopen: Task<Void, Never>?
-        /// What the page last said it shows (`cmux.diff.viewState`), saved right before a discard
-        /// and given to the next page in its first config.
+        /// The page state its discard kept, for the next page's first config.
         var viewState: JSONValue?
     }
 
@@ -61,18 +60,20 @@ final class DiffPageService: InternalPageProvider {
     /// The diff page draws at the display's full rate (120 Hz), as the agent pane does, not
     /// WebKit's default nearest 60 fps.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
-    /// How long a page may take to say what it shows before its discard goes on without it.
-    static let viewStateTimeout: Duration = .seconds(1)
     /// Every tab's Stage, Commit and Push (cx-ueuc8), through this Mac's agent git link.
     private lazy var diffGit: any DiffGitRunning = DiffAgentGit(link: services.agentGit.local)
     /// The folder picker of `cmux.diff.chooseFolder`.
     var chooser: any DiffFolderChoosing = OpenPanelFolderChooser()
-    private var tabs: [String: Tab] = [:]
+    var tabs: [String: Tab] = [:]
     /// Teardowns still closing sessions (tests wait on them).
     private(set) var closing: [Task<Void, Never>] = []
+    /// The clock of the view state deadline (``viewStateTimeout``).
+    let clock: any Clock<Duration>
 
-    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil) {
+    init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
+        self.clock = clock
         if let runtime { self.runtime = runtime }
         if let recents { recentsStore = recents }
         if let stores { self.stores = stores }
@@ -349,6 +350,9 @@ final class DiffPageService: InternalPageProvider {
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
 
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
+
     /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The diff
     /// is read again from git when the tab shows; viewed marks, collapsed files and comments live in
     /// the host's stores and survive the discard.
@@ -365,16 +369,20 @@ final class DiffPageService: InternalPageProvider {
     /// answer in time comes back at its top.
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
         guard let page = tabs[key]?.page else { return ContentViewState() }
-        let answer = await PageAnswerDeadline(Self.viewStateTimeout).answer {
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout, clock: clock).answer {
             try await page.router.callPage("cmux.diff.viewState", params: .object([:]))
         }
         guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
-        tabs[key]?.viewState = answer
-        return ContentViewState(values: ["page": answer.compactText])
+        return ContentViewState(page: answer)
     }
 
     /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+
+    /// The page state the discard kept, for the next page's first config.
+    func willRemakeView(for key: String, with state: ContentViewState) {
+        tabs[key]?.viewState = state.page
+    }
 
     /// Tab `key`'s page, provider, sessions and grant go; the tab keeps its repository, scope, turn
     /// and view state, and its next show prepares a new grant.

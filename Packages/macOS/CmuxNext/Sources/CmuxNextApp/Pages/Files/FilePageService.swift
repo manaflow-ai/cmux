@@ -22,7 +22,7 @@ import typealias CmuxNextDaemon.SurfaceID
 /// the page lists recents, asks the picker or takes a dropped file). Every open records the file
 /// in the viewers' recents (R89).
 final class FilePageService: InternalPageProvider {
-    private struct Tab {
+    struct Tab {
         var file: URL?
         /// The user opened the document (not an agent or a script): it is granted and writable.
         var userChose = true
@@ -39,17 +39,20 @@ final class FilePageService: InternalPageProvider {
         var stopFlush: (() -> Void)?
         /// The Markdown omnibar above the page (markdown tabs only).
         var bar: MarkdownOmnibarBar?
-        /// What the page last said it shows (`cmux.<page>.viewState`: cursor, scroll, folds), saved
-        /// right before a discard and given to the next page in its first config.
+        /// After a discard (FilePageService+Discard.swift): the page state it kept, for the next
+        /// page's first config, and what the last page could open and save.
         var viewState: JSONValue?
+        var access: FileWorkspaceRoots.Grants?
+        /// The page reported edits that are not on disk, whatever the quit hook made of them.
+        var editsUnsaved = false
     }
 
     let kind: FilePageKind
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
     unowned let services: AppServices
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
-    private var tabs: [String: Tab] = [:]
+    var tabs: [String: Tab] = [:]
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
@@ -58,9 +61,9 @@ final class FilePageService: InternalPageProvider {
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
-    private var warnedTooLarge: Set<String> = []
-    /// Tabs whose pages are saving their last edits after the tab closed.
-    private(set) var flushing: [Task<Void, Never>] = []
+    var warnedTooLarge: Set<String> = []
+    /// Pages saving or reporting their last edits after their tab closed or was discarded.
+    var flushing: [Task<Void, Never>] = []
     /// The local live links of the Markdown Share menu, started on the first link.
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
 
@@ -68,8 +71,6 @@ final class FilePageService: InternalPageProvider {
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
-    /// How long a page may take to say what it shows before its discard goes on without it.
-    static let viewStateTimeout: Duration = .seconds(1)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
          images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
@@ -182,34 +183,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     /// Tab `key` as a holder of its quit document (the markdown and editor pages share documents).
-    private func holder(_ key: String) -> String { kind.namespace + ":" + key }
-
-    // MARK: Quit hook (R96)
-
-    fileprivate func edited(_ url: URL, text: String, baseHash: String?, writable: Bool, from key: String) -> RecoveryDraftAcceptance {
-        guard let document = documents.document(for: url, holder: holder(key), writable: { [weak self] in self?.tabs[key]?.provider?.isWritable ?? writable }) else {
-            return .invalidID
-        }
-        if tabs[key]?.stopFlush == nil, let page = tabs[key]?.page {
-            let op = kind.op("flush")
-            tabs[key]?.stopFlush = document.addFlusher { [weak page] in
-                guard let page, let answer = try? await page.router.callPage(op, params: .object([:])) else { return true }
-                return answer["dirty"]?.boolValue ?? true
-            }
-        }
-        let accepted = document.edited(text: text, baseHash: baseHash)
-        if accepted == .tooLarge, warnedTooLarge.insert(url.path).inserted, let window = tabs[key]?.page?.window {
-            _ = CmuxToastCenter.shared.show(CmuxToast(id: "file-recovery:\(url.path)", message: FilePageStrings.noRecovery(url.lastPathComponent),
-                                                     duration: .seconds(8)), in: window)
-        }
-        return accepted
-    }
-
-    fileprivate func saved(_ url: URL, hash: String) {
-        documents.existing(url)?.saved(hash: hash)
-        // A save can change the file's git state (clean to modified).
-        for tab in tabs.values where tab.provider?.file == url { tab.bar?.refresh() }
-    }
+    func holder(_ key: String) -> String { kind.namespace + ":" + key }
 
     /// Tab `key` stops showing `url`: the tab's flush goes; the document goes with the last tab.
     private func left(_ url: URL?, tab key: String) {
@@ -273,12 +247,12 @@ final class FilePageService: InternalPageProvider {
     }
 
     /// Tab `key`'s page history moved: its omnibar's Back and Forward follow.
-    fileprivate func historyChanged(canBack: Bool, canForward: Bool, in key: String) {
+    func historyChanged(canBack: Bool, canForward: Bool, in key: String) {
         tabs[key]?.bar?.setHistory(canBack: canBack, canForward: canForward)
     }
 
     /// Tab `key` now shows `url` (an open in the page): retitle it.
-    fileprivate func opened(_ url: URL, in key: String) {
+    func opened(_ url: URL, in key: String) {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
         tabs[key]?.bar?.show(url)
@@ -291,47 +265,18 @@ final class FilePageService: InternalPageProvider {
 
     // MARK: Host services for the tabs
 
-    /// Every terminal folder of every window (diff-host.md: the workspace roots).
-    var roots: FileWorkspaceRoots { Self.userChosenRoots(services) }
-
-    /// Folders the user chose as roots (the `files.roots` setting); never home, `/` or a folder the
-    /// host infers (a terminal's working directory).
-    static func userChosenRoots(_ services: AppServices) -> FileWorkspaceRoots {
-        let folders = services.settings?.fileRoot["files"]?["roots"]?.arrayValue?.compactMap(\.stringValue) ?? []
-        return FileWorkspaceRoots(folders: folders.map { ($0 as NSString).expandingTildeInPath })
-    }
-
     /// The "Open <path>?" sheet for links outside a granted folder: one at a time, after a real
     /// user gesture on a file page.
     private(set) lazy var openConfirmation = FileOpenConfirmation()
 
-    fileprivate func isRecent(_ path: String) -> Bool {
+    func isRecent(_ path: String) -> Bool {
         let recents = services.viewers.recents
         return recents.paths(.markdown).contains(path) || recents.paths(.file).contains(path)
     }
 
-    fileprivate func confirmOpen(_ url: URL, userGesture: Bool, from key: String) async -> Bool {
-        let page = tabs[key]?.page
-        return await openConfirmation.confirm(url, userGesture: userGesture, gestureEvent: page?.lastUserEventUptime, anchor: page)
-    }
-
-    fileprivate func recents() -> JSONValue {
-        JSONValue(foundation: services.viewers.recents.hostOpValue(kind.recents)) ?? ["items": []]
-    }
-
-    fileprivate func chooseFile(start: URL?, for key: String) async -> URL? {
-        var start = start
-        if start == nil, let newest = services.viewers.recents.paths(kind.recents).first {
-            start = URL(fileURLWithPath: newest).deletingLastPathComponent()
-        }
-        if kind == .markdown { return await services.viewers.chooseMarkdownFile(start: start?.path).map { URL(fileURLWithPath: $0) } }
-        let options = CmuxPicker.OpenOptions(choose: .files, startDirectory: start, recents: [.file, .markdown])
-        return await services.viewers.picker.open(options, over: tabs[key]?.page?.window)?.first
-    }
-
     /// A web link clicked in the page: the link setting (``LinkRouter``, cmux browser or the default
     /// browser) and, in cmux, beside the page's pane (``LinkOpener``).
-    fileprivate func openExternal(_ url: URL, from key: String) {
+    func openExternal(_ url: URL, from key: String) {
         switch url.scheme?.lowercased() {
         case "http", "https":
             guard LinkRouter.shared.target(for: url) == .cmuxBrowser else { return LinkRouter.shared.open(url, in: .system) }
@@ -341,12 +286,8 @@ final class FilePageService: InternalPageProvider {
         }
     }
 
-    fileprivate func openAppLink(_ url: URL) -> Bool {
-        CmuxAppLinks.open(url, services: services)
-    }
-
     /// A file link clicked in the page opens beside the page's pane (``LinkOpener``).
-    fileprivate func openFile(_ url: URL, from key: String) {
+    func openFile(_ url: URL, from key: String) {
         services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
@@ -357,8 +298,9 @@ final class FilePageService: InternalPageProvider {
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
-        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
-                                        libraries: libraries, images: images, tableWidths: tableWidths,
+        if tab.access != nil, tab.recoveredText == nil { tab.recoveredText = unsavedText(of: tab.file) }
+        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, access: tab.access,
+                                        host: host, clock: clock, libraries: libraries, images: images, tableWidths: tableWidths,
                                         comments: comments)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
@@ -366,6 +308,8 @@ final class FilePageService: InternalPageProvider {
         tab.recoveredText = nil
         tab.reveal = nil
         tab.viewState = nil
+        tab.access = nil
+        tab.editsUnsaved = false
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: kind.descriptor, routes: routes, options: Self.engineOptions,
@@ -446,19 +390,29 @@ final class FilePageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs[key] else { return }
+        tabs[key] = nil
+        letPageGo(tab, key: key, closing: true)
+    }
+
+    /// `tab`'s page goes: a closed tab's (`closing`) or a discarded one's. Its page first saves its
+    /// pending edits (`cmux.<page>.flush`; the person's own Hibernate Tab asks nothing before it).
+    private func letPageGo(_ tab: Tab, key: String, closing: Bool) {
         let file = tab.provider?.file ?? tab.file
         tab.stopFlush?()
-        tabs[key] = nil
         guard let page = tab.page, let file else {
             tab.page?.close()
             tab.provider?.close()
+            // No page saves the edits: a close drops them, as one without saving does; a discard keeps them.
+            if let file { settleDiscard(key, file: file) }
             return
         }
         // The page saves pending edits on `cmux.<page>.flush`; it stays alive (off screen) until it
         // answers. Past the timeout the page closes, which fails the pending call. A document no
         // other tab shows then leaves the quit hook; edits that did not save are dropped with it
-        // (a close without saving removes the draft).
+        // (a close without saving removes the draft). A discarded tab keeps them for its next page.
         let clock = clock, provider = tab.provider, op = kind.op("flush"), documents = documents, holder = holder(key)
+        let finish: @MainActor @Sendable () -> Void = closing ? { documents.release(file, holder: holder) }
+            : { [weak self] in self?.settleDiscard(key, file: file) }
         let flush = Task { @MainActor in
             let deadline = Task { @MainActor in
                 do { try await clock.sleep(for: Self.flushTimeout) } catch { return } // wakeup-allow: bounded flush on tab close
@@ -468,7 +422,7 @@ final class FilePageService: InternalPageProvider {
             deadline.cancel()
             page.close()
             provider?.close()
-            documents.release(file, holder: holder)
+            finish()
         }
         flushing.append(flush)
         // task-owner: drops the finished flush from `flushing`
@@ -480,55 +434,76 @@ final class FilePageService: InternalPageProvider {
 
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
 
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
+
     func discardPolicy(for key: String) -> ContentDiscardPolicy { kind.discardPolicy }
 
-    /// A tab whose file has edits that are not saved keeps its page at any pressure (Chrome's
-    /// `kUserEdits`, cannot_discard_reason.h; cmux's lead rule). The document is shared by every
-    /// tab of the file, so each of them keeps its page.
+    /// A tab whose page holds edits not on disk keeps its page at any pressure (Chrome's `kUserEdits`,
+    /// cannot_discard_reason.h): its page said so, or its file's shared quit document is unsaved.
     func keepReasons(for key: String) -> [CannotDiscardReason] {
-        guard let file = file(key), documents.existing(file)?.hasUnsavedChanges == true else { return [] }
-        return [.unsavedEdits]
+        guard let tab = tabs[key] else { return [] }
+        let unsaved = tab.editsUnsaved || file(key).flatMap { documents.existing($0) }?.hasUnsavedChanges == true
+        return unsaved ? [.unsavedEdits] : []
     }
 
-    /// Asks the page what it shows (`cmux.<page>.viewState`). The page reports an edit it has not
-    /// reported yet before it answers, so the discarder's second look at ``keepReasons(for:)``
-    /// sees it. A page that does not answer in time loses its cursor and scroll, never its text.
+    /// Asks the page `cmux.<page>.viewState`: `{dirty, view}`. The page reports a coalesced edit first
+    /// and says whether it holds edits not on disk, so the discarder's second look at
+    /// ``keepReasons(for:)`` sees them. A page that does not answer in time loses its place, never its text.
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
         guard let page = tabs[key]?.page else { return ContentViewState() }
         let op = kind.op("viewState")
-        let answer = await PageAnswerDeadline(Self.viewStateTimeout).answer { try await page.router.callPage(op, params: .object([:])) }
-        guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
-        tabs[key]?.viewState = answer
-        return ContentViewState(values: ["page": answer.compactText])
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout, clock: clock).answer {
+            try await page.router.callPage(op, params: .object([:]))
+        }
+        guard let answer, tabs[key]?.page === page else { return ContentViewState() }
+        if let dirty = answer["dirty"]?.boolValue { tabs[key]?.editsUnsaved = dirty }
+        guard let view = answer["view"], view != .null else { return ContentViewState() }
+        return ContentViewState(page: view)
     }
 
     /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
 
-    /// Tab `key`'s page went; the tab keeps its file, grant and view state. Edits that are still
-    /// unsaved (only the person's own discard gets past ``keepReasons(for:)``) stay in the quit
-    /// hook and come back in the next page as a recovered draft.
+    func willRemakeView(for key: String, with state: ContentViewState) {
+        tabs[key]?.viewState = state.page
+    }
+
+    /// Tab `key`'s page goes; the tab keeps its file and route, what its page could open and save
+    /// (a discard grants nothing), and the editor's cursor. Edits still not on disk once the page
+    /// saved what it could stay in the quit hook for the next page, as a recovered draft.
     func viewDiscarded(_ key: String) {
         guard var tab = tabs[key] else { return }
-        let file = tab.provider?.file ?? tab.file
-        tab.stopFlush?()
-        tab.stopFlush = nil
-        if let file {
-            if let document = documents.existing(file), document.hasUnsavedChanges {
-                tab.recoveredText = document.latestText
-            } else {
-                documents.release(file, holder: holder(key))
-            }
-        }
+        let gone = tab
+        tab.access = tab.provider?.access ?? tab.access
         tab.reveal = tab.provider?.reveal ?? tab.reveal
-        tab.page?.close()
-        tab.provider?.close()
-        tab.file = file
+        tab.stopFlush = nil
         tab.page = nil
         tab.provider = nil
         tab.host = nil
         tab.bar = nil
         tabs[key] = tab
+        letPageGo(gone, key: key, closing: false)
+    }
+
+    /// The text of `file`'s quit document when it has edits not on disk: a discarded tab's draft.
+    func unsavedText(of file: URL?) -> String? {
+        guard let document = file.flatMap({ documents.existing($0) }), document.hasUnsavedChanges else { return nil }
+        return document.latestText
+    }
+
+    /// A save of `url` wrote what its pages showed: their tabs hold no edits unless its document still does.
+    func savedEdits(of url: URL) {
+        let unsaved = documents.existing(url)?.hasUnsavedChanges ?? false
+        for key in tabs.keys where file(key) == url { tabs[key]?.editsUnsaved = unsaved }
+    }
+
+    /// Tab `key`'s page closed: a discarded tab keeps a document with edits not on disk for its next
+    /// page; otherwise, or once the tab closed, the tab lets it go. A tab shown again holds it anew.
+    private func settleDiscard(_ key: String, file: URL) {
+        guard tabs[key]?.page == nil else { return }
+        if tabs[key] != nil, documents.existing(file)?.hasUnsavedChanges == true { return }
+        documents.release(file, holder: holder(key))
     }
 
     /// App quit: closes every tab now.
@@ -539,48 +514,5 @@ final class FilePageService: InternalPageProvider {
         }
         tabs.removeAll()
         look.stop()
-    }
-}
-
-/// One tab's ``FilePageHosting``: the service, scoped to that tab.
-final class FilePageTabHost: FilePageHosting {
-    private weak var service: FilePageService?
-    private let key: String
-
-    init(service: FilePageService, key: String) {
-        self.service = service
-        self.key = key
-    }
-
-    var roots: FileWorkspaceRoots { service?.roots ?? FileWorkspaceRoots(folders: []) }
-    var remoteImages: Bool { service?.look.remoteImages ?? false }
-    func recents() -> JSONValue { service?.recents() ?? ["items": []] }
-    func record(_ url: URL) {
-        guard let service else { return }
-        service.servicesRecord(url)
-    }
-    func chooseFile(start: URL?) async -> URL? { await service?.chooseFile(start: start, for: key) }
-    func look() -> JSONValue { service?.look.current() ?? .object([:]) }
-    func listenLook(_ onLook: @escaping @MainActor (JSONValue) -> Void) -> () -> Void { service?.look.listen(onLook) ?? {} }
-    func setPreference(key: String, value: JSONValue, by writer: SettingWriter) async throws {
-        try await service?.look.setPreference(key: key, value: value, by: writer)
-    }
-    func opened(_ url: URL) { service?.opened(url, in: key) }
-    func openExternal(_ url: URL) { service?.openExternal(url, from: key) }
-    func openFile(_ url: URL) { service?.openFile(url, from: key) }
-    func openAppLink(_ url: URL) -> Bool { service?.openAppLink(url) ?? false }
-    func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
-        service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
-    }
-    func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
-    var showsOmnibar: Bool { service?.kind == .markdown }
-    func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
-    func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
-    func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
-}
-
-extension FilePageService {
-    fileprivate func servicesRecord(_ url: URL) {
-        services.viewers.recents.record(url, as: kind.recents)
     }
 }

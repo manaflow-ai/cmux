@@ -25,7 +25,7 @@ import {
 } from "./host";
 import { resolveEditorSettings } from "./settings";
 import { revealOf, type RevealPosition } from "./keys";
-import { createEditReporter } from "../shared/editReporter";
+import { createEditReporter, type PageViewStateAnswer } from "../shared/editReporter";
 
 export type SaveStatus = "saved" | "edited" | "saving" | "failed";
 
@@ -310,12 +310,13 @@ export class EditorStore {
   }
 
   /**
-   * `cmux.editor.viewState`: what the view shows, for the page the host makes after it discards this
-   * one. An edit not reported yet goes to the host first, so a tab with unsaved edits is kept.
+   * `cmux.editor.viewState`: what the view shows (`view`), for the page the host makes after it
+   * discards this one, and whether the page holds edits not on disk (`dirty`): the host keeps such a
+   * tab. An edit not reported yet goes to the host first.
    */
-  viewState(): unknown {
+  viewState(): PageViewStateAnswer {
     this.reporter.flush();
-    return this.view?.saveViewState?.() ?? null;
+    return { dirty: !this.state.readOnly && this.isDirty(), view: this.view?.saveViewState?.() ?? null };
   }
 
   /**

@@ -5,7 +5,12 @@
 import { expect, test } from "bun:test";
 import type { PageClient } from "../src/pages/shared/pageClient";
 import { MarkdownStore, type Schedule } from "../src/pages/markdown/store";
-import { anchoredScrollTop, markdownScrollAnchor, markdownViewStateOf } from "../src/pages/markdown/viewState";
+import {
+  anchoredScrollTop,
+  markdownHeadingBoxes,
+  markdownScrollAnchor,
+  markdownViewStateOf,
+} from "../src/pages/markdown/viewState";
 
 const headings = [
   { text: "Intro", top: 0 },
@@ -26,6 +31,24 @@ test("the restored scroll follows its heading when the content above it moved", 
   expect(anchoredScrollTop(grown, { scroll: 1600, anchor })).toBe(1850);
   expect(anchoredScrollTop([{ text: "Other", top: 0 }], { scroll: 1600, anchor })).toBe(1600);
   expect(anchoredScrollTop(headings, { scroll: 77 })).toBe(77);
+});
+
+test("hidden headings have no place: a source-mode page saves its plain scroll", () => {
+  // The rich document stays mounted but hidden under the source view: every heading's box is empty.
+  const scroller = {
+    scrollTop: 640,
+    getBoundingClientRect: () => ({ top: 80, width: 600, height: 400 }),
+    querySelectorAll: () =>
+      ["Intro", "Usage"].map((text) => ({
+        textContent: text,
+        getBoundingClientRect: () => ({ top: 0, width: 0, height: 0 }),
+      })),
+  } as unknown as HTMLElement;
+  const boxes = markdownHeadingBoxes(scroller);
+  expect(boxes).toEqual([]);
+  const anchor = markdownScrollAnchor(boxes, 640);
+  expect(anchor).toBeUndefined();
+  expect(anchoredScrollTop(boxes, { scroll: 640 })).toBe(640);
 });
 
 test("a malformed viewState is ignored; a good one keeps its mode", () => {
@@ -85,4 +108,63 @@ test("an edit not reported yet goes to the host before the page answers its view
   expect(edits).toEqual(["# A\nfirst\n", "# A\nfirst\nsecond\n"]);
   store.reportPendingEdit();
   expect(edits).toHaveLength(2);
+});
+
+test("the view state carries the link history, and a page made again on its file can go back", async () => {
+  const configs: Record<string, unknown> = {
+    "/a.md": file,
+    "/b.md": { ...file, path: "/b.md", text: "# B\n", hash: "hb" },
+  };
+  let config: unknown = file;
+  const client = {
+    async call<R>(op: string, params?: unknown): Promise<R> {
+      if (op === "cmux.markdown.config") return config as R;
+      if (op === "cmux.markdown.open") return configs[(params as { path: string }).path] as R;
+      if (op === "cmux.markdown.history") return {} as R;
+      throw new Error(`unexpected ${op}`);
+    },
+    async subscribe() {
+      return () => {};
+    },
+    handle() {
+      return () => {};
+    },
+  } satisfies PageClient;
+  const neverEnds: Schedule = () => () => {};
+  const before = new MarkdownStore(client, neverEnds, neverEnds);
+  await before.start();
+  await before.navigate("/b.md", "", 120);
+  const answer = before.viewState(40, undefined);
+  expect(answer.dirty).toBe(false);
+  const saved = answer.view as { history: { entries: { path: string; scroll: number }[]; index: number } };
+  expect(saved.history.index).toBe(1);
+  expect(saved.history.entries.map((entry) => [entry.path, entry.scroll])).toEqual([
+    ["/a.md", 120],
+    ["/b.md", 40],
+  ]);
+
+  // The host made the next page on the file the tab showed, B, with the saved view.
+  config = { ...(configs["/b.md"] as object), viewState: answer.view };
+  const after = new MarkdownStore(client, neverEnds, neverEnds);
+  await after.start();
+  expect(after.getState().canBack).toBe(true);
+  const back = await after.go(-1, 0);
+  expect(back?.path).toBe("/a.md");
+  expect(back?.scroll).toBe(120);
+});
+
+test("a malformed link history is not put back", () => {
+  const view = markdownViewStateOf({
+    scroll: 0,
+    history: { entries: [{ path: "/a.md", anchor: "", scroll: 0 }], index: 3 },
+  });
+  expect(view?.history).toBeUndefined();
+});
+
+test("the view state says the page holds edits not on disk", async () => {
+  const { store } = harness(file);
+  await store.start();
+  store.setMode("source");
+  store.setSource("# A\nedited\n");
+  expect(store.viewState(0, undefined).dirty).toBe(true);
 });

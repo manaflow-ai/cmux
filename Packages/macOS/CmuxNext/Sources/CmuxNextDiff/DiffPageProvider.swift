@@ -79,6 +79,8 @@ public final class DiffPageProvider: PageProvider {
         guard !isClosed else { throw PageError.closed }
         switch op {
         case Self.configOp:
+            // A new document (a reload, a retarget, a crash) starts with no draft and no commit form.
+            holdsUnsavedInput = false
             return try await config()
         case Self.languagesOp:
             guard let languages else { throw PageError.unknownOp(op) }

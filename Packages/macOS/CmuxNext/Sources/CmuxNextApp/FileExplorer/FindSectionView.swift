@@ -18,8 +18,10 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private let scroll = NSScrollView()
     private var results: [RipgrepMatch] = []
     private var observation: Task<Void, Never>?
-    /// The result to select when the next search finishes (``restore(query:cursor:)``).
+    /// The result to select and the scroll to go back to when the next search finishes
+    /// (``restore(query:cursor:scroll:)``).
     private var pendingCursor: String?
+    private var pendingScroll: CGPoint?
 
     /// - Parameters:
     ///   - model: The search (one per section or pane).
@@ -121,11 +123,15 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     /// A result's place: `path:line:column`.
     static func cursor(of match: RipgrepMatch) -> String { "\(match.path):\(match.line):\(match.column)" }
 
-    /// Searches for `query` again and selects the result at `cursor` once the results show: a
-    /// discarded Find tab shown again (FindPaneService).
-    func restore(query: String, cursor: String?) {
+    /// Where the results list is scrolled: what a discarded Find tab keeps with its cursor.
+    var resultsScroll: CGPoint { scroll.documentVisibleRect.origin }
+
+    /// Searches for `query` again, then selects the result at `cursor` and scrolls the results back
+    /// to `scroll` once they show: a discarded Find tab shown again (FindPaneService).
+    func restore(query: String, cursor: String?, scroll: CGPoint? = nil) {
         field.stringValue = query
         pendingCursor = cursor
+        pendingScroll = scroll
         submit()
     }
 
@@ -143,16 +149,24 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         }
     }
 
-    /// Selects and scrolls to the result ``restore(query:cursor:)`` asked for, once its search ends.
+    /// Selects the result and goes back to the scroll ``restore(query:cursor:scroll:)`` asked for,
+    /// once its search ends; with no saved scroll, the selected result scrolls into view.
     private func selectPendingCursor() {
-        guard let cursor = pendingCursor else { return }
+        guard pendingCursor != nil || pendingScroll != nil else { return }
         switch model.state {
         case .idle, .searching: return
-        case .done, .failed: pendingCursor = nil
+        case .done, .failed: break
         }
-        guard let row = results.firstIndex(where: { Self.cursor(of: $0) == cursor }) else { return }
-        table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-        table.scrollRowToVisible(row)
+        let cursor = pendingCursor, origin = pendingScroll
+        pendingCursor = nil
+        pendingScroll = nil
+        if let cursor, let row = results.firstIndex(where: { Self.cursor(of: $0) == cursor }) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            if origin == nil { table.scrollRowToVisible(row) }
+        }
+        guard let origin else { return }
+        scroll.contentView.scroll(to: origin)
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private var selected: RipgrepMatch? {

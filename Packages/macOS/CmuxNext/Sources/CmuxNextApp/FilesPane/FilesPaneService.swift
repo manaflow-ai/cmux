@@ -152,12 +152,24 @@ final class FilesPaneService: InternalPageProvider {
     /// layout and Back/Forward), so the next view shows the same place.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// The model keeps what the view showed; the list and icon layouts scroll its selection into
-    /// view when they show it. Nothing in the view is unsaved: an inline rename ends when the view
-    /// leaves its window, so no keep reason applies.
-    func saveViewState(for key: String, content: NSView) async -> ContentViewState { ContentViewState() }
+    /// A Get Info panel the pane opened shows on its own while the tab is hidden: the discard would
+    /// close it, so the pane stays while one is open. An inline rename ends when the view leaves its
+    /// window, so nothing else in the view is unsaved.
+    func keepReasons(for key: String) -> [CannotDiscardReason] {
+        tabs[key]?.view?.showsInfoPanels == true ? [.openPanel] : []
+    }
 
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+    /// The model keeps what the view showed (folder, selection, sort, filter, layout); the view
+    /// keeps the list or icon layout's scroll, which the default (the first scroll view) would take
+    /// from the sidebar.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        ContentViewState(scroll: (content as? FilesPaneView)?.contentScroll)
+    }
+
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+        guard let scroll = state.scroll else { return }
+        (content as? FilesPaneView)?.scrollContent(to: scroll)
+    }
 
     func viewDiscarded(_ key: String) {
         titleWatch.removeValue(forKey: key)?.cancel()

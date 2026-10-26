@@ -26,7 +26,7 @@ import {
   MARKDOWN_VIEW_STATE_OP,
   resolveImageURL,
 } from "./host";
-import { anchoredScrollTop, markdownHeadingBoxes, markdownScrollAnchor, type MarkdownViewState } from "./viewState";
+import { anchoredScrollTop, markdownHeadingBoxes, markdownScrollAnchor } from "./viewState";
 import type { LinkLabel } from "./linkEditing";
 import { LinkRouter } from "./linkRouter";
 import { LinkResolver, type ResolvedLink } from "./links";
@@ -333,16 +333,13 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     );
     // The host asks before it closes the tab or quits: pending edits are written first.
     client.handle(MARKDOWN_FLUSH_OP, () => store.flush());
-    // Before the host discards the hidden page: the mode and the place its next page goes back to.
-    client.handle(MARKDOWN_VIEW_STATE_OP, (): MarkdownViewState => {
-      store.reportPendingEdit();
+    // Before the host discards the hidden page: the mode, history and place its next page goes back
+    // to. Only the rich view has headings to anchor to; the source view keeps its plain scroll.
+    client.handle(MARKDOWN_VIEW_STATE_OP, () => {
       const element = scroller();
       const scroll = element?.scrollTop ?? 0;
-      return {
-        scroll,
-        anchor: markdownScrollAnchor(markdownHeadingBoxes(element), scroll),
-        mode: store.getState().mode,
-      };
+      const rich = store.getState().mode === "rich";
+      return store.viewState(scroll, rich ? markdownScrollAnchor(markdownHeadingBoxes(element), scroll) : undefined);
     });
     // Comment… and Quote in Chat on selected text: the host asks for the selection and its lines.
     client.handle(MARKDOWN_SELECTION_OP, () => editor?.selectionQuote() ?? null);

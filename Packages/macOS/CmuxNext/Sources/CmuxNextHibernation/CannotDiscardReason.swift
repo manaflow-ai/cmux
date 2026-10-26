@@ -84,6 +84,9 @@ package nonisolated enum CannotDiscardReason: String, Hashable, Sendable, CaseIt
     case unsavedEdits = "unsaved_edits"
     /// A terminal's command still runs.
     case runningCommand = "running_command"
+    /// A window the content opened still shows (a Files pane's Get Info panel): its discard would
+    /// close it. Chrome keeps a tab whose DevTools window is open the same way (`kDevToolsOpen`).
+    case openPanel = "open_panel"
 
     /// The case of Chrome's reason `name` (the enumerator's name in `cannot_discard_reason.h`, such
     /// as `kPinnedTab`), or nil when Chrome has no such reason.

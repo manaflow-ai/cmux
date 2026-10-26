@@ -7,8 +7,8 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
-import { createEditReporter } from "../shared/editReporter";
-import { markdownViewStateOf, type MarkdownViewState } from "./viewState";
+import { createEditReporter, type PageViewStateAnswer } from "../shared/editReporter";
+import { markdownViewStateOf, type MarkdownScrollAnchor, type MarkdownViewState } from "./viewState";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
@@ -257,7 +257,12 @@ export class MarkdownStore {
       look,
       mode,
     });
-    this.history = { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
+    // A discarded page's link history comes back when it was on this file (its Back still goes).
+    const restoredHistory = this.restoredView?.history;
+    this.history =
+      restoredHistory?.entries[restoredHistory.index]?.path === config.path
+        ? restoredHistory
+        : { entries: [{ path: config.path, anchor: "", scroll: 0 }], index: 0 };
     this.historyMoved();
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(text);
@@ -362,6 +367,21 @@ export class MarkdownStore {
   /** An edit not reported yet goes to the host now (it asks before it discards the page). */
   reportPendingEdit(): void {
     this.reporter.flush();
+  }
+
+  /**
+   * `cmux.markdown.viewState`: the page scrolled to `scroll` (at `anchor`, rich mode only) in its
+   * mode and its link history, for the page the host makes after it discards this one, and whether
+   * it holds edits not on disk. An edit not reported yet goes to the host first.
+   */
+  viewState(scroll: number, anchor: MarkdownScrollAnchor | undefined): PageViewStateAnswer {
+    this.reportPendingEdit();
+    const { entries, index } = this.history;
+    const history = { entries: entries.map((entry) => ({ ...entry })), index };
+    if (history.entries[index]) history.entries[index].scroll = scroll;
+    const view: MarkdownViewState = { scroll, ...(anchor ? { anchor } : {}), mode: this.state.mode, history };
+    const dirty = !this.state.readOnly && (this.state.conflict !== null || this.currentText() !== this.savedText);
+    return { dirty, view };
   }
 
   /** The document as the current mode holds it. */

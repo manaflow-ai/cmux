@@ -71,12 +71,12 @@ final class FindPaneService: InternalPageProvider {
 
     func saveViewState(for key: String, content: NSView) async -> ContentViewState {
         guard let view = content as? FindSectionView else { return ContentViewState() }
-        return ContentViewState(search: view.field.stringValue, selection: view.cursor)
+        return ContentViewState(scroll: view.resultsScroll, search: view.field.stringValue, selection: view.cursor)
     }
 
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
         guard let view = content as? FindSectionView, let query = state.search, !query.isEmpty else { return }
-        view.restore(query: query, cursor: state.selection)
+        view.restore(query: query, cursor: state.selection, scroll: state.scroll)
     }
 
     /// The tab keeps its folder (``route(for:)``) for the next view.

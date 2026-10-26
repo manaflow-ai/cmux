@@ -3,8 +3,10 @@ import CmuxNextActions
 import typealias CmuxNextBridge.StripTabID
 import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextHibernation
+import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 
 extension InternalPageID {
     /// The Files tree beside a chat (cx-p4rt).
@@ -22,14 +24,21 @@ final class FileTreePageService: InternalPageProvider {
         var folder: URL?
         var link: AgentPaneGitLink?
         var page: PageWebView?
+        /// The page state its discard kept (PageDiscardState.swift), for the next page's `root` answer.
+        var viewState: CmuxNextSettings.JSONValue?
     }
 
     /// Weak: AppServices owns this service (ViewerService's lazy page services); after it is gone every entry point returns.
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
+    /// The clock of the view state deadline (``viewStateTimeout``).
+    private let clock: any Clock<Duration>
+    /// How long a page may take to say what it shows before its discard goes on without it.
+    static let viewStateTimeout: Duration = .seconds(1)
 
-    init(services: AppServices) {
+    init(services: AppServices, clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
+        self.clock = clock
     }
 
     var page: InternalPageID { .files }
@@ -78,6 +87,8 @@ final class FileTreePageService: InternalPageProvider {
         let provider = FileTreePageProvider(folder: tab.folder, link: tab.link) { [weak self] file in
             self?.open(file, from: key)
         }
+        provider.viewState = tab.viewState
+        tab.viewState = nil
         let native = AppPageNativeProvider(services: services, page: .files)
         let routes = [PageRoute(prefix: "cmux.files.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .files, routes: routes)) else { return NSView() }
@@ -94,8 +105,27 @@ final class FileTreePageService: InternalPageProvider {
     // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
 
     /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The tree
-    /// is a read-only listing: the next page lists the folder again and loses nothing.
+    /// is a read-only listing: the next page lists the folder again and opens the folders the last
+    /// one had open, with its selection and scroll (`cmux.files.viewState`).
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
+    /// Asks the page for its open folders, selected row and scroll. A page that does not answer in
+    /// time comes back at its root.
+    func saveViewState(for key: String, content: NSView) async -> ContentViewState {
+        guard let page = tabs[key]?.page else { return ContentViewState() }
+        let answer = await PageAnswerDeadline(Self.viewStateTimeout, clock: clock).answer {
+            try await page.router.callPage("cmux.files.viewState", params: .object([:]))
+        }
+        guard let answer, answer != .null, tabs[key]?.page === page else { return ContentViewState() }
+        return ContentViewState(page: answer)
+    }
+
+    /// The page gets its state in its `root` answer (``makeView(for:in:)``), not from its view.
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+
+    func willRemakeView(for key: String, with state: ContentViewState) {
+        tabs[key]?.viewState = state.page
+    }
 
     /// Tab `key`'s page goes; the tab keeps its folder and git link.
     func viewDiscarded(_ key: String) {

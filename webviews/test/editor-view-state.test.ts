@@ -82,14 +82,22 @@ test("viewState answers the view's state and reports a coalesced edit first", as
   type("one\ntwo\n");
   store.edited();
   expect(edits).toEqual(["one\n"]);
-  const state = store.viewState() as { viewState: { scrollTop: number } };
+  const state = store.viewState();
   expect(edits).toEqual(["one\n", "one\ntwo\n"]);
-  expect(state.viewState.scrollTop).toBe(40);
+  expect((state.view as { viewState: { scrollTop: number } }).viewState.scrollTop).toBe(40);
+  expect(state.dirty).toBe(true);
   store.viewState();
   expect(edits).toHaveLength(2);
 });
 
-test("viewState with no view answers null", () => {
+test("viewState says the page holds no edits while its text is on disk", async () => {
+  const { store, view } = harness(file);
+  store.attachView(view);
+  await store.start();
+  expect(store.viewState().dirty).toBe(false);
+});
+
+test("viewState with no view answers no state and no edits", () => {
   const { store } = harness(file);
-  expect(store.viewState()).toBeNull();
+  expect(store.viewState()).toEqual({ dirty: false, view: null });
 });
