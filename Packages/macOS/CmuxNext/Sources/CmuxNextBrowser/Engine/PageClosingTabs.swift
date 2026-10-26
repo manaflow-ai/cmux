@@ -1,5 +1,3 @@
-import CmuxNextCompat
-
 /// Browser tabs whose page decides a person's close now (a live Chromium page runs its
 /// beforeunload first, `BrowserUserClosing`): the tab stays in its strip until Chromium closes
 /// the page, usually within a renderer round trip. While it does, a quick next Cmd-W closes the
@@ -16,18 +14,21 @@ public final class PageClosingTabs {
     /// The page of tab `id` began deciding its close.
     ///
     /// - Parameter id: The tab.
-    /// - Parameter page: Its page; the tab leaves the set once the page asks or goes away.
+    /// - Parameter page: Its page; the tab leaves the set once the page asks or closes.
     public func begin(_ id: String, page: any BrowserTab) {
         watches[id]?.cancel()
-        // task-owner: this set (cancelled on end or a new begin); event driven (Observation), ends
-        // when the page asks or goes away.
+        // task-owner: this set (cancelled on end or a new begin); a keyed page wait (PageWaiters), read
+        // only when the page adds a prompt, ends when the page asks or closes.
         watches[id] = Task { [weak self, weak page] in
-            for await asks in ObservationStream({ page.map { $0.pendingPrompts.contains { $0.kind.isBeforeUnload } } ?? true }) where asks {
-                break
-            }
+            _ = await page?.whenPrompt(kind: { $0.isBeforeUnload })
             guard !Task.isCancelled else { return }
             self?.watches[id] = nil
         }
+    }
+
+    /// Returns once tab `id`'s watch ended (tests: the page asked or closed).
+    func watchEnded(_ id: String) async {
+        await watches[id]?.value
     }
 
     /// Whether tab `id`'s page is still deciding a close no question shows for.

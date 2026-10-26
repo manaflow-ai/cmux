@@ -43,7 +43,7 @@ public final class MockBrowserEngine: BrowserEngine {
 /// A fake page. Commands are recorded; navigation events can be driven by
 /// hand with `simulate` to reproduce engine callback orders.
 @Observable
-public final class MockBrowserTab: BrowserTab {
+public final class MockBrowserTab: BrowserTab, BrowserPageWaiting {
     /// The back/forward list `navigationList()` reports (tests set it).
     @ObservationIgnored public var navigation: BrowserNavigationList?
     /// Sessions handed to `restoreSession`, in order.
@@ -81,7 +81,11 @@ public final class MockBrowserTab: BrowserTab {
 
     public var state: BrowserTabState { machine.state }
     public var favicon: NSImage?
-    public private(set) var pendingPrompts: [BrowserPrompt] = []
+    public private(set) var pendingPrompts: [BrowserPrompt] = [] {
+        didSet { if pendingPrompts.count > oldValue.count { pageWaiters.notePromptsAdded(pendingPrompts) } }
+    }
+    /// Keyed waits on this page's phase and prompts, resumed by the setters of `machine` and `pendingPrompts`.
+    @ObservationIgnored public let pageWaiters = PageWaiters()
     public private(set) var commands: [Command] = []
     public private(set) var isClosed = false
     /// Engine page captures (`snapshot()`) so far; not a command, so it never
@@ -117,7 +121,9 @@ public final class MockBrowserTab: BrowserTab {
         profile: profileID, backend: extensionBackend
     )
 
-    private var machine = BrowserTabStateMachine()
+    private var machine = BrowserTabStateMachine() {
+        didSet { if machine.state.phase != oldValue.state.phase { pageWaiters.notePhase(machine.state.phase) } }
+    }
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public private(set) var isAudible = false
@@ -283,6 +289,7 @@ public final class MockBrowserTab: BrowserTab {
         commands.append(.close)
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
+        pageWaiters.pageEnded()
     }
 
     // MARK: Private
