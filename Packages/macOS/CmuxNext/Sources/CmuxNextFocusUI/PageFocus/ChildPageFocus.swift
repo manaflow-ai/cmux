@@ -25,8 +25,9 @@ public import AppKit
 public final class ChildPageFocus {
     /// The page this window gave focus to (blurred when focus leaves it), held weakly.
     public weak var page: AnyObject?
-    /// A grant is running (``focus(_:)``).
-    private var granting = false
+    /// The number of nested grants currently running (``focus(_:)``). CEF can synchronously
+    /// re-enter focus while a grant is being applied, so a Boolean would clear too early.
+    private var grantDepth = 0
     private let keys: any KeyWindowSwitching
     /// Gives (true) or takes (false) a page's focus; giving a Chromium page focus makes its window key.
     private let setFocus: (AnyObject, Bool) -> Void
@@ -52,8 +53,8 @@ public final class ChildPageFocus {
         guard page !== next else { return }
         blurPage()
         page = next
-        granting = true
-        defer { granting = false }
+        grantDepth += 1
+        defer { grantDepth -= 1 }
         setFocus(next, true)
     }
 
@@ -73,7 +74,7 @@ public final class ChildPageFocus {
     /// - Returns: Whether a page lost focus; the caller then re-applies its target.
     public func keysReturned(to window: NSWindow, during event: NSEvent? = NSApplication.shared.currentEvent) -> Bool {
         let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        guard !granting, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
+        guard grantDepth == 0, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
         blurPage()
         return true
     }
