@@ -189,6 +189,6 @@ describe("Chief multiplayer: two people, two Chiefs, one group", { timeout: 180_
     expect((await history(ann.token, group)).length).toBe(quiet)
 
     // Both people see the same transcript.
-    expect((await history(ben.token, group)).map((m) => m.id)).toEqual(h.map((m) => m.id))
+    expect((await history(ben.token, group)).map((m) => m.id)).toEqual((await history(ann.token, group)).map((m) => m.id))
   })
 })

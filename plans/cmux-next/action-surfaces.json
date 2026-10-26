@@ -24746,8 +24746,8 @@
       },
       "palette_suggested" : null,
       "title" : "Attach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelAttach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24774,8 +24774,8 @@
       },
       "palette_suggested" : null,
       "title" : "Detach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelDetach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24802,8 +24802,8 @@
       },
       "palette_suggested" : null,
       "title" : "Rotate Cloud Tunnel Key",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelRotateKey",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24830,8 +24830,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Networks",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudNetworkList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24970,8 +24970,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Domains",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudDomainList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",

@@ -123,6 +123,33 @@ raw.
 
 ## CLI
 
+### Remote ergonomics
+
+Use a non-interactive SSH probe before saving a peer. If the first attempt is
+offline, `acpmux host add` saves the peer, exits 0, and prints a warning to
+stderr. With `--json`, the response instead includes a `warning` object with
+`reason: "peer_unreachable"`, the exact `ssh -o BatchMode=yes HOST true` probe
+in `try`, and `detail: "the peer was saved and will keep reconnecting"`.
+For WebSocket URLs, `try` is `acpmux host ls`. Saving failures remain errors.
+Peer requests that cannot be sent include `acpmux host ls` and state that the
+request was not sent. A method rejected by an older peer is reported as
+`peer_version_skew` with `acpmux host update NAME`.
+
+`ACPMUX_SOCKET` takes precedence over `ACPMUX_HOME`. To inspect an isolated
+home from a shell that may be inside another agent, use
+`env -u ACPMUX_SOCKET ACPMUX_HOME=/tmp/example acpmux daemon status`; inspect
+the selected socket before stopping a daemon. `host enroll` preserves a saved
+peer's explicit listener port instead of assuming 47811.
+
+`host doctor --harness ID` distinguishes a local profile that can be copied
+from a harness discovered by the remote daemon. For the latter, run
+`acpmux daemon harnesses`, then verify with a real `acpmux new --host` session
+and prompt. `harness doctor` classifies a Codex app-server's
+`unknown variant session/new` as a protocol mismatch and points to the acpmux
+bridge; it does not suggest a login command for that error. Remote permission
+requests must be approved in the cmux Mac app's pending-permission card; the
+CLI allow command is refused on this route.
+
 Five everyday commands, three groups for the rest:
 
 | Command | What it does |
@@ -134,7 +161,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also `peer status`) asks each peer's health live: reachable, round trip, disk, load, live sessions, build. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also the hidden `peer status` alias) asks each host's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -204,7 +231,13 @@ id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, clos
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `transport` or
-`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way. A
+`agent_exited`), null otherwise. Usage limits and sign-in failures never retry this way.
+`acpmux retry NAME` (`_acpmux/retry {sessionId}`, the Retry button; the sub-session tool
+`retry_session`) retries a failed last turn now, under the caller's rules, taking over a waiting
+retry: the failed prompt goes again as its next `~resume-<n>` (a continuation when the turn had
+output, joined agent messages or hidden context); `retry.busy` while a turn or a retry runs,
+`retry.stopped` when Stop comes before it starts, `retry.nothing_failed` when nothing failed,
+and `retry.subagent_unsupported` for a `subagentId` (never the chat's own turn instead). A
 `notifyCommand` in the config runs on a permission request and on a turn that ends
 unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 `agentStartTimeoutMs` (default 90000) bounds a cold agent start (spawn, `initialize`,
@@ -477,7 +510,7 @@ padding are never highlighted or copied. The composer grows to 12 rows before it
 ## Bring your own harness
 
 Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.toml`), checked
-with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
+with `acpmux harness doctor <id>` (also available under the `cmux harness` scope). Schema, secrets, terminal harnesses,
 folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
 
 Your own model endpoint is a harness too (a Chief can use it as its backend):
@@ -811,7 +844,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 ```sh
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
-acpmux peer status [HOST]              # each peer asked live: reachable, round trip, disk, load, live sessions, build
+acpmux host status [HOST]              # each host asked live: reachable, round trip, disk, load, live sessions, build
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux ls                              # HOST/session-name next to local sessions
@@ -870,7 +903,7 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
-`acpmux peer status` (also `host status`, `--json`) is the check to run before remote work
+`acpmux host status` (also the hidden `peer status` alias, with `--json`) is the check to run before remote work
 and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
 with 5 s each, and lists this machine first. Each row has:
 - whether the peer is reachable, and the round trip (`latencyMs`);
