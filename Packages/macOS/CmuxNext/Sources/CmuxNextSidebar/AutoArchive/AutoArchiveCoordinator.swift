@@ -41,6 +41,10 @@ public final class AutoArchiveCoordinator {
     private var loaded = false
     private var follows: [Task<Void, Never>] = []
     private var card: Task<Void, Never>?
+    #if DEBUG
+    /// DEBUG only: seconds added to the clock, so a fresh session looks idle (the gallery tours).
+    public var debugClockSkew: TimeInterval = 0
+    #endif
 
     /// The first pass waits this long after launch, so it never competes with the launch's work.
     public static let launchDelay: Duration = .seconds(30)
@@ -135,7 +139,7 @@ public final class AutoArchiveCoordinator {
     public func runPass() {
         let policy = host.autoArchivePolicy()
         let plan = plan(.background)
-        if let next = plan.nextCheck { schedulePass(after: .seconds(max(1, next.timeIntervalSince(now())))) }
+        if let next = plan.nextCheck { schedulePass(after: .seconds(max(1, next.timeIntervalSince(clockNow())))) }
         guard !plan.due.isEmpty else { return }
         switch policy.style {
         case .quiet, .groups:
@@ -153,7 +157,7 @@ public final class AutoArchiveCoordinator {
         guard let store = activeStore() else { return AutoArchivePlanner.Plan() }
         let records = store.records
         let shown = host.autoArchiveShownWorkspaces()
-        let time = now()
+        let time = clockNow()
         var rules: [String: SidebarDocAutoArchiveRule] = [:]
         for item in records.items.values where item.body.isGroup {
             if let rule = item.autoArchive { rules[item.id] = rule }
@@ -216,7 +220,7 @@ public final class AutoArchiveCoordinator {
         guard let store = activeStore(), !items.isEmpty else { return }
         try? store.setArchived(items, archived: false, title: AutoArchiveStrings.restoreTitle)
         ledger.autoArchived.subtract(items)
-        let time = now()
+        let time = clockNow()
         for item in items {
             if case let .workspace(ref)? = store.records.items[item]?.body { ledger.saw(ref.workspaceID, at: time) }
         }
@@ -245,7 +249,7 @@ public final class AutoArchiveCoordinator {
                 let still = Set(plan(.sweep).due.map(\.item))
                 try? archive(items.filter(still.contains))
             } else {
-                ledger.snoozedUntil = now().addingTimeInterval(Self.snooze)
+                ledger.snoozedUntil = clockNow().addingTimeInterval(Self.snooze)
                 markDirty()
                 schedulePass(after: .seconds(Self.snooze))
             }
@@ -255,7 +259,7 @@ public final class AutoArchiveCoordinator {
     // MARK: - Shows
 
     func noteShown(_ shown: Set<String>) {
-        let time = now()
+        let time = clockNow()
         var back: [String] = []
         for workspace in shown {
             ledger.saw(workspace, at: time)
@@ -279,6 +283,15 @@ public final class AutoArchiveCoordinator {
     }
 
     private func save() { ledgerStore.save(ledger) }
+
+    /// The wall clock, plus the DEBUG skew (Debug > Age Workspaces for Auto-Archive, the gallery tours).
+    private func clockNow() -> Date {
+        #if DEBUG
+        now().addingTimeInterval(debugClockSkew)
+        #else
+        now()
+        #endif
+    }
 
     private func activeStore() -> (any AutoArchiveDocument)? { document() }
 }

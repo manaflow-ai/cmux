@@ -21,6 +21,15 @@ nonisolated enum AutoArchiveActionCatalog: ActionCatalogGroup {
                 symbol: "archivebox", surfaces: [.palette, .contextMenu], arguments: [ruleChoice], targets: [.workspaceGroup],
                 cliName: "workspace-group set-auto-archive"
             ),
+            // DEV only: makes every workspace look `days` older and runs a pass (the gallery tours).
+            ActionDescriptor(
+                id: "debug.autoArchive.age", title: t("action.autoArchive.debugAge", "Age Workspaces for Auto-Archive"),
+                keywords: ["archive", "idle", "debug", "age", "clock"], category: .workspace, symbol: "clock.arrow.circlepath",
+                surfaces: [.palette],
+                arguments: [ActionArgument(name: "days", title: t("argument.autoArchive.days", "Days"), kind: .string, isRequired: false)],
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
     }
 

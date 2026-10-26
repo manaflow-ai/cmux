@@ -49,6 +49,9 @@ public final class AutoArchiveActions {
             guard source == ActionSuggestions.archivedWorkspaces, let self else { return otherSuggestions?(source) ?? [] }
             return self.coordinator.archivedWorkspaces().map { ActionEnumCase(value: $0.item, title: $0.title.isEmpty ? $0.workspace : $0.title) }
         }
+        #if DEBUG
+        bindDebug(into: registry)
+        #endif
         registry.bindEffect("workspaceGroup.setAutoArchive", unavailable: unavailable, effect: { [self] invocation in
             guard let store = self.activeStore() else { return .refused(ArchiveStrings.needsDocument) }
             let rule: Any
@@ -74,6 +77,18 @@ public final class AutoArchiveActions {
             }
         })
     }
+
+    #if DEBUG
+    /// Debug > Age Workspaces for Auto-Archive: the clock moves `days` (default 10) ahead and a pass runs now.
+    private func bindDebug(into registry: ActionRegistry) {
+        registry.bindEffect("debug.autoArchive.age", unavailable: { nil }, effect: { [self] invocation in
+            let days = invocation["days"]?.stringValue.flatMap(Double.init) ?? 10
+            self.coordinator.debugClockSkew = days * 86_400
+            self.coordinator.runPass()
+            return .done
+        })
+    }
+    #endif
 
     private func activeStore() -> SidebarDocStore? { store().flatMap { $0.isActive ? $0 : nil } }
 }
