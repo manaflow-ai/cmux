@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextLaunch
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
@@ -42,6 +43,30 @@ struct SidebarLaunchRowsTests {
         #expect(held.list.rowPool.made <= eager.built, "and no more than a window made after startup holds")
         scheduler.fire()
         #expect(reports.count == 1)
+    }
+
+    /// The counts reach `debug.startup`'s counter values (`AppServices.launchValues`) at completion, and the
+    /// bench's pipe once each; a second window's are dropped.
+    @Test func theLaunchCountsAreStartupCounterValuesAfterCompletion() throws {
+        let scheduler = StartupTestScheduler()
+        let fixture = LaunchRowsFixture(count: 60)
+        defer { fixture.close() }
+        var piped: [String] = []
+        let counters = LaunchValueMarks { piped.append("\($0) \($1)") }
+        fixture.sidebar.followLaunch(scheduler.startup) { counters.recordSidebarLaunchRows(built: $0.built, visible: $0.visible) }
+        fixture.show()
+        #expect(counters.values.isEmpty, "no counts before completion")
+
+        scheduler.complete()
+        let report = try #require(fixture.sidebar.launchRowsReport)
+        #expect(counters.values == [LaunchValueMarks.sidebarRowsBuilt: Double(report.built),
+                                    LaunchValueMarks.sidebarRowsVisible: Double(report.visible)])
+        let expectedPipe = ["\(LaunchValueMarks.sidebarRowsBuilt) \(report.built)", "\(LaunchValueMarks.sidebarRowsVisible) \(report.visible)"]
+        #expect(piped == expectedPipe)
+
+        counters.recordSidebarLaunchRows(built: report.built + 40, visible: 1)
+        #expect(counters.values[LaunchValueMarks.sidebarRowsBuilt] == Double(report.built), "the first window's counts stay")
+        #expect(piped == expectedPipe, "a second window sends nothing")
     }
 
     @Test func aWindowMadeAfterStartupCompletedHoldsNothing() {

@@ -167,20 +167,13 @@ enum DebugTimings {
         if controlPublishes.count < capacity { controlPublishes.append((tabs(), milliseconds(duration))) }
     }
 
-    /// Sends the row views a sidebar built before startup completed and the rows its clip showed then as value
-    /// marks on the bench's pipe (p08-startup-064). Each window's sidebar sends them; the bench keeps the first
-    /// (`debug.sidebar_rows` lists every window's `launch_rows`).
-    static func sidebarLaunchRows(built: Int, visible: Int) {
-        LaunchMarkSink.shared.writeValue(name: "launch.sidebar_rows_built", value: UInt64(max(0, built)))
-        LaunchMarkSink.shared.writeValue(name: "launch.sidebar_rows_visible", value: UInt64(max(0, visible)))
-    }
-
     static func omnibarClicked(engine: String, input: Double, keyToFrame: Double) {
         if omnibarClicks.count < capacity { omnibarClicks.append((engine, input, keyToFrame)) }
     }
 
-    static func handle(_ params: [String: JSONValue]) -> JSONValue {
-        let report = self.report
+    /// - Parameter launchValues: The app's numeric launch values (`AppServices.launchValues`), listed as `launch_values`.
+    static func handle(_ params: [String: JSONValue], launchValues: [String: Double] = [:]) -> JSONValue {
+        let report = Self.report(launchValues: launchValues)
         if params["clear"]?.boolValue == true {
             paletteOpens.removeAll()
             iconPickerOpens.removeAll()
@@ -207,13 +200,15 @@ enum DebugTimings {
         }
     }
 
-    private static var report: JSONValue {
+    private static func report(launchValues: [String: Double]) -> JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
         let (marks, slices) = launchMarks.withLock { ($0.marks.all, $0.slices) }
         for mark in marks { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
+            // Numeric launch values kept in the process (p08-startup-064; `debug.startup` reads them as counters).
+            "launch_values": .object(launchValues.mapValues { JSONValue.number($0) }),
             // The launch's clock (p09-observability-034): null until the main run loop's start reads the page-ins.
             "launch_clock": ["temperature": slices.temperature.map { JSONValue.string($0.name) } ?? .null,
                              "pageins": slices.pageins.map { JSONValue.number(Double($0)) } ?? .null,
