@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHibernation
+import CmuxNextSignposts
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -233,6 +234,8 @@ final class InternalPageTabStore {
         let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
+        // create.tab: a page tab this window shows, from this turn to its page's first paint.
+        let timing = focus && pane?.view.window != nil && ActionRunScope.viewChangeAllowed() ? services.cache.createTabs.begin(.page) : nil
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -248,6 +251,7 @@ final class InternalPageTabStore {
         }
         let transaction = ClientTransactionID.generate()
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
+        if let timing { services.cache.createTabs.expect(timing, tab: provisional.id, standIn: true) }
         if let pane {
             if focus {
                 pane.selectWhenReported(surface: provisional.surface)

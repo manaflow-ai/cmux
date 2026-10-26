@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextRemoteLocalhostService
+import CmuxNextSignposts
 import CmuxNextTabs
 
 /// Opens a browser tab in one pane: daemon-owned when supported, on the
@@ -104,6 +105,10 @@ struct PaneBrowserTabOpener {
             let beside = then == nil && controller.isOpenPinnedDockPane
             let linkOpener = services.linkOpener
             let intent = background || beside ? nil : controller.workspace?.beginFocusIntent()
+            // create.tab: a foreground tab this window shows once the daemon made it.
+            let createTabs = services.cache.createTabs
+            let timing = background || beside || controller.view.window == nil || !ActionRunScope.viewChangeAllowed()
+                ? nil : createTabs.begin(CreateTabInterval.Kind(engine: choice.engine))
             services.registry.track(Task {
                 do {
                     // A new tab the user asked for opens the New Tab page; an
@@ -120,10 +125,14 @@ struct PaneBrowserTabOpener {
                     }
                     then?(surface)
                     guard !background else { return nil }
+                    if let timing {
+                        if let tab = controller.daemon.store.tab(surface: surface) { createTabs.expect(timing, tab: tab.id, standIn: false) } else { timing.end(.closed) }
+                    }
                     controller.selectWhenReported(surface: surface)
                     controller.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
+                    timing?.end(.closed) // no tab was made
                     child?.close()
                     controller.daemon.logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                     return "new-frontend-browser-tab: \(error)"
@@ -160,6 +169,10 @@ struct PaneBrowserTabOpener {
         holder.apply(holder.snapshot())
         if background { return true }
         if holder !== controller, let content = holder.workspace { PaneHandlers.focus(holder.layoutPaneID, in: content) }
+        if holder.view.window != nil, ActionRunScope.viewChangeAllowed() {
+            let createTabs = services.cache.createTabs
+            createTabs.expect(createTabs.begin(.webkit), tab: local.id, standIn: false)
+        }
         holder.select(StripTabID(local.id))
         if url == nil { holder.workspace?.focus.send(.focusTarget(.addressBar, source: .intent)) }
         return true
@@ -186,6 +199,8 @@ extension PaneBrowserTabOpener {
     private func openStandIn(_ choice: BrowserEngineChoice, address: String, focusesAddressBar: Bool, profile: String?, notice: String?, // perf-hot: 10ms new-tab (the stand-in shows in the key's turn)
                              then: (@MainActor (SurfaceID) -> Void)?) {
         let controller = controller, services = controller.services, cache = services.cache, model = controller.pane
+        // create.tab: from this turn to the page's first contentful paint; the stand-in shows in this turn.
+        let timing = cache.createTabs.begin(CreateTabInterval.Kind(engine: choice.engine))
         let command = NewBrowserTabCommand(pane: model.handle, url: address, engine: choice.engine.rawValue,
                                            profile: cache.browserTabs.resolveProfile(model, profile))
         let intent = controller.workspace?.beginFocusIntent(), window = controller.view.window
@@ -193,13 +208,16 @@ extension PaneBrowserTabOpener {
             command.intendNow(on: controller.daemon) { try await cache.browserTabs.open(choice, in: model, url: address, profile: profile, notice: notice) }
         }
         let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent, tab: pending.tab)
+        cache.createTabs.expect(timing, tab: pending.tab, standIn: true)
         controller.selectWhenReported(surface: pending.surface)
         services.registry.track(Task {
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 let surface = try await pending.send { surface in
-                    if let tab = controller.daemon.store.tab(surface: surface) { _ = cache.moveBrowser(pending.tab, to: tab) }
+                    guard let tab = controller.daemon.store.tab(surface: surface) else { return }
+                    cache.createTabs.rekey(pending.tab, to: tab.id) // the daemon's tab waits for the stand-in's first frame
+                    _ = cache.moveBrowser(pending.tab, to: tab)
                 }
                 let selected = controller.stripModel.selectedID?.rawValue
                 if selected == nil || selected == pending.tab || controller.pendingSelectSurface == pending.surface { controller.selectWhenReported(surface: surface) }

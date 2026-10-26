@@ -453,6 +453,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
+        if let key, let content { services.cache.createTabs.presented(key, content: content) } // a new tab's first frame (create.tab)
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
         if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { services.launchReveal.markReady(.pane) }

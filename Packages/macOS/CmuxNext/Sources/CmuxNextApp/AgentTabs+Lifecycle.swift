@@ -1,6 +1,8 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSignposts
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -142,11 +144,15 @@ extension AgentTabStore {
                  linked: Bool = false, select: Bool = true, hidden: Bool = false, split: SplitDirection? = nil, focuses: Bool = true,
                  then: (@MainActor (String) -> Void)? = nil, failed: (@MainActor () -> Void)? = nil) -> Bool {
         let daemon = pane.daemon
+        // create.tab: a chat this window shows, from this turn to its page's first paint.
+        let createTabs = pane.services.cache.createTabs
+        let timing = select && !hidden && pane.view.window != nil && ActionRunScope.viewChangeAllowed() ? createTabs.begin(.chat) : nil
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
                                spare: spare, linked: linked, split: split)
         } catch {
+            timing?.end(.closed) // refused: no tab was made
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
         }
@@ -154,6 +160,7 @@ extension AgentTabStore {
         // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
         let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
+        if let timing { createTabs.expect(timing, tab: pending.key, standIn: true) }
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {

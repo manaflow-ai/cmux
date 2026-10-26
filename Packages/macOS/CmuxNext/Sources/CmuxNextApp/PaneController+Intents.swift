@@ -8,6 +8,7 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextTabs
 import CmuxNextFocus
+import CmuxNextSignposts
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
@@ -116,6 +117,8 @@ extension PaneController {
            services.remoteTerminals.openTerminal(besides: selectedTab, in: pane, home: daemon, cwd: cwd) { return }
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
+        // create.tab: a tab this window shows, from this turn to its first frame.
+        let timing = ActionRunScope.viewChangeAllowed() && view.window != nil ? services.cache.createTabs.begin(.terminal) : nil
         let intent = self.workspace?.beginFocusIntent()
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
@@ -125,7 +128,7 @@ extension PaneController {
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, timing: timing, then: then)
         }
         services.registry.track(Task { [services] in
             var landed = false
@@ -138,12 +141,16 @@ extension PaneController {
                 if let page {
                     try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
                 }
+                if let timing {
+                    if let tab = daemon.store.tab(surface: created.surface) { services.cache.createTabs.expect(timing, tab: tab.id, standIn: false) } else { timing.end(.closed) }
+                }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 landed = true
                 then?(created.surface)
                 return nil
             } catch {
+                timing?.end(.closed) // no tab was made
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -156,7 +163,8 @@ extension PaneController {
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, timing: CreateTabInterval?,
+                                   then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             Task { @MainActor () -> String? in
@@ -165,6 +173,8 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        // The stand-in's terminal is the tab's for good: its first frame ends create.tab.
+        if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) }
         selectWhenReported(surface: pending.surface)
         services.registry.track(Task { [services] in
             var landed = false
@@ -180,6 +190,7 @@ extension PaneController {
             } catch is NewTerminalTabCancelled {
                 return nil // the person closed the stand-in first
             } catch {
+                services.cache.createTabs.released(pending.tab) // the daemon refused it: the stand-in is gone
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("new-tab", error)
             }
@@ -230,6 +241,7 @@ extension PaneController {
         var surfaces: [SurfaceID] = []
         var keys: [String] = []
         for id in ids {
+            services.cache.createTabs.released(id.rawValue) // closed before its first frame: create.tab ends as closed
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)

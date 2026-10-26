@@ -129,6 +129,7 @@ extension WebKitTab: WKNavigationDelegate {
         pageDidFinish()
         // The load ended: a document with no contentful paint (an empty body) shows as it is.
         removeStandIn()
+        firstContentFrame.contentShown()
         syncHistory()
         refreshFavicon()
     }

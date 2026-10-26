@@ -177,6 +177,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var deviceEmulationNeedsReset = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
+    /// The current document's first content frame (`CEFFirstPaintBridge`, or its load end with nothing painted).
+    @ObservationIgnored let firstContentFrame = BrowserFirstContentFrame()
     @ObservationIgnored private var isOccluded = false
     /// The pane window this tab belongs to. A popup starts in its opener's
     /// Chromium window but belongs to its own popup host from adoption on;
@@ -476,6 +478,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        firstContentFrame.closed()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

@@ -58,6 +58,8 @@ extension CEFTab {
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
+            // A document with no contentful paint (an empty body) shows as it is now.
+            firstContentFrame.contentShown()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.

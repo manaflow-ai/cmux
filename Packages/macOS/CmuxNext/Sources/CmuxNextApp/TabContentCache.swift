@@ -42,6 +42,8 @@ final class TabContentCache {
     let contentOwners = ContentLifecycleOwners<ContentLifecycle<String>.Token>() // page and conversation tabs' lifecycle effects (memoryDiscard*; empty while off)
     let dormantTabs = DormantTabs() // hibernated tabs, observed by the tab strips
     let previews = PreviewImageCache()
+    /// New tabs' `create.tab` intervals waiting for their first frame (p09-observability task 030).
+    let createTabs = CreateTabTimings()
     /// Evicted terminals' last frames: shown at once when the terminal is shown again, pictured
     /// on demand for its hover card; volatile, bounded by the warm set (`warmBudgetDidChange`).
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -463,6 +465,8 @@ final class TabContentCache {
     /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String, displacing: Bool = true) { // displacing false: the pane keeps its view (a stand-in's moved to its daemon tab)
         onRelease?(key)
+        // A stand-in's content moving to its daemon tab (`displacing` false) is no close: the wait follows the content.
+        if displacing { createTabs.released(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
