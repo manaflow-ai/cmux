@@ -16,6 +16,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 import os
@@ -177,9 +178,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if services.features.isEnabled(.vsyncHub) { FrameScheduler.appDisplays.hub = VSyncHub() }
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
-        // screen) reveals at once.
+        // screen) reveals at once and is interrupted: its first frame records no launch sample.
         let startup = mainWork.startup
-        startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
+        let presentation: StartupPhase.Presentation = NSApp.isHidden ? .hidden : .window
+        startup.noteLaunch(presentation)
+        if presentation != .window { DebugTimings.markLaunch(LaunchSlices.interruptedMark) }  // before the first window
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
         // The restore and visible-page references are the pane refs' (`VisiblePaneRefs.finishRestore`).
         startupReferences.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }

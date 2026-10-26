@@ -244,4 +244,47 @@ struct LaunchSlicesTests {
         #expect(Self.recorded(in: store).isEmpty)
         #expect(LaunchSlices.Step().firstFrameSample == nil)
     }
+
+    /// A hidden or windowless launch (the interrupted mark, sent before the first window) records no first-frame
+    /// sample, whether its frame comes before or after the temperature, as Chrome's `ShouldLogStartupHistogram`
+    /// records no startup duration for an interrupted launch. The first-frame slice still goes to the trace, and
+    /// `launch.pageins` is still recorded.
+    @Test(arguments: [false, true])
+    func anInterruptedLaunchRecordsNoFirstFrame(frameBeforeTemperature: Bool) {
+        let (runtime, store) = Self.runtimeWithStore()
+        let start = Self.launchStart
+        let clock = Self.clock(pageins: 2)
+        let frame = ("first_window_frame_committed", start + 240_000_000_000) // the window opened 4 min later
+        let temperature = (LaunchSlices.temperatureMark, start + 300_000_000)
+        let marks = [("main_start", start + 40_000_000), (LaunchSlices.interruptedMark, start + 200_000_000)]
+            + (frameBeforeTemperature ? [frame, temperature] : [temperature, frame])
+        var slices = LaunchSlices(processStartNanos: start)
+        var released: [LaunchSlices.Slice] = []
+        for (mark, at) in marks {
+            let step = slices.apply(LaunchSlices.Reading(mark: mark, clock: clock), atUptimeNanos: at)
+            #expect(step.firstFrameSample == nil, "\(mark)")
+            step.publish(into: runtime)
+            released += step.slices
+        }
+        #expect(Self.recorded(in: store) == ["launch.pageins": [1, 2]])
+        #expect(released.filter { $0.name == .launchFirstFrame }
+            == [LaunchSlices.Slice(name: .launchFirstFrame, beginNanos: start, endNanos: frame.1, temperature: .warm)])
+    }
+
+    /// Only the interrupted mark interrupts, and it is no milestone; a launch is not interrupted before it comes.
+    @Test func onlyTheInterruptedMarkInterrupts() {
+        let clock = Self.clock(pageins: 2)
+        let interrupting = LaunchSlices.Reading(mark: LaunchSlices.interruptedMark, clock: clock)
+        #expect(interrupting.interrupts)
+        #expect(interrupting.milestone == nil)
+        for mark in ["main_start", LaunchSlices.temperatureMark, "first_window_frame_committed", "launch.temperature.warm"] {
+            #expect(!LaunchSlices.Reading(mark: mark, clock: clock).interrupts, "\(mark)")
+        }
+        var slices = LaunchSlices(processStartNanos: Self.start)
+        #expect(!slices.apply(LaunchSlices.Reading(mark: "main_start", clock: clock), atUptimeNanos: 2_000).interrupted)
+        #expect(!slices.interrupted)
+        #expect(slices.apply(interrupting, atUptimeNanos: 3_000).interrupted)
+        #expect(slices.apply(LaunchSlices.Reading(mark: LaunchSlices.temperatureMark, clock: clock), atUptimeNanos: 4_000).interrupted)
+        #expect(slices.interrupted)
+    }
 }
