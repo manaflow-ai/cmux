@@ -199,9 +199,9 @@ fn exec_program(program: String, args: Vec<String>) -> Result<(), String> {
     let program = CString::new(program).map_err(|_| "program contains NUL")?;
     let mut argv = Vec::with_capacity(args.len() + 2);
     argv.push(program.clone());
-    argv.extend(args.into_iter().map(|arg| CString::new(arg).map_err(|_| "argument contains NUL")));
-    let argv: Result<Vec<_>, _> = argv.into_iter().collect();
-    let argv = argv.map_err(|error| error.to_owned())?;
+    for arg in args {
+        argv.push(CString::new(arg).map_err(|_| "argument contains NUL")?);
+    }
     let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
     pointers.push(ptr::null());
     // SAFETY: all CString buffers and the pointer array live until execv;
