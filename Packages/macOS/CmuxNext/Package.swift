@@ -917,12 +917,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextChromiumWarmup",
-            dependencies: ["CmuxNextBrowser", "CmuxNextInputCore", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextChromiumWarmupTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextChromiumWarmup", "CmuxNextCompat", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone access (Settings > Accounts > Phone Access): the phone host's lifecycle

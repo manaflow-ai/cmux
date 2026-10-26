@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextWakeups
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -15,10 +16,10 @@ extension AppServices {
 
     /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts)
     /// and the agent tab import. Each reads current state when it starts, so nothing the window build did is missed.
-    func startLaterTabWarmups() {
+    func startLaterTabWarmups(startup: StartupScheduler) {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
-        if !crashRecovery.recovery.skipsBrowserPages { startChromiumWarmup() }
+        startChromiumWarmup(startup: startup)
         newTabSpares.start()
         pageHostPool.start(
             isMainWindow: { [weak self] window in
