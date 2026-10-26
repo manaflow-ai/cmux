@@ -1626,13 +1626,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // App builds the one provider list (OracleHost) and Control serves it as debug.oracle.snapshot in
         // DEV and bench builds. Pure values: no AppKit, no control socket, so headless services can too.
         // Every source is under DEBUG || CMUX_BENCH_HOOKS (p15-oracle.md section 4 rule 3): Release builds it empty.
+        // CmuxNextCompat: the ax facet reads the string tables with the checked file calls.
         .target(
             name: "CmuxNextOracle",
+            dependencies: ["CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextOracleTests",
-            dependencies: ["CmuxNextOracle"],
+            dependencies: ["CmuxNextOracle", "CmuxNextCompat"],
             swiftSettings: daemonSwiftSettings
         ),
         // The app's one input tap (p04-input.md section 3 (A)): typed subscriptions by event class,
