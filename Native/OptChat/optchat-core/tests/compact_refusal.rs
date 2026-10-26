@@ -77,3 +77,25 @@ fn a_summary_that_quotes_the_user_is_not_a_refusal() {
         SizeCheck::Accept(line.to_string())
     );
 }
+
+#[test]
+fn a_merge_stand_in_keeps_both_children() {
+    // Two lines, each near the limit: cutting their join at the limit kept
+    // only the first line and lost the second one's facts for good.
+    let first = format!("Oct 20: a201 landed e5a7e53 {}", "first-detail ".repeat(37));
+    let second = format!(
+        "Oct 21: a397 DMs landed 9f1c2d0 {}",
+        "second-detail ".repeat(33)
+    );
+    let input = format!("{first}\n{second}");
+    let tries: Vec<String> = refusals().into_iter().cycle().take(TRIES).collect();
+    match size_check_for(&tries, NODE, &input) {
+        SizeCheck::Accept(text) => {
+            assert!(text.len() <= NODE, "{}", text.len());
+            assert!(text.contains("a201"), "lost the first child: {text}");
+            assert!(text.contains("a397"), "lost the second child: {text}");
+            assert!(!text.contains('\n'));
+        }
+        other => panic!("{other:?}"),
+    }
+}
