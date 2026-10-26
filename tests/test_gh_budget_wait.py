@@ -159,6 +159,13 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.gh("api", "y").returncode, 1)
         self.assertEqual(h.calls().count("call api y"), 1)
 
+    def test_a_malformed_ledger_counts_as_spent(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="60")
+        (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)
+        (h.runner_temp / "gh-budget-wait" / "waited").write_text("garbage")
+        self.assertEqual(h.gh("api", "x").returncode, 1)
+        self.assertEqual(h.calls().count("call api x"), 1)
+
     def test_attempts_are_bounded(self) -> None:
         h = self.harness(refusals=9, GH_BUDGET_WAIT_MAX_SECONDS="60", GH_BUDGET_WAIT_ATTEMPTS="2")
         (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)

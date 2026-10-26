@@ -30,8 +30,13 @@ ledger_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/gh-budget-wait"
 max_total="${GH_BUDGET_WAIT_MAX_SECONDS:-3600}"
 attempts="${GH_BUDGET_WAIT_ATTEMPTS:-6}"
 
+# No ledger yet is nothing waited; one that cannot be read or parsed counts as the whole
+# budget spent (fail closed: an earlier step's waits are unknown).
 waited_so_far() {
-  cat "$ledger_dir/waited" 2>/dev/null || echo 0
+  local spent
+  [ -e "$ledger_dir/waited" ] || { echo 0; return; }
+  spent="$(cat "$ledger_dir/waited" 2>/dev/null)" || { echo "$max_total"; return; }
+  case "$spent" in '' | *[!0-9]*) echo "$max_total" ;; *) echo "$spent" ;; esac
 }
 
 # Seconds until the exhausted budget resets (core, graphql or search). When none reads

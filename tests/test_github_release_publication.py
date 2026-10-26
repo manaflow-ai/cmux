@@ -13,6 +13,8 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
+import urllib.error
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -171,6 +173,28 @@ class PublicationTests(unittest.TestCase):
             client.asset_digest(remote_asset)
             request = urlopen.call_args.args[0]
             self.assertEqual(request.full_url, "https://api.github.com/assets/1")
+
+    def test_a_rate_limited_digest_download_backs_off_and_retries(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        remote_asset = {"name": "a.bin", "url": "https://api.github.com/assets/1", "size": 3}
+        refused = urllib.error.HTTPError("https://api.github.com/assets/1", 403, "Forbidden", {},
+                                         io.BytesIO(b'{"message": "API rate limit exceeded for installation."}'))
+        ok = unittest.mock.MagicMock()
+        ok.__enter__.return_value.read.side_effect = [b"abc", b""]
+        with patch("publisher.urllib.request.urlopen", side_effect=[refused, ok]), \
+                patch.object(publisher, "backoff") as backoff:
+            self.assertEqual(client.asset_digest(remote_asset), "sha256:" + hashlib.sha256(b"abc").hexdigest())
+        self.assertTrue(backoff.call_args.args[1].rate_limited)
+
+    def test_a_permission_403_on_the_digest_download_fails_at_once(self):
+        client = publisher.GitHub("owner/repo", "fake-token")
+        refused = urllib.error.HTTPError("https://api.github.com/assets/1", 403, "Forbidden", {},
+                                         io.BytesIO(b'{"message": "Resource not accessible by integration"}'))
+        with patch("publisher.urllib.request.urlopen", side_effect=[refused]), \
+                patch.object(publisher, "backoff") as backoff:
+            with self.assertRaises(publisher.RequestError):
+                client.asset_digest({"name": "a.bin", "url": "https://api.github.com/assets/1"})
+        backoff.assert_not_called()
 
     def test_failed_alias_rename_restores_the_current_asset(self):
         asset = self.asset("latest.dmg", True)
@@ -477,8 +501,8 @@ class TransportTests(unittest.TestCase):
                 self.rate_limited_publish(refused, refused)
         self.assertEqual(int(ledger.read_text()), 3600)
 
-    def test_an_unwritable_ledger_still_caps_the_wait(self):
-        # The cap fails closed: this process's own waits count even when the ledger cannot be written.
+    def test_an_unusable_ledger_path_fails_closed(self):
+        # A ledger path that cannot be read (its directory is a file) counts as the hour spent.
         refused = (403, {}, {"message": "API rate limit exceeded"})
         unwritable = self.root / "file" / "waited"
         (self.root / "file").write_text("not a directory")
@@ -487,7 +511,7 @@ class TransportTests(unittest.TestCase):
                 patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 1800):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 self.rate_limited_publish(refused, refused, refused)
-            self.assertEqual(publisher._waited_here, 100.0)
+            self.assertEqual(publisher._waited_here, 0.0)
 
     def test_a_ledger_that_stops_being_writable_keeps_its_earlier_total(self):
         # 3590 s already waited in this job, then the ledger turns read-only: 10 s are left, not 3600.
@@ -518,6 +542,18 @@ class TransportTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "did not reset within"):
                 publisher.publish(self.client, 42, [[self.file()], [], []])
         self.assertEqual(sum(waits), 10.0)
+
+    def test_an_unreadable_or_malformed_ledger_counts_as_spent(self):
+        ledger = self.root / "bad" / "waited"
+        ledger.parent.mkdir()
+        ledger.write_text("garbage")
+        refused = (403, {}, {"message": "API rate limit exceeded"})
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            with self.assertRaisesRegex(RuntimeError, "did not reset within"):
+                self.rate_limited_publish(refused)
+        missing = self.root / "none" / "waited"
+        with patch.object(publisher, "_LEDGER", missing):
+            self.assertEqual(publisher._ledger_spent(), 0.0)
 
     def test_the_budget_comes_from_the_environment(self):
         script = Path(publisher.__file__)

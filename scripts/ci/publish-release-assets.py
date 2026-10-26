@@ -55,11 +55,23 @@ _waited_here = 0.0  # this process's own waits: the cap holds even if the ledger
 _ledger_at_start: float | None = None  # the ledger when this process first waited
 
 
+def _job_cap() -> float:
+    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600)
+
+
 def _ledger_spent() -> float:
+    """The job's waits so far. No ledger yet is none; one that exists but cannot be read or
+    parsed counts as the whole hour spent (fail closed: an earlier step's waits are unknown)."""
     try:
-        return float(_LEDGER.read_text().strip() or 0)
-    except (OSError, ValueError):
+        text = _LEDGER.read_text().strip()
+    except FileNotFoundError:
         return 0.0
+    except OSError:
+        return _job_cap()
+    try:
+        return float(text or 0)
+    except ValueError:
+        return _job_cap()
 
 
 def _job_spent() -> float:
@@ -75,7 +87,7 @@ def _job_spent() -> float:
 
 def _job_wait_left() -> float:
     """Seconds this job may still wait; call with _rate_limit_lock held."""
-    return float(os.environ.get("GH_BUDGET_WAIT_MAX_SECONDS") or 3600) - _job_spent()
+    return _job_cap() - _job_spent()
 
 
 def _record_job_wait(seconds: float) -> None:
@@ -400,15 +412,31 @@ class GitHub:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        digest = hashlib.sha256()
-        size = 0
-        try:
-            with urllib.request.urlopen(request, timeout=600) as response:
-                for chunk in iter(lambda: response.read(1024 * 1024), b""):
-                    size += len(chunk)
-                    digest.update(chunk)
-        except (OSError, urllib.error.URLError) as error:
-            raise RequestError(f"could not hash release asset {remote.get('name')}: {error}") from error
+        attempt = 0
+        while True:
+            digest = hashlib.sha256()
+            size = 0
+            try:
+                with urllib.request.urlopen(request, timeout=600) as response:
+                    for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                        size += len(chunk)
+                        digest.update(chunk)
+                break
+            except urllib.error.HTTPError as error:
+                # A rate-limited download backs off like any other request (until the budget ends).
+                body = error.read().decode(errors="replace") if error.fp else ""
+                headers = {name.lower(): value for name, value in (error.headers or {}).items()}
+                limited, wait = rate_limit(error.code, headers, body, time.time())
+                if not limited:
+                    raise RequestError(f"could not hash release asset {remote.get('name')}: {error}",
+                                       status=error.code) from error
+                print(f"Rate-limited asset download response headers: "
+                      f"{'; '.join(f'{k}={v}' for k, v in sorted(headers.items())) or 'none'}", file=sys.stderr, flush=True)
+                backoff(attempt, RequestError(f"GET asset HTTP {error.code}", status=error.code,
+                                              rate_limited=True, wait=wait))
+                attempt += 1
+            except (OSError, urllib.error.URLError) as error:
+                raise RequestError(f"could not hash release asset {remote.get('name')}: {error}") from error
         if remote.get("size") is not None and int(remote["size"]) != size:
             raise RequestError(f"release asset size changed while hashing: {remote.get('name')}")
         return "sha256:" + digest.hexdigest()
