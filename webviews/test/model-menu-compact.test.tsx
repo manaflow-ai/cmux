@@ -796,8 +796,11 @@ test("every rail tab fits in the same list height and width, the tallest and wid
   const filtered = shown();
   expect(filtered.rows).toBeLessThanOrEqual(held.rows);
   extents.push(filtered);
-  // The space is the tallest tab's or the longest filter's (at most nine rows), not more.
-  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
+  // The held space includes one query-group label row, so it may be one row taller than the
+  // visible tab/filter while keeping the menu's geometry stable.
+  const tallestVisible = Math.max(...extents.map((each) => each.rows));
+  expect(tallestVisible).toBeLessThanOrEqual(held.rows);
+  expect(held.rows - tallestVisible).toBeLessThanOrEqual(1);
   expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
 });
 
