@@ -1,5 +1,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
@@ -21,9 +23,20 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
+        hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
+        hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
         hibernation.start()
+    }
+
+    /// Tab `key` and every tab linked to it through the tab strip's opener relations
+    /// (`BrowserTabOpeners.openerOf`: openers, the tabs they opened, theirs), for a discard of
+    /// the whole group (`FrozenGrowthRule`). Runs only on such a discard.
+    func openerGroup(of key: String) -> Set<String> {
+        guard let start = locateTab(key)?.0.surface else { return [key] }
+        let group = FrozenGrowthRule.openerGroup(of: start, openers: cache.pageRequests.openers.openerOf)
+        return Set(group.compactMap { locateTab(surface: $0)?.id }).union([key])
     }
 
     func memoryPressureDidChange(_ level: MemoryPressureLevel) {
