@@ -46,6 +46,17 @@ One gate, one category per animation.
   stop).
 - Spinners and other loops: off renders the static glyph (the existing
   "loops off" path, `StatusIndicatorPlan`), so they stay recognizable.
+- Energy Saver (Performance Lead note, p14-energy-027): `MotionPolicy.energySaver`
+  (`DesignSettings.energySaver`, which the composition root follows from the app's
+  `EnergyPolicySource`) makes only `animatesLoops` false, so the ambient loops
+  (spinner, step, frames, sweep, breath, pulse, the night sky, the video
+  wallpaper, the now-playing bars) show their static frame. `animatesBlinks` (not
+  Reduce Motion) keeps what a person or a notification starts and what ends on its
+  own: `flashAnimation`, the attention blink and its dismiss flash, the dictation
+  level bars. Moves, fades, springs and durations read the same as in normal mode,
+  and normal mode (saver off) is the policy it was before. This is Chrome's battery
+  saver rule (battery_saver_mode_manager.cc): throttle what the person does not
+  interact with, never their input. The saver is off while feature `energySaver` is off.
 - Web: `WebTheme`'s payload carries `motion` = `off` / `reduced` / `full`
   (`Motion.web`). The bootstrap every cmux web view loads sets
   `data-cmux-motion` on `<html>`; under `off` one stylesheet sets every CSS

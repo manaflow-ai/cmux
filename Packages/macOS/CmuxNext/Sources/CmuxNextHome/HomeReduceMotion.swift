@@ -22,8 +22,9 @@ final class HomeReduceMotion {
         Self.push()
         // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings).
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
-        // The message box's dictation waveform follows the input level only while Home's loops run.
-        MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
+        // The message box's dictation waveform follows the person's voice: it moves unless Reduce
+        // Motion or Home's motion is off, Energy Saver or not (person-started motion, p14-energy-027).
+        MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesBlinks }
         observer = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "HomeReduceMotion") { [weak self] in
             Self.push()
             self?.applyToViews()
