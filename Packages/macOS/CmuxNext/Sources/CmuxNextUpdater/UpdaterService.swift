@@ -44,6 +44,10 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// How many times the gate's phase moved (``syncFlowPhase()``): a caller that follows one
+    /// request (the CLI's install) tells a phase its request reached from one already shown,
+    /// even when observation coalesces the moves in between.
+    public internal(set) var flowMoves = 0
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()
@@ -156,7 +160,11 @@ public final class UpdaterService {
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
-    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
+    /// `updates.downloadAutomatically` and `meteredNetwork` as last configured; nothing downloads
+    /// by itself until the settings load (``configure``).
+    @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (false, .deferLowData)
+    /// Whether found updates download by themselves now (``applyDownloadPolicy()``).
+    @ObservationIgnored var downloadsFoundUpdates = false
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
@@ -181,7 +189,7 @@ public final class UpdaterService {
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
-    @ObservationIgnored private let policy: ManagedUpdatePolicy
+    @ObservationIgnored let policy: ManagedUpdatePolicy
     @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private let switcher: AppChannelSwitcher
@@ -209,6 +217,7 @@ public final class UpdaterService {
                 work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
         self.work = work
+        automaticUpdates = identity.track.downloadsAutomaticallyByDefault
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
@@ -235,17 +244,20 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
-            // The click hides every window and the daemon keeps every session, so a user
-            // install relaunches at once; only automatic idle installs wait.
+            // The daemon keeps every terminal, agent and running turn, so all app relaunches are
+            // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
             // waits once instead of downloading the full DMG. The tip feed lists an
             // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
             if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once agents, commands and input
-            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
-            controller.installsUpdatesWhenIdle = identity.track == .nightly
+            // Until the settings load (``configure``), a launch check's update waits: nothing
+            // downloads or installs by itself, whichever way `updates.downloadAutomatically` is set.
+            // Once it is on, a downloaded update installs by itself once staged; the daemon preserves
+            // agents, commands and turns while the app relaunches.
+            controller.installsUpdatesWhenIdle = false
+            controller.downloadsUpdatesInBackground = false
             self.controller = controller
         } else {
             #if DEBUG || CMUX_BENCH_HOOKS

@@ -33,6 +33,11 @@ struct DebugSidebarNestedFixture {
         sidebar.restore(width: fixture.width, hidden: false)
         sidebar.model.filterText = ""
         sidebar.rows.fixture = fixture.sections
+        // The needs-you scenario's who-started-whom, while the session tree is on (the feed's next pass replaces it).
+        if !fixture.parents.isEmpty, var tree = SidebarSessionTree.shared.state {
+            tree.parents.merge(fixture.parents) { _, fixture in fixture }
+            SidebarSessionTree.shared.state = tree
+        }
         sidebar.container.layoutSubtreeIfNeeded()
         sidebar.container.showNestedFixture(fixture)
         return .object(["scenario": .string(scenario.rawValue), "width": .number(fixture.width),

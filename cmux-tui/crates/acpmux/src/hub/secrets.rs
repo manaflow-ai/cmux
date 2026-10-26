@@ -38,6 +38,7 @@ use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::oneshot;
@@ -176,6 +177,12 @@ impl Hub {
             // Dropping the old card's reply answers its asker `cancelled`.
             pending.retain(|_, p| p.session != session.id);
             pending.insert(secret_id.clone(), Pending { session: session.id.clone(), reply: tx });
+        }
+        // Stopped (`Hub::kill` marks it closing before it cancels the cards): a card that came
+        // after the cancel is cancelled here.
+        if session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed {
+            self.secrets.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&secret_id);
+            return Ok(json!({"declined": true, "name": name, "outcome": "cancelled"}));
         }
         self.append(
             session,

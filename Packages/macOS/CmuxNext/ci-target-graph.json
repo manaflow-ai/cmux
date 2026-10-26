@@ -172,7 +172,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -378,6 +379,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
         "CmuxNextBrowserTabs",
+        "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
@@ -407,7 +409,10 @@
         "CmuxNextImportSuggestions",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
+        "CmuxNextMobile",
         "CmuxNextNowPlaying",
+        "CmuxNextOnboarding",
+        "CmuxNextPagesTestSupport",
         "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
@@ -865,7 +870,8 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests",
       "targets": [
         "CmuxNextCompat",
-        "CmuxNextDaemon"
+        "CmuxNextDaemon",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [
@@ -903,7 +909,8 @@
       "reads": [
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
-        "schemas/theme/orange-accent-allowlist.json"
+        "schemas/theme/orange-accent-allowlist.json",
+        "schemas/theme/theme-ink-vectors.json"
       ]
     },
     "CmuxNextDesignTokens": {
