@@ -1,16 +1,17 @@
 import CmuxNextCompat
 public import CmuxNextSettings
 
-/// `agentPane.showContextUsage` and `agentPane.showDictation` (``AgentPaneComposerSetting``) reach
-/// the page as the `composer` event, read by the page's composerSettings.ts. The same event carries
-/// the Debug Settings reasoning slider toggle and visual style, `plainFooter`, Debug Settings'
-/// plain footer look (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model
-/// chip opens (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can
-/// switch harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `escapeDoublePress`,
-/// whether Esc stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of
-/// the last four is a setting: each is read here, on the pane's side, each time the event is made.
+/// `agentPane.showContextUsage`, `agentPane.showDictation`, `agentPane.spellChecking` and
+/// `agentPane.attachmentView` (``AgentPaneComposerSetting``) reach the page as the `composer`
+/// event, read by the page's composerSettings.ts. The same event carries the Debug Settings
+/// reasoning slider toggle and visual style, `plainFooter`, Debug Settings' plain footer look
+/// (``AgentPaneTunables/composerPlainFooter``), `modelMenu`, what the model chip opens
+/// (``AgentPaneTunables/modelMenu``), and `harnessSwitch`, whether a started chat can switch
+/// harness (``AgentPaneTunables/harnessSwitchInStartedChat``), and `escapeDoublePress`, whether Esc
+/// stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of the last
+/// four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
+    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, attachmentView, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValueWithLook)
     }

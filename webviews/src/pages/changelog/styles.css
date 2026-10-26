@@ -545,3 +545,54 @@ html[data-cmux-page="changelog"] {
   .cl-changes summary::before,
   .cln-fixed summary::after { transition: none; }
 }
+
+/* Changes with clips (SpanNews.tsx): each clip at its own shape, uncut (whats-new-clips.py already
+   cropped it to where the feature happens), on the page's glass, with its caption. The frame keeps
+   no aspect ratio of its own; the clip's width and height (the file's) give the box its shape. */
+.cln-clips { display: grid; gap: 32px; margin: 24px 0 0; }
+.cln-clip { display: grid; gap: 12px; min-width: 0; }
+/* A clip is never drawn larger than it was recorded (a narrow sidebar crop stays sharp), and never
+   wider than its column. */
+.cln-clip-media { justify-self: center; width: fit-content; max-width: 100%; margin: 0; aspect-ratio: auto; border-radius: 12px; }
+.cln-clip-media img,
+.cln-clip-media video { width: auto; max-width: 100%; height: auto; max-height: 440px; object-fit: contain; }
+.cln-clip-media .cl-media-open { width: auto; height: auto; }
+.cln-clip-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cln-clip-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+.cln-clip-caption {
+  margin: 0 0 4px;
+  max-width: 52ch;
+  color: var(--page-text-2);
+  font-size: var(--text-body);
+  line-height: var(--text-title--line-height);
+  text-wrap: pretty;
+}
+/* Alternate (default): the clip beside its words, sides taking turns, like a product page. */
+.cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 24px; align-items: center; }
+.cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 2; }
+/* Stack: one change after another, the clip as wide as the column, its words under it. */
+.cln-clips-stack .cln-clip { max-width: 760px; }
+/* Grid: two-up glass cards, the clip on top. */
+.cln-clips-grid { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.cln-clips-grid .cln-clip {
+  align-content: start;
+  padding: 12px 12px 16px;
+  border-radius: 16px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 1px var(--page-separator);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cln-clips-grid .cln-clip-text { padding: 0 4px; }
+.cln-clips-grid .cln-clip-title { font-size: var(--text-title); line-height: var(--text-title--line-height); }
+@media (max-width: 720px) {
+  .cln-clips-alternate .cln-clip { grid-template-columns: minmax(0, 1fr); }
+  .cln-clips-alternate .cln-clip:nth-child(even) .cln-clip-media { order: 0; }
+}

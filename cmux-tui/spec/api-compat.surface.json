@@ -438,6 +438,37 @@
         "nullable": true
       }
     },
+    "event:cloud-conversation-presence": {
+      "/account": {
+        "ty": "string"
+      },
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"cloud-conversation-presence\""
+        ]
+      },
+      "/participants": {
+        "ty": "array",
+        "required": true
+      },
+      "/participants/*": {
+        "ty": "object"
+      },
+      "/participants/*/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/participants/*/viewing": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "event:cloud-conversation-resynced": {
       "/account": {
         "ty": "string"
@@ -7592,6 +7623,16 @@
         "nullable": true
       }
     },
+    "request:cloud-conversation-presence": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/viewing": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "request:cloud-conversation-run": {
       "/after_seq": {
         "ty": "uint64",
@@ -12516,6 +12557,12 @@
       }
     },
     "response:cloud-conversation-op": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:cloud-conversation-presence": {
       "/data": {
         "ty": "json",
         "required": true

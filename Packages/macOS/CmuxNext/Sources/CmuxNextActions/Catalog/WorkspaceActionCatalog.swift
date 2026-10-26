@@ -304,7 +304,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "copyWorkspaceSSHError",
                 title: String(localized: "action.copyWorkspaceSSHError", defaultValue: "Copy SSH Error", bundle: .module),
                 keywords: ["ssh", "remote", "error"], category: .workspace, symbol: "exclamationmark.bubble",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace copy-ssh-error"
             ),
             ActionDescriptor(
                 id: "clearWorkspaceNotifications",
@@ -316,7 +316,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "revealWorkspaceInFinder",
                 title: String(localized: "action.revealWorkspaceInFinder", defaultValue: "Show Workspace in Finder", bundle: .module),
                 keywords: ["finder", "reveal", "directory"], category: .workspace, symbol: "folder.badge.gearshape",
-                surfaces: [.contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace show-in-finder"
             ),
             ActionDescriptor(
                 id: "palette.copyWorkspaceID",
