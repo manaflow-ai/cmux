@@ -7,8 +7,8 @@ import os
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
 /// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
 /// common modes, so it keeps running during menu tracking, live resize and
-/// modal panels. `CEFPumpSchedule` decides each fire date; see there for
-/// the safety net CEF's pump needs.
+/// modal panels. `CEFPumpSchedule` decides each fire date: the pump wakes
+/// only when CEF (or cmux) asks.
 ///
 /// A request for "now" runs on the next run loop pass, never synchronously
 /// inside the CEF call that made it. The timer is owned, re-armed for each
@@ -31,8 +31,6 @@ final class CEFMessagePump {
     private let ledger: WakeupLedger
     private var schedule: CEFPumpSchedule
     private var isRunning = false
-    /// Why the timer is armed (for the wakeup ledger).
-    private var armedReason = CEFPumpSchedule.Wake.Reason.scheduled
     private var counters = CEFPumpStats()
     /// Holds passes past one per late frame (nil: never).
     private let starvation: RenderStarvationGuard?
@@ -61,7 +59,6 @@ final class CEFMessagePump {
     /// on the main-thread board (p06-scheduler task 048).
     init(
         work: @escaping () -> Void,
-        safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
         timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
@@ -74,7 +71,7 @@ final class CEFMessagePump {
         self.clock = clock
         self.ledger = ledger
         self.gate = gate
-        schedule = CEFPumpSchedule(safetyNet: safetyNet)
+        schedule = CEFPumpSchedule()
     }
 
     nonisolated static func uptime() -> TimeInterval {
@@ -139,8 +136,7 @@ final class CEFMessagePump {
 
     private func timerFired() {
         guard isRunning else { return }
-        ledger.record("CEFMessagePump", reason: armedReason.rawValue)
-        if armedReason == .fallback { counters.followUpRuns += 1 }
+        ledger.record("CEFMessagePump", reason: "scheduled")
         runDuePass()
     }
 
@@ -229,14 +225,13 @@ final class CEFMessagePump {
         counters.workSeconds += elapsed
         if elapsed >= CEFPumpSchedule.timeSlice { counters.longWorkRuns += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
-        schedule.endWork(now: finished, elapsed: elapsed)
+        schedule.endWork()
         rearm()
     }
 
     private func rearm() {
         guard isRunning else { return }
         mergeKeptRequests()
-        counters.fallbackInterval = schedule.armedSafetyNetInterval ?? 0
         guard let wake = schedule.nextWake else {
             endInputHold()
             timer.disarm()
@@ -245,14 +240,12 @@ final class CEFMessagePump {
         let now = clock()
         // No pass is due before the hold's end (CEF moved its request later): none waits for input.
         if wake.deadline > max(now + 0.001, inputHoldDeadline ?? -.infinity) { endInputHold() }
-        armedReason = wake.reason
         // A pass input holds fires at the hold's bound, unless the input's dispatch ends first.
         let deadline = max(wake.deadline, inputHoldDeadline ?? -.infinity)
         let exact = inputHoldDeadline != nil || chromiumInputPass
         timer.arm(after: max(0, deadline - now), tolerance: exact ? 0 : wake.tolerance)
-        // Only a demand-driven fork (no safety net) reports its next delayed task after each pass;
-        // with an older one every request reaches the schedule. An immediate pass is no deadline.
-        guard schedule.safetyNet == .none, wake.deadline.isFinite, wake.deadline > 0 else { return }
+        // An immediate pass is no deadline.
+        guard wake.deadline.isFinite, wake.deadline > 0 else { return }
         gate.publish(deadlineNanos: UInt64(wake.deadline * 1e9))
     }
 

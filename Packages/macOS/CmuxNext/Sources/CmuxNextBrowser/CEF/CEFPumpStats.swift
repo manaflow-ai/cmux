@@ -14,17 +14,11 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// Timer fires that arrived while `CefDoMessageLoopWork` was already
     /// running (a nested run loop) and were deferred.
     public var reentrantFires = 0
-    /// `CefDoMessageLoopWork` calls that used CEF's whole 10 ms time slice,
-    /// so work may remain that CEF does not schedule again.
+    /// `CefDoMessageLoopWork` calls that used CEF's whole 10 ms time slice
+    /// (the fork asks for "now" itself when work remains).
     public var longWorkRuns = 0
     /// Total time inside `CefDoMessageLoopWork`, in seconds.
     public var workSeconds: Double = 0
-    /// Timer fires that were follow-up wakes after a pass (the safety net
-    /// for delayed work CEF does not report), not CEF requests.
-    public var followUpRuns = 0
-    /// The gap of the pending follow-up wake in seconds, 0 when none is
-    /// pending (the pump then sleeps until CEF asks).
-    public var fallbackInterval: Double = 0
     /// Delayed requests from Chromium threads kept with no main wake, because the armed fire came
     /// first (``CEFPumpCrossThreadGate``); the main thread merges them at its next pass or re-arm.
     /// They are not in ``delayedRequests``.
