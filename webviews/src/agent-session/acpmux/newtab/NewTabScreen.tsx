@@ -747,8 +747,11 @@ export function NewTabScreen(props: Props) {
     if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
     if (holdForAttachments(() => submitNow.current())) return;
-    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
-    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com). So does an
+    // address with no row selected (↑ from the top row): there is no prompt to send.
+    const list = rows.length ? rows : suggested;
+    const opensTop = !rows.length || (current < 0 && isAddress(text.trim(), home));
+    const row = opensTop ? list[defaultSelection(list)] : rows[current];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
     const keeps =
       !row || attachments.length === 0 || row.type === "ask" || (row.type === "create" && row.kind === "chat");
@@ -919,9 +922,10 @@ export function NewTabScreen(props: Props) {
       edit(completion);
       return;
     }
-    // ← and → in the list go back to the text, and the caret moves there at once (the default
-    // action: no preventDefault). Return then sends the prompt, until typing selects the top row.
-    if (plain && current >= 0 && rows.length && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    // ← and → on a row the arrows picked go back to the text, and the caret moves there at once (the
+    // default action: no preventDefault). Return then sends the prompt, until typing selects the top
+    // row. The top row typing selects stays: ← to fix a typo in an address keeps Return opening it.
+    if (plain && kept >= 0 && rows.length && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       pick(-1);
       return;
     }
