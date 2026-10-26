@@ -94,7 +94,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
             ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
-        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal)
+        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.resourceSource = services.resources
@@ -375,7 +375,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let shown = selectedTabNode, shown !== next, shown.parent === visibilityNode { shown.set(.hidden) }
         selectedTabNode = next
         guard let next else { return }
-        next.attach(to: visibilityNode) // a no-op when it is already here
+        // A no-op when it is already here. It cannot throw: a tab's node is a child (`TabContentCache.node(for:)`)
+        // and a pane's node is never below a tab's.
+        try? next.attach(to: visibilityNode)
         next.set(.visible)
     }
 

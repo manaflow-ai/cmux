@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
+import CmuxNextCompat
 import Darwin
 import Foundation
 import ImageIO
@@ -37,17 +38,16 @@ public nonisolated struct WindowFrame: Sendable {
     }
 
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
-    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
-                                         until: Double) async -> [WindowFrame] {
-        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
-        let create = unsafeBitCast(symbol, to: CreateImage.self)
+    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale. Each
+    /// read waits for the window server: run it on a system lane, never on main or the pool.
+    public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
+                              until: Double) -> [WindowFrame] {
         var frames: [WindowFrame] = []
         // Each pass reads one image (a window server round trip); the loop ends at the deadline.
         while elapsed(since: start) < until {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
-            guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
+            guard let image = blockingWindowListCreateImage(.null, .optionIncludingWindow, window,
+                                                            CGWindowImageOption(rawValue: (1 << 0) | (1 << 9))) else { break }
             let at = elapsed(since: start)
             // A frame the crop cannot cut is dropped, so every frame of a strip has one size.
             let kept = crop.map { unit in

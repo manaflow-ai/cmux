@@ -46,6 +46,8 @@ nonisolated extension SignpostCategory {
         case .control: "control"
         case .ghostty: "ghostty"
         case .resize: "resize"
+        case .webui: "webui"
+        case .log: "log"
         }
     }
 }

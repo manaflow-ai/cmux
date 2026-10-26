@@ -1,5 +1,0 @@
-# `cargo fuzz run` defaults when run by hand; scripts/cmux-next/rust-fuzz.sh
-# keeps its corpus and findings outside the tree.
-/corpus/
-/artifacts/
-/coverage/

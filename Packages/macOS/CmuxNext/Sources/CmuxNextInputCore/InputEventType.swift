@@ -7,6 +7,8 @@ public enum InputEventType: UInt8, Hashable, Sendable {
     case leftMouseDragged, rightMouseDragged, otherMouseDragged
     case scrollWheel
     case magnify, rotate, swipe, smartMagnify, pressure
+    /// The pointer crossed a tracking area's edge (class ``InputEventClass/tracking``).
+    case mouseEntered, mouseExited
 
     /// The class whose subscribers get this event.
     public var eventClass: InputEventClass {
@@ -18,6 +20,7 @@ public enum InputEventType: UInt8, Hashable, Sendable {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged: .drag
         case .scrollWheel: .scroll
         case .magnify, .rotate, .swipe, .smartMagnify, .pressure: .gesture
+        case .mouseEntered, .mouseExited: .tracking
         }
     }
 
@@ -36,6 +39,9 @@ public enum InputScrollPhase: UInt8, Hashable, Sendable {
     /// Not a scroll event, or a wheel notch with no phase.
     case none
     case mayBegin, began, changed, ended, cancelled
-    /// Momentum (the coast after the fingers lifted).
+    /// Momentum (the coast after the fingers lifted): began or changed.
     case momentum
+    /// The momentum ended or was cancelled: the scroll sequence is over (Chrome's
+    /// `mouse_wheel_phase_handler.cc` closes the latching sequence here).
+    case momentumEnded
 }

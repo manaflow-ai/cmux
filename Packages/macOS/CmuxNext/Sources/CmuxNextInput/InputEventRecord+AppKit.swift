@@ -3,7 +3,7 @@ public import CmuxNextInputCore
 
 extension InputEventType {
     /// The type of an `NSEvent` the tap delivers; nil for the others (AppKit-defined, system-defined,
-    /// periodic, cursor, tracking-area, tablet and pressure-only events).
+    /// periodic, cursor-update and tablet events).
     public init?(_ type: NSEvent.EventType) {
         switch type {
         case .keyDown: self = .keyDown
@@ -25,6 +25,8 @@ extension InputEventType {
         case .swipe: self = .swipe
         case .smartMagnify: self = .smartMagnify
         case .pressure: self = .pressure
+        case .mouseEntered: self = .mouseEntered
+        case .mouseExited: self = .mouseExited
         default: return nil
         }
     }
@@ -58,7 +60,7 @@ extension InputEventRecord {
             scrollPhase = Self.scrollPhase(of: event)
             scrollDelta = InputPoint(x: event.scrollingDeltaX, y: event.scrollingDeltaY)
             hasPreciseScrollingDeltas = event.hasPreciseScrollingDeltas
-        case .pointerMove, .gesture:
+        case .pointerMove, .gesture, .tracking:
             break
         }
     }
@@ -73,7 +75,8 @@ extension InputEventRecord {
 
     /// Where a scroll event is in its gesture: momentum first, then the gesture phase.
     private static func scrollPhase(of event: NSEvent) -> InputScrollPhase {
-        if !event.momentumPhase.isEmpty { return .momentum }
+        let momentum = event.momentumPhase
+        if !momentum.isEmpty { return momentum.isDisjoint(with: [.ended, .cancelled]) ? .momentum : .momentumEnded }
         let phase = event.phase
         if phase.isEmpty { return .none }
         if phase.contains(.mayBegin) { return .mayBegin }

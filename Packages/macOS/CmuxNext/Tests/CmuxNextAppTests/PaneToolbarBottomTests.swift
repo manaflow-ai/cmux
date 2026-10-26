@@ -19,8 +19,8 @@ import Testing
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("browser"), title: "Example")]),
+                                           reveal: LaunchReveal(deadline: .zero))
             pane.barPosition = tabBar
             pane.barOrder = order
             pane.toolbarPosition = toolbar
@@ -95,8 +95,8 @@ import Testing
         let bar = NSView()
         bar.heightAnchor.constraint(equalToConstant: 40).isActive = true
         let content = NSView()
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("md"), title: "README.md")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("md"), title: "README.md")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         pane.toolbarPosition = .bottom
         pane.frame = window.contentLayoutRect
         window.contentView = pane

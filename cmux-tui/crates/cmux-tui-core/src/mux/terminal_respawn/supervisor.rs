@@ -130,6 +130,7 @@ impl Mux {
     /// the respawning marker; the tab shows the committed host loss, which
     /// the next owner's start sweep respawns.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn abandon_terminal_respawn(&self, terminal_id: &str) {
         self.pending_terminals.lock().unwrap_or_else(PoisonError::into_inner).retain(
             |_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Respawning,
@@ -142,6 +143,7 @@ impl Mux {
     /// owner respawns it, and take the dead runtime out of its tabs, so they
     /// show that durable receipt.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn end_terminal_respawn_exhausted(
         &self,
         terminal_id: &str,
@@ -171,6 +173,7 @@ impl Mux {
     /// Rewrite an exited terminal's receipt from `recorded` to `replacement`
     /// (a no-op when the stored receipt is not `recorded` any more).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn rewrite_lost_receipt(
         &self,
         terminal_id: &str,
@@ -185,6 +188,7 @@ impl Mux {
     /// receipt, and when it committed and `detach_runtime` names the
     /// terminal, take its runtime out of the tabs (returned for cleanup).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn replace_lost_receipt(
         &self,
         terminal_id: &str,
@@ -231,6 +235,7 @@ impl Mux {
     /// respawn a daemon restart or logout cut off, a shell a session
     /// shutdown ended). Runs once, after host adoption.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(crate) fn respawn_lost_terminals_at_start(&self) {
         let snapshot = self
             .workspace_registry

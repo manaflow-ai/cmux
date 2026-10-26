@@ -13,12 +13,14 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextEnergy
 import CmuxNextFeatures
 import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
+import CmuxNextKeepAwake
 import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
@@ -105,6 +107,9 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
+    /// key tracker and later adopters subscribe here, one observer per name for the whole app.
+    let appEvents = AppEvents(center: .default)
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -159,7 +164,8 @@ final class AppServices {
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
-    let presentation = ContentPresentationScheduler()
+    private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
+    private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
@@ -295,8 +301,14 @@ final class AppServices {
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
     /// The app's one memory coordinator (consumers register in AppServices+Memory.swift); it releases in background work.
     private(set) lazy var memoryCoordinator = AppMemoryConsumers.coordinator(pressure: memoryPressure, mainWork: mainWork)
+    /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
+    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
+    /// Samples the footprints into `memoryHistograms` once an hour (startHibernation starts it).
+    private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
+        histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
+        sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure, input: inputTap)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -336,12 +348,13 @@ final class AppServices {
     /// The one keyboard router (plans/cmux-next/focus.md section 5).
     /// The input event being dispatched now (``InputDispatchContext``): `sendEvent` and the router's own dispatches.
     /// Each scroll event it dispatches is timed to its frame (`key.scroll_frame`), and each key-down or
-    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`).
+    /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`), and the span of its dispatch
+    /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
-    let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
+    let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -389,6 +402,15 @@ final class AppServices {
     var borderObservation: Task<Void, Never>?
     /// Repaints when the glass mode pages draw changes (`observeGlass`).
     var glassWatch: GlassModeWatch?
+    /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
+    /// its Low Power Mode goes out by init and its inputs are pushed (`startEnergy`), never a shared instance.
+    let energyMonitor: EnergyMonitor
+    /// Pushes the monitor's inputs to the consumers below the App and ``energy``'s policy driver (`startEnergy`).
+    var energyLink: MainActorHandlerRegistration<EnergyInputs>?
+    /// The writer of `mainWork.energy`, the policy every scheduler reads, and the idle wakeup histogram.
+    private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
+    private var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -423,8 +445,8 @@ final class AppServices {
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore(loader: BrowserFaviconLoader.shared)
     /// The one owner of hover cards in the app: at most one card, ever
-    /// (plans/cmux-next/hovercards.md).
-    let hoverCards = HoverCardCoordinator()
+    /// (plans/cmux-next/hovercards.md). Its dismissals listen on ``inputTap``.
+    let hoverCards: HoverCardCoordinator
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -458,16 +480,21 @@ final class AppServices {
     /// - Parameter hangWatch: the hang watch of every watched lane (``work``'s lanes; through ``daemon``, its
     ///   connection readers, terminal attachments and terminal output lanes): the process's
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
+    /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
+    ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
-         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch) {
+         wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
+         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
+        self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        self.wireStats = wireStats
+        (self.wireStats, self.inputTap) = (wireStats, inputTap)
+        hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
@@ -475,7 +502,8 @@ final class AppServices {
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
-                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) })
+                                             discreteInput: { [mainWork] in mainWork.noteDiscreteInput(expectsFrame: $0) },
+                                             discreteDispatch: { [mainWork] in mainWork.noteDiscreteDispatch(began: $0) })
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork, wireStats: wireStats,
                                hangWatch: hangWatch)
         self.launchReveal = launchReveal
@@ -580,12 +608,11 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
-        (NSApp as? CmuxApplication)?.inputTap = inputTap
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
         (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak self] active in self?.cache.cef.setAssistiveClientActive(active) }
-        (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
+        (NSApp as? CmuxApplication)?.keyDownInterceptor = PerfLabCanaryKeyDown(features: { [weak self] in self?.features }).wrap { [weak self] (event: NSEvent, window: NSWindow?) in
             guard let self else { return false }
             // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
             if self.sleepyMode.consumesKeyDown() { return true }
@@ -654,6 +681,28 @@ final class AppServices {
             keyRouter.cancelChord()
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
+    }
+    /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
+    /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only
+    /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
+    func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared) {
+        energy.start(inputs: energyMonitor)
+        energyLink = energyMonitor.follow { [weak self] inputs in
+            self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
+            keepAwake.setOnBattery(inputs.onBattery)
+            videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
+            self?.energy.driver.update(inputs: inputs)
+        }
+    }
+    /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
+    /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.
+    func followEnergySaver(_ settings: SettingsController) {
+        guard energySaverObservation == nil else { return }
+        // task-owner: app lifetime; event-driven (Observation)
+        energySaverObservation = Task { [weak self] in
+            await settings.waitForLoad(atLeast: 1)
+            for await mode in ObservationStream({ settings.snapshot.energySaver }) { self?.energy.driver.update(setting: mode) }
+        }
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`

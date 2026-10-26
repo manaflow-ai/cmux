@@ -33,6 +33,128 @@
    "requires_authority": true
   }
  },
+ "families": {
+  "daemon": {
+   "id": 1,
+   "description": "Daemon identity, liveness, configuration and machine state.",
+   "next_ordinal": 14
+  },
+  "clients": {
+   "id": 2,
+   "description": "Connected clients and their focus.",
+   "next_ordinal": 5
+  },
+  "terminal-io": {
+   "id": 3,
+   "description": "Terminal input, output streams, screen reads and terminal requests to the frontend.",
+   "next_ordinal": 26
+  },
+  "terminals": {
+   "id": 4,
+   "description": "Terminal hosts: lifetime, processes and command history.",
+   "next_ordinal": 16
+  },
+  "sizing": {
+   "id": 5,
+   "description": "Surface sizes, attached views and sizing policy.",
+   "next_ordinal": 13
+  },
+  "layout": {
+   "id": 6,
+   "description": "Panes, splits, columns, rows and layout export.",
+   "next_ordinal": 21
+  },
+  "tabs": {
+   "id": 7,
+   "description": "Tabs (surfaces) in panes: create, move, close, select and tab metadata.",
+   "next_ordinal": 27
+  },
+  "tab-groups": {
+   "id": 8,
+   "description": "Tab groups and saved tab groups.",
+   "next_ordinal": 16
+  },
+  "screens": {
+   "id": 9,
+   "description": "Screens, screen groups and saved screen groups.",
+   "next_ordinal": 19
+  },
+  "workspaces": {
+   "id": 10,
+   "description": "Workspaces, workspace groups and frontend projections.",
+   "next_ordinal": 20
+  },
+  "browser": {
+   "id": 11,
+   "description": "Browser input, navigation, browser providers and browser profiles.",
+   "next_ordinal": 21
+  },
+  "bookmarks": {
+   "id": 12,
+   "description": "Browser bookmarks.",
+   "next_ordinal": 6
+  },
+  "personal": {
+   "id": 13,
+   "description": "Personal profiles, sessions, personal groups and pins.",
+   "next_ordinal": 18
+  },
+  "agents": {
+   "id": 14,
+   "description": "Agents in terminals and the local feed.",
+   "next_ordinal": 7
+  },
+  "conversations": {
+   "id": 15,
+   "description": "Local conversations, runs, attachments, inbox and search.",
+   "next_ordinal": 25
+  },
+  "cloud": {
+   "id": 16,
+   "description": "cmux Cloud session, host replica, conversations and inbox.",
+   "next_ordinal": 29
+  },
+  "assets": {
+   "id": 17,
+   "description": "Content-addressed icon assets.",
+   "next_ordinal": 2
+  },
+  "terminal-stream-events": {
+   "id": 192,
+   "description": "Content of an attach stream: output, render state, frames and sizes.",
+   "next_ordinal": 12
+  },
+  "mux-events": {
+   "id": 193,
+   "description": "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.",
+   "next_ordinal": 36
+  },
+  "daemon-events": {
+   "id": 194,
+   "description": "Clients, daemon lifetime, settings, pairing and machine state.",
+   "next_ordinal": 12
+  },
+  "agent-events": {
+   "id": 195,
+   "description": "Agents and the agent inventory.",
+   "next_ordinal": 4
+  },
+  "personal-events": {
+   "id": 196,
+   "description": "Personal profiles, bookmarks and history.",
+   "next_ordinal": 3
+  },
+  "conversation-events": {
+   "id": 197,
+   "description": "Local conversations, runs, drafts and Chief.",
+   "next_ordinal": 8
+  },
+  "cloud-events": {
+   "id": 198,
+   "description": "cmux Cloud session, conversations and inbox.",
+   "next_ordinal": 12
+  }
+ },
  "types": {
   "FrontendFocusTarget": {
    "kind": "enum",
@@ -6023,6 +6145,38 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "request_path_io": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRequestPathIo"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "slow_requests": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsSlowRequests"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "request_latency_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsRequestLatency"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "dispatch_queue_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6031,7 +6185,10 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "request_path_io is present only when the request names it in include.",
+    "slow_requests is present only when the request names it in include.",
+    "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6230,6 +6387,225 @@
    "constraints": [
     "Counters accumulate since daemon start.",
     "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+   ]
+  },
+  "ServerStatsRequestLatency": {
+   "kind": "object",
+   "fields": {
+    "topology": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_io": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "create": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "query": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "browser": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "agent": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "cloud": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "other": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Each histogram is one request class (the daemon's MethodClass): microseconds from a request line's arrival at its connection's reader to its reply entering the connection's outbound queue.",
+    "A request a worker answers later (url-open, chief-inspect, cloud commands) counts when the worker's reply is queued."
+   ]
+  },
+  "ServerStatsRequestPathIo": {
+   "kind": "object",
+   "fields": {
+    "recording": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "scopes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sqlite": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_wait": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "process_spawn": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "fs_write": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_wait": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sleep": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "proc_scan": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "child_process": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "network": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "lock_hold_over_1ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "sites": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsRequestPathSite"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
+    "scopes counts outermost request scopes entered: frames read plus queued requests run.",
+    "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
+    "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+   ]
+  },
+  "ServerStatsRequestPathSite": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kind is one of sqlite, journal_wait, process_spawn, fs_write, host_wait, sleep, proc_scan, child_process, network, lock_hold_over_1ms.",
+    "site is the file:line of the code that asked for the blocking work."
    ]
   },
   "GuestUrlOpenResult": {
@@ -9418,6 +9794,203 @@
     }
    },
    "additional_properties": false
+  },
+  "ServerStatsSlowRequests": {
+   "kind": "object",
+   "fields": {
+    "threshold_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "unwatched": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "expected_waits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "spawn_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "watchdog_wakeups": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "recent": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequest"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counters accumulate since daemon start.",
+    "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
+    "unwatched counts requests that started while every watchdog slot was taken.",
+    "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+    "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
+   ]
+  },
+  "ServerStatsSlowRequest": {
+   "kind": "object",
+   "fields": {
+    "method": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "started_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "busy_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "stack": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequestFrame"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stack_truncated": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stack_error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
+    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+    "duration_ms is how long the request ran in total, null while it still runs.",
+    "stack is the stack of the thread running the request, captured while it was still busy, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
+    "stack_truncated is true when stack holds only the interrupted pc because the daemon was built without frame pointers.",
+    "stack_error is null, or one of run-ended, unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout."
+   ]
+  },
+  "ServerStatsSlowRequestFrame": {
+   "kind": "object",
+   "fields": {
+    "image": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "image_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "offset": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "symbol": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "image is the file name of the image that holds the frame, or null when no loaded image does.",
+    "image_id is that image's build id (Mach-O LC_UUID as dwarfdump --uuid prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex), or null when it has none.",
+    "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
+    "symbol is the nearest exported symbol, mangled, or null for a local function."
+   ]
   }
  },
  "commands": {
@@ -9456,6 +10029,13 @@
    "stream": null,
    "constraints": [
     "The server derives producer identity from the authenticated control client."
+   ],
+   "method_id": 2560,
+   "priority": "control",
+   "durability": "reply_after_journal",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "identify": {
@@ -9495,7 +10075,15 @@
     "name": "IdentifyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 256,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "ping": {
    "authority": "control",
@@ -9511,7 +10099,14 @@
     "name": "PingResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 257,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "set-client-info": {
    "authority": "control",
@@ -9690,7 +10285,15 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 512,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "list-clients": {
    "authority": "control",
@@ -9709,7 +10312,14 @@
     }
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 513,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "list-terminals": {
    "authority": "control",
@@ -9725,7 +10335,14 @@
     "name": "ListTerminalsResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1024,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "terminal-events": {
    "authority": "control",
@@ -9753,6 +10370,12 @@
    "stream": null,
    "constraints": [
     "Consumers apply only contiguous revisions for one registry_id and generation."
+   ],
+   "method_id": 768,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "set-client-sizing": {
@@ -9808,7 +10431,16 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1280,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "detach-client": {
    "authority": "control",
@@ -9866,6 +10498,14 @@
    "stream": null,
    "constraints": [
     "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+   ],
+   "method_id": 514,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "reload-config": {
@@ -9900,7 +10540,14 @@
     "additional_properties": false
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 258,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "set-window-title": {
    "authority": "control",
@@ -9928,7 +10575,13 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 259,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
   },
   "clear-window-title": {
    "authority": "control",
@@ -9944,7 +10597,13 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 260,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
+   ]
   },
   "list-workspaces": {
    "authority": "control",
@@ -9960,7 +10619,15 @@
     "name": "Tree"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2561,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "get-frontend-projection": {
    "authority": "control",
@@ -10003,6 +10670,13 @@
    "stream": null,
    "constraints": [
     "Each identifier is nonempty, contains no control character, and is at most 128 bytes."
+   ],
+   "method_id": 2562,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "put-frontend-projection": {
@@ -10114,7 +10788,14 @@
     "name": "FrontendProjection"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2563,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "export-layout": {
    "authority": "control",
@@ -10140,7 +10821,13 @@
     "name": "ExportLayoutResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1536,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
   },
   "apply-layout": {
    "authority": "control",
@@ -10205,7 +10892,14 @@
     "name": "ApplyLayoutResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1537,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "sdk"
+   ]
   },
   "send": {
    "authority": "control",
@@ -10333,6 +11027,15 @@
    "stream": null,
    "constraints": [
     "With terminal_id, input for a terminal still being created is queued in one FIFO per id (at most 65536 bytes; over it the request fails with input.overflow and queues nothing) and written before any later input when the terminal is live; the result is {queued:true}. A failed, cancelled or expired (10 s after the first queued byte) creation writes nothing and gives each sending connection its bytes back in a terminal-input-unclaimed control event."
+   ],
+   "method_id": 769,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "read-screen": {
@@ -10360,6 +11063,14 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ],
+   "method_id": 770,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "clear-history": {
@@ -10399,6 +11110,15 @@
    "constraints": [
     "PTY surfaces only.",
     "Failed responses classify error_delivery as known-not-delivered or ambiguous."
+   ],
+   "method_id": 771,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "read-scrollback": {
@@ -10448,6 +11168,14 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only; row indexes are snapshot-relative and not durable."
+   ],
+   "method_id": 772,
+   "priority": "bulk",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "wait-for": {
@@ -10497,6 +11225,13 @@
    "stream": null,
    "constraints": [
     "Blocks subsequent requests on this connection; SDKs should use a dedicated connection."
+   ],
+   "method_id": 773,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "run": {
@@ -10606,7 +11341,15 @@
     "name": "RunResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1025,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "create-surface-with-receipt": {
    "authority": "control",
@@ -10763,6 +11506,14 @@
    "constraints": [
     "Repeating one origin and receipt with identical fields returns the original creation result.",
     "A new idempotency_key is valid only when durable creation resolution instructs retry_new_idempotency_key."
+   ],
+   "method_id": 1792,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "send-key": {
@@ -10807,6 +11558,14 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ],
+   "method_id": 774,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "copy": {
@@ -10846,6 +11605,13 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ],
+   "method_id": 775,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "ids": {
@@ -10879,6 +11645,12 @@
    "stream": null,
    "constraints": [
     "Short ids are snapshot-local labels; command parameters accept numeric ids only."
+   ],
+   "method_id": 1538,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "notify": {
@@ -10946,7 +11718,15 @@
     "name": "NotifyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1793,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "list-agents": {
    "authority": "control",
@@ -10981,7 +11761,16 @@
     "name": "ListAgentsResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 3584,
+   "priority": "control",
+   "durability": "read_only",
+   "crosses_stream_ok": "surface only filters the agent list, which queued stream items do not change.",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "report-agent": {
    "authority": "control",
@@ -11033,6 +11822,14 @@
    "stream": null,
    "constraints": [
     "A stored hook report outranks later socket reports until another hook report or surface close."
+   ],
+   "method_id": 3585,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "vt-state": {
@@ -11060,6 +11857,13 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ],
+   "method_id": 776,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "resolve-terminal": {
@@ -11091,7 +11895,14 @@
     "name": "ResolveTerminalResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1026,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
   },
   "close-terminal": {
    "authority": "control",
@@ -11167,7 +11978,16 @@
     "name": "CloseTerminalResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1027,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "set-terminal-idle-policy": {
    "authority": "control",
@@ -11230,6 +12050,13 @@
    "constraints": [
     "The policy is stored durably with the terminal and survives owner restarts.",
     "The owner closes the terminal, as close-terminal does, once it has had no attached view for idle_close_seconds; unattached time restarts at every attach and after an owner restart."
+   ],
+   "method_id": 1028,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "set-terminal-keep": {
@@ -11285,6 +12112,15 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ],
+   "method_id": 1029,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "terminal-resume-command": {
@@ -11346,6 +12182,14 @@
    "constraints": [
     "The resume command is stored durably with the terminal and survives owner restarts.",
     "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
+   ],
+   "method_id": 1030,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "new-tab": {
@@ -11461,6 +12305,16 @@
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1)."
+   ],
+   "method_id": 1794,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "new-browser-tab": {
@@ -11518,6 +12372,13 @@
    "stream": null,
    "constraints": [
     "Bootstrap and navigation failures are asynchronous browser-state outcomes."
+   ],
+   "method_id": 1795,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "new-workspace": {
@@ -11570,7 +12431,15 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2564,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "create-workspace": {
    "authority": "control",
@@ -11658,7 +12527,14 @@
     "name": "WorkspaceMutationResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2565,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "create-terminal": {
    "authority": "control",
@@ -11866,6 +12742,16 @@
    "constraints": [
     "keep:true marks the new terminal kept, so the owner does not end it when it has no tab placement (terminal-reap-v1).",
     "detached:true (detached-terminals-v1) creates a kept terminal with no workspace, pane, screen, or tab; the result has null surface, pane, screen, and workspace, key \"detached\", and terminal_resource_id."
+   ],
+   "method_id": 1031,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "new-screen": {
@@ -12024,6 +12910,16 @@
    "constraints": [
     "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen.",
     "env, terminal_id, and shell_args need capability screen-terminal-env-v1: the new screen's terminal takes them as on new-pane, and the result then also carries terminal_id."
+   ],
+   "method_id": 2304,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "set-screen-metadata": {
@@ -12069,6 +12965,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2305,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-screen-pinned": {
@@ -12104,6 +13007,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2306,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-screen": {
@@ -12158,6 +13068,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2307,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-screen-group": {
@@ -12206,6 +13123,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2308,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-screen-group": {
@@ -12274,6 +13198,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2309,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "add-screens-to-screen-group": {
@@ -12321,6 +13252,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2310,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "remove-screens-from-screen-group": {
@@ -12351,6 +13289,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2311,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-screen-group": {
@@ -12405,6 +13350,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2312,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "ungroup-screen-group": {
@@ -12432,6 +13384,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2313,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "close-screen-group": {
@@ -12468,6 +13427,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2314,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "list-saved-screen-groups": {
@@ -12486,6 +13452,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2315,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "save-screen-group": {
@@ -12513,6 +13486,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2316,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "unsave-screen-group": {
@@ -12540,6 +13520,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2317,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-saved-screen-group": {
@@ -12567,6 +13554,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2318,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "reopen-saved-screen-group": {
@@ -12603,6 +13597,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2319,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "new-pane": {
@@ -12753,6 +13755,16 @@
    "constraints": [
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+   ],
+   "method_id": 1539,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "new-pane-right": {
@@ -12942,6 +13954,16 @@
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
     "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1)."
+   ],
+   "method_id": 1540,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "split": {
@@ -13142,6 +14164,16 @@
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
     "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
     "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
+   ],
+   "method_id": 1541,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "set-ratio": {
@@ -13189,7 +14221,13 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1542,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
   },
   "set-split-ratio": {
    "authority": "control",
@@ -13239,7 +14277,15 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1543,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "set-viewport-pane-width": {
    "authority": "control",
@@ -13291,6 +14337,14 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ],
+   "method_id": 1544,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "set-column-dock": {
@@ -13387,6 +14441,13 @@
     "permanent: true (permanent-dock-v1) marks the column permanent; false or omitted keeps the current value. An undock, edge change or replacement of a permanent column answers error_code \"dock-column-permanent\".",
     "pinned: true (pinned-dock-v1) marks the column pinned (the Home dock); false or omitted keeps the current value, and allow_tabs changes only with column.update. A pinned column keeps its first tab, takes no other tab unless allow_tabs is on, and refuses an undock, edge change or replacement with error_code \"dock-column-pinned\".",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1545,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "undo-layout": {
@@ -13435,6 +14496,14 @@
    "stream": null,
    "constraints": [
     "Clients must reject incomplete or contradictory result variants."
+   ],
+   "method_id": 1546,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "pane-neighbor": {
@@ -13468,7 +14537,13 @@
     "name": "PaneNeighborResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1547,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
   },
   "focus-direction": {
    "authority": "control",
@@ -13502,7 +14577,13 @@
     "name": "FocusDirectionResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1548,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
   },
   "swap-pane": {
    "authority": "control",
@@ -13548,7 +14629,15 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1549,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "zoom-pane": {
    "authority": "control",
@@ -13587,7 +14676,15 @@
     "name": "ZoomPaneResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1550,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "process-info": {
    "authority": "control",
@@ -13614,6 +14711,15 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only."
+   ],
+   "method_id": 1032,
+   "priority": "control",
+   "durability": "read_only",
+   "crosses_stream_ok": "Reads process state of the terminal host, which changes independently of queued stream items.",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "terminal-ports": {
@@ -13642,6 +14748,13 @@
    "constraints": [
     "PTY surfaces only.",
     "Read when the request arrives; the daemon keeps no poller or cache and never scans processes."
+   ],
+   "method_id": 1033,
+   "priority": "control",
+   "durability": "read_only",
+   "crosses_stream_ok": "Reads process state of the terminal host, which changes independently of queued stream items.",
+   "clients": [
+    "sdk"
    ]
   },
   "terminal-resources": {
@@ -13674,6 +14787,14 @@
    "constraints": [
     "Omitted or null surfaces means every PTY surface.",
     "Read on request; the daemon keeps no sampler, cache, or timer."
+   ],
+   "method_id": 1034,
+   "priority": "background",
+   "durability": "read_only",
+   "crosses_stream_ok": "Reads process state of the terminal host, which changes independently of queued stream items.",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-terminal": {
@@ -13760,6 +14881,13 @@
    "stream": null,
    "constraints": [
     "A move to the current workspace still commits a terminal revision with changed:false."
+   ],
+   "method_id": 1035,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "move-tab": {
@@ -13814,6 +14942,15 @@
    "stream": null,
    "constraints": [
     "An out-of-range index clamps to the destination end."
+   ],
+   "method_id": 1796,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "move-workspace": {
@@ -13906,7 +15043,15 @@
     "name": "WorkspaceMutationResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2566,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "set-default-colors": {
    "authority": "control",
@@ -14020,6 +15165,13 @@
    "constraints": [
     "Color strings are exactly #rrggbb.",
     "With complete:true, absent optional values reset to built-in defaults."
+   ],
+   "method_id": 261,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "close-surface": {
@@ -14045,7 +15197,16 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1797,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "close-pane": {
    "authority": "control",
@@ -14081,7 +15242,15 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1551,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "close-screen": {
    "authority": "control",
@@ -14117,7 +15286,15 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2320,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "close-workspace": {
    "authority": "control",
@@ -14246,6 +15423,14 @@
    "stream": null,
    "constraints": [
     "Provider-managed workspaces reject this ordinary mutation."
+   ],
+   "method_id": 2567,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "rename-pane": {
@@ -14281,6 +15466,13 @@
    "stream": null,
    "constraints": [
     "An empty name clears the pane name."
+   ],
+   "method_id": 1552,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "rename-surface": {
@@ -14316,6 +15508,15 @@
    "stream": null,
    "constraints": [
     "An empty name clears the surface name."
+   ],
+   "method_id": 1798,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "rename-screen": {
@@ -14351,6 +15552,14 @@
    "stream": null,
    "constraints": [
     "An empty name clears the screen name."
+   ],
+   "method_id": 2321,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "rename-workspace": {
@@ -14493,6 +15702,14 @@
    "stream": null,
    "constraints": [
     "Provider-managed workspaces reject this ordinary mutation."
+   ],
+   "method_id": 2568,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "resize-surface": {
@@ -14546,7 +15763,16 @@
     "name": "ResizeSurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1281,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "resize-attached-view": {
    "authority": "frontend",
@@ -14637,6 +15863,15 @@
     "The lease must belong to this connection and surface.",
     "A retired lease returns outcome:superseded without changing replacement views.",
     "With view instead of lease, creates or updates a relay sub-view of this connection."
+   ],
+   "method_id": 1282,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "release-surface-size": {
@@ -14664,6 +15899,14 @@
    "stream": null,
    "constraints": [
     "An absent lease is a successful no-op."
+   ],
+   "method_id": 1283,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "release-attached-view-size": {
@@ -14714,6 +15957,15 @@
    "stream": null,
    "constraints": [
     "The attach stream remains live for cached rendering."
+   ],
+   "method_id": 1284,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "detach-attached-view": {
@@ -14765,6 +16017,15 @@
    "constraints": [
     "The command closes only the named view stream and releases its size contribution.",
     "A retired lease returns outcome:superseded."
+   ],
+   "method_id": 1285,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "focus-pane": {
@@ -14790,7 +16051,14 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1553,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "select-tab": {
    "authority": "control",
@@ -14837,7 +16105,14 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1799,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "select-screen": {
    "authority": "control",
@@ -14875,7 +16150,13 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2322,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
   },
   "select-workspace": {
    "authority": "control",
@@ -14913,7 +16194,13 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 2569,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
+   ]
   },
   "report-focus": {
    "authority": "control",
@@ -14955,7 +16242,14 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 515,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "client-focus": {
    "authority": "control",
@@ -14998,7 +16292,14 @@
     "additional_properties": false
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 516,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "scroll-surface": {
    "authority": "control",
@@ -15033,6 +16334,13 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only; negative values scroll up."
+   ],
+   "method_id": 777,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "sidebar-plugin": {
@@ -15075,7 +16383,15 @@
     "name": "SidebarPluginResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1036,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "mint-terminal-renderer": {
    "authority": "frontend",
@@ -15117,6 +16433,13 @@
    "stream": null,
    "constraints": [
     "Only terminal-host-backed PTYs can mint one-use renderer credentials."
+   ],
+   "method_id": 778,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "get-cell-pixels": {
@@ -15133,7 +16456,14 @@
     "name": "GetCellPixelsResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 779,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "mint-terminal-renderer-by-terminal": {
    "authority": "frontend",
@@ -15180,6 +16510,13 @@
    "stream": null,
    "constraints": [
     "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
+   ],
+   "method_id": 780,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "set-cell-pixels": {
@@ -15225,6 +16562,13 @@
    "stream": null,
    "constraints": [
     "Accepted browser resizes complete asynchronously."
+   ],
+   "method_id": 781,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-frame-presented": {
@@ -15261,6 +16605,14 @@
    "constraints": [
     "Acknowledges the exact rendered browser frame for this connection.",
     "Requires browser-pointer-frame-guard-v1."
+   ],
+   "method_id": 2816,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-mouse": {
@@ -15344,6 +16696,13 @@
    "constraints": [
     "Browser surfaces only; coordinates are CSS pixels.",
     "The bounded disposable input queue drops newest input when full."
+   ],
+   "method_id": 2817,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "browser-mouse-guarded": {
@@ -15427,6 +16786,14 @@
     "Browser surfaces only; coordinates are CSS pixels.",
     "The frame sequence must be the exact presented token for this connection.",
     "Requires browser-pointer-frame-guard-v1."
+   ],
+   "method_id": 2818,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-wheel": {
@@ -15488,6 +16855,13 @@
    "constraints": [
     "Browser surfaces only; values are CSS pixels.",
     "The bounded disposable input queue drops newest input when full."
+   ],
+   "method_id": 2819,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "browser-wheel-guarded": {
@@ -15549,6 +16923,14 @@
     "Browser surfaces only; values are CSS pixels.",
     "The frame sequence must be the exact presented token for this connection.",
     "Requires browser-pointer-frame-guard-v1."
+   ],
+   "method_id": 2820,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-key": {
@@ -15629,6 +17011,14 @@
    "constraints": [
     "Browser surfaces only.",
     "The bounded disposable input queue drops newest input when full."
+   ],
+   "method_id": 2821,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-key-press": {
@@ -15698,6 +17088,14 @@
    "constraints": [
     "Browser surfaces only.",
     "One request preserves the atomic press sequence through the bounded input queue."
+   ],
+   "method_id": 2822,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-insert-text": {
@@ -15734,6 +17132,14 @@
    "constraints": [
     "Browser surfaces only.",
     "The bounded disposable input queue drops newest input when full."
+   ],
+   "method_id": 2823,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-navigate": {
@@ -15770,6 +17176,14 @@
    "constraints": [
     "Queue acknowledgement only; observe browser-state for outcome.",
     "Navigation is latest-wins."
+   ],
+   "method_id": 2824,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "browser-back": {
@@ -15797,6 +17211,13 @@
    "stream": null,
    "constraints": [
     "Browser surfaces only; queue acknowledgement is not page-load success."
+   ],
+   "method_id": 2825,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "browser-forward": {
@@ -15824,6 +17245,13 @@
    "stream": null,
    "constraints": [
     "Browser surfaces only; queue acknowledgement is not page-load success."
+   ],
+   "method_id": 2826,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "browser-reload": {
@@ -15851,6 +17279,13 @@
    "stream": null,
    "constraints": [
     "Browser surfaces only; queue acknowledgement is not page-load success."
+   ],
+   "method_id": 2827,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "browser-activate": {
@@ -15878,6 +17313,13 @@
    "stream": null,
    "constraints": [
     "Browser surfaces only."
+   ],
+   "method_id": 2828,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "subscribe": {
@@ -15986,6 +17428,15 @@
    "constraints": [
     "subscribe sends no initial tree snapshot.",
     "surface filtering occurs before the bounded mailbox."
+   ],
+   "method_id": 782,
+   "priority": "control",
+   "durability": "memory",
+   "crosses_stream_ok": "Opens an event stream; surface only filters the events it carries.",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "attach-surface": {
@@ -16166,7 +17617,16 @@
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
     "terminal_event": "detached"
    },
-   "constraints": []
+   "constraints": [],
+   "method_id": 783,
+   "priority": "control",
+   "durability": "memory",
+   "crosses_stream_ok": "Opens a new stream that starts from its own snapshot; items queued on an older stream of the surface do not change it.",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
+   ]
   },
   "register-browser-provider": {
    "authority": "local-admin",
@@ -16246,6 +17706,12 @@
     "Bearer authentication is optional and sends the token only in the CDP WebSocket upgrade Authorization header.",
     "Each registration replaces that connection's complete target set; target ids are never journaled.",
     "All provider clients of one live registration must agree on hosting."
+   ],
+   "method_id": 2829,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "get-browser-provider": {
@@ -16265,6 +17731,13 @@
    "constraints": [
     "Provider endpoints and targets are disclosed only over a trusted local transport; bearer credentials are accepted only during registration and are never returned.",
     "Automation must select a target by stable tab id instead of treating CDP discovery as topology authority."
+   ],
+   "method_id": 2830,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "unregister-browser-provider": {
@@ -16283,6 +17756,12 @@
    "stream": null,
    "constraints": [
     "Only the calling connection's provider lease is removed."
+   ],
+   "method_id": 2831,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "shutdown-daemon": {
@@ -16356,6 +17835,14 @@
     "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
     "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
     "The daemon exits only after the success response is queued."
+   ],
+   "method_id": 262,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "pairing-response": {
@@ -16391,6 +17878,14 @@
    "stream": null,
    "constraints": [
     "The request id must identify a live, unexpired pairing challenge."
+   ],
+   "method_id": 263,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "mark-workspaces-provider-managed": {
@@ -16418,6 +17913,13 @@
    "stream": null,
    "constraints": [
     "Authority must match the value provisioned before this mux generation accepted control clients."
+   ],
+   "method_id": 2570,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "close-provider-managed-workspace": {
@@ -16464,6 +17966,13 @@
    "stream": null,
    "constraints": [
     "Call only after the external provider durably accepts the close."
+   ],
+   "method_id": 2571,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "rename-provider-managed-workspace": {
@@ -16523,6 +18032,13 @@
    "stream": null,
    "constraints": [
     "Call only after the external provider durably accepts the rename."
+   ],
+   "method_id": 2572,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "machine-listening-tcp": {
@@ -16541,6 +18057,14 @@
    "stream": null,
    "constraints": [
     "Routine Cloud port inventory uses this command over the authenticated private cmux-tui link."
+   ],
+   "method_id": 264,
+   "priority": "control",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "machine-usage": {
@@ -16557,7 +18081,15 @@
     "name": "MachineUsageResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 265,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
+   ]
   },
   "server-stats": {
    "authority": "local-admin",
@@ -16588,7 +18120,15 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+   ],
+   "method_id": 266,
+   "priority": "background",
+   "ordering": "independent",
+   "durability": "read_only",
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "paste-image": {
@@ -16694,6 +18234,13 @@
    "stream": null,
    "constraints": [
     "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+   ],
+   "method_id": 784,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "url-open": {
@@ -16729,6 +18276,14 @@
    "stream": null,
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ],
+   "method_id": 785,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "url-open-subscribe": {
@@ -16766,6 +18321,13 @@
    },
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ],
+   "method_id": 786,
+   "priority": "control",
+   "durability": "memory",
+   "crosses_stream_ok": "Opens a request stream; terminal_ids only filters the requests it carries.",
+   "clients": [
+    "sdk"
    ]
   },
   "url-open-claim": {
@@ -16793,6 +18355,12 @@
    "stream": null,
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ],
+   "method_id": 787,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
    ]
   },
   "url-open-result": {
@@ -16828,6 +18396,12 @@
    "stream": null,
    "constraints": [
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
+   ],
+   "method_id": 788,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
    ]
   },
   "terminal-clipboard-subscribe": {
@@ -16869,6 +18443,14 @@
    },
    "constraints": [
     "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+   ],
+   "method_id": 789,
+   "priority": "control",
+   "durability": "memory",
+   "crosses_stream_ok": "Opens a request stream; terminal_ids only filters the requests it carries.",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "terminal-clipboard-reply": {
@@ -16908,6 +18490,13 @@
    "stream": null,
    "constraints": [
     "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+   ],
+   "method_id": 790,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-to-workspace": {
@@ -16955,6 +18544,15 @@
    "stream": null,
    "constraints": [
     "Moves the existing tab to the selected workspace or atomically creates a workspace when workspace is omitted."
+   ],
+   "method_id": 1800,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "set-size-policy": {
@@ -17003,6 +18601,15 @@
    "stream": null,
    "constraints": [
     "Exactly one of surface or workspace."
+   ],
+   "method_id": 1286,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "set-size-counts": {
@@ -17077,6 +18684,15 @@
    "stream": null,
    "constraints": [
     "At most one of client, lease, view or participant; none targets the caller's own view."
+   ],
+   "method_id": 1287,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "get-size-state": {
@@ -17102,7 +18718,14 @@
     "name": "GetSizeStateResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [],
+   "method_id": 1288,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
+   ]
   },
   "note-size-activity": {
    "authority": "control",
@@ -17142,6 +18765,14 @@
    "constraints": [
     "Requires client capability shared-sizing-v1.",
     "Only explicit input or focus is activity, never hover or visibility."
+   ],
+   "method_id": 1289,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "cli",
+    "sdk"
    ]
   },
   "new-conversation-tab": {
@@ -17336,6 +18967,13 @@
    "stream": null,
    "constraints": [
     "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. split (conversation-tab-split-v1) needs pane and excludes workspace. See spec/commands.md."
+   ],
+   "method_id": 1801,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "bind-conversation-tab-session": {
@@ -17416,6 +19054,14 @@
    "stream": null,
    "constraints": [
     "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
+   ],
+   "method_id": 1802,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "new-frontend-browser-tab": {
@@ -17541,6 +19187,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1803,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-frontend-browser-tab": {
@@ -17614,6 +19267,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1804,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "restart-tab": {
@@ -17644,6 +19305,15 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1805,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "park-tabs": {
@@ -17677,6 +19347,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1806,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-frontend-browser-history": {
@@ -17716,6 +19394,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1807,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "get-frontend-browser-history": {
@@ -17743,6 +19429,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1808,
+   "priority": "bulk",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "list-tab-groups": {
@@ -17774,6 +19468,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2048,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-tab-group": {
@@ -17843,6 +19544,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2049,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-tab-group": {
@@ -17911,6 +19620,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2050,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "add-tabs-to-tab-group": {
@@ -17961,6 +19677,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2051,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "remove-tabs-from-tab-group": {
@@ -18028,6 +19752,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2052,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-group": {
@@ -18082,6 +19814,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2053,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-group-to-split": {
@@ -18143,6 +19882,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2054,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-group-to-column": {
@@ -18215,6 +19961,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2055,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-group-to-new-workspace": {
@@ -18269,6 +20022,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2056,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "ungroup-tab-group": {
@@ -18317,6 +20077,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2057,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "close-tab-group": {
@@ -18388,6 +20155,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2058,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "close-tabs": {
@@ -18491,6 +20265,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1809,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "list-saved-tab-groups": {
@@ -18522,6 +20304,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2059,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "save-tab-group": {
@@ -18567,6 +20356,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2060,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "unsave-tab-group": {
@@ -18612,6 +20408,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2061,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-saved-tab-group": {
@@ -18657,6 +20460,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2062,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "reopen-saved-tab-group": {
@@ -18701,6 +20511,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2063,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "ack-tab-notifications": {
@@ -18728,6 +20546,15 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1810,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "list-notifications": {
@@ -18756,6 +20583,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1811,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-tab-pinned": {
@@ -18791,6 +20625,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1812,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-to-split": {
@@ -18874,6 +20716,15 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1813,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-to-column": {
@@ -18979,6 +20830,15 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1814,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-tab-to-new-workspace": {
@@ -19043,6 +20903,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1815,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-workspace-metadata": {
@@ -19168,6 +21036,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2573,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "list-workspace-groups": {
@@ -19186,6 +21061,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2574,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "create-workspace-group": {
@@ -19248,6 +21129,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2575,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "update-workspace-group": {
@@ -19302,6 +21189,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2576,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "delete-workspace-group": {
@@ -19329,6 +21222,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2577,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "move-workspace-group": {
@@ -19364,6 +21263,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2578,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "move-workspace-to-group": {
@@ -19458,6 +21363,12 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2579,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "list-personal": {
@@ -19476,6 +21387,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3328,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-browser-profile": {
@@ -19548,6 +21466,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2832,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-browser-profile": {
@@ -19611,6 +21536,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2833,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-browser-profile": {
@@ -19646,6 +21578,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2834,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-browser-profile": {
@@ -19673,6 +21612,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 2835,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "list-bookmarks": {
@@ -19722,6 +21668,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3072,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-bookmark": {
@@ -19845,6 +21798,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3073,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-bookmark": {
@@ -19938,6 +21898,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3074,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-bookmark": {
@@ -19999,6 +21966,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3075,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-bookmark": {
@@ -20066,6 +22040,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3076,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "import-bookmarks": {
@@ -20188,6 +22169,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3077,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-profile": {
@@ -20299,6 +22287,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3329,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-profile": {
@@ -20389,6 +22384,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3330,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-profile": {
@@ -20424,6 +22426,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3331,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-profile": {
@@ -20460,6 +22469,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3332,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-profile-follows": {
@@ -20498,6 +22514,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3333,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "pin-workspace": {
@@ -20541,6 +22564,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3334,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "unpin-workspace": {
@@ -20576,6 +22606,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3335,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "put-session": {
@@ -20647,6 +22684,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3336,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "forget-session": {
@@ -20683,6 +22727,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3337,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-session-icon": {
@@ -20719,6 +22770,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3338,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "import-session-organization": {
@@ -20770,6 +22828,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3339,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "create-personal-group": {
@@ -20842,6 +22907,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3340,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-personal-group": {
@@ -20905,6 +22977,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3341,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-personal-group": {
@@ -20932,6 +23011,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3342,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "move-personal-group": {
@@ -20967,6 +23053,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3343,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-personal-terminal": {
@@ -21011,6 +23104,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3344,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "set-personal-workspace": {
@@ -21096,6 +23196,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3345,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "reattach-view": {
@@ -21135,6 +23242,13 @@
    "stream": null,
    "constraints": [
     "Only a view detached by detach-client can be reattached."
+   ],
+   "method_id": 1290,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "set-terminal-command-history": {
@@ -21176,6 +23290,13 @@
     "Off by default and after a daemon restart.",
     "When on, finished OSC 133 shell commands are stored as deletable rows, read with list-terminal-commands.",
     "Lists hide rows older than retention_days at once; the daemon deletes them when it starts, on every store and retention change, and at the oldest row's expiry time."
+   ],
+   "method_id": 1037,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-list": {
@@ -21207,6 +23328,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. See spec/commands.md."
+   ],
+   "method_id": 3840,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-create": {
@@ -21276,6 +23404,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. A replay of the same idempotency key and request returns the created conversation with replayed:true. See spec/commands.md."
+   ],
+   "method_id": 3841,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-snapshot": {
@@ -21343,6 +23478,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. tail is 1-500. See spec/commands.md."
+   ],
+   "method_id": 3842,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-history": {
@@ -21410,6 +23552,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500. See spec/commands.md."
+   ],
+   "method_id": 3843,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-thread": {
@@ -21498,6 +23647,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-500 (default 50). A root that is unknown, in another conversation or a thread reply is unknown_message. See spec/commands.md."
+   ],
+   "method_id": 3844,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-link-resolve": {
@@ -21578,6 +23734,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. url is <scheme>://conversation/<conv_id>[/message/<msg_id>] (scheme cmux or cmux-<tag>, at most 512 bytes; query and fragment ignored), else bad request. An unknown conversation is unknown_conversation, a message unknown or of another conversation unknown_message. path runs from the thread root to the message along reply_to parents. See spec/commands.md."
+   ],
+   "method_id": 3845,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-inbox-op": {
@@ -21655,6 +23818,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. op is {kind:\"inbox.pin\", pinned, position?} or {kind:\"inbox.mark_unread\", unread}; it sets the caller's own list state of a conversation it takes part in (not_participant, unknown_conversation), never a conversation op (no rev). position is at most 2^53-2. See spec/commands.md."
+   ],
+   "method_id": 3846,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "home-inbox": {
@@ -21714,6 +23884,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. See spec/commands.md."
+   ],
+   "method_id": 3847,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-search": {
@@ -21762,6 +23939,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md."
+   ],
+   "method_id": 3848,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "history-search": {
@@ -21829,6 +24013,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only; advertised while the daemon has a search index. query is trimmed, 1-200 characters, no control characters; kinds are chat, command, scrollback, tab or workspace; limit is 1-100 (default 20). See spec/commands.md."
+   ],
+   "method_id": 3849,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-op": {
@@ -21931,6 +24121,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
+   ],
+   "method_id": 3850,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-typing": {
@@ -21974,6 +24171,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+   ],
+   "method_id": 3851,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-draft": {
@@ -22083,6 +24287,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only; the connection's bound agent participant publishes. Ephemeral: never stored, only on conversation.events. See spec/commands.md."
+   ],
+   "method_id": 3852,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-bind": {
@@ -22128,6 +24338,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Binds the connection to an agent participant for its lifetime. See spec/commands.md."
+   ],
+   "method_id": 3853,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-agent-token": {
@@ -22173,6 +24390,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
+   ],
+   "method_id": 3854,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-import": {
@@ -22240,6 +24464,13 @@
    "stream": null,
    "constraints": [
     "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
+   ],
+   "method_id": 3855,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "chief-inspect": {
@@ -22307,6 +24538,13 @@
    "stream": null,
    "constraints": [
     "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+   ],
+   "method_id": 3856,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "snapshot-request": {
@@ -22364,6 +24602,14 @@
     "A request while a snapshot is pending collapses into it; at most one requested snapshot per viewer per 500 ms.",
     "Raw v12 form of the terminal channel message snapshot_request (sync-and-transport.md).",
     "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
+   ],
+   "method_id": 791,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "terminal-history": {
@@ -22419,6 +24665,13 @@
     "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
     "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
     "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+   ],
+   "method_id": 792,
+   "priority": "bulk",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "terminal-read-range": {
@@ -22491,6 +24744,13 @@
     "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
     "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true.",
     "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
+   ],
+   "method_id": 793,
+   "priority": "bulk",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "new-row": {
@@ -22650,7 +24910,16 @@
     "name": "NewRowResult"
    },
    "since": 12,
-   "stream": null
+   "stream": null,
+   "method_id": 1554,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names the terminal this command creates, so no stream can be open on it yet.",
+   "spawns_terminal": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "set-row-heights": {
    "authority": "control",
@@ -22708,7 +24977,14 @@
     "name": "JsonValue"
    },
    "since": 12,
-   "stream": null
+   "stream": null,
+   "method_id": 1555,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "move-column": {
    "authority": "control",
@@ -22744,7 +25020,14 @@
     "name": "JsonValue"
    },
    "since": 12,
-   "stream": null
+   "stream": null,
+   "method_id": 1556,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
   },
   "cloud-session-set": {
    "authority": "local-admin",
@@ -22803,6 +25086,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
+   ],
+   "method_id": 4096,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-session-clear": {
@@ -22821,6 +25111,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4097,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "ws-listen": {
@@ -22864,6 +25161,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
+   ],
+   "method_id": 267,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "page-credential": {
@@ -22895,6 +25199,13 @@
    "stream": null,
    "constraints": [
     "Without page: the verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. With page: trusted local connections; the credential is bound to that page. See spec/commands.md."
+   ],
+   "method_id": 268,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-session-status": {
@@ -22913,6 +25224,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4098,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-host-replica-set": {
@@ -22972,6 +25290,13 @@
    "stream": null,
    "constraints": [
     "The verified cmux app connection only. Leases the app's install token to the host replica publisher, which enrolls the host and publishes host:<host>/session; never echoes the token. See plans/cmux-next/object-sync/DESIGN.md and spec/commands.md."
+   ],
+   "method_id": 4099,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-host-replica-clear": {
@@ -23000,6 +25325,13 @@
    "stream": null,
    "constraints": [
     "The verified cmux app connection only. Drops the lease; with purge the cloud copy is deleted first (the host's off switch). See spec/commands.md."
+   ],
+   "method_id": 4100,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-host-replica-status": {
@@ -23018,6 +25350,13 @@
    "stream": null,
    "constraints": [
     "The verified cmux app connection only. Returns state off, connecting, online, unauthenticated, forbidden, purging, backoff or replaced, and the host and seq; never the token. See spec/commands.md."
+   ],
+   "method_id": 4101,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-inbox-list": {
@@ -23054,6 +25393,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4102,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-requests-list": {
@@ -23072,6 +25418,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ],
+   "method_id": 4103,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-selfhost-info": {
@@ -23090,6 +25443,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ],
+   "method_id": 4104,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-snapshot": {
@@ -23125,6 +25485,14 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. tail is 1-50. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4105,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "cli",
+    "sdk"
    ]
   },
   "cloud-conversation-history": {
@@ -23168,6 +25536,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4106,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-thread": {
@@ -23219,6 +25594,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Needs cloud-conversations-v1 too. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4107,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-participant-avatar-get": {
@@ -23255,6 +25637,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only (and the person's authenticated page). Needs cloud-conversations-v1 too. Calls the cloud. See spec/commands.md."
+   ],
+   "method_id": 4108,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "cloud-conversation-runs": {
@@ -23306,6 +25694,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). The Cloud owner's runs of Chief agent in the conversation, newest first, limit 1-100. See spec/commands.md."
+   ],
+   "method_id": 4109,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "cloud-conversation-run": {
@@ -23357,6 +25751,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections and the person's authenticated page (ws-cloud-conversations-v1). One run of Chief agent and its steps after after_seq; a hidden run answers not_found. See spec/commands.md."
+   ],
+   "method_id": 4110,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-op": {
@@ -23408,6 +25809,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4111,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-inbox-op": {
@@ -23451,6 +25859,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only, the person's clients (the verified app or an authenticated page). op is inbox.pin or inbox.mark_unread, forwarded to the person's UserDO inbox with the client's idempotency key; other kinds are refused with reason unsupported_op. See spec/commands.md."
+   ],
+   "method_id": 4112,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-inbox-subscribe": {
@@ -23469,6 +25884,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4113,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-inbox-unsubscribe": {
@@ -23487,6 +25909,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ends this connection's inbox interest. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4114,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-subscribe": {
@@ -23514,6 +25943,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4115,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-unsubscribe": {
@@ -23541,6 +25977,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ],
+   "method_id": 4116,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-live": {
@@ -23568,6 +26011,13 @@
    "stream": null,
    "constraints": [
     "A subscriber of the conversation only (not_subscribed). Asks the Cloud owner for its run.live snapshot on the shared socket (run.live.get); the answer arrives as a cloud-conversation-live event. Answers the subscription's state. See spec/commands.md."
+   ],
+   "method_id": 4117,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-conversation-typing": {
@@ -23603,6 +26053,13 @@
    "stream": null,
    "constraints": [
     "While some client of the daemon subscribes the conversation (not_subscribed). Sends the owner's ephemeral typing {on, conversation} frame on the shared socket once it is live; the newest state replaces one not yet sent; nothing is stored. Answers the subscription's state. See spec/commands.md."
+   ],
+   "method_id": 4118,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "browser-host-provider": {
@@ -23622,6 +26079,13 @@
    "constraints": [
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
+   ],
+   "method_id": 2836,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "subscribe-activity": {
@@ -23648,6 +26112,12 @@
    "constraints": [
     "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
     "At most 16 subscribers."
+   ],
+   "method_id": 269,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-attachment-upload": {
@@ -23938,6 +26408,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
+   ],
+   "method_id": 3857,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-attachment-read": {
@@ -24050,6 +26527,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections, and authenticated WebSocket connections with ws-attachments-v1. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+   ],
+   "method_id": 3858,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-attachment-link": {
@@ -24121,6 +26605,12 @@
    "stream": null,
    "constraints": [
     "Trusted local and authenticated WebSocket connections. variant original (default), poster or preview; name follows the attachment name rule. The caller and the hash follow the conversation-attachment-read rule. path is /attachments/<token> on the daemon's WebSocket listener (HTTP GET or HEAD, one byte range), valid for expires_in_ms (10 minutes) or until a restart. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview, validation_invalid). See spec/commands.md."
+   ],
+   "method_id": 3859,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "cloud-attachment-upload": {
@@ -24411,6 +26901,13 @@
    "stream": null,
    "constraints": [
     "The person's own clients with the app's lease (the verified app, an authenticated page), like every lease command. The same steps, fields, rules and refusals as conversation-attachment-upload; begin asks the cloud owner for an upload slot, commit sends the poster or preview then the file to the cloud owner and answers its record. Rejects: attachment_rejected, cloud_* errors. See spec/commands.md."
+   ],
+   "method_id": 4119,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-attachment-read": {
@@ -24523,6 +27020,13 @@
    "stream": null,
    "constraints": [
     "The person's own clients with the app's lease. Bytes of a cloud attachment variant through a signed URL the cloud owner mints; the same result as conversation-attachment-read (hash is the part's hash). See spec/commands.md."
+   ],
+   "method_id": 4120,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-attachment-link": {
@@ -24594,6 +27098,12 @@
    "stream": null,
    "constraints": [
     "The person's own clients with the app's lease. A local download link (GET /attachments/<token>, byte ranges) that reads the cloud owner's signed URL with the lease. See spec/commands.md."
+   ],
+   "method_id": 4121,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-run-append": {
@@ -24661,6 +27171,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+   ],
+   "method_id": 3860,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-runs": {
@@ -24736,6 +27252,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. turns (at most 200 reply keys) selects runs by their reply; else the newest runs started before before_started_at, limit 1-200 (default 50). See spec/commands.md."
+   ],
+   "method_id": 3861,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-run": {
@@ -24816,6 +27338,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. The steps written after after_rev (default 0), oldest write first, limit 1-500 (default 500). An unknown run is run_rejected unknown_run. See spec/commands.md."
+   ],
+   "method_id": 3862,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "conversation-live-publish": {
@@ -24851,6 +27380,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only; the caller's principal must be an agent participant (not_agent), the run its own (not_run_author) and running (run_not_running). frame is {type:\"step.delta\", conversation, run, step, kind:\"talk\"|\"thought\", seq, text, final?} (text 1-4096 characters, seq from 0 without gaps: seq_gap, step_final) or {type:\"run.activity\", conversation, run, line, since, at} (line 1-80 characters). Never stored. See spec/commands.md."
+   ],
+   "method_id": 3863,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "conversation-live": {
@@ -24907,6 +27442,13 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. The run.live snapshot: the running runs' streamed text so far (each step at most its last 64 KiB) and activity. See spec/commands.md."
+   ],
+   "method_id": 3864,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "cloud-mux-subscribe": {
@@ -24925,6 +27467,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Subscribes this connection to the leased chief's MuxDO wake queue (mux:<agent>); the agent is the lease token's agt claim, never a request field (no fields are accepted). Refused with mux_needs_chief for a person's session. Replies like cloud-inbox-subscribe, then emits cloud-subscription-state (scope mux). See spec/commands.md."
+   ],
+   "method_id": 4122,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
    ]
   },
   "cloud-mux-unsubscribe": {
@@ -24943,6 +27491,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Releases this connection's interest in the leased chief's wake queue."
+   ],
+   "method_id": 4123,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "sdk"
    ]
   },
   "cloud-mux-ack": {
@@ -24978,6 +27532,12 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. mux.ack for the lease's own chief (agent from the token; an agent field is refused): the wakes of conversation up to seq are handled. Idempotency key mux-ack:<conversation>:<seq>, so a repeated ack is a replay. Replies with the owner's mutation result."
+   ],
+   "method_id": 4124,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "list-terminal-commands": {
@@ -25020,6 +27580,13 @@
    "constraints": [
     "Returns the newest limit unexpired rows with an id above after_id, oldest first; truncated is true when older rows after after_id were left out.",
     "deletions counts client deletes (not expiry); a reader that saw another deletions or registry_id reads again from the start and drops rows older than retention_days itself."
+   ],
+   "method_id": 1038,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "delete-terminal-commands": {
@@ -25074,6 +27641,13 @@
    "stream": null,
    "constraints": [
     "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
+   ],
+   "method_id": 1039,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "put-blob": {
@@ -25110,6 +27684,13 @@
    "constraints": [
     "media_type is image/png, image/jpeg, image/webp, or image/svg+xml; data is standard base64.",
     "See spec/commands.md for the limits and the result object."
+   ],
+   "method_id": 4352,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "get-blob": {
@@ -25137,6 +27718,13 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 4353,
+   "priority": "bulk",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "feed-local-list": {
@@ -25184,6 +27772,14 @@
    "constraints": [
     "state is open, handing_off or moved; the app rebuilds its handoff queue from handing_off items.",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3586,
+   "priority": "control",
+   "durability": "read_only",
+   "crosses_stream_ok": "terminal_id only filters the feed, which queued stream items do not change.",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "feed-local-read": {
@@ -25215,6 +27811,12 @@
    "constraints": [
     "All or nothing: a moved item refuses with owner.unreachable and a handing-off item with feed.moving (both retryable).",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3587,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "feed-local-handoff-begin": {
@@ -25244,6 +27846,13 @@
     "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
     "Idempotent on a handing-off item; a moved item refuses with feed.invalid_state.",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3588,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "feed-local-handoff-abort": {
@@ -25273,6 +27882,12 @@
     "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
     "Send only after feed.adopt.cancel answered cancelled: true. Idempotent on an open item; a moved item refuses with feed.invalid_state.",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3589,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   },
   "feed-local-handoff-done": {
@@ -25310,6 +27925,13 @@
     "Needs the verified cmux app connection (the frontend actor); any other connection is refused with forbidden.",
     "Idempotent with the same home; an open item refuses with feed.invalid_state.",
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 3590,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "new-remote-terminal-tab": {
@@ -25389,6 +28011,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1816,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "crosses_stream_ok": "terminal_id names a terminal of another session, which no stream of this connection carries.",
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "update-remote-terminal-tab": {
@@ -25443,6 +28073,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1817,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "remote-terminal-snapshot": {
@@ -25470,6 +28108,14 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ],
+   "method_id": 1818,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
    ]
   },
   "get-host-size-policy": {
@@ -25498,6 +28144,13 @@
    "stream": null,
    "constraints": [
     "The host policy applies to every terminal without a terminal override or workspace default."
+   ],
+   "method_id": 1291,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "sdk"
    ]
   },
   "set-host-size-policy": {
@@ -25525,6 +28178,12 @@
    "stream": null,
    "constraints": [
     "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
+   ],
+   "method_id": 1292,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "clients": [
+    "sdk"
    ]
   }
  },
@@ -25629,7 +28288,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49920,
+   "priority": "control"
   },
   "agent-inventory-changed": {
    "since": 12,
@@ -25678,7 +28339,9 @@
     "constraints": [
      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
     ]
-   }
+   },
+   "event_id": 49921,
+   "priority": "background"
   },
   "agent-inventory-watch-ended": {
    "since": 12,
@@ -25727,7 +28390,9 @@
     "constraints": [
      "Targeted only to the trusted native control connection that enabled this owner watch; match machine, watch_id and captured control generation before acting. No rows, selectors, commands or job outcomes."
     ]
-   }
+   },
+   "event_id": 49922,
+   "priority": "control"
   },
   "bell": {
    "since": 5,
@@ -25757,7 +28422,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49408,
+   "priority": "control"
   },
   "browser-state": {
    "since": 6,
@@ -25856,7 +28523,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49152,
+   "priority": "control"
   },
   "client-attached": {
    "since": 6,
@@ -25913,7 +28582,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49664,
+   "priority": "control"
   },
   "client-changed": {
    "since": 6,
@@ -25959,7 +28630,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49665,
+   "priority": "control"
   },
   "client-detached": {
    "since": 6,
@@ -25989,7 +28662,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49666,
+   "priority": "control"
   },
   "client-list-invalidated": {
    "since": 9,
@@ -26011,7 +28686,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49667,
+   "priority": "control"
   },
   "colors-changed": {
    "since": 6,
@@ -26119,7 +28796,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49153,
+   "priority": "control"
   },
   "config-reload-requested": {
    "since": 6,
@@ -26141,7 +28820,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49668,
+   "priority": "control"
   },
   "daemon-shutdown": {
    "since": 12,
@@ -26163,7 +28844,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49669,
+   "priority": "control"
   },
   "detached": {
    "since": 5,
@@ -26234,7 +28917,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49154,
+   "priority": "control"
   },
   "empty": {
    "since": 5,
@@ -26256,7 +28941,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49409,
+   "priority": "control"
   },
   "frame": {
    "since": 6,
@@ -26318,7 +29005,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49155,
+   "priority": "input"
   },
   "frontend-projection-changed": {
    "since": 7,
@@ -26388,7 +29077,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49410,
+   "priority": "control"
   },
   "graphics-status": {
    "since": 10,
@@ -26483,7 +29174,9 @@
      "kitty-image-budget-update-failed carries retry_exhausted and summary.",
      "cell-pixel-update-retries-exhausted carries attempts, remaining, cell_width, and cell_height."
     ]
-   }
+   },
+   "event_id": 49411,
+   "priority": "control"
   },
   "keybindings-changed": {
    "since": 12,
@@ -26529,7 +29222,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49670,
+   "priority": "control"
   },
   "layout-changed": {
    "since": 6,
@@ -26609,7 +29304,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49412,
+   "priority": "control"
   },
   "notification": {
    "since": 6,
@@ -26703,7 +29400,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49413,
+   "priority": "control"
   },
   "output": {
    "since": 5,
@@ -26750,7 +29449,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49156,
+   "priority": "input"
   },
   "overflow": {
    "since": 7,
@@ -26802,7 +29503,9 @@
     "constraints": [
      "scope and surface are either both present for attach overflow or both absent for subscribe overflow."
     ]
-   }
+   },
+   "event_id": 49157,
+   "priority": "control"
   },
   "pairing-requested": {
    "since": 7,
@@ -26856,7 +29559,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49671,
+   "priority": "control"
   },
   "pairing-resolved": {
    "since": 7,
@@ -26886,7 +29591,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49672,
+   "priority": "control"
   },
   "pane-added": {
    "since": 7,
@@ -26948,7 +29655,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49414,
+   "priority": "control"
   },
   "pane-closed": {
    "since": 7,
@@ -27010,7 +29719,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49415,
+   "priority": "control"
   },
   "render-delta": {
    "since": 7,
@@ -27119,7 +29830,9 @@
     "constraints": [
      "size is present if and only if the surface resized; every resize has full:true."
     ]
-   }
+   },
+   "event_id": 49158,
+   "priority": "input"
   },
   "render-state": {
    "since": 7,
@@ -27217,7 +29930,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49159,
+   "priority": "input"
   },
   "resized": {
    "since": 6,
@@ -27314,7 +30029,9 @@
     "constraints": [
      "At least one of replay and data is present; replay is canonical from protocol 7."
     ]
-   }
+   },
+   "event_id": 49160,
+   "priority": "control"
   },
   "screen-added": {
    "since": 7,
@@ -27368,7 +30085,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49416,
+   "priority": "control"
   },
   "screen-closed": {
    "since": 7,
@@ -27422,7 +30141,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49417,
+   "priority": "control"
   },
   "screen-renamed": {
    "since": 7,
@@ -27468,7 +30189,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49418,
+   "priority": "control"
   },
   "screen-changed": {
    "since": 12,
@@ -27523,7 +30246,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49419,
+   "priority": "control"
   },
   "scroll-changed": {
    "since": 6,
@@ -27572,7 +30297,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49161,
+   "priority": "control"
   },
   "status": {
    "since": 5,
@@ -27602,7 +30329,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49420,
+   "priority": "control"
   },
   "surface-exited": {
    "since": 5,
@@ -27632,7 +30361,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49421,
+   "priority": "control"
   },
   "surface-output": {
    "since": 5,
@@ -27662,7 +30393,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49422,
+   "priority": "bulk"
   },
   "surface-resize-failed": {
    "since": 7,
@@ -27732,7 +30465,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49423,
+   "priority": "control"
   },
   "surface-resized": {
    "since": 5,
@@ -27787,7 +30522,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49424,
+   "priority": "control"
   },
   "tab-added": {
    "since": 7,
@@ -27857,7 +30594,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49425,
+   "priority": "control"
   },
   "tab-closed": {
    "since": 7,
@@ -27927,7 +30666,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49426,
+   "priority": "control"
   },
   "tab-renamed": {
    "since": 7,
@@ -27989,7 +30730,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49427,
+   "priority": "control"
   },
   "terminal-input-unclaimed": {
    "since": 12,
@@ -28035,7 +30778,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49428,
+   "priority": "control"
   },
   "terminal-registry-changed": {
    "since": 9,
@@ -28089,7 +30834,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49429,
+   "priority": "control"
   },
   "terminal-reaped": {
    "since": 12,
@@ -28135,7 +30882,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49430,
+   "priority": "control"
   },
   "title-changed": {
    "since": 5,
@@ -28174,7 +30923,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49431,
+   "priority": "control"
   },
   "tree-changed": {
    "since": 5,
@@ -28196,7 +30947,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49432,
+   "priority": "control"
   },
   "vt-state": {
    "since": 5,
@@ -28280,7 +31033,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49162,
+   "priority": "control"
   },
   "window-title-requested": {
    "since": 6,
@@ -28310,7 +31065,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49433,
+   "priority": "control"
   },
   "workspace-added": {
    "since": 7,
@@ -28399,7 +31156,9 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
-   }
+   },
+   "event_id": 49434,
+   "priority": "control"
   },
   "workspace-closed": {
    "since": 7,
@@ -28488,7 +31247,9 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
-   }
+   },
+   "event_id": 49435,
+   "priority": "control"
   },
   "workspace-moved": {
    "since": 7,
@@ -28577,7 +31338,9 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
-   }
+   },
+   "event_id": 49436,
+   "priority": "control"
   },
   "workspace-renamed": {
    "since": 7,
@@ -28658,7 +31421,9 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
-   }
+   },
+   "event_id": 49437,
+   "priority": "control"
   },
   "machine-usage-changed": {
    "since": 12,
@@ -28688,7 +31453,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49673,
+   "priority": "background"
   },
   "url-open": {
    "since": 12,
@@ -28734,7 +31501,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49438,
+   "priority": "control"
   },
   "terminal-clipboard-read": {
    "since": 12,
@@ -28788,7 +31557,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49439,
+   "priority": "control"
   },
   "terminal-clipboard-read-cancelled": {
    "since": 12,
@@ -28818,7 +31589,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49440,
+   "priority": "control"
   },
   "settings-changed": {
    "since": 12,
@@ -28875,7 +31648,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49674,
+   "priority": "control"
   },
   "size-state": {
    "since": 12,
@@ -28923,7 +31698,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49163,
+   "priority": "control"
   },
   "tab-changed": {
    "since": 12,
@@ -29003,7 +31780,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49441,
+   "priority": "control"
   },
   "workspace-changed": {
    "since": 12,
@@ -29093,7 +31872,9 @@
     "constraints": [
      "origin and mutation_id are either both present or both absent."
     ]
-   }
+   },
+   "event_id": 49442,
+   "priority": "control"
   },
   "personal-changed": {
    "since": 12,
@@ -29123,7 +31904,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50176,
+   "priority": "control"
   },
   "bookmarks-changed": {
    "since": 12,
@@ -29161,7 +31944,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50177,
+   "priority": "control"
   },
   "history-changed": {
    "since": 12,
@@ -29202,7 +31987,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50178,
+   "priority": "control"
   },
   "conversation-changed": {
    "since": 12,
@@ -29256,7 +32043,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50432,
+   "priority": "control"
   },
   "conversation-typing": {
    "since": 12,
@@ -29302,7 +32091,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50433,
+   "priority": "control"
   },
   "conversation-run-changed": {
    "since": 12,
@@ -29351,7 +32142,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50434,
+   "priority": "control"
   },
   "conversation-live": {
    "since": 12,
@@ -29389,7 +32182,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50435,
+   "priority": "control"
   },
   "participant-avatar-changed": {
    "since": 12,
@@ -29427,7 +32222,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50436,
+   "priority": "control"
   },
   "chief-changed": {
    "since": 12,
@@ -29469,7 +32266,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50437,
+   "priority": "control"
   },
   "conversation-draft": {
    "since": 12,
@@ -29515,7 +32314,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50438,
+   "priority": "control"
   },
   "conversation-inbox-changed": {
    "since": 12,
@@ -29577,7 +32378,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50439,
+   "priority": "control"
   },
   "cloud-conversation-changed": {
    "since": 12,
@@ -29647,7 +32450,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50688,
+   "priority": "control"
   },
   "cloud-conversation-resynced": {
    "since": 12,
@@ -29717,7 +32522,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50689,
+   "priority": "control"
   },
   "cloud-conversation-run-changed": {
    "since": 12,
@@ -29774,7 +32581,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50690,
+   "priority": "control"
   },
   "cloud-conversation-live": {
    "since": 12,
@@ -29820,7 +32629,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50691,
+   "priority": "control"
   },
   "cloud-conversation-typing": {
    "since": 12,
@@ -29874,7 +32685,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50692,
+   "priority": "control"
   },
   "cloud-inbox-changed": {
    "since": 12,
@@ -29928,7 +32741,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50693,
+   "priority": "control"
   },
   "cloud-inbox-reset": {
    "since": 12,
@@ -29966,7 +32781,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50694,
+   "priority": "control"
   },
   "cloud-subscription-state": {
    "since": 12,
@@ -30028,7 +32845,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50695,
+   "priority": "control"
   },
   "cloud-session-needed": {
    "since": 12,
@@ -30066,7 +32885,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50696,
+   "priority": "control"
   },
   "cloud-host-replica-needed": {
    "since": 12,
@@ -30104,7 +32925,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50697,
+   "priority": "control"
   },
   "activity-changed": {
    "since": 12,
@@ -30134,7 +32957,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49675,
+   "priority": "background"
   },
   "cloud-mux-wake": {
    "since": 12,
@@ -30180,7 +33005,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50698,
+   "priority": "control"
   },
   "cloud-mux-resynced": {
    "since": 12,
@@ -30226,7 +33053,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 50699,
+   "priority": "control"
   },
   "agent-presence-changed": {
    "since": 12,
@@ -30319,7 +33148,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49923,
+   "priority": "control"
   },
   "program-status-changed": {
    "since": 12,
@@ -30357,7 +33188,9 @@
      }
     },
     "additional_properties": false
-   }
+   },
+   "event_id": 49443,
+   "priority": "control"
   }
  }
 }

@@ -14,8 +14,8 @@ import Foundation
 /// profile; Not Now ends the offer for good, and so does any import that
 /// brought data over (`BrowserImportOfferState`). It reads no browser data
 /// itself: the installed browsers come from Launch Services, so it never
-/// raises a privacy prompt. Automation launches (`CMUX_NEXT_NO_ACTIVATE`)
-/// never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
+/// raises a privacy prompt. Isolated launches (`LaunchIsolation.isolated`:
+/// agents and benches) never see it unless `CMUX_NEXT_BROWSER_IMPORT_OFFER=1`.
 @MainActor
 final class BrowserImportOfferService {
     private weak var services: AppServices?
@@ -46,7 +46,7 @@ final class BrowserImportOfferService {
     }
 
     private var enabled: Bool {
-        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.noActivate == false)
+        enabledOverride ?? (ProcessInfo.processInfo.environment[Self.forceKey] == "1" || services?.environment.isolatedLaunch == false)
     }
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).

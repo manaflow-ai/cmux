@@ -41,6 +41,32 @@ import Testing
         #expect(f.startup.completion?.reason == .noVisiblePane, "a second release does nothing")
     }
 
+    @Test func aMissedFirstFrameRunsTheWorkButIsNoCommittedFrame() {
+        let f = StartupFixture()
+        f.startup.post(.afterFirstFrame, "Updater.start", on: .main) { [ran = f.ran] in ran.names.append("Updater.start") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(nil)
+        f.fire()
+        #expect(f.ran.names == ["Updater.start"], "the work waiting for the frame runs after the deadline")
+        f.hand.drain()
+        #expect(f.startup.completion == nil, "a missed deadline is not a committed frame")
+        #expect(f.startup.heldRefs == ["Startup.firstFrame"])
+        f.startup.firstFrameCommitted()
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .firstFrameCommitted, "the late frame ends the ref")
+        f.fire()
+        #expect(f.ran.names == ["Updater.start"], "the released work ran once")
+    }
+
+    @Test func aFirstFrameThatWillNeverComeEndsWithItsReason() {
+        let f = StartupFixture()
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(.noWindow)
+        f.startup.firstFrameCommitted()
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .noWindow, "not firstFrameCommitted: the launch drew no frame")
+    }
+
     @Test func pendingInputDefersMainAfterStartupTasksOnePerFrame() {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Spares.prewarm", on: .main) { [ran = f.ran] in ran.names.append("Spares.prewarm") }
@@ -156,7 +182,7 @@ import Testing
         for reference in [StartupPhase.Reference.firstSnapshot, .restoreDone, .visiblePageIdle] { phase.markDone(reference) }
         #expect(phase.phase == .settled)
         f.hand.drain()
-        #expect(f.startup.completion?.reason == .launchPhaseSettled)
+        #expect(f.startup.completion?.reason == .firstFrameCommitted, "the settle names no reason: the one released before it")
         f.fire()
         #expect(f.ran.names == ["Palette.prepare"])
     }

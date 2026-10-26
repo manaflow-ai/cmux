@@ -23,6 +23,9 @@ enum DebugCEF {
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
             "spare_window": .string(services.cache.cef.spareWindowState),
+            "pages_spare_window": .string(services.cache.cef.pagesSpareWindowState),
+            // A window a spare would have served, built because none was ready (p13-webui-016).
+            "window_built_on_key_turn": .number(Double(services.cache.cef.windowsBuiltOnKeyTurn)),
             "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
             "start_steps": .array(services.cache.cef.startMarks.map {
                 .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])

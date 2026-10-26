@@ -47,6 +47,8 @@ final class CEFRuntime {
     var tabBeingAdded: CEFTab?
     /// Tabs Chromium created itself, until a pane adopts them.
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
+    /// The spare windows a pane's first tab joins (one per store kind, `CEFSpareWindow`).
+    let spareWindow = CEFSpareWindow()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -156,6 +158,9 @@ final class CEFRuntime {
         self.signInCallbacks = signInCallbacks
         guard stores !== self.stores else { return }
         self.stores = stores
+        // The pages profile belonged to the old stores: no key of these takes its spare.
+        spareWindow.pagesProfile = nil
+        spareWindow.drop(.pages, runtime: self)
         // An incognito session ended: drop its in-memory contexts, so
         // Chromium destroys their profiles (and data) once no browser uses
         // them.
@@ -429,14 +434,10 @@ final class CEFRuntime {
         if CEFPopupWindows.isEnabled(forkAPIVersion: Int(shim.forkAPIVersion())) { shim.setPopupWindowsEnabled(1) }
         // chrome://newtab without an extension override (BrowserNewTabPage).
         shim.setNewTabPageURL(BrowserNewTabPage.blankURL)
-        // cmux-page:// first-party pages from their bundled roots (CEFPageSchemes).
-        for (id, entry) in CEFPageSchemes.firstParty {
-            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
-                ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
-                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
-                                                      entry.entry)
-            if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
-        }
+        // cmux-page:// first-party pages from their bundled roots, with their renderer groups (CEFPageSchemes).
+        let refusedPages = CEFPageSchemes.add(CEFPageSchemes.firstParty, to: shim)
+        if !refusedPages.pages.isEmpty { logger.error("cmux-page refused by the shim: \(refusedPages.pages.joined(separator: ", "), privacy: .public)") }
+        if !refusedPages.groups.isEmpty { logger.error("cmux-page groups refused by the shim: \(refusedPages.groups.joined(separator: ", "), privacy: .public)") }
         // Every document's start scripts and report channels, once for every browser, in the
         // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
         if CEFForkFeatures(shim).rendererPaths {
@@ -497,7 +498,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

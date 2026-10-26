@@ -15,7 +15,7 @@ import WebKit
 @MainActor
 struct DebugWebUITests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.webui-census", resource: "webui-census", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-census", resource: "webui-census", processGroup: .solo, namespaces: [])
 
     /// The keys of a page row, as WebUICensus documents them.
     static let pageKeys: Set<String> = [
@@ -46,7 +46,7 @@ struct DebugWebUITests {
     private func census(_ host: WebUIHost, newTabSpare: WKWebView? = nil, spareClients: [Int32] = [],
                         browserTabs: [WebUICensus.Host] = []) -> WebUICensus {
         WebUICensus(pages: host.registry.pages(), registry: host.registry, newTabSpare: newTabSpare,
-                    spareWindow: WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients),
+                    spareWindows: [WebUICensus.Host(name: "cef_window", state: "live", rendererClients: spareClients)],
                     browserTabs: browserTabs,
                     rendererProcess: { _ in (browserID: 7, clients: [3]) }, webKitPID: { _ in 4242 })
     }
@@ -195,7 +195,7 @@ struct DebugWebUITests {
         #expect(Set(page.objectValue?.keys.map { $0 } ?? []) == Self.pageKeys)
         #expect(page["engine"]?.stringValue == "chromium")
         #expect(page["state"]?.stringValue == "hidden")
-        #expect(page["group"] == .null)
+        #expect(page["group"]?.stringValue == "solo")
         #expect(page["browser_id"]?.doubleValue == 7)
         #expect(page["renderer_pids"] == .array([.number(100)]))
         #expect(page["webkit_pid"] == .null)

@@ -180,13 +180,27 @@ pub(super) fn resource_session_snapshot(
     requesting_client: u64,
     selectors: &crate::ResourceSelectors,
 ) -> Result<Value, ResourceError> {
+    resource_session_snapshot_at_cut(mux, requesting_client, selectors, |_| ())
+        .map(|(snapshot, _, ())| snapshot)
+}
+
+/// The `session.snapshot` result with its journal head and `visit`'s value
+/// from the same projection cut (`public_session_snapshot_at_cut`). The
+/// connections in `clients` are not session state and are read after it.
+pub(crate) fn resource_session_snapshot_at_cut<R>(
+    mux: &Mux,
+    requesting_client: u64,
+    selectors: &crate::ResourceSelectors,
+    visit: impl FnOnce(&crate::model::State) -> R,
+) -> Result<(Value, u64, R), ResourceError> {
     let session_id = resource_session_id(mux, selectors)?;
-    let mut snapshot = crate::resource_api::public_session_snapshot(mux)?;
+    let (mut snapshot, journal_head, visited) =
+        crate::resource_api::public_session_snapshot_at_cut(mux, visit)?;
     snapshot.insert(
         "clients",
         Value::Array(resource_client_snapshots(mux, requesting_client, &session_id)?),
     );
-    Ok(snapshot)
+    Ok((snapshot, journal_head, visited))
 }
 
 pub(super) fn resource_client_get(

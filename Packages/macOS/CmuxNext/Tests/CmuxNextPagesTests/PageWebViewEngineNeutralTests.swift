@@ -10,7 +10,7 @@ import Testing
 @MainActor
 struct PageWebViewEngineNeutralTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.engine-neutral", resource: "engine-neutral", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-neutral-\(UUID().uuidString)", isDirectory: true)
@@ -62,6 +62,23 @@ struct PageWebViewEngineNeutralTests {
         }
         #expect(got == "hi")
         #expect(heard.isEmpty)
+        view.close()
+    }
+
+    /// The next-frame wait runs through the page's `evaluate`: on the renderer path (`tabEvaluate`)
+    /// it makes no DevTools call, and the body runs once the page answers.
+    @Test func theNextFrameWaitRunsThroughTheChromiumPagesEvaluate() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let (view, page) = try await started(hosting)
+        page.rendererEvaluate = { _ in "null" }
+        let ran: Bool? = await PageTestWait.value("frame") { done in
+            view.afterNextFrame { done(true) }
+        }
+        #expect(ran == true)
+        #expect(page.evaluations.last?.contains("requestAnimationFrame") == true)
+        #expect(!page.calls.contains { $0.method == "Runtime.evaluate" &&
+            (($0.params["expression"] as? String)?.contains("requestAnimationFrame") ?? false) })
         view.close()
     }
 

@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextWakeups
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -63,6 +64,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// Its tree changes then update the model only: no layout, no view sync, no topology
     /// (CLAUDE.md "Go past Chrome where cmux is scripted").
     private(set) var isOffScreen = false
+    /// The workspace's visibility node, under its window's, that its panes' nodes hang under
+    /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
+    /// node (an unmounted workspace has none); until then each pane's node is a root.
+    var visibilityNode: VisibilityNode? { nil }
     /// The latest mapping that came while off screen: applied once, at rest, when it shows.
     private var deferredApply: LayoutMapping.Result?
 

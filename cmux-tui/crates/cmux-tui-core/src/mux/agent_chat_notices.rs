@@ -58,6 +58,7 @@ impl Mux {
     /// chats that posts their notifications for as long as the daemon runs,
     /// and the agent message pump (`agent_message_pump.rs`), which the watch
     /// wakes whenever it reaches acpmux.
+    #[track_caller]
     pub fn watch_agent_chats(self: &Arc<Self>, socket: Option<PathBuf>) {
         self.set_acpmux_socket(socket.clone());
         let Some(socket) = socket else { return };
@@ -72,6 +73,7 @@ impl Mux {
     }
 
     /// The tabs that show `session`, each with its durable content id.
+    #[track_caller]
     fn agent_chat_tabs(&self, session: &str) -> Vec<(SurfaceId, String)> {
         let surfaces = {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -91,6 +93,7 @@ impl Mux {
             .collect()
     }
 
+    #[track_caller]
     fn post_agent_chat_notice(&self, session: &str, notice: &Notice) {
         // One wait, one notice: a daemon restart mid-wait sees the wait again
         // under a newer sequence, and the tab still holds the first notice.
@@ -128,6 +131,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     fn read_agent_chat_notices(&self, session: &str) {
         for (surface, _) in self.agent_chat_tabs(session) {
             if self.acknowledge_tab_notifications(surface).is_err() {
@@ -138,6 +142,7 @@ impl Mux {
 }
 
 /// Connects whenever acpmux listens and follows it until the daemon ends.
+#[track_caller]
 fn watch(mux: &Weak<Mux>, socket: &Path) {
     let mut backoff = crate::backoff::Backoff::new(Duration::from_secs(1), Duration::from_secs(10));
     let mut chats = HashMap::new();
@@ -158,12 +163,13 @@ fn watch(mux: &Weak<Mux>, socket: &Path) {
         {
             backoff.reset();
         }
-        std::thread::sleep(backoff.next_delay());
+        crate::request_path::sleep(backoff.next_delay());
     }
 }
 
 /// One connection: the watch page sets what each chat is doing, and every
 /// push after it is a change that may notify. Ends with the connection.
+#[track_caller]
 fn follow(
     mux: &Weak<Mux>,
     stream: UnixStream,
@@ -210,6 +216,7 @@ fn follow(
 }
 
 /// A new ask of a chat the watch follows: it comes right after the change that recorded it.
+#[track_caller]
 fn asked(mux: &Mux, ask: &Value, chats: &mut HashMap<String, Chat>) {
     // A peer's session is not this machine's chat.
     if !ask["peer"].is_null() {
@@ -241,6 +248,7 @@ fn changed(mux: &Mux, params: &Value, chats: &mut HashMap<String, Chat>) {
 }
 
 /// What the chat's change from `before` reads and posts; then the watch knows `next`.
+#[track_caller]
 fn apply(mux: &Mux, before: Option<&Chat>, mut next: Chat, chats: &mut HashMap<String, Chat>) {
     next.notified_turn = before.and_then(|chat| chat.notified_turn.clone());
     next.keep_asks(before);

@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
+import CmuxNextInput
 
 /// The one owner of hover cards in the app (plans/cmux-next/hovercards.md).
 ///
@@ -12,8 +13,8 @@ public import CmuxNextDesignTokens
 /// nothing), dismissals, suppressions and removed targets. Nothing polls
 /// while no card shows (a pointer resting on a card is the one exception,
 /// below): the only timer is a one-shot `DemandTimer`, armed only in a pending,
-/// leaving, grace or pinned phase; the event monitor for dismissals exists only
-/// while a card is pending or shown.
+/// leaving, grace or pinned phase; the input tap subscription for dismissals
+/// exists only while a card is pending or shown.
 ///
 /// Hover intent (`HoverIntentTiming`): a pointer moving from a shown card's
 /// target toward the card (the safe triangle, `CGRect.isAimedAt`) does not hand the
@@ -32,15 +33,24 @@ public final class HoverCardCoordinator {
     /// A card its owner shows in the one card window (`presentOwned`), nil while none does.
     var owned: HoverCardOwned?
     private var activated: HoverTargetID?
-    private var monitor: Any?
+    /// The tap observer of key presses and clicks, which end a card: held only while a card is
+    /// pending or shown. An observer, so an intercept that consumes the key (a modal's Escape)
+    /// still ends the card.
+    var dismissals: InputSubscription?
+    /// The tap intercept for wheel scrolls (``InputEventTap/InterceptOrder/popup``): a scroll on the
+    /// shown card is the card's and goes no further; any other ends the card. Held with ``dismissals``.
+    var scrolls: InputSubscription?
     /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
-    /// sees the pointer leave it; this sees it at once (no wait for a deadline).
-    private var moveMonitor: Any?
+    /// sees the pointer leave it; this tap observer sees it at once (no wait for a deadline).
+    var cardMoves: InputSubscription?
+    /// The app's input tap (the App's composition root passes it; a strip's default coordinator,
+    /// replaced before it shows a card, and tests that drive the machine directly have none).
+    let inputTap: InputEventTap?
     /// The card's parent and whether it took mouse moves before the card showed: while a
-    /// card shows, the parent takes them everywhere, so moves over the card reach `moveMonitor`.
-    private var movesParent: (window: NSWindow, accepted: Bool)?
+    /// card shows, the parent takes them everywhere, so moves over the card reach `cardMoves`.
+    var movesParent: (window: NSWindow, accepted: Bool)?
     /// The last pointer move was on the card.
-    private var pointerWasOnCard = false
+    var pointerWasOnCard = false
     private var observers: [MainActorObservation] = []
     /// The last window-server answer to "which window is on top here", for its point and the time it was
     /// asked: valid for one display frame (``topWindowLifetime``), so a burst of relayouts under a still
@@ -99,8 +109,10 @@ public final class HoverCardCoordinator {
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }
 
-    public init(clock: any Clock<Duration> = ContinuousClock()) {
+    /// A coordinator whose dismissals listen on `input`, the app's one tap.
+    public init(clock: any Clock<Duration> = ContinuousClock(), input: InputEventTap? = nil) {
         timer = DemandTimer(owner: "HoverCards.delay", clock: clock)
+        inputTap = input
     }
 
     /// App and window notifications, installed with the first source (a
@@ -128,12 +140,10 @@ public final class HoverCardCoordinator {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The tap subscriptions stop when released.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            timer.cancel()
-        }
+        MainActor.assumeIsolated { timer.cancel() }
     }
 
     // MARK: Sources
@@ -194,7 +204,7 @@ public final class HoverCardCoordinator {
     }
 
     /// The shown card's frame on screen, nil while none shows.
-    private var shownCardFrame: CGRect? {
+    var shownCardFrame: CGRect? {
         guard machine.shownTarget != nil, let panel, panel.isShowingCard else { return nil }
         return panel.cardFrame
     }
@@ -297,7 +307,7 @@ public final class HoverCardCoordinator {
         }
         draining = false
         updateActivation()
-        updateMonitor()
+        updateSubscriptions()
         pruneOwners()
     }
 
@@ -347,76 +357,6 @@ public final class HoverCardCoordinator {
         if let old = activated { owners[old]?.source?.hoverCardDeactivated(old) }
         activated = active
         if let active { owners[active]?.source?.hoverCardActivated(active) }
-    }
-
-    /// Key presses, clicks and wheel scrolls end a card; the monitor exists
-    /// only while one is pending or shown.
-    private func updateMonitor() {
-        let needed = machine.activeTarget != nil
-        if needed, monitor == nil {
-            monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
-                guard let self else { return event }
-                return self.handleMonitoredEvent(event)
-            }
-        } else if !needed, let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
-        updateMoveMonitor()
-    }
-
-    /// One key press, click or wheel scroll seen by the dismissal monitor: it ends the card and
-    /// passes the event on. Returns the event to deliver, nil when the card took it.
-    ///
-    /// A wheel scroll with the pointer on the shown card is the card's (Lawrence 2026-10-19,
-    /// u3320: "If I open a card, move my mouse over, and start scrolling, the card just
-    /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
-    /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
-    func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
-        if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
-            // A real event names the window under the pointer; a synthesized one may name none.
-            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
-            if panel.cardFrame.contains(point) {
-                panel.scrollCard(with: event, at: point)
-                return nil
-            }
-        }
-        let reason: HoverDismissal = switch event.type {
-        case .keyDown: .keyDown
-        case .scrollWheel: .scrollWheel
-        default: .click
-        }
-        dismiss(reason)
-        return event
-    }
-
-    /// While a card shows, pointer moves on it or just off it reach the machine: leaving the
-    /// card hides it on that move (Lawrence 2026-10-19), not at the next deadline.
-    private func updateMoveMonitor() {
-        let parent = machine.shownTarget == nil ? nil : panel?.parent
-        if movesParent?.window !== parent {
-            if let old = movesParent { old.window.acceptsMouseMovedEvents = old.accepted }
-            movesParent = parent.map { ($0, $0.acceptsMouseMovedEvents) }
-            parent?.acceptsMouseMovedEvents = true
-        }
-        if parent != nil, moveMonitor == nil {
-            moveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
-                self?.cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
-                return event
-            }
-        } else if parent == nil, let moveMonitor {
-            NSEvent.removeMonitor(moveMonitor)
-            self.moveMonitor = nil
-            pointerWasOnCard = false
-        }
-    }
-
-    /// A pointer move seen by `moveMonitor`: only one on the card, or the first off it, is news
-    /// (a source reports moves over its own targets itself).
-    func cardPointerMoved(_ eventPoint: CGPoint?) {
-        let point = eventPoint ?? pointerLocation()
-        guard pointerWasOnCard || shownCardFrame?.contains(point) == true else { return }
-        pointerMoved(to: point)
     }
 
     private func pruneOwners() {
@@ -513,7 +453,7 @@ public final class HoverCardCoordinator {
             "card_frame": panel.map { NSStringFromRect($0.cardFrame) } ?? "-",
             "anchor_frame": panel.map { NSStringFromRect($0.anchorFrame) } ?? "-",
             "timer_armed": "\(timer.isScheduled)",
-            "monitor": "\(monitor != nil)",
+            "dismissal_subscription": "\(dismissals != nil)",
             "sources": "\(sources.values.filter { $0.source != nil }.count)",
             "events": "\(eventCount)",
             "owned": owned?.id.rawValue ?? "-",

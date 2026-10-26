@@ -5,7 +5,7 @@ import WebKit
 public nonisolated enum PageScriptError: Error, Sendable, Equatable {
     /// An argument is not a JSON value.
     case argument(String)
-    /// The DevTools reply was not JSON.
+    /// The page's answer was not JSON.
     case noResult
     /// The script threw; the text is Chromium's exception description.
     case exception(String)
@@ -14,8 +14,8 @@ public nonisolated enum PageScriptError: Error, Sendable, Equatable {
 extension PageWebView {
     /// Runs `body` as the body of an async function in the page's main frame, with `arguments` as
     /// its named parameters, in whichever engine shows the page: WebKit's `callAsyncJavaScript`, or
-    /// Chromium's `Runtime.evaluate` awaiting the promise. Returns the function's result as a
-    /// Foundation value (strings, numbers, Bools, arrays, dictionaries).
+    /// the Chromium page's ``PageChromiumPage/evaluate(_:)``, which awaits the promise. Returns the
+    /// function's result as a Foundation value (strings, numbers, Bools, arrays, dictionaries).
     ///
     /// - Parameters:
     ///   - body: A function body that may `await` and `return`.
@@ -33,14 +33,27 @@ extension PageWebView {
             return text
         }
         let expression = "(async (\(names.joined(separator: ", "))) => {\n\(body)\n})(\(values.joined(separator: ", ")))"
-        let json = try await page.devTools("Runtime.evaluate",
-                                           params: ["expression": expression, "awaitPromise": true, "returnByValue": true])
-        guard let object = ChromiumPageHostWire.object(json) else { throw PageScriptError.noResult }
+        let value = try await page.evaluate(expression)
+        return value is NSNull ? nil : value
+    }
+}
+
+nonisolated extension ChromiumPageHostWire {
+    /// The value of a `Runtime.evaluate` reply (with `returnByValue`), parsed off the caller's
+    /// actor in one step: a page's text can be megabytes of JSON, and the caller is the main actor
+    /// (CEF's UI thread).
+    ///
+    /// - Parameter reply: The DevTools reply.
+    /// - Returns: The value; `NSNull` for null, nil for undefined or a reply with no result.
+    /// - Throws: ``PageScriptError/exception(_:)`` with the exception's description,
+    ///   ``PageScriptError/noResult`` for a reply that is not JSON.
+    @concurrent
+    static func value(devToolsReply reply: String) async throws(PageScriptError) -> sending Any? {
+        guard let object = object(reply) else { throw .noResult }
         if let details = object["exceptionDetails"] as? [String: Any] {
             let exception = details["exception"] as? [String: Any]
-            throw PageScriptError.exception(exception?["description"] as? String ?? details["text"] as? String ?? "exception")
+            throw .exception(exception?["description"] as? String ?? details["text"] as? String ?? "exception")
         }
-        let value = (object["result"] as? [String: Any])?["value"]
-        return value is NSNull ? nil : value
+        return (object["result"] as? [String: Any])?["value"]
     }
 }

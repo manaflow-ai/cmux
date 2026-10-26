@@ -276,7 +276,7 @@ def _result_files(paths: Sequence[Path | str], rejected: list[Rejection]) -> lis
 
 
 def _store_records(group: _Group, *, commit_positions: CommitPositions, host_name: str | None, kind: str,
-                   tier: str | None) -> tuple[store.Run, store.Build, LabHost, list[store.Metric]]:
+                   tier: str | None, job_id: int | None) -> tuple[store.Run, store.Build, LabHost, list[store.Metric]]:
     first = group.results[0][1]
     expected = _run_fields(first)
     for path, result in group.results[1:]:
@@ -306,7 +306,7 @@ def _store_records(group: _Group, *, commit_positions: CommitPositions, host_nam
         macos_build=first.host.macos_build or "", features_hash=first.features_hash or "",
         safe_mode=first.safe_mode or "", started_at=_parse_time(first.run.started_at),
         features={name: feature.to_dict() for name, feature in sorted(first.features.items())},
-        attachments=tuple(attachments), tier=tier, session=first.session)
+        attachments=tuple(attachments), tier=tier, session=first.session, job_id=job_id)
     build = store.Build(sha=first.build.sha, config=first.build.config, commit_pos=position)
     return run, build, host, metrics
 
@@ -364,8 +364,12 @@ def _incomplete(group: _Group, runs: dict[str, Path], folders: dict[Path, Path])
 
 
 def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positions: CommitPositions,
-                 host_name: str | None = None, kind: str = "waterfall", tier: str | None = None) -> IngestReport:
+                 host_name: str | None = None, kind: str = "waterfall", tier: str | None = None,
+                 job_id: int | None = None) -> IngestReport:
     """Stores every valid result under `paths`; a bad file or an inconsistent run is rejected, the rest is stored.
+
+    `job_id`: the lab job (jobs row) whose controller job produced these results; every stored run links to it
+    (Run.job_id). Pinpoint's executor ingests each story job's artifact this way and reads the runs back by it.
 
     A run is stored whole or not at all: a run with results in a rejected file, or with results next to a rejected
     file whose runs are unknown, is rejected too.
@@ -397,7 +401,7 @@ def ingest_paths(db: store.Store, paths: Sequence[Path | str], *, commit_positio
             continue
         try:
             records = _store_records(group, commit_positions=commit_positions, host_name=host_name, kind=kind,
-                                     tier=tier)
+                                     tier=tier, job_id=job_id)
         except _Reject as reason:
             report.rejected.append(Rejection(group.source, str(reason)))
             continue

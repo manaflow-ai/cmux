@@ -44,6 +44,10 @@ public struct HangRecord: Sendable, Hashable {
         /// A scheduled main-thread task that ran past its class's per-frame budget
         /// (``MainThreadWatchdog/overBudget``); its details name the task and class.
         case overBudget = "over_budget"
+        /// A hang-watch scope on another thread still running past its deadline
+        /// (``MainThreadWatchdog/threadHangs``); its details name the scope and the thread, and
+        /// its duration is how far past the deadline it was when sampled.
+        case hang
     }
 
     public var sequence: UInt64
@@ -146,7 +150,7 @@ public final class HangLog: Sendable {
                 state.summary.totalDuration += duration
             case .busy:
                 state.summary.busyCount += 1
-            case .overBudget:
+            case .overBudget, .hang: // each in a log of its own kind
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration

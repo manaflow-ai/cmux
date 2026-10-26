@@ -22,6 +22,8 @@ final class TabContentCache {
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
+    /// Windows off screen now (`WindowOcclusionChecker`): the pages they show get a hidden clock.
+    var offScreenWindows: Set<ObjectIdentifier> = []
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
     /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
@@ -412,6 +414,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)
@@ -516,6 +519,16 @@ protocol SurfacePresenter: AnyObject {
     /// destroyed. Drop the view if it is still installed here; do not
     /// withdraw or pause it.
     func surfaceWasDisplaced(_ key: String)
+    /// The window it presents in, if any.
+    var presentingWindow: NSWindow? { get }
+}
+
+extension SurfacePresenter {
+    var presentingWindow: NSWindow? { nil }
+}
+
+extension PaneController {
+    var presentingWindow: NSWindow? { view.window }
 }
 
 struct WeakPresenter {

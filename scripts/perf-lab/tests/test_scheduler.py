@@ -406,6 +406,19 @@ class HostTests(unittest.TestCase):
 
 
 class PinpointTests(unittest.TestCase):
+    def test_build_only_work_requests_its_build_and_never_starts_a_job(self):
+        pair = (sha(900), "bench")
+        work = scheduler.PinpointWork("bisect-b", "bisect", M6, "t0-key", 0, builds=(pair,), build_only=True)
+        plan = lambda builds: scheduler.plan(scheduler.State(), START, lab_hosts(), builds, (), stories=STORIES,
+                                             shard_map=SHARD_MAP, pinpoint=[work])
+        waiting = plan(scheduler.Builds())
+        self.assertEqual([(b.sha, b.reason) for b in waiting.builds], [(sha(900), "bisect-b")])
+        self.assertEqual(waiting.jobs, ())
+        built = plan(scheduler.Builds(ready=frozenset({pair})))
+        self.assertEqual((built.jobs, built.builds), ((), ()))
+        failed = plan(scheduler.Builds(failed=frozenset({pair})))
+        self.assertEqual((failed.jobs, failed.builds, failed.problems), ((), (), ()))
+
     def test_five_bisects_delay_no_t0(self):
         quiet = {"tier_at": {"T1:m6/0": START, "T1:m6/1": START, "T1:cmux20-bench/0": START},
                  "aa_day": {h.name: scheduler.lab_day(START) for h in lab_hosts()}}
@@ -835,7 +848,11 @@ class StateAndDriverTests(unittest.TestCase):
             self.assertEqual(done.returncode, 0, done.stderr)
             output = json.loads(done.stdout)
             self.assertEqual(output["cut"], 1)
-            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, {"wf-a"})
+            # Each m6 shard that the checkout's shard map gives a T0 story runs a T0 job on its host.
+            shards = json.loads((LAB / "shard_map.json").read_text())["classes"]["m6"]["shards"]
+            t0_hosts = {("wf-a", "wf-b")[s["index"]] for s in shards if s["stories"].get("T0")}
+            self.assertEqual({j["host"] for j in output["jobs"] if j["tier"] == "T0"}, t0_hosts)
+            self.assertEqual(t0_hosts, {"wf-a", "wf-b"})
             self.assertTrue(state.is_file())
 
 

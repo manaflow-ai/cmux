@@ -27,9 +27,14 @@ tools/perf/core/bot_platforms.py). The rules (p12-perf-process.md 3.1-3.3, 3.5, 
   T0 > bisect > verify > T1 > T2 > aa; an A/A still waiting AA_PROMOTE_AFTER into its lab day goes before T1.
 - Every REFERENCE_EVERY-th T0 job on a waterfall host also runs its stories on the weekly-frozen reference
   artifact (task 146), in the same job, as Chrome's `run_reference_build` does (tools/perf/core/bot_platforms.py).
-  Expectations (task 023) and feature arms (task 098) are inputs: `skip(story, host)` and FeatureArm.
+  Expectations (task 023) and feature arms (task 098) are inputs: `skip(story, host)` and FeatureArm. Driver and
+  `lab.py schedule` read expectations.json for each plan (expectations.active_at at the plan's `now`).
 - One job per host: a host that the controller reports busy, or that runs a job of ours, gets nothing. A pinpoint
   work id is started once (task 016 gives each attempt its own id).
+- A side lane (`Lane`: the regression canary, canary.py, p12-perf-process.md 3.7) measures its own commits into its
+  own store. Its T0 rounds run on the waterfall's T0 shard owners, one job per free owner after the waterfall's T0
+  and pinpoint work, and its builds are requested ahead. It touches no waterfall state: no batch, no queue item, no
+  reference cadence. Each lane job id starts once, as a pinpoint work id does.
 
 Driver wraps plan() for labd (task 012): it reads the branch tip with `git ls-remote` (labd calls tick() every
 POLL_SECONDS and on controller callbacks), fetches only that one ref when the tip moved, hands the plan to labd's
@@ -145,7 +150,9 @@ class Builds:
 class PinpointWork:
     """One unit of Pinpoint work (task 016) that needs a host of its class: a bisect step or a verification.
 
-    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id."""
+    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id.
+    `build_only`: a Pinpoint Build step. Its builds are requested in Pinpoint order (after batch tips and tier
+    builds) and no job ever starts for it; the executor reads the answer from the build ledger."""
 
     id: str
     kind: str  # BISECT or VERIFY
@@ -153,11 +160,33 @@ class PinpointWork:
     story: str
     seconds: int
     builds: tuple[tuple[str, str], ...] = ()
-    prefer_host: str | None = None  # verify: the bisect's host
+    prefer_host: str | None = None  # bisect: the host its last story job ran on; verify: the bisect's host
+    build_only: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in PINPOINT_KINDS:
             raise SchedulerError(f"pinpoint work {self.id}: kind {self.kind!r} is not bisect or verify")
+
+
+@dataclass(frozen=True)
+class LaneRound:
+    """One T0 round of a side lane: the lane's stories at `sha`, covering the commits from `first`. `id` names one
+    attempt; a lane that asks again uses a new id."""
+
+    id: str
+    sha: str
+    first: str
+
+
+@dataclass(frozen=True)
+class Lane:
+    """A side lane (the regression canary): `stories` (T0 story ids) at each round's sha on their T0 shard owners.
+    `builds` are the shas the lane needs built, requested ahead so its rounds keep the batch cadence."""
+
+    name: str
+    stories: tuple[str, ...]
+    builds: tuple[str, ...]
+    rounds: tuple[LaneRound, ...]
 
 
 @dataclass(frozen=True)
@@ -335,9 +364,9 @@ def finished(state: State, job_id: str) -> State:
 
 def unstarted(state: State, job: "Job") -> State:
     """A planned job the controller refused or labd could not submit: its work goes back to the front of the queue
-    (pinpoint work becomes dispatchable again) and its host is free for the next plan."""
+    (pinpoint and lane work becomes dispatchable again) and its host is free for the next plan."""
     running = tuple(r for r in state.running if r.job_id != job.id)
-    if job.kind in PINPOINT_KINDS:
+    if job.kind in PINPOINT_KINDS or job.work_id is not None:
         return replace(state, running=running, dispatched=tuple(w for w in state.dispatched if w != job.work_id))
     item = Item(job.kind, job.tier, job.round, job.key, job.sha, job.stories, job.passes, job.first)
     t0_count = dict(state.t0_count)
@@ -366,8 +395,9 @@ class Job:
     stories: tuple[str, ...] = ()
     passes: int = 1
     reference: str | None = None  # T0: also run the stories on this frozen artifact (`reference` runs)
-    work_id: str | None = None
+    work_id: str | None = None  # pinpoint work, or a lane job (its own id): started once, never queued
     key: str | None = None  # the queue key it came from: "<lab class>/<shard>", or the host for A/A
+    lane: str | None = None  # the side lane whose store its results go to (Lane.name)
 
 
 @dataclass(frozen=True)
@@ -438,15 +468,17 @@ def lab_day_start(now: datetime) -> datetime:
 def plan(state: State, now: datetime, hosts: Sequence[Host], builds: Builds, branch_log: Sequence[str], *,
          stories: Sequence[StorySpec], shard_map: ShardMap, pinpoint: Sequence[PinpointWork] = (),
          skip: Callable[[str, Host], bool] | None = None, arms: Sequence[FeatureArm] = (),
-         reference: str | None = None) -> Plan:
+         reference: str | None = None, lanes: Sequence[Lane] = ()) -> Plan:
     """The jobs to start now, the builds to request and the new state. No I/O; `now` is the only clock."""
     if now.tzinfo is None:
         raise SchedulerError(f"plan: now ({now.isoformat()}) has no UTC offset")
-    return _Planner(state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference).run()
+    return _Planner(state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
+                    lanes).run()
 
 
 class _Planner:
-    def __init__(self, state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference):
+    def __init__(self, state, now, hosts, builds, branch_log, stories, shard_map, pinpoint, skip, arms, reference,
+                 lanes=()):
         self.state = state
         self.now = now
         self.hosts = sorted(hosts, key=lambda h: h.name)
@@ -458,6 +490,7 @@ class _Planner:
         self.skip = skip or (lambda story, host: False)
         self.arms = tuple(arms)
         self.reference = reference
+        self.lanes = tuple(lanes)
         self.day = lab_day(now)
         self.jobs: list[Job] = []
         self.requests: list[BuildRequest] = []
@@ -594,6 +627,7 @@ class _Planner:
         self._tier_rounds()
         self._nightly()
         self._gap_unowned()
+        self._lane_builds()
         self._dispatch()
         self._feature_arms()
         return self._result()
@@ -756,9 +790,16 @@ class _Planner:
             self.queue.remove(item)
             self.gaps.extend(Gap(item.tier, item.round, story, item.key, reason) for story in item.stories)
 
+    def _lane_builds(self) -> None:
+        for lane in self.lanes:
+            configs = self._configs(lane.stories)
+            for sha in lane.builds:
+                self._request(sha, configs, f"lane:{lane.name}")
+
     def _dispatch(self) -> None:
         self._dispatch_shard_items("T0")
         self._dispatch_pinpoint()
+        self._dispatch_lanes()
         if self.now - lab_day_start(self.now) >= AA_PROMOTE_AFTER:
             self._dispatch_aa(late=True)
         self._dispatch_shard_items("T1")
@@ -797,11 +838,14 @@ class _Planner:
             failed = sorted(f"{sha[:12]} {config}" for sha, config in work.builds
                             if (sha, config) in self.builds.failed)
             if failed:
-                self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
+                if not work.build_only:  # a failed build answers a Build step; the executor records it
+                    self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
                 continue
             if not all(pair in self.builds.ready for pair in work.builds):
                 for sha, config in work.builds:
                     self._request(sha, (config,), work.id)
+                continue
+            if work.build_only:
                 continue
             host = self._pinpoint_host(work)
             if host is None:
@@ -809,6 +853,34 @@ class _Planner:
             self._start(host, Job(work.id, work.kind, host.name, work.seconds, stories=(work.story,), work_id=work.id))
             self.dispatched.append(work.id)
             started.add(work.id)
+
+    def _dispatch_lanes(self) -> None:
+        """Each lane round's T0 shards on their owners, once the owner is free and the build is ready. A job id
+        (round id and shard) starts once. An owner that is down or busy only delays the lane: it is never moved."""
+        started = {r.job_id for r in self.running} | set(self.dispatched)
+        for lane in self.lanes:
+            wanted = set(lane.stories)
+            for lane_round in lane.rounds:
+                if not self._ready(lane_round.sha, self._configs(lane.stories)):
+                    continue
+                for lab_class in sorted(self.shard_map.classes):
+                    if "T0" not in self.shard_map.tiers(lab_class):
+                        continue
+                    for index, shard in enumerate(self.shard_map.shards(lab_class)):
+                        job_id = f"{lane_round.id}:{lab_class}.{index}"
+                        host = self.owners.get(f"{lab_class}/{index}")
+                        ids = tuple(s for s in shard.get("T0", ()) if s in wanted and s in self.stories)
+                        if not ids or job_id in started or host is None or not self._free(host):
+                            continue
+                        ids = tuple(s for s in ids if not self.skip(s, host))
+                        if not ids:
+                            continue
+                        self._start(host, Job(job_id, "waterfall", host.name, self._seconds(ids), tier="T0",
+                                              round=lane_round.id, sha=lane_round.sha, first=lane_round.first,
+                                              stories=ids, work_id=job_id, key=f"{lab_class}/{index}",
+                                              lane=lane.name))
+                        self.dispatched.append(job_id)
+                        started.add(job_id)
 
     def _pinpoint_host(self, work: PinpointWork) -> Host | None:
         own = [h for h in self.hosts if h.role == PINPOINT and h.host_class == work.host_class and self._free(h)]
@@ -913,10 +985,11 @@ def git_first_parent(remote: str, branch: str, *, repo: Path | str = REPO_ROOT,
 @dataclass(frozen=True)
 class Rejected:
     """What labd's submit callback could not hand on: job ids the controller refused, features whose try pair
-    could not be queued."""
+    could not be queued, and (sha, config) builds the builders refused, which the next tick asks for again."""
 
     jobs: frozenset[str] = frozenset()
     arms: frozenset[str] = frozenset()
+    builds: frozenset[tuple[str, str]] = frozenset()
 
 
 def write_state(path: Path, state: State) -> None:
@@ -932,23 +1005,33 @@ def write_state(path: Path, state: State) -> None:
         raise
 
 
+def with_expectations(active, state: State, now: datetime, hosts: Sequence[Host], builds: Builds,
+                      branch_log: Sequence[str], **inputs) -> Plan:
+    """plan() with expectations.ActiveExpectations: its `skip` is the hook, its problems join the plan's."""
+    result = plan(state, now, hosts, builds, branch_log, skip=active.skip, **inputs)
+    return replace(result, problems=result.problems + tuple(active.problems))
+
+
 class Driver:
     """plan() with its state file and its branch view. labd calls tick() every POLL_SECONDS and after each
     controller callback (job_finished) with a submit callback that submits the plan's jobs, builds and try arms
     and returns what it could not. The state is saved only after submit returns, so a crash inside it leaves the
     previous state and the next tick plans the same work with the same job ids (labd skips an id the controller
-    already has)."""
+    already has). `expectations(now)` (expectations.active_at) gives each plan its skip hook and adds the problems
+    of the expectations file to the plan's."""
 
     def __init__(self, state_path: Path | str, *, ls_remote: Callable[[], str | None],
                  first_parent: Callable[[str | None, str], tuple[str, ...] | None],
                  stories: Sequence[StorySpec], shard_map: ShardMap,
-                 clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc)) -> None:
+                 clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+                 expectations: Callable[[datetime], object] | None = None) -> None:
         self.path = Path(state_path)
         self.ls_remote = ls_remote
         self.first_parent = first_parent
         self.stories = tuple(stories)
         self.shard_map = shard_map
         self.clock = clock
+        self.expectations = expectations
         self.tip: str | None = None
         self.log: tuple[str, ...] = ()
         self.state = State.from_document(json.loads(self.path.read_text())) if self.path.is_file() else State()
@@ -964,8 +1047,13 @@ class Driver:
     def tick(self, hosts: Sequence[Host], builds: Builds, *, submit: Callable[[Plan], Rejected],
              **inputs) -> Plan:
         self._refresh()
-        result = plan(self.state, self.clock(), hosts, builds, self.log, stories=self.stories,
-                      shard_map=self.shard_map, **inputs)
+        now = self.clock()
+        if self.expectations is None:
+            result = plan(self.state, now, hosts, builds, self.log, stories=self.stories, shard_map=self.shard_map,
+                          **inputs)
+        else:
+            result = with_expectations(self.expectations(now), self.state, now, hosts, builds, self.log,
+                                       stories=self.stories, shard_map=self.shard_map, **inputs)
         rejected = submit(result)
         state = result.state
         for job in result.jobs:
@@ -973,6 +1061,8 @@ class Driver:
                 state = unstarted(state, job)
         for feature in sorted(rejected.arms):
             state = arm_unsent(state, feature)
+        if rejected.builds:
+            state = replace(state, requested=tuple(pair for pair in state.requested if pair not in rejected.builds))
         self._save(state)
         return result
 
@@ -1028,6 +1118,7 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     out = out or sys.stdout
     err = err or sys.stderr
     catalog = _load_sibling("catalog")
+    expectations = _load_sibling("expectations")
     try:
         stories = stories_from_catalog(catalog.load_catalog(args.root))
         shard_map = ShardMap.load(args.root / "scripts/perf-lab/shard_map.json")
@@ -1039,7 +1130,8 @@ def run(command: str, args: argparse.Namespace, out=None, err=None) -> int:
     except (SchedulerError, catalog.CatalogError, OSError, ValueError) as error:
         print(f"schedule: {error}", file=err)
         return 2
-    result = plan(state, now, hosts, builds, log, stories=stories, shard_map=shard_map)
+    active = expectations.active_at(args.root / expectations.EXPECTATIONS_PATH, now)
+    result = with_expectations(active, state, now, hosts, builds, log, stories=stories, shard_map=shard_map)
     json.dump(result.to_document(), out, indent=1)
     print(file=out)
     if args.write:

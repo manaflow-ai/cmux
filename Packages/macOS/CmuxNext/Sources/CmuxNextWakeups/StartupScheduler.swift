@@ -13,19 +13,20 @@ import CmuxNextCompat
 ///   at ``MainWorkClass/background``, one task per frame and behind pending input; on a lane at its
 ///   priority.
 /// - Completion is a ref count, as in Chrome: the implicit registration ref (``finishRegistration()``),
-///   the first-frame ref (``firstFrameCommitted()``), the launch-phase ref (below) and every
+///   the first-frame ref (``firstFrameCommitted()``, or ``firstFrameMissed(_:)`` when the caller knows
+///   none will come), the launch-phase ref (below) and every
 ///   ``hold(_:)``. When the last one is released the completion is posted to a later main turn, which
 ///   checks again; the failsafe completes it with reason `failsafe` whatever is still held. The
 ///   completion never fires after ``beginQuit()``.
 /// - One launch, one completion: the scheduler reads the ``StartupPhase`` of its `mainWork`
-///   (p06-scheduler). While that phase is not settled, its settle is one more ref (released with
-///   ``StartupInProgressRef/Reason/launchPhaseSettled``), and the phase's settle failsafe (10 s from
-///   launch) is the scheduler's failsafe: no afterStartup task runs before the classes the settle
-///   opens, and one deadline and one reason end the launch. Only a scheduler whose phase is already
-///   settled (made after launch, tests) arms its own failsafe (``failsafeTimeout``, a ``DemandTimer``),
-///   which exists only until completion or ``beginQuit()``. Task 012 moves the phase's references
-///   (first snapshot, restore, visible page) to refs of this scheduler and settles the phase at its
-///   completion.
+///   (p06-scheduler). While that phase is not settled, its settle is one more ref, and the phase's
+///   settle failsafe (10 s from launch) is the scheduler's failsafe: no afterStartup task runs before
+///   the classes the settle opens, and one deadline and one reason end the launch. The settle is no
+///   reason of its own: its ref ends with the reason of the ref released before it (a pane's, the
+///   restore's, the daemon's), or `failsafe`. The phase's restore and visible-page references are
+///   marked by the owner of this scheduler's restore and pane refs (`VisiblePaneRefs`, task 013).
+///   Only a scheduler whose phase is already settled (made after launch, tests) arms its own failsafe
+///   (``failsafeTimeout``, a ``DemandTimer``), which exists only until completion or ``beginQuit()``.
 /// - A post from another thread hops to main at ``WorkPriority/userVisible`` and is queued once there;
 ///   a lane post after completion goes straight to its lane.
 /// - After completion a post goes straight to its class. After ``beginQuit()`` nothing runs.
@@ -49,9 +50,25 @@ public final class StartupScheduler {
     /// cmux panes are local, so a launch not complete in 10 s is a stuck daemon or a bug (p08-startup.md, 3A).
     public nonisolated static let failsafeTimeout: Duration = .seconds(10)
 
-    /// The names a ``StartupPriority/critical`` post may have (<= 15; task 015 fills it from the
-    /// startup design's table).
-    public nonisolated static let criticalAllowlist: [StaticString] = []
+    /// The names a ``StartupPriority/critical`` post may have, in launch order: the critical rows of
+    /// plans/cmux-next/startup-DESIGN.md (section 1), which says why the first frame needs each. At most
+    /// 15; a new name needs a row there with its measured cost.
+    public nonisolated static let criticalAllowlist: [StaticString] = [
+        "Settings.takeLaunchRead",
+        "ThemeBridge.start",
+        "AppActions.bind",
+        "Settings.applyManagedFeaturesNow",
+        "ManagedPolicyBridge.start",
+        "TerminalTheme.follow",
+        "Themes.start",
+        "MainMenu.make",
+        "WindowActivation.activateApp",
+        "Daemon.start",
+        "FeaturePolicyEnforcer.start",
+        "WindowManager.restoreWhenLoaded",
+        "WebAuthSessionHandler.install",
+        "AppleEvents.getURL",
+    ]
 
     /// How startup completed.
     public nonisolated struct Completion: Sendable {
@@ -220,6 +237,19 @@ public final class StartupScheduler {
         firstFrame = nil
     }
 
+    /// No first frame came by the caller's deadline: releases the held afterFirstFrame tasks, so that
+    /// work never waits for a frame that may not come, and ends the first-frame ref with `reason` when
+    /// the caller knows no frame will come (``StartupInProgressRef/Reason/noWindow``,
+    /// ``StartupInProgressRef/Reason/daemonUnavailable``). With nil the ref stays held for a late
+    /// ``firstFrameCommitted()`` or the failsafe: a missed deadline is not a committed frame.
+    public func firstFrameMissed(_ reason: StartupInProgressRef.Reason?) {
+        guard !isQuitting else { return }
+        releaseAfterFirstFrame()
+        guard let reason else { return }
+        firstFrame?.release(reason)
+        firstFrame = nil
+    }
+
     /// Quit began: drops every task not started, cancels the failsafe, and runs nothing more.
     public func beginQuit() {
         guard !isQuitting else { return }
@@ -264,10 +294,11 @@ public final class StartupScheduler {
         complete(failsafePassed ? .failsafe : lastReason)
     }
 
-    /// The launch phase settled: its ref ends, and a failsafe settle ends the launch whatever is held.
+    /// The launch phase settled: its ref ends with the last reason (the settle names no reason of its own),
+    /// and a failsafe settle ends the launch whatever is held.
     private func launchPhaseSettled(_ cause: StartupPhase.SettleCause?) {
         if cause == .failsafe { failsafePassed = true }
-        launchPhase?.release(cause == .failsafe ? .failsafe : .launchPhaseSettled)
+        launchPhase?.release(cause == .failsafe ? .failsafe : lastReason)
         launchPhase = nil
     }
 

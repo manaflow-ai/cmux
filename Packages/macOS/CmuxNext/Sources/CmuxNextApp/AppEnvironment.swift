@@ -14,10 +14,14 @@ struct AppEnvironment: Sendable {
     /// app (agent preflights and background launches). Windows open ordered
     /// back and the app never activates itself.
     let noActivate: Bool
+    /// An isolated test or bench launch (`LaunchIsolation.isolated`: no-activate or
+    /// `CMUX_NEXT_ISOLATED_LAUNCH=1`): the fixed test window, and nothing claimed from the
+    /// account (no CLI pointer, global hot keys, relaunch at login or browser import offer).
+    let isolatedLaunch: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
-    /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` with
-    /// no-activate: where windows open for agent screenshots.
+    /// `CMUX_NEXT_TEST_WINDOW_SCREEN` / `CMUX_NEXT_TEST_WINDOW_FRAME` in an
+    /// isolated launch: where windows open for agent screenshots and benches.
     let testWindow: TestWindowPlacement?
     /// Mark this run for crash recovery (`AppRunMarker`): only the real app
     /// process, never tests that build `AppServices`.
@@ -84,7 +88,7 @@ struct AppEnvironment: Sendable {
     }
 
     static func current(_ environment: [String: String] = ProcessInfo.processInfo.environment, openFiles: OpenFileLimit.Change? = nil) -> AppEnvironment {
-        let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        let isolation = LaunchIsolation(environment: environment)
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
 #else
@@ -93,9 +97,10 @@ struct AppEnvironment: Sendable {
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
-            noActivate: noActivate,
+            noActivate: isolation.noActivate,
+            isolatedLaunch: isolation.isolated,
             showcase: showcase,
-            testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
+            testWindow: TestWindowPlacement.parse(environment, isolatedLaunch: isolation.isolated),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
             ghosttyResources: GhosttyRuntime.resourcesDirectory(environment: environment),
             ghosttyBinary: GhosttyRuntime.cliHelperPath()

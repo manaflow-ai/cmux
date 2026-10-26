@@ -1,11 +1,14 @@
 import AppKit
+import CmuxNextWakeups
 
 /// What ``WindowKeyFamily`` reads about the keyboard and when it decides: the live app by
-/// default, a test's own center, key window, activation state and turn runner otherwise.
+/// default, a test's own events, key window, activation state and turn runner otherwise.
 @MainActor
 struct WindowKeyEnvironment {
-    /// The center the key and activation notices arrive on.
-    var center: NotificationCenter = .default
+    /// The app's events the key and activation notices arrive through, injected by the composition
+    /// root (``WindowMaterialView/observeKeyFamily(of:through:)``). Nil for a window it did not set
+    /// up: that window's tracker observes `NotificationCenter.default` itself.
+    var events: AppEvents?
     /// The key window now (`NSApp.keyWindow`).
     var keyWindow: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     /// Whether this app is active (`NSApp.isActive`).

@@ -7,9 +7,18 @@ import CmuxNextCompat
 public protocol FrameLink: AnyObject {
     var isPaused: Bool { get set }
     func invalidate()
+    /// Asks the link to fire at `range` (``DisplayClock``'s rate decision).
+    func requestFrameRate(_ range: CAFrameRateRange)
 }
 
-extension CADisplayLink: FrameLink {}
+extension FrameLink {
+    /// A link with no rate of its own (a test fake that is fired by hand) ignores the request.
+    public func requestFrameRate(_ range: CAFrameRateRange) {}
+}
+
+extension CADisplayLink: FrameLink {
+    @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
+}
 
 /// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link
 /// on the shared ``DisplayClock`` only while at least one ``FrameClient`` is active, and leaves when
@@ -66,6 +75,8 @@ public final class FrameScheduler: NSObject {
         scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
             scheduler?.invalidate()
         }
+        // It ticks on the display the window is on: the window going to another screen moves it there.
+        scheduler.screenFamily = WindowScreenFamily(window: window, scheduler: scheduler)
         return scheduler
     }
 
@@ -128,6 +139,21 @@ public final class FrameScheduler: NSObject {
     /// The late period the guard saw since ``lastTick`` (stale once it moves).
     var starvationPeriod: RenderStarvationGuard.Period?
     private var closeObserver: MainActorObservation?
+    /// Moves it to its window's new display when the window changes screen (window schedulers only).
+    private var screenFamily: WindowScreenFamily?
+    /// When the frame of its last tick is shown (nil before the first tick after subscribing).
+    private var lastTargetTimestamp: CFTimeInterval?
+    /// Set when it moves to another display: its last tick there. Until a link tick of the new display
+    /// starts more than half that display's interval after it and is shown after it, that display's
+    /// ticks pass it by, so its tick time never runs back and no refresh gets two frames (Chrome's
+    /// `kDoubleTickDivisor` check, `frame_time > last.frame_time + interval / kDoubleTickDivisor`,
+    /// in `DelayBasedBeginFrameSource::IssueBeginFrameToObserver`,
+    /// components/viz/common/frame_sinks/begin_frame_source.cc).
+    private var handoff: Handoff?
+    private struct Handoff {
+        let timestamp: CFTimeInterval
+        let target: CFTimeInterval
+    }
     /// Frames delivered since creation (debug).
     public private(set) var frames: UInt64 = 0
     /// Display links this scheduler's subscribing made since creation (debug: a scheduler that stays
@@ -136,6 +162,9 @@ public final class FrameScheduler: NSObject {
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
+    /// The highest ``FrameClient/rate`` of its active clients (nil while idle): what it asks of
+    /// its display's link (``DisplayClock``).
+    public private(set) var frameRate: FrameRate?
 
     /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
@@ -232,7 +261,8 @@ public final class FrameScheduler: NSObject {
         let key = ObjectIdentifier(client)
         clients[key] = client
         if client.workClass.isBudgeted, !budgetedOrder.contains(key) { budgetedOrder.append(key) }
-        guard !isSubscribed else { return }
+        guard !isSubscribed else { return updateFrameRate() }
+        frameRate = FrameRate.highest(of: clients.values.map(\.rate))
         let linksBefore = displayClock.linksMade
         lastTimestamp = nil
         lastTick = displayClock.now()
@@ -250,14 +280,40 @@ public final class FrameScheduler: NSObject {
         ticksOnLink = exists
     }
 
-    /// The clock moved it to `id` (its screen changed or went away).
+    /// The clock moved it to `id` (its screen changed or went away): it ticks on `id`'s link from its
+    /// next frame shown after its last one.
     func displayDidChange(to id: CGDirectDisplayID, hasLink: Bool) {
         displayID = id
         ticksOnLink = hasLink
+        if let lastTimestamp, let lastTargetTimestamp {
+            handoff = Handoff(timestamp: lastTimestamp, target: lastTargetTimestamp)
+        } else {
+            handoff = nil
+        }
     }
 
-    /// Its window moved to another screen: tick on that screen's link now (the display's stall
-    /// deadline also moves it, within a ``stallTimeout``).
+    /// Whether a tick of its display goes to it. After a display change only a link tick that starts
+    /// more than half the new interval after its last tick and is shown after its last frame does,
+    /// and the first one ends the handoff: tick times never decrease and no refresh gets two frames.
+    /// A stall tick (no timestamp, it runs now) always does.
+    func takesTick(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
+        guard let last = handoff else { return true }
+        if let timestamp {
+            let interval = refreshInterval ?? lastRefreshInterval
+            let target = targetTimestamp ?? timestamp + interval
+            guard timestamp > last.timestamp + interval / 2,
+                  target > last.target + Self.handoffSlack
+            else { return false }
+        }
+        handoff = nil
+        return true
+    }
+
+    /// Two targets closer than this are one refresh (float rounding of link times).
+    private static let handoffSlack: CFTimeInterval = 0.0005
+
+    /// Its window moved to another screen (its ``WindowScreenFamily``): tick on that screen's link
+    /// now (the display's stall deadline also moves it, within a ``stallTimeout``, as a backstop).
     func screenDidChange() {
         guard let subscribed else { return }
         displayClock.resubscribe(self, from: subscribed)
@@ -271,12 +327,24 @@ public final class FrameScheduler: NSObject {
     private func drop(_ id: ObjectIdentifier) {
         clients[id] = nil
         budgetedOrder.removeAll { $0 == id }
+        updateFrameRate()
+    }
+
+    /// Recomputes ``frameRate`` after a client came or went and, when it changed while subscribed,
+    /// tells the display, whose link may run at another rate now.
+    private func updateFrameRate() {
+        let rate = FrameRate.highest(of: clients.values.map(\.rate))
+        guard rate != frameRate else { return }
+        frameRate = rate
+        if let subscribed, rate != nil { displayClock.frameRateDidChange(on: subscribed) }
     }
 
     /// Leaves the display while idle: an idle window holds no subscription (and its display drops
     /// the link once nobody else ticks on it); the next client subscribes again.
     private func pause() {
         lastTimestamp = nil
+        lastTargetTimestamp = nil
+        handoff = nil
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
@@ -292,6 +360,7 @@ public final class FrameScheduler: NSObject {
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
+        frameRate = nil
         pause()
         closeObserver = nil
     }
@@ -334,12 +403,14 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
+        budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval, ranAt: ranAt)
         // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
         // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).
+        let target = targetTimestamp ?? now + lastRefreshInterval
+        lastTargetTimestamp = target
         return FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                          rawElapsed: elapsed, refreshInterval: refreshInterval,
-                         targetTimestamp: targetTimestamp ?? now + lastRefreshInterval, sequence: frames)
+                         targetTimestamp: target, sequence: frames)
     }
 
     /// The frame-locked clients, every frame: the input stage first (the window's

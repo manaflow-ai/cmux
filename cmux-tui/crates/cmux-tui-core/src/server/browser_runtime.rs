@@ -30,17 +30,16 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::net::SocketAddr;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use cmux_process::{Child, Command, Stdio};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use wait_timeout::ChildExt;
 
 use super::{MessageWriter, Response, send_response};
 use crate::mux::Mux;
@@ -385,6 +384,7 @@ fn launch(
         // Its own process group: a signal to the daemon's group does not
         // reach it, and a stop can end its helper processes with it.
         .process_group(0);
+    crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
     let mut child =
         command.spawn().map_err(|error| format!("cannot start the browser: {error}"))?;
     let mut lifeline = child.stdin.take();

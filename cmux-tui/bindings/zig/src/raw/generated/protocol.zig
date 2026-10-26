@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "144f5216217589ce8e98bb77d79b3a5ea7b758bca61c192dfd1e42a9293e1c24";
+pub const ir_sha256 = "77f0c70101ce816e2ee667ac7315cd3b234194807cf3cffd297c5e4bc46edda9";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,42 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestLatency = struct {
+    agent: ServerStatsHistogram,
+    browser: ServerStatsHistogram,
+    cloud: ServerStatsHistogram,
+    create: ServerStatsHistogram,
+    other: ServerStatsHistogram,
+    query: ServerStatsHistogram,
+    terminal_io: ServerStatsHistogram,
+    topology: ServerStatsHistogram,
+};
+
+pub const ServerStatsRequestPathIo = struct {
+    child_process: u64,
+    fs_write: u64,
+    host_wait: u64,
+    journal_wait: u64,
+    lock_hold_over_1ms: ?u64 = null,
+    network: u64,
+    proc_scan: u64,
+    process_spawn: u64,
+    recording: bool,
+    scopes: u64,
+    sites: []const ServerStatsRequestPathSite,
+    sleep: u64,
+    sqlite: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "lock_hold_over_1ms",
+    };
+};
+
+pub const ServerStatsRequestPathSite = struct {
+    kind: []const u8,
+    site: []const u8,
+};
+
 pub const ServerStatsResourceProjection = struct {
     commit_apply_us: ServerStatsHistogram,
     commit_journal_us: ServerStatsHistogram,
@@ -1915,17 +1951,53 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    dispatch_queue_us: ?ServerStatsHistogram = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_latency_us: ?ServerStatsRequestLatency = null,
+    request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
+    slow_requests: ?ServerStatsSlowRequests = null,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dispatch_queue_us",
+        "request_latency_us",
+        "request_path_io",
         "resource_projection",
+        "slow_requests",
         "write_path",
     };
+};
+
+pub const ServerStatsSlowRequest = struct {
+    busy_ms: u64,
+    client: u64,
+    duration_ms: wire.Nullable(u64),
+    method: []const u8,
+    stack: []const ServerStatsSlowRequestFrame,
+    stack_error: wire.Nullable([]const u8),
+    stack_truncated: bool,
+    started_ms: u64,
+};
+
+pub const ServerStatsSlowRequestFrame = struct {
+    image: wire.Nullable([]const u8),
+    image_id: wire.Nullable([]const u8),
+    offset: u64,
+    symbol: wire.Nullable([]const u8),
+};
+
+pub const ServerStatsSlowRequests = struct {
+    expected_waits: u64,
+    recent: []const ServerStatsSlowRequest,
+    spawn_failures: u64,
+    threshold_ms: u64,
+    total: u64,
+    unwatched: u64,
+    watchdog_wakeups: u64,
 };
 
 pub const ServerStatsWritePath = struct {

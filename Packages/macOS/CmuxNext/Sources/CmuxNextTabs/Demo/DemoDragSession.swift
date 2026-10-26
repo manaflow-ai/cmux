@@ -1,9 +1,12 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 
 /// A minimal stand-in for the App's `TabDragSession`: a floating ghost that
 /// follows the pointer, drop targets asked through `TabDropTargetProviding`,
-/// and a local model move on drop. Handles single tabs and whole groups.
+/// and a local model move on drop. Handles single tabs and whole groups. The drag hears its window's
+/// drags, mouse-up and Escape through the input tap until it drops or cancels, as the App's drag
+/// sessions do.
 final class DemoDragSession {
     enum Source {
         case tab(TabDragStart)
@@ -13,7 +16,8 @@ final class DemoDragSession {
     private let source: Source
     private let strips: [TabStripView]
     private let ghost: NSPanel
-    private var monitor: Any?
+    /// The drag's pointer and key intercept, held until the drop or cancel.
+    private var subscription: InputSubscription?
     private var target: (strip: TabStripView, proposal: TabDropProposal)?
     private let finished: () -> Void
 
@@ -46,7 +50,7 @@ final class DemoDragSession {
         }
     }
 
-    init(source: Source, strips: [TabStripView], finished: @escaping () -> Void) {
+    init(source: Source, strips: [TabStripView], input: InputEventTap, finished: @escaping () -> Void) {
         self.source = source
         self.strips = strips
         self.finished = finished
@@ -66,9 +70,10 @@ final class DemoDragSession {
         ghost.contentView = image
         ghost.alphaValue = 0.92
         ghost.orderFrontRegardless()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp, .keyDown]) { [weak self] event in
+        let window: InputEventTap.WindowScope = strips.first?.window.map { InputEventTap.WindowScope.window($0) } ?? .anyWindow
+        subscription = input.subscribe(class: [.drag, .button, .key], phase: .intercept(order: .dragSession), window: window) { [weak self] event in
             self?.handle(event)
-            return event
+            return .pass
         }
         move(to: start.2)
     }
@@ -147,7 +152,7 @@ final class DemoDragSession {
         switch event.type {
         case .leftMouseDragged: move(to: NSEvent.mouseLocation)
         case .leftMouseUp: drop()
-        case .keyDown where event.keyCode == 53:
+        case .keyDown where event.keyCode == TabStripEscape.escapeKeyCode:
             cancel()
             end()
         default: break
@@ -155,8 +160,8 @@ final class DemoDragSession {
     }
 
     private func end() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
+        subscription?.cancel()
+        subscription = nil
         ghost.orderOut(nil)
         finished()
     }
