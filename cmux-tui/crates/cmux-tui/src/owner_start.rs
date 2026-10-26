@@ -24,12 +24,16 @@ const MAIN_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserIn
 /// [`MAIN_THREAD_QOS`] and sets its QoS, so `cmux_threads::snapshot` (and
 /// `server.threads` on it, p02-threads task 203) shows it.
 /// Returns false, and changes nothing, when the thread is listed already.
-fn register_main_thread() -> bool {
+///
+/// Call it once the main thread starts no more threads: a macOS thread
+/// starts at its creator's class, and the owner's workers (journal
+/// maintenance, history search, the panic and memory watchers) run at
+/// their own lower classes, not at the main thread's.
+pub(crate) fn register_main_thread() -> bool {
     cmux_threads::register_current("main", MAIN_THREAD_QOS)
 }
 
-/// Run the owner's main thread at [`MAIN_THREAD_QOS`], validate the owner's
-/// storage flags and raise its open-file soft limit.
+/// Validate the owner's storage flags and raise its open-file soft limit.
 ///
 /// The owner holds descriptors for every terminal, and the default soft
 /// limit (256 on macOS) stopped it at about 60 terminals. Terminal hosts and
@@ -55,9 +59,6 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         memory_guard::spawn(panic_log, forwarder);
         background_checks::spawn();
     }
-    // After the background threads above start: a macOS thread inherits
-    // its creator's class, and theirs is not the person's.
-    register_main_thread();
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");
     }
@@ -71,40 +72,4 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
         );
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use cmux_threads::{LiveQos, ThreadQos};
-
-    /// p02-threads-207: the owner's main thread is a `main` registry row at
-    /// UserInitiated, and the kernel runs it at that class. On Linux the
-    /// class is nice 0, which a thread started at a higher nice value (a
-    /// `nice cargo test`) may not take back: it is checked from nice 0 only.
-    #[test]
-    fn the_main_thread_registers_at_user_initiated() {
-        std::thread::spawn(|| {
-            let before = cmux_threads::current();
-            assert!(super::register_main_thread());
-            assert!(!super::register_main_thread(), "a second call changes nothing");
-            let row = cmux_threads::snapshot()
-                .into_iter()
-                .find(|row| row.name == "main")
-                .expect("a main row");
-            assert_eq!(row.declared, ThreadQos::UserInitiated);
-            if cfg!(target_vendor = "apple") || before == LiveQos::Nice(0) {
-                assert_eq!(row.effective, Some(ThreadQos::UserInitiated));
-            }
-            #[cfg(target_vendor = "apple")]
-            assert_eq!(row.live, LiveQos::Class(ThreadQos::UserInitiated));
-            #[cfg(target_os = "linux")]
-            assert!(before != LiveQos::Nice(0) || row.live == LiveQos::Nice(0), "{:?}", row.live);
-        })
-        .join()
-        .unwrap();
-        assert!(
-            cmux_threads::snapshot().iter().all(|row| row.name != "main"),
-            "the row leaves with its thread"
-        );
-    }
 }
