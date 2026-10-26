@@ -24,6 +24,7 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import { frameInput, type FrameInput } from "../../ui/frameInput";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -252,11 +253,24 @@ export class ResizableTableView extends TableView {
     this.handle.hidden = true;
     this.handle.setAttribute("aria-hidden", "true");
     this.dom.append(this.handle);
-    this.dom.addEventListener("mousemove", this.hover);
-    this.dom.addEventListener("mouseleave", this.leave);
+    this.win = this.dom.ownerDocument.defaultView ?? window;
+    // The hit test reads every cell's box: once per frame, at the newest pointer (ui/frameInput.ts).
+    this.hoverInput = frameInput(this.win, (point: { x: number; y: number }) => {
+      this.pointer = point;
+      if (!this.dragging) this.refresh();
+    });
+    this.wheelInput = frameInput(
+      this.win,
+      (pixels: number) => this.scrollSideways(pixels),
+      (held, next) => held + next,
+    );
+    this.dom.addEventListener("mousemove", this.hover, { passive: true });
+    this.dom.addEventListener("mouseleave", this.leave, { passive: true });
     this.handle.addEventListener("mousedown", this.startDrag);
     this.handle.addEventListener("dblclick", this.fit);
     this.dom.addEventListener("scroll", this.layoutChanged, { passive: true });
+    // Not passive: shiftWheel cancels the page's own scroll for a Shift-wheel it turns sideways, and
+    // only then (Shift, a vertical delta, a table wider than its box).
     this.dom.addEventListener("wheel", this.shiftWheel, { passive: false });
     // The box and the table change size with the pane, the text width, an edit and a column drag.
     this.resize = new ResizeObserver(this.layoutChanged);
@@ -270,6 +284,10 @@ export class ResizableTableView extends TableView {
   private readonly unsubscribe: () => void;
 
   private readonly resize: ResizeObserver;
+  private readonly win: Window;
+  private readonly hoverInput: FrameInput<{ x: number; y: number }>;
+  /** Shift-wheel pixels, added up until the frame. */
+  private readonly wheelInput: FrameInput<number>;
   /** Where the pointer last was over the table's box (client coordinates); null once it left. */
   private pointer: { x: number; y: number } | null = null;
 
@@ -283,6 +301,7 @@ export class ResizableTableView extends TableView {
   };
 
   private readonly leave = (): void => {
+    this.hoverInput.cancel();
     this.pointer = null;
     if (!this.dragging) this.hide();
   };
@@ -320,8 +339,14 @@ export class ResizableTableView extends TableView {
           ? box.clientWidth
           : 1;
     event.preventDefault();
-    box.scrollLeft = Math.max(0, Math.min(max, box.scrollLeft + event.deltaY * step));
+    this.wheelInput.push(event.deltaY * step);
   };
+
+  private scrollSideways(pixels: number): void {
+    const box = this.dom;
+    const max = box.scrollWidth - box.clientWidth;
+    box.scrollLeft = Math.max(0, Math.min(max, box.scrollLeft + pixels));
+  }
 
   override update(node: ProseNode): boolean {
     if (!super.update(node)) return false;
@@ -397,8 +422,7 @@ export class ResizableTableView extends TableView {
   }
 
   private readonly hover = (event: MouseEvent): void => {
-    this.pointer = { x: event.clientX, y: event.clientY };
-    if (!this.dragging) this.refresh();
+    this.hoverInput.push({ x: event.clientX, y: event.clientY });
   };
 
   /** Shows the line of the boundary under the pointer, or hides it. */
@@ -478,13 +502,17 @@ export class ResizableTableView extends TableView {
     if (initial === undefined) return;
     this.dragging = true;
     this.dom.classList.add("md-col-resizing");
-    const move = (next: MouseEvent) => {
-      widths[column] = Math.max(MIN_COLUMN_WIDTH, initial + next.clientX - start);
+    const resize = (clientX: number) => {
+      widths[column] = Math.max(MIN_COLUMN_WIDTH, initial + clientX - start);
       this.layout(widths);
       this.show(column);
     };
+    // One layout per frame, at the newest pointer (ui/frameInput.ts); the release lays out at once.
+    const moves = frameInput(this.win, resize);
+    const move = (next: MouseEvent) => moves.push(next.clientX);
     const up = (next: MouseEvent) => {
-      move(next);
+      moves.cancel();
+      resize(next.clientX);
       this.dragging = false;
       this.pointer = { x: next.clientX, y: next.clientY };
       this.dom.classList.remove("md-col-resizing");
@@ -492,7 +520,7 @@ export class ResizableTableView extends TableView {
       removeEventListener("mouseup", up, true);
       this.save(widths);
     };
-    addEventListener("mousemove", move, true);
+    addEventListener("mousemove", move, { capture: true, passive: true });
     addEventListener("mouseup", up, true);
   };
 
@@ -531,6 +559,8 @@ export class ResizableTableView extends TableView {
     this.dom.removeEventListener("mouseleave", this.leave);
     this.dom.removeEventListener("scroll", this.layoutChanged);
     this.dom.removeEventListener("wheel", this.shiftWheel);
+    this.hoverInput.cancel();
+    this.wheelInput.cancel();
     this.resize.disconnect();
     this.unsubscribe();
   }
@@ -745,21 +775,25 @@ export const tableDragOutPlugin = $prose(
             const tablePos = table.pos;
             const window = view.dom.ownerDocument.defaultView;
             if (!window) return false;
-            const move = (moved: MouseEvent) => {
+            // posAtCoords and the selection once per frame, at the newest pointer (ui/frameInput.ts).
+            const moves = frameInput(window, (moved: { x: number; y: number; buttons: number }) => {
               if (moved.buttons === 0 || view.isDestroyed) return stop();
-              const hit = view.posAtCoords({ left: moved.clientX, top: moved.clientY });
+              const hit = view.posAtCoords({ left: moved.x, top: moved.y });
               if (!hit) return;
               const { doc } = view.state;
               const $head = doc.resolve(hit.pos);
               if (findTable($head)?.pos === tablePos) return;
               const selection = TextSelection.between(doc.resolve(Math.min(anchor, doc.content.size)), $head);
               if (!selection.eq(view.state.selection)) view.dispatch(view.state.tr.setSelection(selection));
-            };
+            });
+            const move = (moved: MouseEvent) =>
+              moves.push({ x: moved.clientX, y: moved.clientY, buttons: moved.buttons });
             const stop = () => {
+              moves.cancel();
               window.removeEventListener("mousemove", move);
               window.removeEventListener("mouseup", stop);
             };
-            window.addEventListener("mousemove", move);
+            window.addEventListener("mousemove", move, { passive: true });
             window.addEventListener("mouseup", stop);
             return false;
           },

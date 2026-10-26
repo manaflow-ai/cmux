@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor } from "../src/pages/markdown/editor";
 import type { TableWidths } from "../src/pages/markdown/tables";
+import { frameInputQueue } from "../src/ui/frameInput";
 
 let dom: JSDOM;
 // ProseMirror loaded after the page says it is a Mac (beforeAll): see there.
@@ -524,8 +525,11 @@ describe("markdown table resize hover", () => {
       const column = Math.floor((x + scroll) / CELL);
       return row >= 0 && row < 2 && column >= 0 && column < 2 ? cells(row)[column]! : wrapper;
     };
-    const hover = (x: number, y: number) =>
+    /** A pointer move over (x, y), and the frame it is handled in (ui/frameInput.ts). */
+    const hover = (x: number, y: number) => {
       under(x, y).dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true, clientX: x, clientY: y }));
+      frameInputQueue(dom.window as unknown as Window).flush();
+    };
     return { md, wrapper, handle, cells, handleBox, overHandle, hover, under };
   }
 
