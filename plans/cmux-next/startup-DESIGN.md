@@ -292,13 +292,13 @@ Target <= 3 (cache, windows, keyRouter).
 |---|---|---|---|---|
 | Q1-1 | `_ = cloud` | onDemand once 020 splits out the auth; until then critical by reader, no gain | 020 (auth split assigned here) | Two readers run before the first frame: the `ManagedPolicyBridge.start` critical post reads `cloud.auth` (O20), and the `services.settings` `didSet` reads `cloud.hostReplica` (O45). Removing `_ = cloud` alone defers nothing. 020 makes `CloudAuth` its own `AppServices` member that `CloudService` takes by init, passes the bridge only that auth, and moves the host replica follow into the Cloud start post; then `startCloud` is the first reader. |
 | Q1-2 | `_ = feed` | onDemand | 020 | Built by its first reader. |
-| Q1-3 | `_ = rightSidebarSections` | onDemand; icon build afterStartup `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. |
+| Q1-3 | `_ = rightSidebarSections` | onDemand; afterStartup `RightSidebar.prewarm` on main posts the icon build `RightSidebar.icons` on `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. A panel built first (a window restored with it shown) posts the same build at afterFirstFrame and shows empty buttons until the images land; no main turn decodes a symbol. |
 | Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
-| Q1-7 | `_ = terminalColors` | onDemand (built by its first reader, the config-change hook or `TerminalTheme.follow`) | 022 (assigned here) | Same: no task named it. |
+| Q1-7 | `_ = terminalColors` | keep (022 found it must stay) | - | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does). Built late, the daemons answer the first terminals' OSC 10/11/12 queries without the painted colors. Making it lazy needs a reader in the Daemon.start post first. |
 | Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). |
-| Q1-9 | `_ = emptyWorkspaces` | onDemand | 022 | Repair runs when a workspace empties. |
+| Q1-9 | `_ = emptyWorkspaces` | onDemand; afterStartup `EmptyWorkspaceRepair.observe` on main | 022 | A window's content builds it before its frame; with no window shown, the post starts its store observation. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
 | Q1-11 | `_ = resources` | onDemand | 022 | Built by its first reader. |
 | Q1-12 | `_ = windows` | keep | - | `WindowManager`: the restore. |
@@ -309,8 +309,8 @@ Target <= 3 (cache, windows, keyRouter).
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
 | Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
 
-022 now owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. With them, and with 020's auth
-split for Q1-1, Q1 reaches the spec's target of 3. Without the auth split Q1-1 stays built before the
+022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above), so
+with 020's auth split for Q1-1, Q1 reaches 4, one above the spec's target of 3, until Q1-7 gets its reader. Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
 ## 7. Q1b stored initializers (42)
