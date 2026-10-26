@@ -51,7 +51,11 @@ const ready = (height: number) => ({
   },
   snapshot: noChat(manySessions(3)),
 });
-const variant = (candidate: string, height: number, note: string) => ({ ...ready(height), note, play: play(candidate) });
+const variant = (candidate: string, height: number, note: string) => ({
+  ...ready(height),
+  note,
+  play: play(candidate),
+});
 
 export default agentPaneEntry({
   id: "agent-pane.newtab-composer-height",
@@ -62,13 +66,29 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/newtab/NewTabScreen.tsx", "agent-session/acpmux/newtab/screen.css"],
   keywords: ["new tab", "Cmd-I", "composer", "height", "long draft"],
   variants: {
-    "old-eight-lines-normal": variant("old-eight-lines", 760, "Old baseline: eight lines in a normal New Tab/Cmd-I pane."),
-    "old-eight-lines-short": variant("old-eight-lines", 300, "Old baseline: eight lines in a short New Tab/Cmd-I pane."),
+    "old-eight-lines-normal": variant(
+      "old-eight-lines",
+      760,
+      "Old baseline: eight lines in a normal New Tab/Cmd-I pane.",
+    ),
+    "old-eight-lines-short": variant(
+      "old-eight-lines",
+      300,
+      "Old baseline: eight lines in a short New Tab/Cmd-I pane.",
+    ),
     "current-forty-percent-normal": variant("current-forty-percent", 760, "Current New Tab policy in a normal pane."),
     "current-forty-percent-short": variant("current-forty-percent", 300, "Current New Tab policy in a short pane."),
     "thirty-percent-normal": variant("thirty-percent", 760, "Candidate: 30% of a normal New Tab/Cmd-I pane."),
     "thirty-percent-short": variant("thirty-percent", 300, "Candidate: 30% of a short New Tab/Cmd-I pane."),
-    "chosen-twelve-lines-normal": variant("chosen", 760, "Chosen Goldilocks policy: twelve lines bounded by 40%, normal pane."),
-    "chosen-twelve-lines-short": variant("chosen", 300, "Chosen Goldilocks policy: twelve lines bounded by 40%, short pane."),
+    "chosen-twelve-lines-normal": variant(
+      "chosen",
+      760,
+      "Chosen Goldilocks policy: twelve lines bounded by 40%, normal pane.",
+    ),
+    "chosen-twelve-lines-short": variant(
+      "chosen",
+      300,
+      "Chosen Goldilocks policy: twelve lines bounded by 40%, short pane.",
+    ),
   },
 });

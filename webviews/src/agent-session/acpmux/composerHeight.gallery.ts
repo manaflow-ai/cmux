@@ -65,13 +65,37 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/MarkdownField.tsx", "agent-session/acpmux/markdownField.css"],
   keywords: ["composer", "height", "long draft", "goldilocks"],
   variants: {
-    "old-eight-lines-normal": variant("old-eight-lines", 760, "Old baseline: eight body lines plus the control row, shown in a normal pane."),
-    "old-eight-lines-short": variant("old-eight-lines", 300, "Old baseline: eight body lines plus the control row, shown in a short pane."),
-    "current-forty-percent-normal": variant("current-forty-percent", 760, "Current #24984 policy: 40% wins over eight lines in a normal pane."),
-    "current-forty-percent-short": variant("current-forty-percent", 300, "Current #24984 policy: the short pane still gives up height."),
+    "old-eight-lines-normal": variant(
+      "old-eight-lines",
+      760,
+      "Old baseline: eight body lines plus the control row, shown in a normal pane.",
+    ),
+    "old-eight-lines-short": variant(
+      "old-eight-lines",
+      300,
+      "Old baseline: eight body lines plus the control row, shown in a short pane.",
+    ),
+    "current-forty-percent-normal": variant(
+      "current-forty-percent",
+      760,
+      "Current #24984 policy: 40% wins over eight lines in a normal pane.",
+    ),
+    "current-forty-percent-short": variant(
+      "current-forty-percent",
+      300,
+      "Current #24984 policy: the short pane still gives up height.",
+    ),
     "thirty-percent-normal": variant("thirty-percent", 760, "Candidate: cap at 30% of a normal pane."),
     "thirty-percent-short": variant("thirty-percent", 300, "Candidate: cap at 30% of a short pane."),
-    "chosen-twelve-lines-normal": variant("chosen", 760, "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a normal pane."),
-    "chosen-twelve-lines-short": variant("chosen", 300, "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a short pane."),
+    "chosen-twelve-lines-normal": variant(
+      "chosen",
+      760,
+      "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a normal pane.",
+    ),
+    "chosen-twelve-lines-short": variant(
+      "chosen",
+      300,
+      "Chosen Goldilocks policy: twelve lines, bounded by 40%, in a short pane.",
+    ),
   },
 });
