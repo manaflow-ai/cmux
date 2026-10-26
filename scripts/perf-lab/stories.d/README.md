@@ -34,6 +34,7 @@ python3 -m unittest scripts/perf-lab/tests/test_catalog.py
 | `owner` | An owner from `plans/cmux-next/OWNERS.md`: a `PL-*` lane, the Performance Lead or an agent name. Alerts go to this owner. |
 | `component` | `Area>Sub`, in the form of a Chrome bug component. |
 | `perf_cron_part` | The `perf-cron.py` part that this story replaces. Each part must have one story. |
+| `not_measurable` | Optional. The reason the lab cannot run the story yet, for example a build or a runner argument that does not exist. The lint checks the story as usual, and `lab.py stories` lists the reason. The shard map, the scheduler and the runner skip the story. Remove the field in the change that adds the missing support. |
 
 ## Thresholds are references, never copies (R4)
 
