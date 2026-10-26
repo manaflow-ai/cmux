@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CmuxProductAnalytics
 import SwiftUI
 
@@ -8,6 +9,7 @@ final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
     private let defaults: UserDefaults
+    private var customSidebarDefaultsObserver: AnyCancellable?
 
     @Published var isVisible: Bool {
         didSet { persistVisibility() }
@@ -68,7 +70,7 @@ final class FileExplorerState: ObservableObject {
     }
 
     var customSidebarName: String? {
-        storedCustomSidebarName
+        Self.persistedCustomSidebarName(defaults: defaults)
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -85,6 +87,17 @@ final class FileExplorerState: ObservableObject {
         let storedMode = RightSidebarMode.from(cliArgument: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
         self.storedMode = Self.visibleMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
+        // Defaults owns the selection shared by windows. Keep an observable
+        // projection so an already-mounted panel redraws when another window
+        // selects a different sidebar; reads above always use the current name.
+        customSidebarDefaultsObserver = NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let name = Self.persistedCustomSidebarName(defaults: self.defaults)
+                guard name != self.storedCustomSidebarName else { return }
+                self.storedCustomSidebarName = name
+            }
     }
 
     /// Re-lands the sidebar on a tab the mode bar shows. Unlike an explicit
@@ -96,12 +109,14 @@ final class FileExplorerState: ObservableObject {
         setMode(Self.visibleMode(storedMode, defaults: defaults), defaults: defaults)
     }
 
-    func selectCustomSidebar(name rawName: String, defaults: UserDefaults? = nil) {
-        let defaults = defaults ?? self.defaults
+    func selectCustomSidebar(name rawName: String) {
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         storedCustomSidebarName = name
         defaults.set(name, forKey: Self.customSidebarNameKey)
+        // Keep tab settings and shortcut projections live when selection is
+        // changed by the CLI or another window.
+        NotificationCenter.default.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
     }
 
     /// The persisted right-sidebar custom-sidebar name, readable without an
@@ -164,8 +179,6 @@ final class FileExplorerState: ObservableObject {
         defaults: UserDefaults
     ) -> RightSidebarMode {
         let candidate = availableMode(mode, defaults: defaults)
-        // Custom sidebars are selectable content, not customizable mode-bar tabs.
-        if candidate == .customSidebar { return candidate }
         let visible = RightSidebarMode.visibleModes(defaults: defaults)
         if visible.contains(candidate) { return candidate }
         return visible.first ?? candidate
