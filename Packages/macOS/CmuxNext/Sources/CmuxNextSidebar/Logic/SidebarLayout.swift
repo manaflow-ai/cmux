@@ -168,7 +168,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
         var firstSection = true, statusShown = false, statusListed = false
         for (sectionIndex, section) in sections.enumerated() {
-            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
+            if let lastMachine, sectionIndex > lastMachine {
+                let before = y
+                chats.placeEarlier(&y)
+                // History drawn above: the sections after it no longer start the list.
+                if y != before { firstSection = false }
+            }
             // Group by Status lays every computer's rows out once, in place of their sections (`SidebarLayout+Status`).
             if o.grouping.byStatus && !filtering && section.machine != nil {
                 if !statusShown {
