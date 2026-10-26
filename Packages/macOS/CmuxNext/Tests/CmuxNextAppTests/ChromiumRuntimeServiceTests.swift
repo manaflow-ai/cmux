@@ -109,6 +109,21 @@ import Testing
         #expect(BrowserTabService.message(.downloadFailed("transfer: connection reset")) == BrowserEngineStrings.downloadFailed)
         #expect(BrowserTabService.message(.startFailed("dlopen failed")) == "dlopen failed")
     }
+
+    /// A sanitizer app (reload.sh --config asan|tsan|ubsan) starts with no Chromium (p10-stability-012).
+    @Test func aSanitizerBuildStartsWithNoChromiumRuntime() {
+        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
+                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))
+        #expect(service.origin == .sanitizer)
+        #expect(service.source.layout == nil)
+        #expect(service.pinnedKey == nil)
+    }
+
+    @Test func aSanitizerBuildThatAsksForChromiumPicksARuntimeAsUsual() {
+        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
+                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: true))
+        #expect(service.origin != .sanitizer)
+    }
 }
 
 /// No network and nothing to unpack: these tests never download.

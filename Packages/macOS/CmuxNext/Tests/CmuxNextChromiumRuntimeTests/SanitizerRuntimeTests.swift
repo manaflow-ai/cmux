@@ -1,10 +1,9 @@
-@testable import CmuxNextApp
-import Foundation
+import CmuxNextChromiumRuntime
 import Testing
 
 /// A sanitizer app (`reload.sh --config asan|tsan|ubsan`) keeps Chromium and the early malloc zone off
 /// unless its launch asks for Chromium (chrome-parity p10-stability-012).
-@MainActor struct SanitizerRuntimeTests {
+struct SanitizerRuntimeTests {
     private func runtime(exporting symbols: Set<String>, environment: [String: String] = [:]) -> SanitizerRuntime {
         SanitizerRuntime.detect(environment: environment, exports: { symbols.contains($0) })
     }
@@ -29,19 +28,5 @@ import Testing
         let asked = runtime(exporting: ["__tsan_init"], environment: [SanitizerRuntime.chromiumOverrideKey: "1"])
         #expect(asked.chromiumRequested)
         #expect(asked.loadsChromium)
-    }
-
-    @Test func aSanitizerBuildStartsWithNoChromiumRuntime() {
-        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
-                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: false))
-        #expect(service.origin == .sanitizer)
-        #expect(service.source.layout == nil)
-        #expect(service.pinnedKey == nil)
-    }
-
-    @Test func aSanitizerBuildThatAsksForChromiumPicksARuntimeAsUsual() {
-        let service = ChromiumRuntimeService.make(environment: [:], applicationSupport: nil,
-                                                  sanitizer: SanitizerRuntime(kind: .asan, chromiumRequested: true))
-        #expect(service.origin != .sanitizer)
     }
 }

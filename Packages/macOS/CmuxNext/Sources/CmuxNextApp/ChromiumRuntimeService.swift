@@ -86,7 +86,7 @@ final class ChromiumRuntimeService {
                      applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
                      sanitizer: SanitizerRuntime? = nil)
         -> ChromiumRuntimeService {
-        guard (sanitizer ?? .detect(environment: environment)).loadsChromium else {
+        guard (sanitizer ?? SanitizerRuntime.detect(environment: environment)).loadsChromium else {
             return ChromiumRuntimeService(source: CEFRuntimeSource(layout: nil), origin: .sanitizer, installer: nil, mainBundle: bundle.bundleURL)
         }
         if let layout = CEFRuntimeLayout.locate(bundle: bundle, environment: environment) {

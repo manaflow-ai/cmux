@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextChromiumRuntime
 import CmuxNextMallocZone
 import CmuxNextSidebar
 import CmuxNextTerminal
