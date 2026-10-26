@@ -28,7 +28,7 @@
     "channel": "Optional: input for ops sent on the input ring instead of the control channel (default control).",
     "optional_exports": "Top level: cmux_shim_* symbols CEFShimLibrary binds with r.optional (the fork API 29 renderer paths) that cmux_cef_shim.h does not declare. 3696a48e40a landed the app side before the shim, and the shim in CEFShim/src does not define them yet, so a declaration would promise symbols that nm cannot find in the real shim. Same fields as exports. Task 011 checks header exports plus these against CEFShimLibrary's r(...) and r.optional(...) names; the remote dylib (task 014) exports both. The commit that adds them to the shim moves the declarations into the header and these entries into exports.",
     "optional_events": "Top level: event kinds CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet (fork API 29); same fields as events and the same move into the header as optional_exports.",
-    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here."
+    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async or mint call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite)."
   },
   "pseudo_events": {
     "attach": "The host's hello after the control channel connects, before any op is applied. It carries every mirror key whose only refresh event is attach, and the optional_exports the host's shim defines."
@@ -4090,6 +4090,43 @@
     }
   ],
   "host_mode_rewrites": [
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.loadLibrary(_:signatureChecker:)",
+      "exports": [
+        "cmux_shim_load"
+      ],
+      "needs": "kept",
+      "change": "Runs only as CEFRuntime.loadInProcess: host mode attaches the remote shim instead (CEFHostStart, task 015) and never maps the framework (task 101).",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:), the prepareApplication check and the pump's doWork",
+      "exports": [
+        "cmux_shim_prepare_application",
+        "cmux_shim_do_work"
+      ],
+      "needs": "kept",
+      "change": "Both run only for CEFRuntimeBoot.inProcess: in host mode the host's NSApp runs Chromium and its own message loop (task 034), and CEFRuntime prepares nothing and starts no pump (task 015).",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+PasswordImport.swift: CEFRuntime.canImportPasswords() (computed property)",
+      "exports": [
+        "cmux_shim_password_entry_size"
+      ],
+      "needs": "kept",
+      "change": "The remote dylib returns its own sizeof(cmux_shim_password_entry), the layout that reads the rows Swift writes; the host checks its own layout when it decodes the wire. The comparison with ChromiumPasswordRows.stride keeps its meaning.",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+Events.swift: CEFRuntime.devTools(_:method:params:timeout:)",
+      "exports": [
+        "cmux_shim_devtools_call"
+      ],
+      "needs": "kept",
+      "change": "Already the mint form: the remote returns the client-minted message id (never 0) and DEVTOOLS_RESULT answers that id, a refused call included (a = 0), so the waiter keyed by the returned id resolves in both backends. synchronousDevToolsResults stays empty in host mode, where no result arrives inside the call.",
+      "task": "p01-process-021"
+    },
     {
       "site": "CmuxNextBrowser/CEF/CEFPaneHost+Duplicate.swift: CEFPaneHost.duplicate(_:)",
       "exports": [

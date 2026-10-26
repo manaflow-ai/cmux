@@ -57,7 +57,7 @@ final class CEFRuntime {
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
     /// Page accessibility while an assistive client asks for it (`CEFAccessibility`).
     private(set) lazy var accessibility = CEFAccessibility(
-        apply: { [weak self] browser, enabled in self?.shim?.setAccessibility(browser, enabled ? 1 : 0) },
+        apply: { [weak self] browser, enabled in self?.setPageAccessibility(browser, enabled) },
         browsers: { [weak self] in self.map { Array($0.tabsByBrowser.keys) } ?? [] })
     /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
@@ -108,6 +108,10 @@ final class CEFRuntime {
     /// Replies that arrived before their caller awaited.
     var earlySiteReplies: [Int32: CEFSiteReply] = [:]
     var nextSiteReply: Int32 = 1
+    /// Host mode: where async exports answer (``sendAsync(_:)``); nil in process, where each call does.
+    var hostReplies: CEFHostReplyRoute?
+    /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
+    var profileProxyChecks: [BrowserProfileID: CEFProfileProxyCheck] = [:]
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
@@ -342,29 +346,6 @@ final class CEFRuntime {
         }
     }
 
-    enum BootError: Error, CustomStringConvertible {
-        case notEmbedded
-        case untrusted(String)
-        case shim(CEFShimLibrary.LoadError)
-        case framework(String)
-        /// Host mode: no Chromium Host to attach to (the reason).
-        case host(String)
-        /// NSApp is not a CefAppProtocol NSApplication subclass.
-        case application
-        case initialize
-
-        var description: String {
-            switch self {
-            case .notEmbedded: "runtime not embedded"
-            case .untrusted(let item): "runtime signature: \(item)"
-            case .shim(let error): "shim: \(error)"
-            case .framework(let message), .host(let message): message
-            case .application: "NSApp does not conform to CefAppProtocol"
-            case .initialize: "CefInitialize failed"
-            }
-        }
-    }
-
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
     nonisolated static func loadLibrary(
@@ -407,6 +388,7 @@ final class CEFRuntime {
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
+        hostReplies = try CEFHostReplyRoute.route(for: library)
         self.shim = shim
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
@@ -515,6 +497,11 @@ final class CEFRuntime {
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
+    }
+
+    /// Builds or drops `browser`'s page accessibility tree (`CEFAccessibility`). A post: nothing to read back.
+    func setPageAccessibility(_ browser: Int32, _ enabled: Bool) {
+        shim?.setAccessibility(browser, enabled ? 1 : 0)
     }
 
     func makeRequestToken() -> Int32 {
