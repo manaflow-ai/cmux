@@ -14,11 +14,11 @@ Each case gets:
 - one `cmux-tui --headless` child started in its own session, awaited on its readiness pipe
   (`--owner-ready-fd`, the daemon's own startup protocol), never by probing the socket.
 - the environment of hermetic_env.daemon_case only (an `env -i` base, CMUX_TUI_OFFLINE=1, version
-  control without the person's config), and on Linux its own user and network namespace (`unshare -rn`,
-  loopback only). The session picks the isolation once (`isolation` in the session context or
-  `--isolation`: netns by default, which refuses a host without unprivileged user namespaces; auto;
-  none); each case result carries the environment it ran with (`environment`), and
-  `<out_dir>/environment.json` lists it for the run.
+  control without the person's config), and on Linux its own network namespace (loopback only, the
+  caller's uid; hermetic_env.netns_prefix). The isolation is resolved once per run: oracle.py passes
+  its description as `isolation` in the session context (`oracle.py run --isolation`), and this
+  file's CLI takes `--isolation` (netns by default, which refuses a host without unprivileged user
+  namespaces; auto; none). Each case result carries the environment it ran with (`environment`).
 - every request through the SDK: resource operations on `cmux._protocol.ProtocolConnection` (the SDK's
   wire layer; the oracle compares wire replies, so it does not decode them into dataclasses), and the
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
@@ -404,7 +404,8 @@ class MarkerScan:
 
 
 def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
-    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux /proc/net/unix)."""
+    """Unix socket paths the processes name (`--socket PATH`) or listen on (Linux: the unix socket table
+    of each process's own network namespace, so a case under the netns prefix is read in its own)."""
     paths: Set[str] = set()
     for proc in processes:
         for flag, value in zip(proc.argv, proc.argv[1:]):
@@ -413,7 +414,13 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
     if not sys.platform.startswith("linux"):
         return paths
     inodes: Set[str] = set()
+    # One live process per network namespace: /proc/<pid>/net/unix lists that namespace's sockets.
+    tables: Dict[str, int] = {}
     for proc in processes:
+        try:
+            tables.setdefault(os.readlink(f"/proc/{proc.pid}/ns/net"), proc.pid)
+        except OSError:
+            continue  # gone
         for fd in glob.glob(f"/proc/{proc.pid}/fd/*"):
             try:
                 target = os.readlink(fd)
@@ -423,16 +430,17 @@ def socket_paths(processes: Sequence[CaseProcess]) -> Set[str]:
                 inodes.add(target[8:-1])
     if not inodes:
         return paths
-    try:
-        with open("/proc/net/unix", "r", encoding="utf-8", errors="replace") as handle:
-            rows = handle.read().splitlines()[1:]
-    except OSError:
-        return paths
-    for row in rows:
-        # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
-        columns = row.split(None, 7)
-        if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
-            paths.add(columns[7])
+    for pid in tables.values():
+        try:
+            with open(f"/proc/{pid}/net/unix", "r", encoding="utf-8", errors="replace") as handle:
+                rows = handle.read().splitlines()[1:]
+        except OSError:
+            continue  # the process exited; its sockets were named by the others or are gone with it
+        for row in rows:
+            # Num RefCount Protocol Flags Type St Inode [Path]; an abstract name starts with '@'.
+            columns = row.split(None, 7)
+            if len(columns) == 8 and columns[6] in inodes and columns[7].startswith("/"):
+                paths.add(columns[7])
     return paths
 
 
@@ -1349,15 +1357,13 @@ class DaemonSession:
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
         try:
-            self.isolation = hermetic_env.isolation_for(str(session_ctx.get("isolation") or "netns"), host_platform())
+            self.isolation = session_isolation(session_ctx.get("isolation"))
         except hermetic_env.HermeticError as error:
             raise ValueError(f"no hermetic case environment on this host: {error}") from None
         self.scan = MarkerScan()
         self.binary = os.path.realpath(str(binary))
         self.session_ctx = dict(session_ctx)
         self.sha = resolve_sha(session_ctx.get("ref"), self.binary)
-        if session_ctx.get("out_dir"):
-            write_environment(Path(str(session_ctx["out_dir"])), self.isolation)
 
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         case_id = case_ctx.get("case_id") or f"{case.get('suite')}/{case.get('id')}"
@@ -1428,16 +1434,12 @@ def case_worker() -> int:
     return 0
 
 
-def write_environment(out_dir: Path, isolation: hermetic_env.Isolation) -> None:
-    """`<out_dir>/environment.json`: the environment every case of the run gets, the case root and the
-    per-case values as tokens (each case result has its own under `environment`)."""
-    template = hermetic_env.daemon_case(DEFAULT_STATE_BASE / "run000" / "case00", isolation,
-                                        platform=host_platform(), seed="$SEED",
-                                        extra={MARKER_ENV: hermetic_env.ROOT_TOKEN})
-    out_dir.mkdir(parents=True, exist_ok=True)
-    staged = out_dir / f".environment.json.{os.getpid()}.{threading.get_ident()}"
-    staged.write_text(json.dumps(template.receipt(), indent=1, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(staged, out_dir / "environment.json")
+def session_isolation(value: Any) -> hermetic_env.Isolation:
+    """The session's isolation: a description oracle.py resolved once for the whole run (no probe
+    here), or a mode for this file's own CLI (probed once per command; netns when absent)."""
+    if isinstance(value, Mapping):
+        return hermetic_env.Isolation.from_description(value)
+    return hermetic_env.isolation_for(str(value or "netns"), host_platform())
 
 
 def open_session(session_ctx: Dict[str, Any]) -> DaemonSession:

@@ -38,9 +38,12 @@ flakiness by hashes; diff.py compares the snapshot values.
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
                         "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
-                        "shards": [i], "seeds": {"i": seed}, "selection", "cases": {"<suite>/<case>":
-                        {"suite", "result" (Flaky for a flaky case), "outcome", "flaky", "reasons",
-                        "expected", "attempts", "checkpoints": N}}, "counts", ...}
+                        "shards": [i], "seeds": {"i": seed}, "selection", "isolation" (the run's case
+                        isolation: "mode" asked, "kind" netns|none got, "reason", "uid"; merge refuses
+                        shards of different kinds), "cases": {"<suite>/<case>": {"suite", "result"
+                        (Flaky for a flaky case), "outcome", "flaky", "reasons", "expected", "attempts",
+                        "checkpoints": N, "environment" (the first attempt's env and isolation, when
+                        the driver reports it)}}, "counts", ...}
     checkpoints.jsonl  one line per checkpoint of the case's first attempt (every attempt of a case
                         that is not flaky has the same hashes): {"case", "suite", "step", "index",
                         "checkpoint", "snapshot", "sha256", "attempt", "result"}
@@ -454,6 +457,8 @@ class Attempt:
     switch_hits: Dict[str, Dict[str, int]] = field(hash=False, compare=False)
     # Snapshot rows are kept for the first attempt only: it is the one checkpoints.jsonl holds.
     rows: Tuple[Dict[str, Any], ...] = field(default=(), hash=False, compare=False)
+    # The driver's `environment` (hermetic_env CaseEnv.receipt(): every variable and the isolation).
+    environment: Optional[Dict[str, Any]] = field(default=None, hash=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -490,6 +495,7 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
                 row[extra] = cp[extra]
         rows.append(row)
     step = raw.get("step")
+    environment = raw.get("environment")
     return {
         "status": status,
         "checkpoints": tuple(checkpoints),
@@ -498,6 +504,7 @@ def coerce_result(raw: Any) -> Dict[str, Any]:
         "step": step if isinstance(step, str) else None,
         "session_dirty": bool(raw.get("session_dirty")),
         "switch_hits": raw.get("switch_hits") or {},
+        "environment": environment if isinstance(environment, dict) else None,
     }
 
 
@@ -576,6 +583,8 @@ class RunOptions:
     dry_run: bool = False
     flaky_out: Optional[Path] = None
     expectations_root: Path = DEFAULT_EXPECTATIONS_ROOT
+    # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
+    isolation: str = "netns"
 
     @property
     def filtered(self) -> bool:
@@ -620,12 +629,14 @@ def needs_retry(attempt: Tuple[str, Optional[str]], expected: Expected) -> bool:
     return not expected.accepts(status, step) and status != "Pass"
 
 
-def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected]) -> Tuple[List[Attempt], List[str]]:
+def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expected: Dict[str, Expected],
+            isolation: Mapping[str, Any]) -> Tuple[List[Attempt], List[str]]:
     """Runs every iteration of the plan with the retry policy of spec 3G.
 
     Retry 1 reruns the whole shard with the same order and batches; retries 2..limit run each
     still-failing case alone in a fresh session, serially. Keys for state roots are given out
-    here, on one thread, before work is dispatched.
+    here, on one thread, before work is dispatched. `isolation` (resolve_isolation, probed once
+    for the run) reaches every session as `isolation`, so no session probes the host again.
     """
     run_key = base36(int.from_bytes(hashlib.sha256(options.run_id.encode()).digest()[:4], "big"))[-6:]
     keys = itertools.count()
@@ -640,6 +651,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "tag": options.tag,
         "binary": options.binary,
         "out_dir": str(options.out),
+        "isolation": dict(isolation),
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
     runnable = [batch for batch in runnable if batch]
@@ -676,6 +688,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
                 Attempt(
                     work.case.id, iteration, attempt, phase, result["status"], result.get("step"), result["checkpoints"],
                     result["message"], ms, result.get("switch_hits") or {}, result["rows"] if first else (),
+                    result.get("environment"),
                 )
             )
             statuses[work.case.id] = (result["status"], result.get("step"))
@@ -820,12 +833,29 @@ def checkpoint_rows(case_id: str, rows: Sequence[Mapping[str, Any]], *, attempt:
     return out
 
 
+def resolve_isolation(mode: str) -> Dict[str, Any]:
+    """The case isolation of a run (hermetic_env.py), probed once on this host for the whole run.
+
+    netns refuses a host without unprivileged user namespaces here, before any case runs, instead
+    of every session failing its cases; auto falls back to none and the receipt says why.
+    """
+    hermetic = require_sibling("hermetic_env", "p15-oracle-200")
+    try:
+        isolation = hermetic.isolation_for(mode, current_platform())
+    except hermetic.HermeticError as error:
+        raise UsageError(f"--isolation {mode}: {error}. Or run with --isolation auto or none; "
+                         "the receipt records the isolation every case got") from None
+    return {"mode": mode, **isolation.describe()}
+
+
 def perform_run(
     options: RunOptions,
     cases: Sequence[Case],
     open_session: Optional[SessionOpener],
     expectation: Optional[ExpectationFn],
     dependencies: Dict[str, str],
+    *,
+    isolate: Callable[[str], Dict[str, Any]] = resolve_isolation,
 ) -> Tuple[Dict[str, Any], int]:
     """Selects, shards, runs and writes receipt.json, checkpoints.jsonl, events.jsonl, index.md."""
     started = time.time()
@@ -839,10 +869,12 @@ def perform_run(
 
     attempts: List[Attempt] = []
     errors: List[str] = []
+    isolation: Dict[str, Any] = {"mode": options.isolation, "kind": None, "reason": "dry run: nothing ran"}
     if not options.dry_run:
         if open_session is None:
             raise UsageError("no driver to run cases with")
-        attempts, errors = execute(plan, options, open_session, expected)
+        isolation = isolate(options.isolation)
+        attempts, errors = execute(plan, options, open_session, expected, isolation)
     by_case: Dict[str, List[Attempt]] = {c.id: [] for c in plan.order}
     for a in attempts:
         by_case[a.case].append(a)
@@ -858,6 +890,8 @@ def perform_run(
             record = classify(by_case[case.id], exp)
         first = next((a for a in by_case[case.id] if a.iteration == 0 and a.attempt == 0), None)
         record.update(suite=case.suite, expected=sorted(exp.results), checkpoints=len(first.checkpoints) if first else 0)
+        if first is not None and first.environment is not None:
+            record["environment"] = first.environment
         records[case.id] = record
         if first is not None:
             rows.extend(checkpoint_rows(case.id, first.rows, attempt=0, result=first.status))
@@ -877,6 +911,7 @@ def perform_run(
         "config": config,
         "fingerprint": digest([json.dumps(options.fingerprint(), sort_keys=True)]),
         "host": host_info(),
+        "isolation": isolation,
         "dependencies": dependencies,
         "selection": {"count": len(plan.selection), "digest": digest(plan.selection)},
         "shards": [options.shard[0]],
@@ -918,6 +953,7 @@ def write_index(options: RunOptions, receipt: Dict[str, Any]) -> None:
         f"- shard {options.shard[0]}/{options.shard[1]}: {len(receipt['order'])} of {receipt['selection']['count']} selected cases",
         f"- seed {options.seed}, batch limit {options.batch_limit}, jobs {options.jobs}, repeat {options.repeat}, "
         f"retry limit {options.retry_limit}",
+        f"- isolation {receipt['isolation'].get('kind')} (asked {options.isolation}): {receipt['isolation'].get('reason')}",
         "- outcomes: " + ", ".join(f"{k} {v}" for k, v in sorted(receipt["counts"].items())),
         f"- flaky (left out of comparisons): {len(receipt['flaky'])}",
         f"- ok: {receipt['ok']}",
@@ -964,6 +1000,10 @@ def merge_runs(directories: Sequence[Path], *, require_complete: bool) -> Tuple[
         errors.append("shard receipts have different configs: " + ", ".join(str(d) for d in directories))
     if len({r["selection"]["digest"] for r in loaded}) > 1:
         errors.append("shard receipts select different cases (corpus or filter changed between shards)")
+    kinds = {str(d): (r.get("isolation") or {}).get("kind") for d, r in zip(directories, loaded)}
+    if len(set(kinds.values())) > 1:
+        errors.append("shard receipts ran with different case isolation: "
+                      + ", ".join(f"{kind} in {d}" for d, kind in kinds.items()))
     total = first["config"]["shard_total"]
     owner: Dict[int, Path] = {}
     seen: Dict[str, Path] = {}
@@ -1317,6 +1357,10 @@ def add_selection_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--expectations-root", type=Path, default=DEFAULT_EXPECTATIONS_ROOT,
                         help="dir with Expectations.d and NeverFix.d (default tests/oracle)")
     parser.add_argument("--state-base", type=Path, default=DEFAULT_STATE_BASE)
+    parser.add_argument("--isolation", choices=require_sibling("hermetic_env", "p15-oracle-200").ISOLATION_MODES,
+                        default="netns",
+                        help="case network isolation, probed once per run: netns (Linux, refuses a host without "
+                             "unprivileged user namespaces; default), auto (netns when the host allows it) or none")
     parser.add_argument("--flaky-out", type=Path, help="append flaky cases as JSON lines (MQ-flakes)")
     parser.add_argument("--dry-run", action="store_true", help="plan and write the receipt; run nothing")
     parser.add_argument("--run-id", help="default: UTC time plus 6 random characters")
@@ -1371,6 +1415,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         dry_run=args.dry_run,
         flaky_out=args.flaky_out,
         expectations_root=args.expectations_root,
+        isolation=args.isolation,
     )
     if args.retry_limit is not None:
         retry = args.retry_limit

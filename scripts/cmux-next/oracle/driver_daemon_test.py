@@ -32,6 +32,8 @@ import driver_daemon as d  # noqa: E402
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
 # netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
 ISOLATION = os.environ.get("CMUX_ORACLE_ISOLATION", "netns")
+# A snapshot schema other than normalize.py's default (driver_daemon.py --snapshot-schema).
+SNAPSHOT_SCHEMA = os.environ.get("CMUX_ORACLE_SNAPSHOT_SCHEMA")
 EXAMPLE = HERE.parents[2] / "schemas" / "oracle" / "fixtures" / "case-example-daemon.json"
 
 
@@ -70,13 +72,28 @@ class PathTests(unittest.TestCase):
         self.assertEqual(env["TZ"], "UTC")
         self.assertEqual(env["CMUX_TUI_OFFLINE"], "1")
 
-    def test_run_directory_lists_the_environment(self):
-        with tempfile.TemporaryDirectory(dir="/tmp") as out:
-            d.write_environment(Path(out), d.hermetic_env.NO_ISOLATION_REQUESTED)
-            receipt = json.loads(Path(out, "environment.json").read_text())
-        self.assertEqual(receipt["env"]["HOME"], "$CASE_ROOT/home")
-        self.assertEqual(receipt["env"][d.MARKER_ENV], "$CASE_ROOT")
-        self.assertEqual(receipt["isolation"]["kind"], "none")
+    def test_session_isolation_takes_the_run_description_without_a_probe(self):
+        netns = d.hermetic_env.Isolation("netns", ("/usr/bin/unshare", "-rn"), "resolved by oracle.py", 1001, 1002)
+        self.assertEqual(d.session_isolation(netns.describe()), netns)
+        self.assertEqual(d.session_isolation("none"), d.hermetic_env.NO_ISOLATION_REQUESTED)
+        with self.assertRaises(d.hermetic_env.HermeticError):
+            d.session_isolation({"kind": "chroot"})
+
+    def test_socket_paths_reads_each_process_namespace_table(self):
+        """A listening socket of this process is found through /proc/<pid>/net/unix, not the driver's
+        /proc/net/unix (a case under the netns prefix has its own table)."""
+        if not sys.platform.startswith("linux"):
+            self.skipTest("Linux /proc")
+        with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
+            path = os.path.join(tmp, "l.sock")
+            listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(listener.close)
+            listener.bind(path)
+            listener.listen(1)
+            me = d.CaseProcess(os.getpid(), os.getppid(), ("python3",))
+            self.assertIn(path, d.socket_paths([me]))
+            gone = d.CaseProcess(2**22 + 7, 1, ("gone",))
+            self.assertIn(path, d.socket_paths([gone, me]))
 
 
 class PointerTests(unittest.TestCase):
@@ -253,7 +270,8 @@ class LiveTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.run_id = f"driver-test-{os.getpid()}-{time.time_ns()}"
-        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, "isolation": ISOLATION})
+        cls.session = d.open_session({"binary": BINARY, "run_id": cls.run_id, "isolation": ISOLATION,
+                                      **({"snapshot_schema": SNAPSHOT_SCHEMA} if SNAPSHOT_SCHEMA else {})})
         cls.count = 0
 
     def run_case(self, case: dict) -> dict:
@@ -263,6 +281,30 @@ class LiveTests(unittest.TestCase):
         self.assertNotIn(str(root), d.scan_markers(), "I6: the case left processes")
         self.assertFalse(root.exists(), "the case left its state root")
         return result
+
+    def test_case_runs_in_the_session_isolation_and_its_shared_sockets_are_accounted(self):
+        """The readiness pipe and the socket round trips work under the isolation prefix, the case runs as
+        the caller's uid, and the terminal host's socket (bound outside the state root, from inside the
+        case's network namespace) is in the worker's `sockets`, so I6 checks and removes it."""
+        case = example_case()
+        case["steps"] = [s for s in case["steps"] if s["id"] == "create-ws"]
+        type(self).count += 1
+        paths = d.CasePaths(d.DEFAULT_STATE_BASE / d.short_token(self.run_id) / f"{self.count:06d}")
+        paths.check()
+        paths.create()
+        result = self.session.run_worker(case, {"case_id": "t/holder", "state_root": str(paths.root)}, 1.0)
+        problems, _dirty = d.prove_clean(paths, result.get("sockets", ()), self.session.scan, d.EXIT_S)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertEqual(problems, [])
+        isolation = result["environment"]["isolation"]
+        if ISOLATION == "netns":
+            self.assertEqual(isolation["kind"], "netns")
+        self.assertEqual((isolation["uid"], isolation["gid"]), (os.getuid(), os.getgid()))
+        # The terminal host (/tmp/cmux-th-<uid>/<install>/) or holder (/tmp/cmux-hd-<uid>/) socket: the
+        # caller's uid in the path, found in the case namespace's own socket table.
+        shared = (f"/tmp/cmux-th-{os.getuid()}/", f"/tmp/cmux-hd-{os.getuid()}/")
+        self.assertTrue(any(path.startswith(shared) for path in result["sockets"]), result["sockets"])
+        self.assertFalse([path for path in result["sockets"] if os.path.lexists(path)])
 
     def test_example_case_passes_without_the_virtual_clock_step(self):
         case = example_case()

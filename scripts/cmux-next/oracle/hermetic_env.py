@@ -16,15 +16,17 @@ no network but `net::EmbeddedTestServer` on loopback, and no background fetches
   core.hooksPath, no signing, only the file transport, a fixed identity and dates, and a local bare
   origin for every generated repository (`local_bare_origin`); `require_local_remote` refuses any
   other remote, for the generators (gen_daemon_ops.py, p15-oracle-060);
-- on Linux, every process of a case runs in its own user and network namespace (`unshare -rn`) with
-  only loopback up.
+- on Linux, every process of a case runs in its own network namespace with only loopback up: `unshare
+  -rn` brings `lo` up as namespace root, then a nested user namespace maps the caller's uid and gid
+  back, so the daemon runs as the same uid as without isolation (its /tmp/cmux-hd-<uid> and
+  /tmp/cmux-th-<uid> paths, its non-root code paths).
 
 driver_daemon.py (p15-oracle-023), driver_app.py (p15-oracle-047) and gen_daemon_ops.py
 (p15-oracle-060) take their environment from here and nowhere else; `--audit` checks that. Each
 driver puts `CaseEnv.receipt()` (or `app_session(...)["receipt"]`) in its case result, so a
 receipt lists the environment the case ran with.
 
-    python3 -I scripts/cmux-next/oracle/hermetic_env.py --probe          # can this host unshare -rn?
+    python3 -I scripts/cmux-next/oracle/hermetic_env.py --probe          # can this host isolate a case?
     python3 -I scripts/cmux-next/oracle/hermetic_env.py --print ROOT     # the env of a case at ROOT
     python3 -I scripts/cmux-next/oracle/hermetic_env.py --audit          # drivers build no env
     python3 -I scripts/cmux-next/oracle/hermetic_env_test.py             # unit tests
@@ -33,6 +35,7 @@ receipt lists the environment the case ran with.
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -99,19 +102,28 @@ class NetworkIsolationUnavailable(HermeticError):
     pass
 
 
+def caller_ids() -> Tuple[int, int]:
+    """The uid and gid every case process runs as (Windows has neither: -1)."""
+    return getattr(os, "getuid", lambda: -1)(), getattr(os, "getgid", lambda: -1)()
+
+
 @dataclass(frozen=True)
 class Isolation:
     """How the processes of a case are kept off the network.
 
-    `kind` is "netns" (Linux, `unshare -rn`) or "none"; `prefix` goes before every argv of the case.
+    `kind` is "netns" (Linux, netns_prefix) or "none"; `prefix` goes before every argv of the case;
+    `uid` and `gid` are the ids the case processes run as (the caller's, with or without a namespace).
     """
 
     kind: str
     prefix: Tuple[str, ...]
     reason: str
+    uid: int = field(default_factory=lambda: caller_ids()[0])
+    gid: int = field(default_factory=lambda: caller_ids()[1])
 
     def describe(self) -> Dict[str, Any]:
-        return {"kind": self.kind, "prefix": list(self.prefix), "reason": self.reason}
+        return {"kind": self.kind, "prefix": list(self.prefix), "reason": self.reason, "uid": self.uid,
+                "gid": self.gid}
 
     @classmethod
     def from_description(cls, data: Mapping[str, Any]) -> "Isolation":
@@ -119,7 +131,11 @@ class Isolation:
         kind = data.get("kind")
         if kind not in ("netns", "none"):
             raise HermeticError(f"unknown isolation kind {kind!r}")
-        return cls(str(kind), tuple(str(word) for word in data.get("prefix") or ()), str(data.get("reason") or ""))
+        uid, gid = data.get("uid"), data.get("gid")
+        if not isinstance(uid, int) or not isinstance(gid, int):
+            raise HermeticError(f"isolation description without an integer uid and gid: {dict(data)!r}")
+        return cls(str(kind), tuple(str(word) for word in data.get("prefix") or ()), str(data.get("reason") or ""),
+                   uid, gid)
 
 
 NO_ISOLATION_REQUESTED = Isolation("none", (), "isolation none was asked for")
@@ -127,10 +143,17 @@ NO_ISOLATION_REQUESTED = Isolation("none", (), "isolation none was asked for")
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
 
-def netns_prefix(unshare: str, ip: str) -> Tuple[str, ...]:
-    """A new user namespace (no privilege needed) and a new network namespace, whose only device `lo`
-    starts down: the prefix brings it up, then runs the case's argv in place (same pid)."""
-    return (unshare, "-rn", "--", "/bin/sh", "-c", f'{ip} link set lo up && exec "$@"', "oracle-netns")
+def netns_prefix(unshare: str, ip: str, uid: int, gid: int) -> Tuple[str, ...]:
+    """A new network namespace whose only device `lo` starts down, with the caller's uid inside it.
+
+    `unshare -rn` (a user namespace, so no privilege is needed) makes the shell root of the namespace,
+    so it can bring `lo` up; the nested `unshare -U --map-user --map-group` maps the caller's uid and
+    gid back and runs the case's argv in place (same pid, inherited descriptors). Without the nested
+    namespace the daemon would run as uid 0: shared /tmp/cmux-hd-0 and /tmp/cmux-th-0 directories and
+    its root-only code paths.
+    """
+    drop = f'exec {unshare} -U --map-user={uid} --map-group={gid} -- "$@"'
+    return (unshare, "-rn", "--", "/bin/sh", "-c", f"{ip} link set lo up && {drop}", "oracle-netns")
 
 
 def probe_isolation(
@@ -139,10 +162,12 @@ def probe_isolation(
     required: bool = True,
     run: Runner = subprocess.run,
     which: Callable[[str], Optional[str]] = lambda name: shutil.which(name, path=TOOL_PATH),
+    ids: Callable[[], Tuple[int, int]] = caller_ids,
 ) -> Isolation:
-    """Isolation for `platform`, checked once per session by its driver.
+    """Isolation for `platform`, checked once per run (oracle.py) or per driver command.
 
-    Linux: runs `true` under the netns prefix. When the host refuses unprivileged user namespaces
+    Linux: runs `id -u` under the netns prefix and requires the caller's uid back. When the host
+    refuses unprivileged user namespaces
     (Ubuntu's kernel.apparmor_restrict_unprivileged_userns=1) this raises NetworkIsolationUnavailable,
     unless `required` is False, which gives kind "none" with the refusal as its reason; a receipt
     then shows that the run was not network-isolated. Darwin has no unprivileged namespace: the
@@ -150,20 +175,26 @@ def probe_isolation(
     """
     if platform != "linux":
         return Isolation("none", (), f"{platform} has no unprivileged network namespace")
-    unshare, ip = which("unshare"), which("ip")
+    uid, gid = ids()
+    tools = {name: which(name) for name in ("unshare", "ip", "id")}
+    missing = [name for name, path in tools.items() if not path]
     refusal: Optional[str] = None
     prefix: Tuple[str, ...] = ()
-    if not unshare or not ip:
-        refusal = f"no {'unshare' if not unshare else 'ip'} in {TOOL_PATH}"
+    if missing:
+        refusal = f"no {missing[0]} in {TOOL_PATH}"
     else:
-        prefix = netns_prefix(unshare, ip)
+        prefix = netns_prefix(str(tools["unshare"]), str(tools["ip"]), uid, gid)
         try:
-            proc = run([*prefix, "true"], capture_output=True, text=True, timeout=30, check=False, env={})
-            refusal = None if proc.returncode == 0 else (proc.stderr.strip() or f"exit {proc.returncode}")
+            proc = run([*prefix, str(tools["id"]), "-u"], capture_output=True, text=True, timeout=30, check=False,
+                       env={})
+            if proc.returncode != 0:
+                refusal = proc.stderr.strip() or f"exit {proc.returncode}"
+            elif proc.stdout.strip() != str(uid):
+                refusal = f"a case would run as uid {proc.stdout.strip()!r}, not {uid}"
         except (OSError, subprocess.TimeoutExpired) as error:
             refusal = str(error)
     if refusal is None:
-        return Isolation("netns", prefix, "unshare -rn, loopback only")
+        return Isolation("netns", prefix, "unshare -rn, loopback only, the caller's uid mapped back", uid, gid)
     reason = (
         f"unshare -rn refused: {refusal}. Allow unprivileged user namespaces "
         "(sysctl kernel.apparmor_restrict_unprivileged_userns=0, or an AppArmor profile for unshare)"
@@ -208,6 +239,15 @@ def git_env() -> Dict[str, str]:
     }
 
 
+# The account-name variables. A daemon case gets fixed ones; the app keeps bench_launch's.
+ACCOUNT_IDENTITY = ("USER", "LOGNAME")
+
+
+def identity_env() -> Dict[str, str]:
+    """The account name of a daemon case: fixed, so a receipt or snapshot never names the host's user."""
+    return {name: "oracle" for name in ACCOUNT_IDENTITY}
+
+
 def quiet_env() -> Dict[str, str]:
     """Locale, shell and the switches that keep cmux-tui from reaching out or changing the shell."""
     return {
@@ -217,8 +257,6 @@ def quiet_env() -> Dict[str, str]:
         "TERM": "xterm-256color",
         "SHELL": "/bin/sh",
         "PS1": FIXED_PS1,
-        "USER": "oracle",
-        "LOGNAME": "oracle",
         # cmux-tui-core login_shell.rs: the shell does not start as a login shell.
         "CMUX_TUI_NO_LOGIN_SHELL": "1",
         # claude_wrapper.rs / codex_wrapper.rs: no agent hook injection.
@@ -332,6 +370,7 @@ def daemon_case(
         # terminal_host_runtime/sys/unix.rs: hosts bind in a per-install directory, not a shared one
         # (honored by debug-assertion builds such as --profile oracle).
         "CMUX_TUI_TEST_HOST_INSTALL_ENDPOINT": "1",
+        **identity_env(),
         **quiet_env(),
         **git_env(),
     }
@@ -353,8 +392,9 @@ def app_session(
 ) -> Dict[str, Any]:
     """What driver_app.py passes as `BenchApp(env=...)`, and the receipt of it.
 
-    The app keeps bench_launch's HOME and socket (its control socket and TagTeardown are found from the
-    account's home) and runs several cases per launch, so only the names below are fixed per session.
+    The app keeps bench_launch's HOME, USER, LOGNAME and socket (its control socket and TagTeardown are
+    found from the account's home; DaemonLauncher and TerminalEnvironment key on the account's name) and
+    runs several cases per launch, so only the names below are fixed per session.
     The app strips every inherited CMUX_TUI_* name before it starts its daemon
     (LaunchIdentity.stripInheritedEnvironment); the daemon variables reach it only through the
     CMUX_NEXT_* knobs the app forwards (DaemonDiagnosticKnobs, p15-oracle-180), so the receipt says
@@ -456,27 +496,85 @@ def _git(case: CaseEnv, argv: Sequence[str], run: Runner) -> None:
 
 # ---- audit ------------------------------------------------------------------------------------------
 
-# Files that must take their environment from this module (their spec tasks: 023, 047, 060).
-AUDITED = ("driver_daemon.py", "driver_app.py", "gen_daemon_ops.py")
+# Files that must take their environment from this module, with their spec tasks.
+AUDITED = {"driver_daemon.py": "p15-oracle-023", "driver_app.py": "p15-oracle-047",
+           "gen_daemon_ops.py": "p15-oracle-060"}
 FORBIDDEN = (
     (re.compile(r"\bos\.environ\b|\bos\.getenv\b|\bputenv\b"), "reads or changes the harness environment"),
     (re.compile(r"""["'](HOME|PATH|XDG_[A-Z_]+|TMPDIR|TZ|LANG|LC_ALL|SHELL|PS1|GIT_[A-Z_]+|CMUX_TUI_[A-Z_]+)["']"""),
      "names a variable hermetic_env.py owns"),
 )
+# Calls that start a process; without `env=` the child inherits the whole harness environment.
+SUBPROCESS_SPAWNS = frozenset({"Popen", "run", "call", "check_call", "check_output", "getoutput", "getstatusoutput"})
+OS_SPAWN_PREFIXES = ("exec", "spawn", "posix_spawn", "system", "popen")
+# Processes that are no case's, by file, keyed by the argv's first word as the source writes it: the
+# driver's own worker (it builds each case's env here) and the process-table readers of the I6 proof.
+NOT_CASE_PROCESSES: Dict[str, frozenset] = {
+    "driver_daemon.py": frozenset({"sys.executable", "'ps'", "'pgrep'"}),
+}
 
 
-def audit(folder: Path = HERE) -> List[str]:
-    """Lines in the audited files that build an environment themselves; empty when they are clean."""
+def _spawn_name(call: ast.Call) -> Optional[str]:
+    func = call.func
+    if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)):
+        return None
+    if func.value.id == "subprocess" and func.attr in SUBPROCESS_SPAWNS:
+        return f"subprocess.{func.attr}"
+    if func.value.id == "os" and func.attr.startswith(OS_SPAWN_PREFIXES):
+        return f"os.{func.attr}"
+    return None
+
+
+def _argv_head(call: ast.Call) -> str:
+    if not call.args:
+        return ""
+    first = call.args[0]
+    if isinstance(first, (ast.List, ast.Tuple)) and first.elts:
+        first = first.elts[0]
+    if isinstance(first, ast.Starred):
+        first = first.value
+    return ast.unparse(first)
+
+
+def spawn_findings(name: str, text: str) -> List[str]:
+    """Process starts in `text` with the harness's environment: an os.exec*/spawn*/system call, or a
+    subprocess call without `env=` whose argv is not listed in NOT_CASE_PROCESSES."""
+    try:
+        tree = ast.parse(text, filename=name)
+    except SyntaxError as error:
+        return [f"{name}:{error.lineno}: does not parse: {error.msg}"]
+    allowed = NOT_CASE_PROCESSES.get(name, frozenset())
     findings = []
-    for name in AUDITED:
+    for node in ast.walk(tree):
+        spawn = _spawn_name(node) if isinstance(node, ast.Call) else None
+        if spawn is None:
+            continue
+        if spawn.startswith("os."):
+            findings.append(f"{name}:{node.lineno}: {spawn} starts a process outside CaseEnv")
+        elif not any(keyword.arg == "env" for keyword in node.keywords) and _argv_head(node) not in allowed:
+            findings.append(f"{name}:{node.lineno}: {spawn}({_argv_head(node) or '...'}, ...) without env= "
+                            "inherits the harness environment")
+    return findings
+
+
+def audit(folder: Path = HERE) -> Tuple[List[str], List[str]]:
+    """(findings, notes). Findings: lines of the audited files that build an environment themselves or
+    start a process with the harness's. Notes: each audited file, or that it is not on this branch."""
+    findings: List[str] = []
+    notes: List[str] = []
+    for name, task in AUDITED.items():
         path = folder / name
         if not path.exists():
+            notes.append(f"{name}: not present ({task}), not audited")
             continue
-        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        text = path.read_text(encoding="utf-8")
+        for number, line in enumerate(text.splitlines(), 1):
             for pattern, why in FORBIDDEN:
                 if pattern.search(line):
                     findings.append(f"{name}:{number}: {why}: {line.strip()}")
-    return findings
+        findings.extend(spawn_findings(name, text))
+        notes.append(f"{name}: audited")
+    return findings, notes
 
 
 def main(argv: Sequence[str]) -> int:
@@ -499,7 +597,9 @@ def main(argv: Sequence[str]) -> int:
         isolation = probe_isolation(args.platform, required=False)
         print(json.dumps(daemon_case(args.print, isolation, platform=args.platform).receipt(), indent=2))
         return 0
-    findings = audit()
+    findings, notes = audit()
+    for note in notes:
+        print(note)
     for finding in findings:
         print(finding, file=sys.stderr)
     return 1 if findings else 0

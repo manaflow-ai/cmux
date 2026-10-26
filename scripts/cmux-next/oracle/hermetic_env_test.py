@@ -107,34 +107,73 @@ class CaseEnvTests(unittest.TestCase):
         self.assertEqual(receipt["isolation"]["kind"], "none")
 
     def test_isolation_prefix_wraps_every_command(self):
-        isolation = hermetic_env.Isolation("netns", hermetic_env.netns_prefix("/usr/bin/unshare", "/sbin/ip"), "t")
+        prefix = hermetic_env.netns_prefix("/usr/bin/unshare", "/sbin/ip", 1001, 1002)
+        isolation = hermetic_env.Isolation("netns", prefix, "t", 1001, 1002)
         case = hermetic_env.daemon_case(self.tmp / "a" / "b", isolation)
         self.assertEqual(case.command(["cmux-tui", "x"])[:2], ["/usr/bin/unshare", "-rn"])
         self.assertEqual(case.command(["cmux-tui", "x"])[-2:], ["cmux-tui", "x"])
+        # lo comes up as namespace root, then the caller's uid and gid are mapped back before the exec.
+        script = prefix[5]
+        self.assertLess(script.index("link set lo up"), script.index("-U --map-user=1001 --map-group=1002"))
+        self.assertTrue(script.endswith('-- "$@"'))
         self.assertEqual(hermetic_env.Isolation.from_description(isolation.describe()), isolation)
+        self.assertEqual((case.receipt()["isolation"]["uid"], case.receipt()["isolation"]["gid"]), (1001, 1002))
+        with self.assertRaises(hermetic_env.HermeticError):
+            hermetic_env.Isolation.from_description({"kind": "netns", "prefix": []})
+
+    def test_daemon_case_has_a_fixed_account_name(self):
+        env = self.case().env
+        self.assertEqual((env["USER"], env["LOGNAME"]), ("oracle", "oracle"))
 
 
 class IsolationProbeTests(unittest.TestCase):
-    def fake(self, returncode, stderr=""):
+    def fake(self, returncode, stderr="", stdout="1001\n"):
         def run(argv, **_):
             self.argv = argv
-            return subprocess.CompletedProcess(argv, returncode, "", stderr)
+            return subprocess.CompletedProcess(argv, returncode, stdout, stderr)
         return run
 
     def which(self, name):
         return f"/usr/bin/{name}"
 
+    def ids(self):
+        return 1001, 1002
+
     def test_netns_when_unshare_works(self):
-        isolation = hermetic_env.probe_isolation("linux", run=self.fake(0), which=self.which)
+        isolation = hermetic_env.probe_isolation("linux", run=self.fake(0), which=self.which, ids=self.ids)
         self.assertEqual(isolation.kind, "netns")
+        self.assertEqual((isolation.uid, isolation.gid), (1001, 1002))
         self.assertEqual(self.argv[:2], ["/usr/bin/unshare", "-rn"])
-        self.assertEqual(self.argv[-1], "true")
+        self.assertEqual(self.argv[-2:], ["/usr/bin/id", "-u"])
+
+    def test_a_case_that_would_run_as_root_is_a_refusal(self):
+        with self.assertRaises(hermetic_env.NetworkIsolationUnavailable) as raised:
+            hermetic_env.probe_isolation("linux", run=self.fake(0, stdout="0\n"), which=self.which, ids=self.ids)
+        self.assertIn("uid '0'", str(raised.exception))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux namespaces")
+    def test_live_probe_runs_the_case_as_the_caller(self):
+        """On a host that allows unprivileged user namespaces (or under `aa-exec -p lxc-unshare` on
+        Ubuntu with apparmor_restrict_unprivileged_userns=1), a command in the prefix sees only `lo`, up,
+        as the caller's uid and gid; elsewhere the refusal names the host setting."""
+        try:
+            isolation = hermetic_env.probe_isolation("linux")
+        except hermetic_env.NetworkIsolationUnavailable as error:
+            self.assertIn("unprivileged user namespaces", str(error))
+            self.skipTest(f"this host refuses the netns prefix: {error}")
+        # /proc/net/dev lists the namespace's devices; `ip link show up` the ones that are up.
+        script = ("id -u; id -g; tail -n +3 /proc/net/dev | cut -d: -f1 | tr -d ' '; "
+                  "ip -o link show up | cut -d: -f2 | tr -d ' '")
+        shown = subprocess.run([*isolation.prefix, "/bin/sh", "-c", script], capture_output=True, text=True,
+                               timeout=30, check=False, env={"PATH": hermetic_env.TOOL_PATH})
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertEqual(shown.stdout.split(), [str(os.getuid()), str(os.getgid()), "lo", "lo"])
 
     def test_refusal_is_an_error_unless_not_required(self):
         run = self.fake(1, "unshare: write failed /proc/self/uid_map: Operation not permitted")
         with self.assertRaises(hermetic_env.NetworkIsolationUnavailable):
             hermetic_env.probe_isolation("linux", run=run, which=self.which)
-        isolation = hermetic_env.probe_isolation("linux", required=False, run=run, which=self.which)
+        isolation = hermetic_env.probe_isolation("linux", required=False, run=run, which=self.which, ids=self.ids)
         self.assertEqual(isolation.kind, "none")
         self.assertIn("uid_map", isolation.reason)
 
@@ -218,18 +257,41 @@ class AppSessionTests(unittest.TestCase):
         self.assertFalse([key for key in env if key.startswith("CMUX_TUI_")])
         self.assertIn("CMUX_TUI_OFFLINE", session["receipt"]["daemon_env_not_forwarded"])
 
+    def test_app_keeps_the_account_identity_of_bench_launch(self):
+        env = hermetic_env.app_session(Path("/tmp/scratch"))["env"]
+        for name in (*hermetic_env.ACCOUNT_IDENTITY, "HOME", "USER", "LOGNAME"):
+            self.assertNotIn(name, env)
+
 
 class AuditTests(unittest.TestCase):
     def test_audit_flags_a_driver_that_builds_env(self):
         folder = scratch(self)
         (folder / "driver_daemon.py").write_text("import os\nenv = dict(os.environ)\nenv['HOME'] = '/x'\n")
         (folder / "driver_app.py").write_text("from hermetic_env import app_session\n")
-        findings = hermetic_env.audit(folder)
+        findings, notes = hermetic_env.audit(folder)
         self.assertEqual(len(findings), 2, findings)
         self.assertTrue(all(f.startswith("driver_daemon.py:") for f in findings))
+        self.assertIn("gen_daemon_ops.py: not present (p15-oracle-060), not audited", notes)
+
+    def test_audit_flags_a_process_started_with_the_harness_env(self):
+        folder = scratch(self)
+        (folder / "driver_daemon.py").write_text(
+            "import subprocess, sys, os\n"
+            "subprocess.Popen(['cmux-tui', '--headless'],\n    cwd='/')\n"  # a case process: refused
+            "subprocess.run(['git', 'status'], env=case.env)\n"  # passes its env
+            "subprocess.run(['ps', '-ax'], stdout=subprocess.PIPE)\n"  # listed: not a case process
+            "subprocess.Popen([sys.executable, '-I', 'driver_daemon.py', 'case-worker'])\n"  # listed
+            "subprocess.check_output(argv)\n"  # unknown argv: refused
+            "os.execvp('sh', ['sh'])\n"  # refused
+        )
+        findings, _ = hermetic_env.audit(folder)
+        self.assertEqual([f.split(":")[1] for f in findings], ["2", "7", "8"], findings)
+        self.assertIn("without env=", findings[0])
 
     def test_audit_of_this_folder(self):
-        self.assertEqual(hermetic_env.audit(), [])
+        findings, notes = hermetic_env.audit()
+        self.assertEqual(findings, [])
+        self.assertIn("driver_daemon.py: audited", notes)
 
 
 # ---- daemon run ------------------------------------------------------------------------------------
