@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -43,8 +44,12 @@ struct AppCrashReporting: Sendable {
     /// process or with no acpmux.
     let acpmuxPanics: OwnerPanicForwarder?
 
-    init(environment: AppEnvironment) {
+    /// - Parameter watchdog: The app's main-thread watchdog: its hang episodes are Sentry's app
+    ///   hangs (the SDK's ANR thread is off) from here on, so a hang in the rest of launch is
+    ///   reported once the reporter runs.
+    init(environment: AppEnvironment, watchdog: MainThreadWatchdog? = nil) {
         reporter = CrashReporter.forThisLaunch(bundleID: environment.launch.bundleID)
+        watchdog?.onHangEpisode = AppHangReporter(reporter: reporter).episodeSink
         guard environment.marksRun else {
             forwarder = nil
             ownerPanics = nil

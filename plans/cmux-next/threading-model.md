@@ -173,6 +173,8 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cua-helper-v2-reap` (utility), `cua-helper-v2-stdout` (utility)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
+  `com.cmuxterm.app.next.crash-reporting.app-hangs` (utility, serial: builds and sends the Sentry app hang of
+  a watchdog episode of 8 s and up, at most one per episode; `dladdr` may wait on the loader lock),
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
   `debug.window_record`
 - Trace and hang watch (Rust thread names, p09-observability; the app adds no thread): `cmux-hang-watch`,

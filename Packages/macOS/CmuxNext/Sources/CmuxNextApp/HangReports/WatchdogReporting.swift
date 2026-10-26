@@ -5,11 +5,11 @@ import CmuxNextDaemon
 import CmuxNextHangReports
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
-/// running after 2 s to crash reporting with its stack and to a file per hang; each hang episode
-/// of 8 s and up to Sentry as one app hang (``AppHangReporter``: the process's one hang watcher,
-/// the SDK's ANR thread is off); each finished lag spike of 250 ms and up to crash reporting
-/// (rate-limited); and both to opt-in hang reports (``HangReportsController``), whose sink does
-/// nothing while they are off.
+/// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
+/// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
+/// (``HangReportsController``), whose sink does nothing while they are off. Sentry app hangs
+/// (each episode of 8 s and up) are wired earlier, where crash reporting starts
+/// (``AppCrashReporting``, ``AppHangReporter/episodeSink``), so a hang in the rest of launch counts.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -24,11 +24,6 @@ enum WatchdogReporting {
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
-        let appHangs = AppHangReporter(reporter: reporter)
-        watchdog.onHangEpisode = { hang in
-            appHangs.noteHang(duration: hang.duration, addresses: hang.addresses,
-                              otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
-        }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         let lagSpikes = LagSpikeReporter(reporter: reporter)
@@ -42,7 +37,6 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            appHangs.noteStall(startUptimeNanos: record.startUptimeNanos, duration: record.duration)
             lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
@@ -60,5 +54,22 @@ enum WatchdogReporting {
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {
         let (seconds, attoseconds) = duration.components
         return UInt64(clamping: max(Int64(0), seconds)) &* 1_000_000_000 &+ UInt64(clamping: max(Int64(0), attoseconds / 1_000_000_000))
+    }
+}
+
+extension AppHangReporter {
+    /// The watchdog's hang episode reports (``MainThreadWatchdog/onHangEpisode``, on its thread)
+    /// to this reporter.
+    nonisolated var episodeSink: @Sendable (MainThreadWatchdog.HangEpisodeEvent) -> Void {
+        { [self] event in
+            switch event {
+            case let .blocked(hang, previous):
+                noteBlocked(duration: hang.duration, previous: previous, addresses: hang.addresses,
+                            otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
+            case let .ended(duration, lastReport):
+                noteEnded(duration: duration, lastReport: lastReport?.duration, addresses: lastReport?.addresses ?? [],
+                          otherThreads: (lastReport?.otherThreads ?? []).map { ($0.name, $0.addresses) })
+            }
+        }
     }
 }

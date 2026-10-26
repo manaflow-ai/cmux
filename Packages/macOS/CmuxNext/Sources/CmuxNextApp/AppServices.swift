@@ -490,7 +490,7 @@ final class AppServices {
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
-         launchImageHold: LaunchImageHold = LaunchImageHold()) {
+         launchImageHold: LaunchImageHold = LaunchImageHold(), watchdog: MainThreadWatchdog? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -517,8 +517,8 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
-        // After the run marker's handlers: Sentry calls them after its report.
-        crashReporting = AppCrashReporting(environment: environment)
+        // After the run marker's handlers: Sentry calls them after its report. Watchdog hangs are app hangs from here.
+        crashReporting = AppCrashReporting(environment: environment, watchdog: watchdog)
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }

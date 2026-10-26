@@ -1,122 +1,61 @@
-import Darwin
-import CmuxNextCompat
-public import CmuxNextWakeups
+import Dispatch
 
-/// Turns the main-thread watchdog's hang episodes into Sentry app-hang events,
-/// at most one per episode: the process has one hang watcher, as Chrome has
-/// one `HangWatcher` per process (`base/threading/hang_watcher.h`), and the
-/// SDK's own ANR thread is off.
+/// Turns the main-thread watchdog's hang episode reports into Sentry app-hang
+/// events, at most one per episode: the process has one hang watcher, as
+/// Chrome has one `HangWatcher` per process (`base/threading/hang_watcher.h`),
+/// which detects and reports on its own thread, and the SDK's ANR thread is off.
 ///
-/// The watchdog reports a hang once per stall at its hang threshold, on its
-/// own thread, with the main thread's stack (``noteHang(duration:addresses:otherThreads:)``),
-/// and every finished stall on the main thread (``noteStall(startUptimeNanos:duration:)``).
-/// An episode still blocked at ``threshold`` (8 s, the SDK's former
-/// `appHangTimeoutInterval`) sends one ongoing event then, so a hang the
-/// person ends by force-quitting is still reported; an episode that ends
-/// past ``threshold`` before that deadline fires sends one event with its
-/// exact duration. A shorter episode sends nothing here (its stall is a lag
-/// spike, ``LagSpikeReporter``).
-///
-/// The deadline is one ``DemandTimer`` armed only while a hang runs, so an
-/// app with no hang has no timer.
-public final class AppHangReporter: Sendable {
+/// The watchdog reports each episode on its thread while the main thread is
+/// still blocked, at its hang threshold and at doubling checkpoints, each with a
+/// fresh sample (``noteBlocked(duration:previous:addresses:otherThreads:)``),
+/// then once when it ends, with the exact length (``noteEnded(duration:lastReport:addresses:otherThreads:)``).
+/// The first report at or past ``threshold`` (8 s, the SDK's former
+/// `appHangTimeoutInterval`) sends one ongoing event with that report's stacks,
+/// so a hang the person ends by force-quitting is still reported. An episode
+/// that ends past ``threshold`` before such a report sends one event with its
+/// exact length. A shorter episode sends nothing here (its stall is a lag
+/// spike, ``LagSpikeReporter``). No state, timer or lock: each decision is
+/// read from the report and the one before it.
+public struct AppHangReporter: Sendable {
     /// The sink an episode's event goes to (crash reporting in the app; a
-    /// recorder in tests). Called off the main thread.
+    /// recorder in tests). Called on the watchdog thread: it must not wait.
     public typealias Sink = @Sendable (AppHangEvent) -> Void
 
     /// An episode is an app hang once the main thread is blocked this long.
     public let threshold: Duration
-    private let isEnabled: @Sendable () -> Bool
     private let sink: Sink
-    private let deadline: DemandTimer
-    private let uptime: @Sendable () -> UInt64
-    // Lock carve-out: one synchronous check of a few fields from the watchdog
-    // thread (a hang began) and from the main thread at each stall end; an
-    // actor hop would add a Task per main-thread stall.
-    private let state = Mutex(State())
 
-    private struct Episode {
-        var id: UInt64
-        /// `CLOCK_UPTIME_RAW` nanoseconds when the main thread stopped answering, or a little after.
-        var startNanos: UInt64
-        var addresses: [UInt]
-        var otherThreads: [(name: String, addresses: [UInt])]
+    /// Reports to `reporter` while it runs, on its own utility queue: the event
+    /// reads debug images (`dladdr`), which can wait on the loader lock the hung
+    /// main thread holds, and the watchdog thread must keep watching.
+    public init(reporter: CrashReporter) {
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-reporting.app-hangs", qos: .utility)
+        self.init(threshold: CrashReporter.appHangThreshold) { event in
+            guard reporter.isStarted else { return }
+            queue.async { reporter.reportAppHang(event) }
+        }
     }
 
-    private struct State {
-        var lastID: UInt64 = 0
-        var open: Episode?
-        /// When the newest finished stall ended (`CLOCK_UPTIME_RAW` nanoseconds).
-        var lastStallEndNanos: UInt64 = 0
-    }
-
-    /// Reports to `reporter` while it runs.
-    public convenience init(reporter: CrashReporter) {
-        self.init(threshold: CrashReporter.appHangThreshold, isEnabled: { reporter.isStarted },
-                  sink: { event in Task.detached(priority: .utility) { reporter.reportAppHang(event) } },
-                  deadline: DemandTimer(owner: "crash-reporting.app-hang-deadline"))
-    }
-
-    /// Test seam: the threshold, enabled check, sink, deadline timer and the
-    /// watchdog's monotonic clock.
-    public init(threshold: Duration, isEnabled: @escaping @Sendable () -> Bool, sink: @escaping Sink, deadline: DemandTimer,
-                uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    /// Test seam: the threshold and the sink.
+    public init(threshold: Duration, sink: @escaping Sink) {
         self.threshold = threshold
-        self.isEnabled = isEnabled
         self.sink = sink
-        self.deadline = deadline
-        self.uptime = uptime
     }
 
-    /// The watchdog's hang report (watchdog thread, once per stall): the main
-    /// thread has been blocked for `duration`, with its stack `addresses`.
-    public func noteHang(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = []) {
-        guard isEnabled() else { return }
-        let elapsed = Self.nanos(duration)
-        let now = uptime()
-        let start = now > elapsed ? now - elapsed : 0
-        let id: UInt64? = state.withLock { state in
-            // A stall that ended after this hang began is this hang: the main thread answered
-            // before the report reached here, so the episode is over.
-            guard state.lastStallEndNanos <= start else { return nil }
-            state.lastID &+= 1
-            state.open = Episode(id: state.lastID, startNanos: start, addresses: addresses, otherThreads: otherThreads)
-            return state.lastID
-        }
-        guard let id else { return }
-        let remaining = threshold - duration
-        deadline.schedule(after: max(remaining, .zero)) { [weak self] in self?.deadlineReached(id) }
+    /// The episode is still blocked after `duration`, with the stacks sampled now;
+    /// `previous` is the duration of its previous report, nil for its first.
+    public func noteBlocked(duration: Duration, previous: Duration?, addresses: [UInt],
+                            otherThreads: [(name: String, addresses: [UInt])] = []) {
+        guard duration >= threshold, (previous ?? .zero) < threshold else { return }
+        sink(AppHangEvent(duration: duration, ongoing: true, addresses: addresses, otherThreads: otherThreads))
     }
 
-    /// A finished main-thread stall (main thread, from the watchdog's `onStall`).
-    /// Must return at once: no event is built here.
-    public func noteStall(startUptimeNanos: UInt64, duration: Duration) {
-        let end = startUptimeNanos &+ Self.nanos(duration)
-        let ended: Episode? = state.withLock { state in
-            state.lastStallEndNanos = max(state.lastStallEndNanos, end)
-            guard let open = state.open, end > open.startNanos else { return nil }
-            state.open = nil
-            return open
-        }
-        guard let ended else { return }
-        deadline.cancel()
-        guard duration >= threshold else { return }
-        sink(AppHangEvent(duration: duration, ongoing: false, addresses: ended.addresses, otherThreads: ended.otherThreads))
-    }
-
-    /// The episode `id` is still blocked at ``threshold``.
-    private func deadlineReached(_ id: UInt64) {
-        let episode: Episode? = state.withLock { state in
-            guard let open = state.open, open.id == id else { return nil }
-            state.open = nil
-            return open
-        }
-        guard let episode else { return }
-        sink(AppHangEvent(duration: threshold, ongoing: true, addresses: episode.addresses, otherThreads: episode.otherThreads))
-    }
-
-    private static func nanos(_ duration: Duration) -> UInt64 {
-        let (seconds, attoseconds) = duration.components
-        return UInt64(clamping: max(Int64(0), seconds)) &* 1_000_000_000 &+ UInt64(clamping: max(Int64(0), attoseconds / 1_000_000_000))
+    /// The episode ended after exactly `duration`. `lastReport` is the duration of
+    /// its last ``noteBlocked(duration:previous:addresses:otherThreads:)`` (nil for
+    /// none), and `addresses` and `otherThreads` that report's stacks.
+    public func noteEnded(duration: Duration, lastReport: Duration?, addresses: [UInt],
+                          otherThreads: [(name: String, addresses: [UInt])] = []) {
+        guard duration >= threshold, (lastReport ?? .zero) < threshold else { return }
+        sink(AppHangEvent(duration: duration, ongoing: false, addresses: addresses, otherThreads: otherThreads))
     }
 }

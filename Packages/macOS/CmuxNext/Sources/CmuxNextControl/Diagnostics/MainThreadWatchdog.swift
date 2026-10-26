@@ -95,14 +95,7 @@ public final class MainThreadWatchdog: Sendable {
         set { hangSink.withLock { $0 = newValue } }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
-    /// Receives every hang episode on the watchdog thread with the same sample as ``onHang``,
-    /// once per stall and not limited by `hangReportInterval` (the app's Sentry app hangs).
-    /// It must not wait for the main thread.
-    public var onHangEpisode: (@Sendable (Hang) -> Void)? {
-        get { hangEpisodeSink.withLock { $0 } }
-        set { hangEpisodeSink.withLock { $0 = newValue } }
-    }
-    private let hangEpisodeSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    let hangEpisodeSink = Mutex<(@Sendable (HangEpisodeEvent) -> Void)?>(nil) // ``onHangEpisode``
     /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
     /// its raw stack) on the MAIN thread, right after the stall ended: the
     /// app sends lag spikes to crash reporting. It must return at once: no
@@ -409,9 +402,9 @@ public final class MainThreadWatchdog: Sendable {
             if threadHangs == nil { threadHangs = hangMonitor() }
             // Other threads' hang-watch scopes: a scan when one is due, and the wait until the next.
             let hangWait = threadHangs?.service()
-            closeRecoveredEpisode(&hang.episodes) // the beat moved while busy (also before the early waits)
+            closeRecoveredEpisode(&hang) // the beat moved while busy (also before the early waits)
             if mainAsleep.load(ordering: .acquiring) {
-                closeRecoveredEpisode(&hang.episodes) // seen asleep: an open hang ended; before parking
+                closeRecoveredEpisode(&hang) // seen asleep: an open hang ended; before parking
                 // Parked until a main turn outlasts the sample delay (its alarm), a hang-watch scan is
                 // due, a scope wakes it, or stop(). A wake between the check and the wait is not lost:
                 // the kernel keeps the fired timer and the triggered user event.
@@ -452,7 +445,7 @@ public final class MainThreadWatchdog: Sendable {
             // Check again one threshold later; once the turn ended the next pass parks.
             waitForAlarm(nanos: Self.sooner(thresholdNanos, hangWait))
         }
-        if let event = hang.episodes.finish() { handle(event) } // stopped mid-hang: the duration so far
+        if let event = hang.episodes.finish() { handle(event, sampler: nil, state: &hang) } // stopped mid-hang: the duration so far
     }
 
     /// The watchdog thread's one wait (``MainThreadWatchdogAlarm/wait(nanos:)``); debug builds
@@ -468,13 +461,6 @@ public final class MainThreadWatchdog: Sendable {
         #endif
     }
 
-    /// The watchdog thread's hang bookkeeping.
-    private struct HangState {
-        var episodes: HangEpisodeTracker
-        var assertedBeat: UInt64 = .max
-        var lastReportNanos: UInt64?
-    }
-
     /// Reports a stall that has lasted `hangThreshold` (once per stall, at
     /// most once per `hangReportInterval`), and in debug builds fails an
     /// assertion past `hangAssertThreshold`. Watchdog thread only.
@@ -486,9 +472,9 @@ public final class MainThreadWatchdog: Sendable {
         let elapsed = now - started
         for event in state.episodes.observe(beat: beat, busy: true, elapsedNanos: elapsed) {
             if case .began = event {
-                reportHang(beat: beat, elapsedNanos: elapsed, now: now, sampler: sampler, lastReportNanos: &state.lastReportNanos)
+                reportHang(beat: beat, elapsedNanos: elapsed, now: now, sampler: sampler, state: &state)
             } else {
-                handle(event)
+                handle(event, sampler: sampler, state: &state)
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
