@@ -1890,7 +1890,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
@@ -6159,8 +6159,13 @@ jobs:
             gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
               --pattern "cmux-nightly-prepared-app-arm64-*" --dir prepared-in
           else
-            gh release download "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
-              --pattern "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" --dir next-in
+            # The release is public: fetch the DMG from its download URL (the
+            # address the publish step checks), not the API. gh release
+            # download spent GITHUB_TOKEN calls and failed with "API rate limit
+            # exceeded for installation" (runs 40234225207, 40240049419).
+            name="${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg"
+            curl -fsSL --proto '=https' --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 20 \
+              -o "next-in/$name" "https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$name"
           fi
           if [ -z "$SOURCE_RUN" ]; then
             find next-in -maxdepth 1 -name "${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" -print -quit | grep -q .
