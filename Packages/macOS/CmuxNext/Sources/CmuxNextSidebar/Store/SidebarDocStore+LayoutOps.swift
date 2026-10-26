@@ -25,7 +25,7 @@ extension SidebarDocStore {
     /// bands as shown). Anchors follow the earlier ops of the same list,
     /// so several adds at consecutive indexes keep their order.
     public func docOps(for ops: [SidebarLayoutOp], layout: SidebarLayoutDocument) throws(LayoutOpGap) -> [[String: Any]] {
-        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: records, shown: shown, layout: layout)
+        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout)
         var out: [[String: Any]] = []
         for op in ops { out += try planner.ops(for: op) }
         return out

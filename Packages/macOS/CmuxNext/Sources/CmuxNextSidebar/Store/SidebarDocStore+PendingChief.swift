@@ -1,33 +1,85 @@
 import Foundation
 
 // A Chief dragged in draws, counts as placed and comes off before the daemon answers (#23933). The mirror owns the
-// pending change and its rollback; the client keeps no record of its own. The Chief's item has one id
-// (`chiefItemID`), so the mirror's row names it: it lives exactly as long as the mirror draws it (until the add is
-// confirmed, refused or undone; a refused remove puts it back), and the daemon refuses a second item with that id.
-// Only the Chief: any other item draws at its echo.
+// pending change, its order and its rollback, so where the Chief draws is the mirror's row: the Chief's item has one id
+// (`chiefItemID`), and the daemon refuses a second item with that id. What the row shows comes from the add itself
+// (`SidebarPendingChief`, kept by intent key until its echo, refusal or a load settles it): its fields and the section
+// it makes, never an older confirmed record (a Chief removed and added again before either echo). Only the Chief: any
+// other item draws at its echo.
 extension SidebarLayoutDocument {
     /// The Chief's item id, whatever section or group holds it.
     public static let chiefItemID = LayoutItemID("itm_chief")
 }
 
+/// One intent's add of the Chief, not echoed yet: the item it adds and the section it makes for it (Add to Top with no
+/// top section yet), as the document will hold them.
+struct SidebarPendingChief: Hashable {
+    var item: SidebarDocItem
+    var section: SidebarDocSection?
+
+    /// The Chief's add in `ops` (an intent's ops, JSON); nil when they add no Chief.
+    init?(ops: Data) {
+        guard let list = try? JSONSerialization.jsonObject(with: ops) as? [[String: Any]] else { return nil }
+        var item: SidebarDocItem?
+        var sections: [String: SidebarDocSection] = [:]
+        for op in list {
+            switch op["op"] as? String {
+            case "section.add":
+                if let record = Self.decode(SidebarDocWire.Section.self, op["section"])?.record { sections[record.id] = record }
+            case "item.add":
+                guard var wire = op["item"] as? [String: Any], wire["id"] as? String == SidebarLayoutDocument.chiefItemID.rawValue else { continue }
+                wire["section"] = (op["to"] as? [String: Any])?["section"] as? String ?? ""
+                item = Self.decode(SidebarDocWire.Item.self, wire)?.record
+            default:
+                continue
+            }
+        }
+        guard let item else { return nil }
+        self.item = item
+        section = sections[item.section]
+    }
+
+    private static func decode<Value: Decodable>(_ type: Value.Type, _ object: Any?) -> Value? {
+        guard let object, let data = try? JSONSerialization.data(withJSONObject: object) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+}
+
 extension SidebarDocRecords {
-    /// These records and the Chief the rows draw before its echo (`chiefItemID`), where they draw it.
-    func addingPendingChief(drawnIn rows: [SidebarDocRow]) -> SidebarDocRecords {
+    /// These records with the Chief where the rows draw it (`chiefItemID`): the newest unechoed add's fields
+    /// (`pending`, oldest first) over any confirmed record, else the confirmed one, else a plain Chief; and each
+    /// section such an add makes that the records lack yet.
+    func addingPendingChief(drawnIn rows: [SidebarDocRow], pending: [SidebarPendingChief]) -> SidebarDocRecords {
         let id = SidebarLayoutDocument.chiefItemID.rawValue
-        guard items[id] == nil, let row = rows.first(where: { $0.item == id }) else { return self }
+        guard pending.isEmpty == false || items[id] == nil, let row = rows.first(where: { $0.item == id }) else { return self }
         var drawn = self
-        drawn.items[id] = SidebarDocItem(id: id, section: row.section, parent: row.parent, body: .builtin(SidebarBuiltIn.chief.rawValue))
+        for section in pending.compactMap(\.section) where drawn.sections[section.id] == nil {
+            drawn.sections[section.id] = section
+        }
+        var item = pending.last?.item ?? items[id] ?? SidebarDocItem(id: id, section: row.section, body: .builtin(SidebarBuiltIn.chief.rawValue))
+        (item.section, item.parent) = (row.section, row.parent)
+        drawn.items[id] = item
         return drawn
     }
 }
 
 extension SidebarDocStore {
     /// The records as the sidebar draws them (`addingPendingChief`): an action finds, moves and removes a Chief dragged
-    /// in before the daemon answered. One mirror call unless the confirmed records hold the Chief's id.
+    /// in before the daemon answered, with that add's own fields. No mirror call while no Chief add waits and the
+    /// confirmed records hold the Chief.
     var drawnRecords: SidebarDocRecords {
-        guard records.items[SidebarLayoutDocument.chiefItemID.rawValue] == nil,
+        guard pendingChief.isEmpty == false || records.items[SidebarLayoutDocument.chiefItemID.rawValue] == nil,
               let rows = rows(SidebarViewRequest(live: Array(lastLive))) else { return records }
-        return records.addingPendingChief(drawnIn: rows)
+        return records.addingPendingChief(drawnIn: rows, pending: pendingChief.map(\.add))
+    }
+
+    /// The confirmed records less a Chief with an add not echoed: an edit of its own fields waits for that echo, not
+    /// for an older Chief's record (one removed and added again).
+    var settledRecords: SidebarDocRecords {
+        guard pendingChief.isEmpty == false else { return records }
+        var settled = records
+        settled.items[SidebarLayoutDocument.chiefItemID.rawValue] = nil
+        return settled
     }
 
     /// What an item the rows draw and the confirmed records lack shows: the pending Chief, else nothing known yet.
@@ -35,8 +87,25 @@ extension SidebarDocStore {
         id == SidebarLayoutDocument.chiefItemID.rawValue ? .builtIn(.chief) : nil
     }
 
-    /// Whether item `id` is the Chief drawn before its add's echo: its own fields take no edit until then.
+    /// Whether item `id` is a drawn Chief whose add has not echoed (a first add, or one after a remove of a confirmed
+    /// Chief): its own fields take no edit until then.
     public func isPending(_ id: LayoutItemID) -> Bool {
-        id == SidebarLayoutDocument.chiefItemID && records.items[id.rawValue] == nil && drawnRecords.items[id.rawValue] != nil
+        guard id == SidebarLayoutDocument.chiefItemID else { return false }
+        return pendingChief.isEmpty == false || records.items[id.rawValue] == nil ? drawnRecords.items[id.rawValue] != nil : false
+    }
+
+    /// The Chief's add sent under `key` is settled: echoed, refused, dropped or answered by a load.
+    func settlePendingChief(_ key: String) {
+        pendingChief.removeAll { $0.key == key }
+    }
+
+    /// An echoed batch settles the Chief's add sent under its key.
+    func settlePendingChief(batch data: Data) {
+        struct Keyed: Decodable {
+            var key: String?
+            enum CodingKeys: String, CodingKey { case key = "idempotency_key" }
+        }
+        guard let key = (try? JSONDecoder().decode(Keyed.self, from: data))?.key else { return }
+        settlePendingChief(key)
     }
 }

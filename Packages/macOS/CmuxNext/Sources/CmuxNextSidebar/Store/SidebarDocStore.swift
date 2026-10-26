@@ -87,6 +87,9 @@ public final class SidebarDocStore {
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
+    /// The Chief's adds not echoed yet, oldest first, with their keys (`SidebarPendingChief`): what the sidebar draws
+    /// for it until then.
+    @ObservationIgnored var pendingChief: [(key: String, add: SidebarPendingChief)] = []
 
     /// The app's one document store (one home session per app); the
     /// App's composition root sets it.
@@ -132,7 +135,7 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            for key in answering { mirror.reject(key) }
+            for key in answering { mirror.reject(key); self.settlePendingChief(key) }
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
@@ -156,6 +159,7 @@ public final class SidebarDocStore {
         case .stale: return
         case .refetch: return refresh()
         case .applied(let revision):
+            if !pendingChief.isEmpty { settlePendingChief(batch: data) }
             let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
             guard let folds else {
@@ -316,6 +320,7 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
+        if let chief = SidebarPendingChief(ops: intent.ops) { pendingChief.append((intent.idempotencyKey, chief)) }
         if redraws { bump() }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
@@ -382,6 +387,7 @@ public final class SidebarDocStore {
 
     private func drop(_ key: String, redraws: Bool = true) {
         mirror?.reject(key)
+        settlePendingChief(key)
         if redraws { bump() }
     }
 
