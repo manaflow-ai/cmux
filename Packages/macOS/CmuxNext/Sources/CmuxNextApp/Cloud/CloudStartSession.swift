@@ -42,7 +42,9 @@ struct CloudStartSession {
                     request.machineID = try CloudHandlers.machine(invocation, context).machineID
                 }
                 if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-                return CloudHandlers.result("start cloud session", context) { try await start.run(request, invocation, context) }
+                return CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
+                    try await start.run(request, invocation, context)
+                }
             }
             guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
             guard let session = invocation.callerAgentSession, let (tab, _) = CloudMoveAsks.chat(session, services: services) else {
@@ -54,7 +56,7 @@ struct CloudStartSession {
             let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
             let asks = services.cloud.startSessionAsks
             let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
-            CloudHandlers.result("start cloud session", context) {
+            CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
                 try await asks.ask(tab: tab.id, text: text, services: services)
                 asks.show(tab: tab.id, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
                 do {
@@ -69,6 +71,17 @@ struct CloudStartSession {
                 }
             }
         }
+    }
+
+    /// A new machine can take longer than `action.run`'s person deadline to come up: the run then
+    /// answers `pending` (the work goes on, and the session's tab opens in the machine's workspace).
+    static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
+
+    static func pending(_ request: Request) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = ["agent": .string(request.agent)]
+        if let id = request.machineID { fields["machine_id"] = .string(id) }
+        if let name = request.name { fields["machine_name"] = .string(name) }
+        return fields
     }
 
     /// The run's arguments, checked: `--agent` is a harness id, `--cwd` an absolute folder.
@@ -201,6 +214,8 @@ final class CloudStartSessionAsks {
                        AgentPaneToolCard.Action(id: "notNow", title: CloudMoveAskStrings.notNow)]
         let card = AgentPaneToolCard(id: "cloud-start-session-" + tab, state: .ask, text: text, actions: actions)
         guard services.cloud.toolCards.set([card], owner: Self.owner, tab: tab, answer: { _, action, _ in continuation.yield(action == "start") }) else {
+            continuation.finish()
+            close(tab: tab, services: services)
             throw ActionFailure(message: CloudStartSessionStrings.noPage)
         }
         open.insert(tab)
