@@ -149,7 +149,7 @@ final class MadeAheadPanelStore<Panel: ReusableOpenPanel> {
     /// `releaseAfter` from now, replacing a pending one: each use pushes it back.
     private func armRelease() {
         guard case .afterFirstUse(let releaseAfter) = policy, made != nil else { return }
-        releaseTimer.schedule(after: releaseAfter) { @MainActor [weak self] in self?.releaseIfUnused() }
+        releaseTimer.scheduleOnMain(after: releaseAfter) { [weak self] in self?.releaseIfUnused() }
     }
 
     /// Releases the kept panel when no sheet or window shows it, so its panel service can exit; a panel in use is
