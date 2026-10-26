@@ -13,7 +13,9 @@ enum PageFrozenEngine {
 extension PageWebView {
     // MARK: Freeze and thaw (p13-webui.md 3.C)
 
-    /// Whether the page shows now: in a window, with no hidden view above it.
+    /// Whether the page shows now: in a window, with no hidden view above it, the AppKit state both
+    /// engines take their visibility from (WebKit itself, ``setEngineVisible(_:)`` for Chromium).
+    // visibility-walk-allow: the freeze guard must read the AppKit state the engines read (PageWebView has no VisibilityNode); one walk per freeze, at most once per pass
     var isShownInWindow: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
 
     /// Freezes the hidden page for the page lifecycle: its timers, tasks and frames stop, its memory
