@@ -898,13 +898,6 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
-  // A send's key is its promptId (model.ts turnKey): a failed row the echo of a timed-out send
-  // left beside it shares one, so a repeat keys on its row id instead. Built once per change of the
-  // ticks (a new prompt, older turns), never per token.
-  const keyOf = useMemo(() => {
-    const seen = new Set<string>();
-    return ticks.map((tick) => (seen.has(tick.key) ? `${tick.key}#${tick.id}` : (seen.add(tick.key), tick.key)));
-  }, [ticks]);
   const drawn: React.ReactNode[] = [];
   let next = 0;
   for (const [from, to] of ranges) {
@@ -919,7 +912,7 @@ const TickList = memo(function TickList({
     const tick = ticks[index]!;
     // A list item that names its place among every prompt, drawn or not; it draws no box.
     return (
-      <li key={keyOf[index]} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
+      <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
         <Tick
           index={index}
           last={ticks.length - 1}

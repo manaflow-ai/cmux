@@ -59,3 +59,33 @@ test("a prompt whose shown text changes keeps its key", () => {
   // A prompt acpmux recorded without a promptId (an older log) keys on its row.
   expect(turnKey(CHAT, { ...raw, promptId: undefined })).toBe(`${CHAT}#user-9`);
 });
+
+test("a failed send beside its echo, one promptId: two ticks, each with its own key", () => {
+  const user = (id: string, text: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    version: 1,
+    at: 0,
+    kind: "user",
+    text,
+    promptId: "p-7",
+    ...extra,
+  });
+  const reply = (id: string, text: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: "assistant", text });
+  const rows = [
+    user("user-1", "First", { promptId: "p-1" }),
+    reply("a-1", "One"),
+    // The send that timed out, kept as a failed row, then acpmux's echo of the same prompt.
+    user("local-p-7", "Again", {
+      promptId: undefined,
+      delivery: { state: "failed", promptId: "p-7", sessionId: CHAT, sentAt: 0 },
+    } as Partial<AcpmuxRow>),
+    user("user-2", "Again"),
+    reply("a-2", "Two"),
+  ];
+  const { ticks } = minimapTurns(rows, CHAT);
+  expect(ticks).toHaveLength(3);
+  expect(new Set(ticks.map((tick) => tick.key)).size).toBe(3);
+  // The first keeps the prompt's key; the echo beside it keys on its row.
+  expect(ticks[1]!.key).toBe(turnKey(CHAT, rows[2]!));
+  expect(ticks[2]!.key).toBe(`${turnKey(CHAT, rows[3]!)}#user-2`);
+});

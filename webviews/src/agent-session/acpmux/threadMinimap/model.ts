@@ -293,10 +293,14 @@ export function minimapTurns(
       kept.reply = reply;
       tail.push(kept.turn);
     } else {
+      // A failed row the echo of a timed-out send left beside it shares the echo's promptId: the
+      // second of two neighbours with one key keys on its row id, so every tick's key is its own.
+      const key = turnKey(sessionId, user);
+      const before = tail.at(-1) ?? (keep > 0 ? reuse!.turns[keep - 1] : undefined);
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
-        key: turnKey(sessionId, user),
+        key: before && before.key === key ? `${key}#${user.id}` : key,
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
       };

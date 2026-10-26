@@ -41,7 +41,9 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
 
   test("a sent prompt's tick draws with its bubble, at the bottom, and the echo keeps it", async () => {
     const page = await pane!.open({ width: 1200, height: 800 });
-    expect(await page.locator(".acpmux-minimap__tick").count()).toBe(TURNS);
+    // The rail draws only the ticks in its view (tickWindow.ts); each tick's list item names how many
+    // prompts there are.
+    expect(await page.locator(".acpmux-minimap__entry").first().getAttribute("aria-setsize")).toBe(String(TURNS));
     await page.locator(".acpmux-composer-prompt").click();
     await page.keyboard.type("Brand new prompt");
     // Every painted frame from here: whether the bubble shows, the rail's ticks, and whether its last
@@ -53,15 +55,14 @@ await requireBrowserLane("thread-rail-sent-prompt.test.ts", async () => {
         const bubble = [...document.querySelectorAll(".cv-user__bubble")].some(
           (node) => node.textContent?.trim() === "Brand new prompt",
         );
-        const ticks = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
-        const last = ticks.at(-1);
+        const last = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")].at(-1);
         const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")?.getBoundingClientRect();
         const box = last?.getBoundingClientRect();
         const label = last?.getAttribute("aria-label") ?? undefined;
         if (bubble && !scope.sentTick && label?.includes("Brand new prompt")) scope.sentTick = last;
         scope.railFrames.push({
           bubble,
-          ticks: ticks.length,
+          ticks: Number(last?.closest("li")?.getAttribute("aria-setsize") ?? 0),
           inView: !!(list && box && box.top >= list.top - 0.5 && box.bottom <= list.bottom + 0.5),
           tone: last?.dataset.tone,
           label,
