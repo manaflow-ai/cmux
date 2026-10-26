@@ -750,3 +750,36 @@ test("a row menu opened before the row turned out to be a teammate's changes not
     installNativeMenu(null);
   }
 });
+
+test("an edit pulled back while its images load, from a row that turned out a teammate's, takes nothing", async () => {
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  const touched: string[] = [];
+  // Every read (the thumbnail's and the pull-back's) waits until the test lets them all finish.
+  const reads: Array<(url: string | undefined) => void> = [];
+  const rows = [{ id: "p-2", prompt: "see", images: [{ id: SHOT_A, mimeType: "image/png", name: "shot.png" }] }];
+  const draw = (queue: Array<(typeof rows)[number] & { author?: typeof ana }>) =>
+    root!.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        t={t}
+        readImage={() => new Promise<string | undefined>((resolve) => reads.push(resolve))}
+        onCancelEdit={async (id) => {
+          touched.push(`cancel ${id}`);
+          return true;
+        }}
+      />,
+    );
+  await act(async () => {
+    root = createRoot(container);
+    draw(rows);
+  });
+  const pullBack = actions(container, "p-2").find((b) => b.dataset.action === "cancel-edit")!;
+  await act(async () => pullBack.click());
+  // Ana's authored record lands while the image is read; then the read finishes.
+  await act(async () => draw([{ ...rows[0]!, author: ana }]));
+  await act(async () => reads.splice(0).forEach((read) => read("data:image/png;base64,QQ==")));
+  await settle();
+  expect(touched).toEqual([]);
+});

@@ -322,8 +322,10 @@ export function ComposerQueue({
   const owners = (rows: readonly QueuedEntry[]) =>
     rows.map((entry) => `${entry.id}\u0000${entry.author?.id ?? ""}`).join("\u0001");
   const drawnOwners = useRef("");
+  const drawnRows = useRef<readonly QueuedEntry[]>([]);
   useLayoutEffect(() => {
     drawnOwners.current = owners(shown);
+    drawnRows.current = shown;
   });
   if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
@@ -371,6 +373,10 @@ export function ComposerQueue({
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
       const attachments = await queuedAttachments(entry.images, readImage);
+      // Its images read, the row may have turned out to be a teammate's (or gone): then it is
+      // theirs, and nothing is taken out of the queue.
+      const now = drawnRows.current.find((row) => row.id === entry.id);
+      if (!now || theirs(now)) return;
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
