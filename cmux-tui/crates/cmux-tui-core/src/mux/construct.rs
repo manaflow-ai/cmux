@@ -309,6 +309,7 @@ impl Mux {
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             agent_presence: Mutex::new(HashMap::new()),
+            agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
             agent_roster_fold: Mutex::new(()),

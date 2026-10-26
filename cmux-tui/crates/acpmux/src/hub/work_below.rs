@@ -7,6 +7,10 @@
 //!
 //! Each change is a mux `subagents_working` record (`{since}`, null when it ended), which
 //! watchers hear as `_acpmux/session_changed`, and then re-decides the parent's.
+//!
+//! The unread dot waits for it too (manaflow-ai/cmux#25563): a turn that ends unseen while
+//! such work runs leaves the chat read, and the chat turns unread when the last of the work
+//! ends, unless a client shows it then or a new turn runs.
 
 use super::*;
 
@@ -33,12 +37,36 @@ impl Hub {
                 return;
             }
             *mark = if works { now_ms().max(1) } else { 0 };
+            // The turn that ended while the work ran is done now: unread, set before the record
+            // so its summary already says so.
+            let unread = !works
+                && session.unread_after_work.swap(false, Ordering::SeqCst)
+                && session.status() != SessionStatus::Running
+                && !self.shown(session)
+                && !std::mem::replace(&mut session.meta.lock().unwrap().unread, true);
             // Recorded under the mark, so the records keep the order of the changes.
             let since = (*mark != 0).then_some(*mark);
             self.append(session, "mux", RECORD_KIND, json!({"since": since}));
+            if unread {
+                self.save_meta(session);
+                let status = session.status().to_string();
+                self.append(session, "mux", "status", json!({"status": status, "read": false}));
+            }
         }
         if let Some(parent) = self.subsession_parent(session) {
             self.refresh_work_below(&parent);
+        }
+    }
+
+    /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
+    /// it started still runs, it turns unread when that work ends (`refresh_work_below`). The
+    /// mark is held, so the work cannot end between the check and the note.
+    pub(super) fn mark_unread_unless_work_below(&self, session: &Session) {
+        let mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
+        let works = *mark != 0;
+        session.unread_after_work.store(works, Ordering::SeqCst);
+        if !works {
+            session.meta.lock().unwrap().unread = true;
         }
     }
 

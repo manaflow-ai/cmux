@@ -66,6 +66,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
+    /// (manaflow-ai/cmux#25563, `work_below.rs`).
+    pub(super) unread_after_work: AtomicBool,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.

@@ -1,6 +1,7 @@
 //! The multiplexer: owns the session [`State`] and every surface runtime,
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
+mod agent_hook_children;
 mod agent_hook_errors;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
@@ -618,6 +619,8 @@ pub struct Mux {
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
+    /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
+    agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<()>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
