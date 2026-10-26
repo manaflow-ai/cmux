@@ -45,10 +45,11 @@
 // a new message does, leaves on a kept snapshot, its list opens and folds on the shared fold
 // (conversation/fold.ts), a line that joins it rises in, and its header's words tick. What runs
 // turns the shared spinner, never a breathing dot.
-import { memo, useId, useState, type AnimationEvent } from "react";
+import { memo, useId, useState } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { experimentArm } from "../../../experiments/experiment";
-import { useFold } from "../conversation/fold";
+import { foldMotion, useFold } from "../conversation/fold";
+import { entranceAllowed } from "../../shared/pageReveal";
 import { Spinner } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -145,7 +146,8 @@ export const SubagentTray = memo(function SubagentTray({
   ];
   // A line that joins the open list rises in (ui/popupSurface.css `data-enter`); the lines it was
   // drawn with, and lines a fold or View all brings back, are simply there.
-  const arrivals = useArrivals(keys, open ? keys : NO_KEYS);
+  // With no motion (Reduce Motion, the host's switch, a hidden page) nothing arrives: it is there.
+  const arrivals = useArrivals(keys, open && entranceAllowed() && !foldMotion.reducedMotion() ? keys : NO_KEYS);
   if (items.length === 0 && finished.length === 0) return null;
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
@@ -169,12 +171,23 @@ export const SubagentTray = memo(function SubagentTray({
       .join(" · ") || t("summary.subagents");
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
+  // Ended or cancelled (motion turned off midway), a line's entrance is played: it never replays.
+  // React has no animationcancel prop, so both listen on the line's node, added and removed by its ref.
   const arriving = (key: string) =>
     arrivals.arrived.has(key)
       ? {
           "data-enter": "bottom" as const,
-          onAnimationEnd: (event: AnimationEvent<HTMLElement>) => {
-            if (event.target === event.currentTarget) arrivals.played(key);
+          ref: (node: HTMLElement | null) => {
+            if (!node) return undefined;
+            const ended = (event: Event) => {
+              if (event.target === node) arrivals.played(key);
+            };
+            node.addEventListener("animationend", ended);
+            node.addEventListener("animationcancel", ended);
+            return () => {
+              node.removeEventListener("animationend", ended);
+              node.removeEventListener("animationcancel", ended);
+            };
           },
         }
       : undefined;
