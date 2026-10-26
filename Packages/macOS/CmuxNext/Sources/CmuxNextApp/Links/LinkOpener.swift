@@ -278,7 +278,8 @@ final class LinkOpener {
         // on main in the run's class (userBlocking for a person's link, p06 rule 2) and scopes. The tracked task runs
         // off main and only waits for their last step.
         let end = services.registry.completion(on: services.mainWork)
-        let (steps, step) = AsyncStream<@Sendable () async -> ActionWorkFailure?>.makeStream()
+        // One last step is ever yielded.
+        let (steps, step) = AsyncStream.makeStream(of: (@Sendable () async -> ActionWorkFailure?).self, bufferingPolicy: .bufferingNewest(1))
         let finish: @MainActor (ActionWorkFailure?) -> Void = { failure in
             step.yield { failure }
             step.finish()
