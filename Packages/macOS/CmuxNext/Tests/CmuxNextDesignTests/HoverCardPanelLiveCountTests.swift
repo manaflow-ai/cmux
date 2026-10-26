@@ -4,36 +4,64 @@ import CmuxNextCompat
 import Testing
 
 /// `HoverCardPanel.liveInstances` feeds the single-card check (`debug.desync`, `card_windows`): it
-/// counts every card window from its init to its deinit. The count is an atomic, so the deinit,
-/// which may run off the main thread, takes the window off the count wherever it runs.
-@MainActor @Suite(.serialized) struct HoverCardPanelLiveCountTests {
+/// counts every card window from its init to its deinit, wherever the deinit runs. Each test counts
+/// its panel on its own `WindowCount`, so cards that other suites make or free meanwhile do not
+/// move it.
+@MainActor @Suite struct HoverCardPanelLiveCountTests {
     @Test func aCardWindowCountsFromItsInitUntilItIsReleased() {
-        let before = HoverCardPanel.liveInstances.load(ordering: .relaxed)
+        let count = WindowCount()
         autoreleasepool {
-            let panel = HoverCardPanel()
+            let panel = HoverCardPanel(countWindow: count.move)
             withExtendedLifetime(panel) {
-                #expect(HoverCardPanel.liveInstances.load(ordering: .relaxed) == before + 1)
+                #expect(count.current == 1)
             }
         }
-        #expect(HoverCardPanel.liveInstances.load(ordering: .relaxed) == before, "a released card window still counts")
+        #expect(count.current == 0, "a released card window still counts")
     }
 
-    /// The release on another thread: before, the deinit returned early off the main thread and the
-    /// window stayed counted for the rest of the run.
+    /// Before, the deinit returned early off the main thread and the window stayed counted for the
+    /// rest of the run.
     @Test func aCardWindowReleasedOffTheMainThreadLeavesTheCount() async {
-        let before = HoverCardPanel.liveInstances.load(ordering: .relaxed)
-        let box = PanelBox(HoverCardPanel())
-        #expect(HoverCardPanel.liveInstances.load(ordering: .relaxed) == before + 1)
-        await Task.detached(priority: .userInitiated) { box.release() }.value
-        #expect(HoverCardPanel.liveInstances.load(ordering: .relaxed) == before, "a card released off main still counts")
+        let count = WindowCount()
+        // The pool drains any reference AppKit autoreleased during init: the box holds the only one.
+        let box = autoreleasepool { PanelBox(HoverCardPanel(countWindow: count.move)) }
+        #expect(count.current == 1)
+        let release = await Task.detached(priority: .userInitiated) {
+            let onMain = Thread.isMainThread
+            let freed = box.release()
+            return (onMain: onMain, freed: freed, left: count.current)
+        }.value
+        #expect(!release.onMain)
+        #expect(release.freed, "the window was not freed by the release off the main thread")
+        #expect(release.left == 0, "a card released off main still counts")
     }
+}
+
+/// One test's count of card windows.
+private nonisolated final class WindowCount: Sendable {
+    private let value = Atomic<Int>(0)
+
+    var current: Int { value.load(ordering: .relaxed) }
+
+    @Sendable func move(_ delta: Int) { value.add(delta, ordering: .relaxed) }
 }
 
 /// Hands the one strong reference to a background task, which drops it there.
 private nonisolated final class PanelBox: Sendable {
-    private let panel: Mutex<HoverCardPanel?>
+    private struct Slot {
+        var panel: HoverCardPanel?
+        weak var watched: HoverCardPanel?
+    }
 
-    init(_ panel: sending HoverCardPanel) { self.panel = Mutex(panel) }
+    private let slot: Mutex<Slot>
 
-    func release() { panel.withLock { $0 = nil } }
+    init(_ panel: HoverCardPanel) { slot = Mutex(Slot(panel: panel, watched: panel)) }
+
+    /// Drops the strong reference on the calling thread; true when that freed the window there.
+    func release() -> Bool {
+        slot.withLock { slot in
+            slot.panel = nil
+            return slot.watched == nil
+        }
+    }
 }

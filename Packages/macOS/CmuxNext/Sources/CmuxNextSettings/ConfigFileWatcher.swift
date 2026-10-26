@@ -16,38 +16,22 @@ public import Foundation
 /// watch's opens and stats run there, never on the caller's thread (the main
 /// thread), as Chrome's `FilePathWatcher` sets up its kqueue on a sequence that may
 /// block (base/files/file_path_watcher_kqueue.cc).
-public final class ConfigFileWatcher: Sendable {
+public final class ConfigFileWatcher: @unchecked Sendable { // crash-allow: the sources and what they watch change only on the serial `queue` (arm, disarm, the event handlers) and in deinit; `run` is a Mutex, the rest is immutable
     public let url: URL
     private let queue: DispatchQueue
     private let onChange: @Sendable () -> Void
     /// Which start is current: set by the caller's start and stop, read on the queue.
     private let run = Mutex(Run())
-    // Lock carve-out: the kernel sources, taken only on the serial `queue` (arm, disarm, the event
-    // handlers) and by deinit, which runs only after the queue's work let go of the watcher (each
-    // queued block holds it strongly, each handler while it runs), so the lock is never contended.
-    private let watch = Mutex(Watch())
+    // Queue-confined state.
+    private var fileSource: (any DispatchSourceFileSystemObject)?
+    private var directorySource: (any DispatchSourceFileSystemObject)?
+    private var watchedDirectory: URL?
+    private var fileIdentity: (dev: dev_t, ino: ino_t)?
 
     private struct Run {
         /// Bumped by every start and stop: an arm queued before a later call does nothing.
         var generation: UInt64 = 0
         var running = false
-    }
-
-    /// The armed sources and what they watch.
-    private struct Watch {
-        var fileSource: (any DispatchSourceFileSystemObject)?
-        var directorySource: (any DispatchSourceFileSystemObject)?
-        var watchedDirectory: URL?
-        var fileIdentity: (dev: dev_t, ino: ino_t)?
-
-        mutating func cancel() {
-            fileSource?.cancel()
-            fileSource = nil
-            directorySource?.cancel()
-            directorySource = nil
-            watchedDirectory = nil
-            fileIdentity = nil
-        }
     }
 
     public convenience init(url: URL, onChange: @escaping @Sendable () -> Void) {
@@ -63,7 +47,8 @@ public final class ConfigFileWatcher: Sendable {
     }
 
     deinit {
-        watch.withLock { $0.cancel() }
+        fileSource?.cancel()
+        directorySource?.cancel()
     }
 
     /// Arms the watch, then reports one change so the consumer reads the file
@@ -109,17 +94,19 @@ public final class ConfigFileWatcher: Sendable {
     /// nil it reports one change; else one only when the file or its folder changed at or after it.
     private func arm(_ generation: UInt64, changedSince: timespec?) {
         guard run.withLock({ $0.generation == generation }) else { return }
-        let folder = watch.withLock { watch -> URL? in
-            rearm(&watch)
-            return watch.watchedDirectory
-        }
-        if let changedSince, !changed(since: changedSince, folder: folder) { return }
+        rearm()
+        if let changedSince, !changed(since: changedSince) { return }
         report()
     }
 
     private func disarm() {
         guard !run.withLock({ $0.running }) else { return }
-        watch.withLock { $0.cancel() }
+        fileSource?.cancel()
+        fileSource = nil
+        directorySource?.cancel()
+        directorySource = nil
+        watchedDirectory = nil
+        fileIdentity = nil
     }
 
     /// Calls `onChange` while a start is current (a ``stop()`` between the check and the call does
@@ -128,64 +115,59 @@ public final class ConfigFileWatcher: Sendable {
         if run.withLock({ $0.running }) { onChange() }
     }
 
-    private func rearm(_ watch: inout Watch) {
+    private func rearm() {
         guard run.withLock({ $0.running }) else { return }
         let target = url.resolvingSymlinksInPath()
         // A deeper directory can appear between choosing one and arming its
         // source (mkdir -p), so re-check until the choice is stable.
         var directory = nearestExistingDirectory(for: target.deletingLastPathComponent())
-        while directory != watch.watchedDirectory {
-            watch.directorySource?.cancel()
-            watch.directorySource = makeSource(path: directory.path, events: [.write, .delete, .rename, .link]) { [weak self] _ in
+        while directory != watchedDirectory {
+            directorySource?.cancel()
+            directorySource = makeSource(path: directory.path, events: [.write, .delete, .rename, .link]) { [weak self] _ in
                 self?.directoryChanged()
             }
-            watch.watchedDirectory = directory
+            watchedDirectory = directory
             directory = nearestExistingDirectory(for: target.deletingLastPathComponent())
         }
         let identity = Self.identity(of: target.path)
-        let identityChanged = identity?.dev != watch.fileIdentity?.dev || identity?.ino != watch.fileIdentity?.ino
-        if watch.fileSource == nil || identityChanged {
-            watch.fileSource?.cancel()
-            watch.fileSource = identity == nil ? nil : makeSource(
+        let identityChanged = identity?.dev != fileIdentity?.dev || identity?.ino != fileIdentity?.ino
+        if fileSource == nil || identityChanged {
+            fileSource?.cancel()
+            fileSource = identity == nil ? nil : makeSource(
                 path: target.path,
                 events: [.write, .extend, .delete, .rename, .attrib, .revoke]
             ) { [weak self] events in
                 self?.fileChanged(events)
             }
-            watch.fileIdentity = identity
+            fileIdentity = identity
         }
     }
 
     private func directoryChanged() {
+        let before = fileIdentity
+        rearm()
+        let after = fileIdentity
         // A rename over the file or a create/delete changes its identity.
-        let identityChanged = watch.withLock { watch -> Bool in
-            let before = watch.fileIdentity
-            rearm(&watch)
-            let after = watch.fileIdentity
-            return before?.dev != after?.dev || before?.ino != after?.ino
-        }
-        if identityChanged {
+        if before?.dev != after?.dev || before?.ino != after?.ino {
             report()
         }
     }
 
     private func fileChanged(_ events: DispatchSource.FileSystemEvent) {
         if !events.isDisjoint(with: [.delete, .rename, .revoke]) {
-            watch.withLock { watch in
-                watch.fileSource?.cancel()
-                watch.fileSource = nil
-                watch.fileIdentity = nil
-                rearm(&watch)
-            }
+            fileSource?.cancel()
+            fileSource = nil
+            fileIdentity = nil
+            rearm()
         }
         report()
     }
 
-    /// Whether the file changed (its status change time) or its watched `folder` gained, lost or
+    /// Whether the file changed (its status change time) or its watched folder gained, lost or
     /// renamed an entry (its modification time) at or after `time`.
-    private func changed(since time: timespec, folder: URL?) -> Bool {
+    private func changed(since time: timespec) -> Bool {
         let file = url.resolvingSymlinksInPath().path
-        let folder = folder?.path
+        let folder = watchedDirectory?.path
         return blockingCall(.fsMetadata) {
             var info = stat()
             if stat(file, &info) == 0, Self.isAtOrAfter(info.st_ctimespec, time) { return true }

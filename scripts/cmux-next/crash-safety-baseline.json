@@ -170,6 +170,7 @@
     "CmuxNextRemoteFetch": 1,
     "CmuxNextRemoteView": 1,
     "CmuxNextRemoteViewSessions": 1,
+    "CmuxNextSettings": 1,
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTabs": 1,
