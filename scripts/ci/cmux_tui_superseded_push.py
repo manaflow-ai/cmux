@@ -122,9 +122,18 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     if any(pr.get("state") == "open" and (pr.get("head") or {}).get("sha") == sha
            and ((pr.get("head") or {}).get("repo") or {}).get("full_name") == repo for pr in data):
         return None
+    # A cmux-next dispatch on the branch (#22303) probes this exact commit's tree with no base fallback,
+    # so a head some dispatch already asked about keeps its publisher.
+    status, data = api(f"actions/workflows/cmux-next.yml/runs?head_sha={sha}&event=workflow_dispatch&per_page=1")
+    if status != 200 or not isinstance(data, dict):
+        raise ApiError(f"GET cmux-next.yml dispatches of {sha}: HTTP {status}")
+    if data.get("total_count") or data.get("workflow_runs"):
+        return None
     branch = ref.removeprefix("refs/heads/")
-    return True, (f"no open pull request has {sha[:12]} ({branch}) at its head; a pull request's same-tree "
-                  "checks use its merge tree or the base tree")
+    return True, (f"no open pull request has {sha[:12]} ({branch}) at its head and no cmux-next dispatch "
+                  "asked for it; a pull request's same-tree checks use its merge tree or the base tree. "
+                  "To publish this tree anyway, add the trailer Cmux-Daemon-Tests: run, dispatch "
+                  "cmux-tui-artifacts.yml on the branch, or dispatch cmux-next.yml before pushing")
 
 
 def pin_verdict(sha: str) -> tuple[bool, str]:

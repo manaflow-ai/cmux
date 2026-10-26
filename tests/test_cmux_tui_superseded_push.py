@@ -145,6 +145,8 @@ def check_verdicts():
         deferred_path = "actions/artifacts"
         merge_path = f"commits/{merge}"
         merge_commit = {merge_path: commit(merge, [base, head], f"Merge {head} into {base}")}
+        dispatch_path = "actions/workflows/cmux-next.yml/runs"
+        no_dispatch = (200, {"total_count": 0, "workflow_runs": []})
         script = preflight_step["run"]
         cases = [
             ("a lane push whose branch moved is superseded", "push", lane, head,
@@ -196,13 +198,20 @@ def check_verdicts():
              {ref_path: (200, {"object": {"sha": newer}})}, "false"),
             # cp/, lane/ and perf/ agent branches publish only a head an open pull request has (2026-10-26).
             ("a lane/ head no open pull request has is superseded", "push", "refs/heads/lane/x", head,
-             {pulls_path: (200, []), "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "true"),
+             {pulls_path: (200, []), dispatch_path: no_dispatch,
+              "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "true"),
             ("a cp/ head whose only pull request closed is superseded", "push", "refs/heads/cp/x", head,
-             {pulls_path: (200, [pull(7, head, state="closed")]), "git/ref/heads/cp/x": (200, {"object": {"sha": head}})},
-             "true"),
+             {pulls_path: (200, [pull(7, head, state="closed")]), dispatch_path: no_dispatch,
+              "git/ref/heads/cp/x": (200, {"object": {"sha": head}})}, "true"),
             ("a perf/ head of a fork's pull request is superseded", "push", "refs/heads/perf/x", head,
-             {pulls_path: (200, [pull(7, head, repo="someone/cmux")]),
+             {pulls_path: (200, [pull(7, head, repo="someone/cmux")]), dispatch_path: no_dispatch,
               "git/ref/heads/perf/x": (200, {"object": {"sha": head}})}, "true"),
+            # A cmux-next dispatch on the branch (#22303) probes this exact tree with no base fallback.
+            ("a lane/ head a cmux-next dispatch asked for runs", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, []), dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 9}]}),
+              "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "false"),
+            ("a lane/ push runs when the dispatch lookup fails", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, []), dispatch_path: (502, {})}, "false"),
             ("a lane/ head an open pull request has runs", "push", "refs/heads/lane/x", head,
              {pulls_path: (200, [pull(7, head)]), "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "false"),
             ("a lane/ head of an open pull request is still superseded once the branch moved", "push",
