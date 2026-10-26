@@ -473,33 +473,88 @@ def python_call_is_api(call: ast.Call) -> bool:
     if name.endswith("urlopen") or name.split(".")[-1] in ("gh_json", "gh_api", "gh_run", "gh_items"):
         return True
     for arg in call.args:
-        if isinstance(arg, ast.List) and len(arg.elts) >= 2 and all(isinstance(e, ast.Constant) for e in arg.elts[:2]):
-            if arg.elts[0].value == "gh" and arg.elts[1].value in GH_VERBS:
+        if isinstance(arg, ast.List) and len(arg.elts) >= 2 and isinstance(arg.elts[0], ast.Constant) \
+                and arg.elts[0].value == "gh":
+            verb = arg.elts[1]
+            # ["gh", "api", ...] names its verb; ["gh", *args] (a wrapper) may run any of them.
+            if not isinstance(verb, ast.Constant) or verb.value in GH_VERBS:
                 return True
         if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and API_TEXT.search(arg.value):
             return True
     return False
 
 
+def python_aliases(tree: ast.AST) -> dict[str, set[str]]:
+    """Names bound to another callable: a parameter's default (`opener=urllib.request.urlopen`,
+    `api=http_api`) or an assignment (`fetch = urlopen`), name -> the dotted targets."""
+    aliases: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            args = node.args
+            positional = args.posonlyargs + args.args
+            for arg, default in zip(positional[len(positional) - len(args.defaults):], args.defaults):
+                if dotted(default):
+                    aliases.setdefault(arg.arg, set()).add(dotted(default))
+            for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+                if default is not None and dotted(default):
+                    aliases.setdefault(arg.arg, set()).add(dotted(default))
+        elif isinstance(node, ast.Assign) and dotted(node.value):
+            for target in node.targets:
+                name = dotted(target).split(".")[-1]
+                if name:
+                    aliases.setdefault(name, set()).add(dotted(node.value))
+    return aliases
+
+
 def python_polls(text: str) -> str | None:
+    """The first line of a loop that sleeps and calls the API, following the file's own functions:
+    module functions called by name, methods called as an attribute (`self.jobs()`, `api.jobs()`),
+    and callables bound to a name by a parameter default or an assignment."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
         return None
-    functions = {node.name: node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                 and node in tree.body}
+    defs = (ast.FunctionDef, ast.AsyncFunctionDef)
+    functions = {node.name: node for node in tree.body if isinstance(node, defs)}
+    methods: dict[str, list[ast.AST]] = {}
+    for cls in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+        for node in cls.body:
+            if isinstance(node, defs):
+                methods.setdefault(node.name, []).append(node)
+    aliases = python_aliases(tree)
+
+    def resolve(call: ast.Call) -> tuple[bool, list[ast.AST]]:
+        """Whether the call reaches the API through an alias, and the file's functions it may run."""
+        name = dotted(call.func)
+        last = name.split(".")[-1]
+        api, bodies = False, []
+        if isinstance(call.func, ast.Name) and name in functions:
+            bodies.append(functions[name])
+        if isinstance(call.func, ast.Attribute):
+            bodies += methods.get(last, [])
+        for target in aliases.get(last, ()):
+            short = target.split(".")[-1]
+            api = api or target.endswith("urlopen") or short in ("gh_json", "gh_api", "gh_run", "gh_items")
+            if short in functions:
+                bodies.append(functions[short])
+            bodies += methods.get(short, [])
+        return api, bodies
+
     for node in ast.walk(tree):
         if not isinstance(node, (ast.For, ast.While, ast.AsyncFor)):
             continue
-        seen, todo, calls_api, sleeps = set(), [node], False, False
+        seen: set[int] = set()
+        todo, calls_api, sleeps = [node], False, False
         while todo:
             for call in (n for n in ast.walk(todo.pop()) if isinstance(n, ast.Call)):
                 name = dotted(call.func)
                 sleeps = sleeps or name.split(".")[-1] == "sleep"
-                calls_api = calls_api or python_call_is_api(call)
-                if isinstance(call.func, ast.Name) and name in functions and name not in seen:
-                    seen.add(name)
-                    todo.append(functions[name])
+                via_alias, bodies = resolve(call)
+                calls_api = calls_api or via_alias or python_call_is_api(call)
+                for body in bodies:
+                    if id(body) not in seen:
+                        seen.add(id(body))
+                        todo.append(body)
         if calls_api and sleeps:
             return ast.get_source_segment(text, node).splitlines()[0].strip()
     return None

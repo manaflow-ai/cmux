@@ -93,6 +93,28 @@ ALLOWED: dict[str, str] = {
         'walks at most 5 recovery candidates once each; the only sleep retries feed reads from files.cmux.com',
     'nightly.yml: Resolve cmux-tui client commit':
         'the scan reads every loop of a script the step runs; resolve-newest-published never waits; its walk visits at most 50 commits once each and sleeps only to retry a files.cmux.com download',
+    'actions-artifact-prune.yml: Prune':
+        'hourly: paces artifact deletes 0.4 s apart (at most 150 a minute) and stops at 50 calls left',
+    'ci-cloud-overflow-probe.yml: Probe and switch':
+        'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
+    'ci-macos.yml: Try parallel GitHub artifact transport':
+        'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
+    'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
+        'watches owned-pool runs (up to 5 h for a sweeper): reads on the glaeda-route App token (READ_TOKEN); GITHUB_TOKEN takes cancels, re-runs and a read the App may not make',
+    'cmux-next-batch.yml: Run the batch':
+        'a batch, only when CMUX_NEXT_BATCH_ENABLED=1: the flagged loop pages GraphQL with one 10 s retry on a timeout; the batch also waits for its dispatched runs, one read every 15 s to find a run (10 min) and every 90 s for it to finish',
+    'cmux-next-batch.yml: Wait for quiet, then dispatch a batch':
+        'only when CMUX_NEXT_BATCH_ENABLED=1: one debounce sleep between two run listings, then a dispatch; the flagged loop (GraphQL paging with one 10 s retry) is in the batch subcommand this step does not run',
+    'cmux-next-defaults-guard.yml: Judge the default changes':
+        "only while the pull request's head has not caught up with the event: at most 4 GraphQL reads, 5 s apart",
+    "gallery-advisory.yml: Update the PR's gallery section":
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    "gallery-link.yml: Update the PR's review line":
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    'pr-status.yml: Write the line':
+        'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
+    'nightly-next-train.yml: Run the train':
+        "a train run: waits for its candidate builds, one run read per pending build every 60 s, within the train's cap (NIGHTLY_NEXT_TRAIN_CAP_MINUTES, default 120)",
     "tui-publish-npm.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
     "tui-publish-pypi.yml: Require successful verified artifact run": "a release, by hand: at most 24 reads",
 }
@@ -247,6 +269,51 @@ class TokenTests(unittest.TestCase):
         self.assertTrue(step_polls({"run": js, "env": own}, {}, {}))
         text = "for _ in 1 2 3; do\n  cat > f <<'EOF'\ncurl https://api.github.com\nEOF\n  sleep 5\ndone\n"
         self.assertIsNone(step_polls({"run": text, "env": own}, {}, {}))
+
+    def test_python_methods_and_bound_callables_are_followed(self) -> None:
+        method = ("import time, urllib.request\n"
+                  "class Api:\n"
+                  "    def jobs(self):\n"
+                  "        return urllib.request.urlopen('https://api.github.com/x')\n"
+                  "def main(api):\n"
+                  "    while True:\n"
+                  "        api.jobs()\n"
+                  "        time.sleep(30)\n")
+        self.assertTrue(python_polls(method))
+        default = ("import time, urllib.request\n"
+                   "def call(path, *, sleep=time.sleep, opener=urllib.request.urlopen):\n"
+                   "    for attempt in range(3):\n"
+                   "        opener(path)\n"
+                   "        sleep(5)\n")
+        self.assertTrue(python_polls(default))
+        indirect = ("import time, urllib.request\n"
+                    "def http_api(path):\n"
+                    "    return urllib.request.urlopen(path)\n"
+                    "def upsert(api=http_api):\n"
+                    "    for _ in range(4):\n"
+                    "        api('/x')\n"
+                    "        time.sleep(2)\n")
+        self.assertTrue(python_polls(indirect))
+        wrapper = ("import subprocess, time\n"
+                   "class GitHub:\n"
+                   "    def gh(self, *args):\n"
+                   "        return subprocess.run(['gh', *args])\n"
+                   "    def runs(self):\n"
+                   "        return self.gh('api', 'repos/x/actions/runs')\n"
+                   "def wait(gh):\n"
+                   "    while True:\n"
+                   "        time.sleep(15)\n"
+                   "        gh.runs()\n")
+        self.assertTrue(python_polls(wrapper))
+        local = ("import time\n"
+                 "class Clock:\n"
+                 "    def tick(self):\n"
+                 "        return 1\n"
+                 "def main(c):\n"
+                 "    while True:\n"
+                 "        c.tick()\n"
+                 "        time.sleep(1)\n")
+        self.assertIsNone(python_polls(local))
 
     def test_the_innermost_token_wins(self) -> None:
         job = {"env": {"GH_TOKEN": "${{ github.token }}"}}
