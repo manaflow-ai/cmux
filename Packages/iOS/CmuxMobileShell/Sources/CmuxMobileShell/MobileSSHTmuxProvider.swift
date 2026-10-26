@@ -13,8 +13,11 @@ import Foundation
 @MainActor
 final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminalCreating, MobileSSHTopologyReporting,
     MobileSSHCurrentDirectoryProviding {
+    typealias ControlOpener = @MainActor (String) async throws -> MobileSSHTmuxControlClient
+
     /// `nil` only in tests, which install scripted control clients.
     private let connection: SSHConnection?
+    private let controlOpener: ControlOpener?
     /// Absolute path found by ``probe(on:)``; login PATH may omit Homebrew.
     let tmuxPath: String
     /// A private tmux server (`tmux -L <name>`); `nil` is the user's default
@@ -31,10 +34,16 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// ended, not the connection. Settable as a test seam.
     var hostConnectionIsOpen: () -> Bool
 
-    init(connection: SSHConnection?, tmuxPath: String, socketName: String? = nil) {
+    init(
+        connection: SSHConnection?,
+        tmuxPath: String,
+        socketName: String? = nil,
+        controlOpener: ControlOpener? = nil
+    ) {
         self.connection = connection
         self.tmuxPath = tmuxPath
         self.socketName = socketName
+        self.controlOpener = controlOpener
         hostConnectionIsOpen = { connection?.isOpen ?? false }
     }
 
@@ -287,9 +296,12 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     private func control(session: String) async throws -> MobileSSHTmuxControlClient {
         if let control = controls[session], !control.isClosed { return control }
         if let task = opening[session] { return try await task.value }
-        guard let connection else { throw SSHConnectionError.closed }
         let task = Task { @MainActor in
             await self.collectStaleGroupedSessions()
+            if let controlOpener = self.controlOpener {
+                return try await controlOpener(session)
+            }
+            guard let connection = self.connection else { throw SSHConnectionError.closed }
             return try await MobileSSHTmuxControlClient.open(connection: connection, tmux: self.tmux, session: session)
         }
         opening[session] = task
