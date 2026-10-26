@@ -13,6 +13,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextNowPlaying
 import CmuxNextDaemon
 import CmuxNextEnergy
 import CmuxNextFeatures
@@ -181,6 +182,14 @@ final class AppServices {
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap), terminalPointerFrames: terminalPointerFrames, mainWork: mainWork, imageCaches: ImageCacheShares(.forThisMac(gpuResidentAvailable: false), budgeted: features.isEnabled(.memoryImageCaches)))  // first read in init (no IUO); its Chromium engine at its first read
+    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
+    /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux). Its
+    /// macOS Now Playing adapter stops a minute after the last surface on ``mainDeadlines``.
+    private(set) lazy var nowPlayingSources = NowPlayingSources(
+        player: cache.pageRequests.music, tabs: cache.pageRequests.sidebarNowPlaying,
+        system: SystemNowPlaying.bundled(deadlines: mainDeadlines),
+        otherApps: { [weak self] in self?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
