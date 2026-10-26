@@ -43,7 +43,7 @@ public struct CmuxCLIArgumentParser: Sendable {
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires",
+        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
         "--function", "--id", "--image", "--index", "--key", "--kind",
         "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
@@ -88,9 +88,10 @@ public struct CmuxCLIArgumentParser: Sendable {
     /// consume their following value, even when that value begins with `-`.
     ///
     /// - Parameter commandArgs: Arguments after the top-level command.
+    /// - Parameter optionsWithOptionalValues: Value options that also accept a bare flag for this command.
     /// - Returns: The presentation flags and the command arguments to forward.
     /// - Throws: ``ParseError/missingIDFormatValue`` when `--id-format` has no value.
-    public func parse(_ commandArgs: [String]) throws -> Result {
+    public func parse(_ commandArgs: [String], optionsWithOptionalValues: Set<String> = []) throws -> Result {
         var jsonOutput = false
         var idFormat: String?
         var remaining: [String] = []
@@ -128,7 +129,8 @@ public struct CmuxCLIArgumentParser: Sendable {
                 continue
             }
             remaining.append(arg)
-            if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
+            if Self.commandOptionsWithValues.contains(arg),
+               !optionsWithOptionalValues.contains(arg), index + 1 < commandArgs.count {
                 remaining.append(commandArgs[index + 1])
                 index += 2
                 continue

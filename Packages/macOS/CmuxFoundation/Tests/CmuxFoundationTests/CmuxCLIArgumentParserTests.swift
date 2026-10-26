@@ -22,9 +22,11 @@ struct CmuxCLIArgumentParserTests {
 
     @Test("bare focus does not consume a following presentation flag")
     func extractsJSONAfterBareFocus() throws {
-        let result = try parser.parse(["surface", "new-display", "--focus", "--json"])
+        let result = try parser.parse(
+            ["new-display", "--focus", "--json"], optionsWithOptionalValues: ["--focus"]
+        )
         #expect(result.jsonOutput)
-        #expect(result.remaining == ["surface", "new-display", "--focus"])
+        #expect(result.remaining == ["new-display", "--focus"])
     }
 
     @Test("required focus values stay with the command parser")

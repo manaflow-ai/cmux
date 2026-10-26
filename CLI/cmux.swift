@@ -6440,7 +6440,9 @@ struct CMUXCLI {
         if passesThroughProviderArguments {
             presentationOptions = (false, nil, rawCommandArgs)
         } else {
-            let parsed = try CmuxCLIArgumentParser().parse(rawCommandArgs)
+            let parsed = try CmuxCLIArgumentParser().parse(
+                rawCommandArgs, optionsWithOptionalValues: command == "surface" ? ["--focus"] : []
+            )
             presentationOptions = (parsed.jsonOutput, parsed.idFormat, parsed.remaining)
         }
         if presentationOptions.jsonOutput {
