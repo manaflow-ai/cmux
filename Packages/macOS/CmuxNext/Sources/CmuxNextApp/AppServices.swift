@@ -389,7 +389,7 @@ final class AppServices {
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
-    private(set) lazy var menuTracking = MenuTrackingState(events: appEvents)  // whether an NSMenu tracks (not the run loop's eventTracking mode)
+    private(set) lazy var menuTracking = MenuTrackingState()  // the one NSMenu tracking observer (not the run loop's eventTracking mode)
     // Idle steps on the main-thread scheduler, gated on the person's input and on menus; first read by its afterFirstFrame start.
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(
         engine: cache.cef, idle: mainDeadlines, input: inputTap,
