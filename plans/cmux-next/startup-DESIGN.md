@@ -419,3 +419,61 @@ EOF
 
 After 014 splits `AppDelegate.swift` into `Startup/*.swift`, the Q2 rows are checked with
 `startup-lint.py` (104) instead of the awk range; the allowlist check is the same.
+
+## 9. ThinLTO and cross-module optimization A/B (task 110)
+
+Release today is whole-module `-O` with dead-code stripping and no LTO or cross-module optimization
+(CMO): 0 hits for `-lto`, `-cross-module-optimization` and `LLVM_LTO` in `cmux.xcodeproj`,
+`Packages/macOS/CmuxNext/Package.swift` and `scripts/reload.sh`. Chrome builds its official Mac
+binaries with ThinLTO (`build/config/compiler/compiler.gni` `use_thin_lto`, `build/config/compiler/BUILD.gn`
+`-flto=thin` with the `-cache_path_lto` link cache) and ships PGO only on top of it (`docs/pgo.md`). Task 052
+takes its flag set from this A/B, so the A/B runs before PGO.
+
+`scripts/cmux-next/pgo/lto-ab.sh` builds one commit three ways, each `reload.sh --config bench` (the Release
+configuration plus `-DCMUX_BENCH_HOOKS`, so the benches can drive it) in its own DerivedData:
+
+| Variant | Settings (`lto-ab.sh --print-xcconfig <variant>`) |
+|---|---|
+| `base` | none: the shipped Release flags |
+| `thinlto` | `LLVM_LTO[config=Release] = YES_THIN`, `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -lto=llvm-thin` |
+| `cmo` | `OTHER_SWIFT_FLAGS[config=Release] = $(inherited) -cross-module-optimization` |
+
+The settings reach the build through `XCODE_XCCONFIG_FILE`, so the project, `Package.swift` and `reload.sh`
+do not change for the A/B; they apply to every Swift target, not only CmuxNext's. How a chosen flag reaches only
+the CmuxNext targets in the shipped build is task 048's finding and task 052's change. A variant counts only
+when its Release log shows its flags on the `-module-name CmuxNext*` compiles (and, for ThinLTO, `-flto=thin`
+on a link line), and `base` shows none of them.
+
+Measured per variant, on one host:
+
+- size: the executable's bytes, its `__TEXT` bytes (`size`) and the app bundle (`du -sk`);
+- build time: the clean build; link time: a rebuild after the executable and the LTO cache are removed,
+  minus a no-op rebuild (reload's staging and signing cancel out);
+- first frame: `bench-startup.py --mode cold --mode warm --runs 10`, the three apps interleaved run by run,
+  `first_window_frame_committed` p50 and p95; cold purges the file cache when the host has the `purge`
+  right, and the table says when it did not;
+- typing: `bench-typing.py --samples 200`, three rounds interleaved, the median of the rounds'
+  single-phase `key_to_frame_ms` p95;
+- Debug: one cold Debug build, then one leaf edit (a comment appended to `CmuxNextApp/ActionScope.swift`) per
+  variant with that variant's xcconfig. Debug is unchanged when no variant flag is in the Debug log and the
+  rebuild compiles as many Swift files as `base`'s does.
+
+Decision, per variant against `base`: adopt it when the cold or the warm first-frame p50 is 3 % faster or
+more and Pinpoint's floored rule (`perf_stats.compare`) calls the samples different, neither first frame is
+slower with a different verdict, typing p95 is at most 2 % slower, and Debug is unchanged. Link time and size
+are reported for the nightly's cost, not gated. When both variants win, 052 takes both flags and its PGO A/B
+reruns them together.
+
+Run (fleet, GUI host): `cmux-ci run --class isolated --script scripts/cmux-next/pgo/lto-ab.sh --ref SHA`.
+It writes `artifacts/lto-ab/<sha>/table.md` and `results.json`, and `lto-ab.sh --table DIR` renders the
+table again. Exit 1 when a variant does not build, its flags are missing, a bench gives no samples or Debug
+changed. The fixture test `bash scripts/cmux-next/tests/lto-ab.test.sh` checks the xcconfigs, the fleet guard
+and the verdicts without a build.
+
+Results: not run yet. The fleet run pastes its `table.md` here, with the commit, Xcode and host it names.
+
+| variant | build | flags | build s | link s | exe MB | __TEXT MB | app MB | cold first frame p50/p95 ms | warm first frame p50/p95 ms | typing key-to-frame p95 ms | Debug leaf-edit s | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| base | - | - | - | - | - | - | - | - | - | - | - | reference |
+| thinlto | - | - | - | - | - | - | - | - | - | - | - | - |
+| cmo | - | - | - | - | - | - | - | - | - | - | - | - |
