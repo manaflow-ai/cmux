@@ -145,6 +145,8 @@ final class AppServices {
     /// Every action run's perform-to-commit time against the 10 ms budget (always on; zero-latency.md),
     /// each run published on the board of the app's ``MainWorkScheduler`` so the watchdog samples a slow one.
     let actionBudget: ActionBudgetMonitor
+    /// `motion.late_commits`: the main commits that miss their frame while a Motion animation runs (starts no link).
+    let motionLateCommits = MotionLateCommits(displays: FrameScheduler.appDisplays)
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -152,7 +154,7 @@ final class AppServices {
     /// Release builds have none, and their registry has no observer.
     let oracleTurns = OracleActionTurns()
     #endif
-    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` (the Nightly sink to come).
+    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` and the hang report sink (``BlockingReportSink``).
     let blocking = BlockingDetector.forProcess()
     /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
     let wireStats: DaemonWireStats?
@@ -603,7 +605,8 @@ final class AppServices {
         _ = CmuxDialogCenter.shared.observe { [overlayChanges] _ in overlayChanges.signal() } // an app dialog's host has no window
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         (self.launchStartup, self.crashKeys) = (launchStartup, crashKeys)
-        actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
+        // Estimated presents read the key display's last tick; no link starts for them.
+        actionBudget = ActionBudgetMonitor(board: mainWork.budget.board, displays: FrameScheduler.appDisplays)
         updater = UpdaterService(work: work)
         chromiumRuntime = ChromiumRuntimeService.make(work: work)
         mobile = MobileHostService(displayName: { await MacName().displayName() }, work: work)

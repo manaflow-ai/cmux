@@ -28,6 +28,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Switches a bench run sets (`CMUX_NEXT_BENCH_CEF_SWITCHES`, development and bench bundles of a
     /// Debug or bench build only): only the names in ``benchSwitchNames``.
     var benchSwitches: [String] = []
+    /// The agent site's main-frame cap from the default-off feature `agentPageRendererSharing` (its
+    /// `mainFrames` param); nil while the feature is off.
+    var agentPageMainFrameCap: Int?
 
     /// The switches a bench run may set: the pair Web Page Replay needs to serve a recorded archive
     /// (catapult web_page_replay_go/README.md: `--host-resolver-rules` maps every host to the replay
@@ -100,6 +103,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // turns it on by field trial; disable-field-trial-config leaves it off. The shim merges the list
         // into CEF's, and Chromium passes it to every child process.
         if !chromiumFeatures.isEmpty { result.append("enable-features=" + chromiumFeatures.joined(separator: ",")) }
+        // The agent site shares past Chrome's 2 main frames only on a fork whose page-scheme switch reads
+        // the cap table, and only with the renderer paths (a DevTools agent still ends sharing otherwise).
+        if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, let cap = agentPageMainFrameCap {
+            result.append(Self.pageSchemeProcessPerSiteArgument([PageSiteCap(site: Self.agentPageSite, mainFrames: cap)]))
+        }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -124,6 +132,34 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         result.append(contentsOf: benchSwitches)
         result.append(contentsOf: extraSwitches)
         return result
+    }
+
+    /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table: the
+    /// cross-program fork train (p01-process 178, joined by p07-memory 074 and p13-webui 086). API 29 has only
+    /// `cmux-process-reuse-per-renderer-devtools`.
+    static let pageSiteSharingForkAPI: Int32 = 31
+
+    /// PL-memory's switch for the cmux page scheme (p07-memory 049: ShouldUseProcessPerSite in the fork).
+    /// Its value lists the cmux-page sites that share a renderer, each with the most main frames one
+    /// renderer takes; a cmux-page site with no entry keeps Chrome's process reuse.
+    static let pageSchemeProcessPerSite = "cmux-page-scheme-process-per-site"
+
+    /// The New Tab and every agent chat are this one site (`cmux-page://cmux.agent`), shared the way Chrome
+    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite).
+    static let agentPageSite = "cmux.agent"
+
+    /// One cmux-page site and its main-frame cap. Chrome has one cap for every site, the
+    /// ProcessPerSiteMainFrameThreshold param (2) of kProcessPerSiteUpToMainFrameThreshold
+    /// (content/public/common/content_features.cc); the agent site's 8 bounds how many pages one renderer
+    /// crash or one streaming chat reaches (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
+    struct PageSiteCap: Equatable, Sendable {
+        var site: String
+        var mainFrames: Int
+    }
+
+    /// `cmux-page-scheme-process-per-site=<site>:<mainFrames>[,<site>:<mainFrames>...]`.
+    static func pageSchemeProcessPerSiteArgument(_ caps: [PageSiteCap]) -> String {
+        pageSchemeProcessPerSite + "=" + caps.map { "\($0.site):\($0.mainFrames)" }.joined(separator: ",")
     }
 
     /// Chrome's own promotions, tips and first-run prompts are for Google
@@ -184,7 +220,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
-        keepsUnpackedEnabled: Bool = false
+        keepsUnpackedEnabled: Bool = false,
+        agentPageMainFrameCap: Int? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
@@ -212,7 +249,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            benchSwitches: bench
+            benchSwitches: bench,
+            agentPageMainFrameCap: agentPageMainFrameCap
         )
     }
 

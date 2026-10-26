@@ -5,6 +5,7 @@ import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Leo 2026-10-21: "I LOAD IN AND IT'S A BLACK SCREEN". A workspace with a background picture
 /// (its own scope's, not the app's) at background-opacity 1 shows a see-through window, and the
@@ -20,7 +21,7 @@ struct AgentPaneScopeGlassTests {
 
     @Test func aChatInAScopeWithAPictureIsGlassNotTheOpaqueThemeColor() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentPaneTestHost(), gestures: .testing()))
 
         // Outside any picture (the app's scope, background-opacity 1) the chat paints its theme color.
         try #require(ThemeScope.app.backdropSelection == nil, "the test's app scope has a picture")
