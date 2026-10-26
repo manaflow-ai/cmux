@@ -30,6 +30,10 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The frame every page this host opens delivers its router envelopes on, one script per page
+    /// per frame (``PageWebView/deliverOnFrames(_:)``, p06-scheduler-222). Nil while
+    /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
+    package var scriptFrames: PageScriptFrame?
     /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
     /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
     /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
@@ -115,6 +119,7 @@ public final class WebUIHost {
         // The view joined processGroups (PageWebView(request:...) passes them on these terms).
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
         view.popupHoverFrameInput = hoverFrameInput
+        if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
