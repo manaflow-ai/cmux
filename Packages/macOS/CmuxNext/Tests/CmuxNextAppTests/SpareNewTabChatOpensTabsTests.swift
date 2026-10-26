@@ -16,7 +16,7 @@ struct SpareNewTabChatOpensTabsTests {
     /// The tabs' page: a loopback dev server origin (Debug), so views are made without the bundle.
     private static func agentTabs() -> AgentTabStore {
         let environment = [AgentPaneSource.devURLVariable: "http://127.0.0.1:9"]
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), environment: environment, showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), work: BackgroundWork(label: "test.agent-tabs"), environment: environment, showcase: true)
         tabs.localHost = host
         return tabs
     }

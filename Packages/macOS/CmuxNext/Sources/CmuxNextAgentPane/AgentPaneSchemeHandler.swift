@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextPages
 import Foundation
 import UniformTypeIdentifiers
@@ -17,9 +18,13 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
     let root: URL
     /// The markdown viewer's bundled libraries (the chart library's files).
     let libraries: URL?
+    /// The app's blocking-work lanes: the page's files and libraries are read there, never on the pool.
+    let runner: any MayBlockRunner
 
-    init(root: URL, libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))) {
+    init(root: URL, runner: any MayBlockRunner,
+         libraries: URL? = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))) {
         self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.runner = runner
         self.libraries = libraries
     }
 
@@ -58,14 +63,14 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         let id = ObjectIdentifier(task)
         active.insert(id)
         WebBundleServedViews.shared.add(webView)
-        let root = root, live = servedRoot != root
+        let root = root, live = servedRoot != root, runner = runner
         // task-owner: one file read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             // An active web update (WebBundleOverlay) serves its copy of the same file, unless
             // the web-dev.json overlay already serves this one.
             let served = live ? root : await WebBundleOverlay.shared.root(for: root)
             let file = served == root ? file : Self.fileURL(for: url, root: served) ?? file
-            let data = await Self.read(file)
+            let data = await Self.read(file, on: runner)
             guard let self, self.active.remove(id) != nil else { return }
             guard let data else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
@@ -85,10 +90,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         active.remove(ObjectIdentifier(task))
     }
 
-    /// Reads `file` off the main thread.
-    @concurrent nonisolated static func read(_ file: URL) async -> Data? {
-        // concurrency-allow: @concurrent, so this read never runs on the main actor
-        try? Data(contentsOf: file, options: .mappedIfSafe)
+    /// Reads `file` on `runner`'s files lane (the page waits for it), never on the main thread or the pool.
+    nonisolated static func read(_ file: URL, on runner: any MayBlockRunner) async -> Data? {
+        try? await runner.runFiles(.userVisible) { try Data(blockingContentsOf: file, options: .mappedIfSafe) }
     }
 
     /// The file `url` names inside `root`, or nil for another scheme or

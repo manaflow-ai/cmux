@@ -40,8 +40,10 @@ extension BookmarkService {
         guard let store = importStore, let directory else { return }
         let marker = directory.appending(path: "bookmarks-imports-migrated")
         let work = services.work
-        let migrated = (try? await work.run(.bestEffort, mayBlock: .files) { FileManager.default.fileExists(atPath: marker.path) }) ?? false
-        guard !migrated else { return }
+        // A refused check (quit began, or the caller was cancelled) is not a missing marker: migrating then
+        // would bring back folders the person deleted. The next launch checks again.
+        let checked = try? await work.run(.bestEffort, mayBlock: .files) { FileManager.default.fileExists(atPath: marker.path) }
+        guard let migrated = checked, !migrated else { return }
         for record in await store.sources() {
             for batch in await store.batches(profile: record.targetProfileID) where batch.source.sourceKey == record.sourceKey {
                 guard batch.kinds.contains(.bookmarks), !batch.bookmarks.isEmpty else { continue }

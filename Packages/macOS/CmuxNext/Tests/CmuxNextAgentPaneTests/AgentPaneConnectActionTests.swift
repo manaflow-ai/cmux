@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The location row's connect choices (``AgentPaneModel/runAction(_:)``): SSH…, New Cloud Machine
 /// and Open Cloud… (the Cloud page at its storefront, `#/get`, which lists the plan's sizes) run their
@@ -13,7 +14,7 @@ struct AgentPaneConnectActionTests {
     }
 
     @Test func openCloudOpensTheCloudStorefrontOnAGesture() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var ran: [String] = []
         var arguments: [[String: String]] = []
         model.onRunAction = { id, args in ran.append(id); arguments.append(args); return true }
@@ -26,7 +27,7 @@ struct AgentPaneConnectActionTests {
     }
 
     @Test func otherConnectActionsRunWithoutArguments() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var arguments: [[String: String]] = []
         model.onRunAction = { _, args in arguments.append(args); return true }
         model.transport.gestures.record()
@@ -37,7 +38,7 @@ struct AgentPaneConnectActionTests {
     /// A started chat's picker: Move to Cloud on a chat of this Mac, Bring Back Local on a Cloud
     /// chat, the same actions as the tab's right-click menu, on the person's gesture.
     @Test func moveAndBringBackRunOnAGesture() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var ran: [String] = []
         model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
         #expect(await model.respond(to: .runAction("cloudMove"))["ok"] as? Bool != true)
@@ -51,7 +52,7 @@ struct AgentPaneConnectActionTests {
     /// An action the app did not run (turned off, or not available for this chat) is a failure, so
     /// the page can say so instead of nothing happening.
     @Test func anActionTheAppDidNotRunIsAFailure() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.onRunAction = { _, _ in false }
         model.transport.gestures.record()
         let reply = await model.respond(to: .runAction("cloudBringBack"))
@@ -66,7 +67,7 @@ struct AgentPaneConnectActionTests {
         let registry = ActionRegistry.standard()
         for id: ActionID in ["cloudMove", "cloudBringBack"] { registry.bind(id, invoke: { _ in }) }
         registry.context = ActionContext(rawValue: .max)
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() })
         var hidden: Set<ActionID> = ["cloudBringBack"]
         model.chatMenuItems = {

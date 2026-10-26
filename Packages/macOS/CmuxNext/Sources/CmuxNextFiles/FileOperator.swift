@@ -2,8 +2,10 @@ import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
 
-/// ``FileOperating`` on the real file system, on the app's files lane (never the main actor or the
-/// cooperative pool: Chrome's `MayBlock` trait, base/task/task_traits.h).
+/// ``FileOperating`` on the real file system, on the app's files lanes (never the main actor or the
+/// cooperative pool: Chrome's `MayBlock` trait, base/task/task_traits.h). A short call (rename, new folder)
+/// is one ``BlockingLane/files`` item; a call whose length grows with its input (a copy, a trash, a delete,
+/// a transfer) runs on ``BlockingLane/bulkFiles``, so it never holds the serial files slot.
 ///
 /// Copies go through `copyfile(3)` with `COPYFILE_CLONE`, so an APFS copy of
 /// any size is a metadata-only clone, and report bytes as they go.
@@ -65,7 +67,8 @@ public struct FileOperator: FileOperating {
         let namer = namer
         for url in urls {
             try Task.checkCancellation()
-            made.append(try await work.run(.userBlocking, mayBlock: .files) {
+            // A copy of a folder on a volume that cannot clone takes as long as its bytes: the bulk lane.
+            made.append(try await work.run(.userBlocking, mayBlock: .bulkFiles) {
                 let folder = url.deletingLastPathComponent()
                 let free = namer.freeName(for: url.lastPathComponent, style: .copy, taken: Self.names(in: folder))
                 let target = folder.appendingPathComponent(free)
@@ -77,7 +80,8 @@ public struct FileOperator: FileOperating {
     }
 
     public func trash(_ urls: [URL]) async throws -> [TrashedItem] {
-        try await work.run(.userBlocking, mayBlock: .files) {
+        // A trash of many items (or across volumes, which copies) is long: the bulk lane.
+        try await work.run(.userBlocking, mayBlock: .bulkFiles) {
             var done: [TrashedItem] = []
             for url in urls {
                 var result: NSURL?
@@ -149,11 +153,13 @@ public struct FileOperator: FileOperating {
     public func transfer(_ sources: [URL], to folder: URL, mode: TransferMode,
                          resolve: @escaping @Sendable (FileConflict) async -> ConflictAnswer)
         -> AsyncThrowingStream<TransferEvent, any Error> {
-        let job = FileTransferJob(sources: sources, folder: folder, mode: mode, namer: namer, resolve: resolve)
+        let job = FileTransferJob(sources: sources, folder: folder, mode: mode, namer: namer, resolve: resolve, work: work)
         // Progress events are snapshots and `.finished` is always the last one, so dropping the
         // oldest when the reader lags loses nothing it needs.
         return AsyncThrowingStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
-            let task = Task.detached(priority: .userInitiated) {
+            // The job only awaits lane items and the conflict answers; its file calls run on the bulk lane.
+            // task-owner: the stream's termination cancels it; a refused lane item ends it with a cancel.
+            let task = Task(priority: .userInitiated) {
                 do {
                     try await job.run { continuation.yield($0) }
                     continuation.finish()

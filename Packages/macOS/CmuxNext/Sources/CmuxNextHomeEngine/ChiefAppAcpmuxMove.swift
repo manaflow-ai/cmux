@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import Darwin
 import Foundation
 import os
@@ -24,10 +25,13 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
     let app: AcpmuxEnvironment
     /// The Chief home's own acpmux (`home.acpmuxHome`), nil without an acpmux executable.
     let own: AcpmuxEnvironment?
+    /// The app's blocking-work lanes: the own daemon's census and end probe its socket and locks there.
+    let runner: any MayBlockRunner
 
-    init(home: ChiefHome, app: AcpmuxEnvironment) {
+    init(home: ChiefHome, app: AcpmuxEnvironment, runner: any MayBlockRunner) {
         self.home = home
         self.app = app
+        self.runner = runner
         own = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: app.executable.deletingLastPathComponent(),
                                         environment: ["ACPMUX_HOME": home.acpmuxHome.path])
     }
@@ -119,11 +123,11 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
             }
         }
         if plan.endOwnDaemon, let own, own.home.standardizedFileURL != app.home.standardizedFileURL {
-            guard Self.idle(await AcpmuxQuit.census(own)) else {
+            guard Self.idle(await AcpmuxQuit.census(own, runner: runner)) else {
                 Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) may have a session in a turn; it ends at a later start")
                 return true
             }
-            let result = await AcpmuxQuit.endAgents(own, keep: .nothing)
+            let result = await AcpmuxQuit.endAgents(own, runner: runner, keep: .nothing)
             Self.logger.info("Chief's own acpmux at \(own.home.path, privacy: .public) ended: \(String(describing: result), privacy: .public)")
         }
         return true

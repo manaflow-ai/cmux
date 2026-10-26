@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 public import Observation
@@ -183,12 +184,17 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// The app's blocking-work lanes (the composition root's one ``BackgroundWork``): the pane's file reads and
+    /// writes (attachments, image copies, captures, the scheme handler's library reads) run there, never on the
+    /// cooperative pool.
+    @ObservationIgnored public let runner: any MayBlockRunner
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
     public init(
+        runner: any MayBlockRunner,
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
@@ -197,6 +203,7 @@ public final class AgentPaneModel {
         transport: AgentPaneTransport = AgentPaneTransport()
     ) {
         self.allowsTabConversion = allowsTabConversion
+        self.runner = runner
         self.host = host
         self.transport = transport
         self.sessionId = sessionId

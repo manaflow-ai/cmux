@@ -16,6 +16,13 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         var picture: NSImage?
     }
 
+    /// The app's blocking-work lanes: an image's bytes are read there.
+    private let runner: any MayBlockRunner
+
+    init(runner: any MayBlockRunner) {
+        self.runner = runner
+    }
+
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
         .copy
     }
@@ -42,8 +49,9 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         let session = view.beginDraggingSession(with: [item], event: event, source: self)
         guard !pasteboard.imageTypes.isEmpty else { return true }
         // task-owner: the drag's image read; it ends with the read, and a drag that ended meanwhile ignores its result
+        let runner = runner
         Task { [weak view] in
-            let contents = await Self.contents(of: file)
+            let contents = await Self.contents(of: file, runner: runner)
             pasteboard.bytes = pasteboard.bytes ?? contents.data
             guard let picture = contents.picture, let view else { return }
             Self.show(picture, in: session, from: view)
@@ -60,11 +68,17 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         }
     }
 
-    /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (a mapped
-    /// read of the local copy) and its picture, scaled to at most 160 pt.
-    @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
+    /// Reads what a drag of `file` carries: for an image, its bytes (a mapped read of the local copy, on
+    /// `runner`'s files lane) and its picture, scaled to at most 160 pt (decoded off the main actor).
+    nonisolated static func contents(of file: URL, runner: any MayBlockRunner) async -> sending Contents {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
-              let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
+              let data = try? await runner.runFiles(.userVisible, { try Data(blockingContentsOf: file, options: .mappedIfSafe) })
+        else { return Contents() }
+        return await picture(of: data)
+    }
+
+    /// The drag's contents for an image's bytes: the bytes and their picture, decoded off the main actor.
+    @concurrent nonisolated static func picture(of data: Data) async -> sending Contents {
         guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
         let scale = 160 / max(image.size.width, image.size.height, 160)
         image.size = CGSize(width: image.size.width * scale, height: image.size.height * scale)

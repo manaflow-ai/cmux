@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
@@ -80,7 +81,7 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         try await host(for: sessionId).putFile(sessionId: sessionId, name: name, data: data)
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        try await host(for: sessionId).putFile(sessionId: sessionId, name: name, file: file)
+    public func putFile(sessionId: String, name: String, file: URL, runner: any MayBlockRunner) async throws -> String {
+        try await host(for: sessionId).putFile(sessionId: sessionId, name: name, file: file, runner: runner)
     }
 }

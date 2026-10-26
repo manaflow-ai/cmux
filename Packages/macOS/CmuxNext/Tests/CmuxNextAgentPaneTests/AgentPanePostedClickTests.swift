@@ -3,6 +3,7 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// cx-ocdz at the pane's gesture monitor: a click that another process posts (CGEventPost: a
 /// computer-use agent, a script) on the permission card reaches the page, but it is not the
@@ -32,7 +33,7 @@ struct AgentPanePostedClickTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body><button>Allow</button></body></html>".utf8).write(to: file)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -62,7 +63,7 @@ struct AgentPanePostedClickTests {
     @Test func aReturnFromChromiumStillCountsWhenItsChildWindowIsNotKey() async throws {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let view = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file),
                                               pageHost: .agentPaneTestHost(chromium: hosting)))
         view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         let paneWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],

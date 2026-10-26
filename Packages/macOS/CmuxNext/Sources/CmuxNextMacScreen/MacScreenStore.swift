@@ -84,11 +84,18 @@ public final class MacScreenStore {
         if loadTask == nil {
             let file = file, remove = removeLinkPairings, runner = runner
             loadTask = Task { [weak self] in
-                let read = try? await runner.runFiles(.userVisible) { () -> File? in
-                    guard let data = try? Data(blockingContentsOf: file) else { return nil }
-                    return try? JSONDecoder().decode(File.self, from: data)
+                // A refused read (quit began, or the load was cancelled) is not an empty file: nothing is
+                // recorded or saved over it, and the next load reads it again.
+                let stored: File?
+                do {
+                    stored = try await runner.runFiles(.userVisible) { () -> File? in
+                        guard let data = try? Data(blockingContentsOf: file) else { return nil }
+                        return try? JSONDecoder().decode(File.self, from: data)
+                    }
+                } catch {
+                    self?.loadTask = nil
+                    return
                 }
-                let stored = read ?? nil
                 guard let self else { return }
                 if let stored {
                     hubDeviceName = hubDeviceName ?? stored.hubDeviceName
@@ -96,10 +103,13 @@ public final class MacScreenStore {
                 }
                 if stored?.linkPairingsRemoved != true {
                     // One time: the Keychain items of link pairing (every saved Mac's room
-                    // secret and this Mac's own link) and the file's old fields go.
-                    _ = try? await runner.runSystem(.bestEffort) { remove() }
-                    linkPairingsRemoved = true
-                    save()
+                    // secret and this Mac's own link) and the file's old fields go. Recorded only
+                    // when the delete ran, so a refused one runs again at the next load.
+                    let removed: Void? = try? await runner.runSystem(.bestEffort) { remove() }
+                    if removed != nil {
+                        linkPairingsRemoved = true
+                        save()
+                    }
                 } else {
                     linkPairingsRemoved = true
                 }

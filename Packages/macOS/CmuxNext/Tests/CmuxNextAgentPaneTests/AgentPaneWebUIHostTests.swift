@@ -4,6 +4,7 @@ import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// p13-webui-009: an agent pane on the page host opens its page through the host it is given (the
 /// app's `AppServices.webUI`), not the static `PageWebView.chromiumHosting`, so the host knows the
@@ -18,7 +19,7 @@ struct AgentPaneWebUIHostTests {
     @Test func thePageOpensThroughTheGivenHost() throws {
         let file = try #require(AgentPageTestRoot.page)
         let host = WebUIHost.agentPaneTestHost()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: host))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file), pageHost: host))
         let page = try #require(view.page)
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(page)])
         #expect(host.registry.pages(id: PageDescriptor.agent.id).contains { $0 === page })
@@ -30,11 +31,11 @@ struct AgentPaneWebUIHostTests {
     /// The engine is picked with the given host's Chromium: with none the chat stays on WebKit.
     @Test func theHostsChromiumPicksTheEngine() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let chromium = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let chromium = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file),
                                                   pageHost: .agentPaneTestHost(chromium: FakeChromiumHosting())))
         let chromiumPage = try #require(chromium.page)
         #expect(chromiumPage.engineDecision == .chromium)
-        let webKit = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let webKit = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file),
                                                 pageHost: .agentPaneTestHost()))
         let webKitPage = try #require(webKit.page)
         #expect(webKitPage.engineDecision != .chromium)
@@ -42,7 +43,7 @@ struct AgentPaneWebUIHostTests {
 
     @Test func noHostKeepsThePaneOnItsOwnWebKitHost() throws {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let view = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file)))
         #expect(view.page == nil)
     }
 }

@@ -29,7 +29,7 @@ struct RestoredNewTabPageTitleTests {
 
     /// The app's agent tabs after a relaunch: they know this Mac and the store, and have made no view.
     private static func agentTabs(_ store: DaemonStore) -> AgentTabStore {
-        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), environment: [:], showcase: true)
+        let tabs = AgentTabStore(build: nil, registry: ActionRegistry.standard(), webUI: .agentTabsTestHost(), work: BackgroundWork(label: "test.agent-tabs"), environment: [:], showcase: true)
         tabs.localHost = host
         tabs.lookup = { key in store.tab(id: key)?.agentSession.map { ($0, store) } }
         return tabs

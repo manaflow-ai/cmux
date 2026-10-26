@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 extension SettingsController {
@@ -20,9 +21,9 @@ extension SettingsController {
 
     /// Writes the managed-settings status file after every applied load
     /// whose content changed (osquery, Fleet, Jamf extension attributes,
-    /// `cmux mdm status --json`). Call before `start()`.
-    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context) {
-        statusTarget = (url, context)
+    /// `cmux mdm status --json`). Call before `start()`. The writes run on `runner`'s files lane.
+    public func writeManagedStatus(to url: URL, context: ManagedStatusReport.Context, runner: any MayBlockRunner) {
+        statusTarget = (url, context, runner)
         lastStatusBody = nil
     }
 
@@ -32,11 +33,11 @@ extension SettingsController {
         guard body != lastStatusBody else { return }
         lastStatusBody = body
         let document = ManagedStatusReport.document(body: body, writtenAt: Date())
-        let file = file
-        // task-owner: one best-effort write on the config file's queue; nothing awaits it.
-        Task {
-            // Best effort: the file is a convenience for local tooling; the backend report is the record.
-            try? await file.writeSideFile(Data((document.prettyText() + "\n").utf8), to: target.url)
+        let data = Data((document.prettyText() + "\n").utf8), url = target.url
+        // Best effort: the file is a convenience for local tooling; the backend report is the record.
+        target.runner.postFiles(.bestEffort, shutdown: .skipOnShutdown) {
+            try? FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.blockingWrite(to: url, options: .atomic)
         }
     }
 

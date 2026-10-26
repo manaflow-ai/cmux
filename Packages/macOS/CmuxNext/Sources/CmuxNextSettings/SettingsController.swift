@@ -1,4 +1,5 @@
 public import CmuxNextActions
+import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 public import Observation
@@ -68,7 +69,7 @@ public final class SettingsController {
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
-    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context, runner: any MayBlockRunner)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
     /// The launch's read (`readAtLaunch`), adopted by the first load.
@@ -266,14 +267,19 @@ public final class SettingsController {
 
     private func loadOnce() async {
         let (file, reader, team, lastGood) = (file, managedReader, teamPolicy, fileRoot)
+        // The reads block the config file's queue, never a pool thread; the parse runs off the main actor.
         let valid = Self.validValues
-        adopt(await Task.detached {
-            let managed = reader.read()
-            let source: Result<String, any Error>
-            do { source = .success(try await file.source()) } catch { source = .failure(error) }
-            return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent())
-        }.value)
+        let read = await file.sourceAndManaged(reader)
+        adopt(await Self.parse(read.source, managed: read.managed, team: team, lastGood: lastGood, valid: valid,
+                               configDirectory: file.url.deletingLastPathComponent()))
+    }
+
+    /// ``loaded(_:managed:team:lastGood:valid:configDirectory:)`` off the main actor (a JSONC parse and validation).
+    @concurrent private nonisolated static func parse(_ source: Result<String, any Error>, managed: ManagedPreferences,
+                                                      team: TeamPolicyLayer, lastGood: JSONValue,
+                                                      valid: (densities: Set<String>, metrics: Set<String>),
+                                                      configDirectory: URL) async -> Loaded {
+        loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid, configDirectory: configDirectory)
     }
 
     /// The launch's first load, on the calling thread: the first window

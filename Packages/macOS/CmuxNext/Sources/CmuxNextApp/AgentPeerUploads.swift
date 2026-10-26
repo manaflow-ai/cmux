@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat whose agent runs on an ssh peer (acpmux peering:
@@ -35,6 +36,7 @@ struct AgentPeerUploads {
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard let target = target(tab: tab, services: services) else { return nil }
+        let work = services.work
         return { request, session in
             batches = batches.filter { $0.value.expires >= Date() }
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
@@ -90,7 +92,7 @@ struct AgentPeerUploads {
                 guard let stage = stages[token], stage.target.session == target.session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages.removeValue(forKey: token)
                 defer { try? FileManager.default.removeItem(at: stage.file) }
-                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
+                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file, runner: work); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
             case .cancel(let token):
                 if let stage = stages[token], stage.target.session == target.session {
                     stages.removeValue(forKey: token)

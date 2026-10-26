@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextPages
 import Foundation
 import WebKit
@@ -13,23 +14,23 @@ extension AgentPaneSchemeHandler {
             && url.path.hasPrefix("/" + MarkdownPageResource.library + "/")
     }
 
-    /// The library `url` names, read from `folder` (the markdown viewer's bundled libraries), as
-    /// the markdown page gets it; nil for another URL or a library the pane does not load.
-    @concurrent nonisolated static func library(for url: URL, in folder: URL?) async -> Data? {
+    /// The library `url` names, read from `folder` (the markdown viewer's bundled libraries) on `runner`'s
+    /// files lane, as the markdown page gets it; nil for another URL or a library the pane does not load.
+    nonisolated static func library(for url: URL, in folder: URL?, runner: any MayBlockRunner) async -> Data? {
         guard let folder, isLibrary(url) else { return nil }
         let name = String(url.path.dropFirst(MarkdownPageResource.library.count + 2))
         guard paneLibraries.contains(name) else { return nil }
-        return await MarkdownPageResource.library(name, in: folder)
+        return await MarkdownPageResource.library(name, in: folder, runner: runner)
     }
 
     /// Answers `task` with the library `url` names; a stopped task is never answered.
     func serveLibrary(url: URL, task: any WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         active.insert(id)
-        let folder = libraries
+        let folder = libraries, runner = runner
         // task-owner: one library read per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
-            let data = await Self.library(for: url, in: folder)
+            let data = await Self.library(for: url, in: folder, runner: runner)
             guard let self, self.active.remove(id) != nil else { return }
             guard let data,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",

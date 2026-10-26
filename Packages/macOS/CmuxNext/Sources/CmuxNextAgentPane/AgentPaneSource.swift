@@ -103,10 +103,11 @@ public nonisolated enum AgentPaneSource: Equatable, Sendable {
     }
 
     /// Serves the bundled page's directory on `configuration` (before the
-    /// web view is made from it); the dev server needs nothing.
-    @MainActor func register(on configuration: WKWebViewConfiguration) {
+    /// web view is made from it), reading its files on `runner`'s files lane; the dev server needs nothing.
+    @MainActor func register(on configuration: WKWebViewConfiguration, runner: any MayBlockRunner) {
         guard case .bundled(let page) = self else { return }
-        configuration.setURLSchemeHandler(AgentPaneSchemeHandler(root: page.deletingLastPathComponent()), forURLScheme: Self.bundledScheme)
+        configuration.setURLSchemeHandler(AgentPaneSchemeHandler(root: page.deletingLastPathComponent(), runner: runner),
+                                          forURLScheme: Self.bundledScheme)
     }
 
     /// Navigates `webView` to the page.

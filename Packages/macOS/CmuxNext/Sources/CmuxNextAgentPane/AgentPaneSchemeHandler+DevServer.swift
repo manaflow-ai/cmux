@@ -40,7 +40,7 @@ extension AgentPaneSchemeHandler {
     func serveDevServer(_ remote: URL, server: PageDevServer, url: URL, task: any WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         active.insert(id)
-        let fallback = Self.fileURL(for: url, root: servedRoot)
+        let fallback = Self.fileURL(for: url, root: servedRoot), runner = runner
         // task-owner: one fetch per scheme task; a stopped task is never answered
         Task { @MainActor [weak self] in
             var reply: (Data, [String: String])?
@@ -51,7 +51,7 @@ extension AgentPaneSchemeHandler {
                 // The document's policy is its meta tag (src/agent-session/acpmux/index.html).
                 if !type.hasPrefix("text/html") { headers["Content-Security-Policy"] = Self.devResourcePolicy }
                 reply = (body, headers)
-            } else if let fallback, let data = await Self.read(fallback) {
+            } else if let fallback, let data = await Self.read(fallback, on: runner) {
                 reply = (data, Self.headers(for: fallback, length: data.count))
             }
             guard let self, self.active.remove(id) != nil else { return }

@@ -23,6 +23,8 @@ final class AgentTabStore {
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
     /// its page host (`AppServices.webUI`) every page-hosted agent pane opens its page through.
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost
+    /// The app's blocking-work lanes, handed to every pane model it makes.
+    private let work: any MayBlockRunner
     /// The page every agent tab loads: the bundled file, or in Debug builds the dev server
     /// `CMUX_NEXT_AGENT_PANE_DEV_URL` names (nil only when the bundled page is missing).
     private let source: AgentPaneSource?
@@ -210,7 +212,8 @@ final class AgentTabStore {
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
-    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, environment: [String: String] = ProcessInfo.processInfo.environment,
+    init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, work: any MayBlockRunner,
+         environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -220,6 +223,7 @@ final class AgentTabStore {
         }
         self.openPanel = openPanel
         self.webUI = webUI
+        self.work = work
         actionRegistry = registry
         self.linkScheme = linkScheme
         let (resolvedSource, resolvedHost) = AgentTabPaneSource.resolvePane(build: build, environment: environment, showcase: showcase)
@@ -322,7 +326,7 @@ final class AgentTabStore {
         if kind == .local, (sessions[key] ?? record.session) == nil, daemonForTab(key)?.isLocal == false {
             let machine = daemonForTab(key).flatMap { remoteMachineName($0) } ?? ""
             let refused = AgentTabRefusedHost(refusal: AgentRemoteStartRefusal(code: AgentRemoteStartRefusal.hostMismatchCode, machine: machine))
-            let model = AgentPaneModel(host: refused, allowsTabConversion: false)
+            let model = AgentPaneModel(runner: work, host: refused, allowsTabConversion: false)
             // Its folder tools never act on this Mac either (cx-k21v).
             (model.remoteChat, model.neverPooled) = (true, true)
             guard let view = makeView(model) else { return nil }
@@ -358,6 +362,7 @@ final class AgentTabStore {
             return spare
         }
         let model = AgentPaneModel(
+            runner: work,
             host: paneHost,
             sessionId: sessions[key] ?? record.session,
             seed: seed,
@@ -393,7 +398,7 @@ final class AgentTabStore {
     /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        guard let view = makeView(AgentPaneModel(runner: work, host: host, newTab: page)) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -522,7 +527,7 @@ final class AgentTabStore {
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.
     func standaloneView(seed: AgentPaneSeed, session: String? = nil) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
+        guard let view = makeView(AgentPaneModel(runner: work, host: host, sessionId: session, seed: AgentPaneSeedSource(seed))) else { return nil }
         standaloneViews.add(view)
         return view
     }

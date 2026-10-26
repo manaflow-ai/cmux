@@ -7,6 +7,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import CmuxNextWakeups
 
 /// No automatic fetch and no automatic open from an agent's media (media-safety plan R5 and R7,
 /// leo-workspace#874). Leo 2026-10-21: "we want to make it prompt injection safe as well since
@@ -83,7 +84,7 @@ struct AgentPaneMediaNoAutoActionTests {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("media-no-auto-\(UUID().uuidString)", isDirectory: true)
         let project = folder.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let effects = Effects()
         let images = Fetches(body: png), media = Fetches(body: mp4)
         let links = model.replyLinks
@@ -449,9 +450,10 @@ struct AgentPaneMediaNoAutoActionTests {
         try Data(Self.hostileSVG.utf8).write(to: real)
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
         #expect(mkfifo(pipe.path, 0o600) == 0)
-        let fromFile = await AgentPaneImageCopies.rebuild(real, to: out)
-        let fromLink = await AgentPaneImageCopies.rebuild(link, to: out)
-        let fromPipe = await AgentPaneImageCopies.rebuild(pipe, to: out)
+        let work = BackgroundWork(label: "test.svg-rebuild")
+        let fromFile = await AgentPaneImageCopies.rebuild(real, to: out, runner: work)
+        let fromLink = await AgentPaneImageCopies.rebuild(link, to: out, runner: work)
+        let fromPipe = await AgentPaneImageCopies.rebuild(pipe, to: out, runner: work)
         #expect(fromFile && !fromLink && !fromPipe)
         let packed = folder.appendingPathComponent("drawing.svgz")
         #expect(AgentPaneImageCopies.handedOut(packed, in: folder) == packed)

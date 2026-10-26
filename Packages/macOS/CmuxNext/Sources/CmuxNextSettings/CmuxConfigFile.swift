@@ -185,19 +185,11 @@ public actor CmuxConfigFile {
         }
     }
 
-    // MARK: - Side files
-
-    /// The text of another settings file the person picked (a keymap to import), read on this
-    /// actor's queue: a user-chosen file can be on a slow volume.
-    public func readSideFile(_ url: URL) throws -> String {
-        try String(blockingContentsOf: url, encoding: .utf8)
-    }
-
-    /// Writes another settings file (an exported keymap, the managed-settings status) atomically,
-    /// making its folder first, on this actor's queue.
-    public func writeSideFile(_ data: Data, to url: URL) throws {
-        try FileManager.checked.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.blockingWrite(to: url, options: .atomic)
+    /// The managed preferences and the file's text, read in one turn of this actor's queue (a reload's
+    /// inputs; both block, so neither runs on a cooperative pool thread).
+    public func sourceAndManaged(_ reader: any ManagedPreferenceReader) -> (source: Result<String, any Error>, managed: ManagedPreferences) {
+        let managed = reader.read()
+        return (Result { try Self.source(at: url) }, managed)
     }
 
     // MARK: - Key paths

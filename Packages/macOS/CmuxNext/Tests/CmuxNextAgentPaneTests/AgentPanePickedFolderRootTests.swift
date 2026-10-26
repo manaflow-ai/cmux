@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// hq#2569 item 1 at the pane's folder check: a project the person picks from the New Tab folder
 /// menu (`workspace.useFolder`) is a folder the pane may use from then on, so the chat's start
@@ -45,7 +46,7 @@ struct AgentPanePickedFolderRootTests {
     func aProjectThePersonPicksIsAFolderThePaneMayUse(storeAnswers: Bool) async throws {
         let (folder, cleanup) = try makeProject()
         defer { cleanup() }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
         if storeAnswers {
             model.startFolders.resolve = { proposed in
@@ -69,7 +70,7 @@ struct AgentPanePickedFolderRootTests {
     @Test func aPickWithoutThePersonGrantsNothing() async throws {
         let (folder, cleanup) = try makeProject()
         defer { cleanup() }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
         let reply = await model.respond(to: .useFolder(folder, confirm: false))
         #expect(status(reply) == "ok")
@@ -81,7 +82,7 @@ struct AgentPanePickedFolderRootTests {
     @Test func pickingTheHomeFolderStillAsksFirst() async throws {
         let (folder, cleanup) = try makeProject()
         defer { cleanup() }
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.homeFolder = folder
         model.transport.gestures.record(click: true)
         let reply = await model.respond(to: .useFolder(folder, confirm: false))

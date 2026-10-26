@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The chat menu's Add Files to Project (cx-ncc.67, Claude desktop's project knowledge): after a real
 /// click in the pane, the files the user picks are copied into the chat folder's `.cmux/context/`
@@ -17,7 +18,7 @@ struct AgentPaneProjectFilesTests {
     private final class Rig {
         let folder: String
         let source: String
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var picks: [URL] = []
         var opened: [String] = []
 

@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// A chat with its native tab strip hidden still has a top webview strip. Its
 /// focus ring must start below that strip, rather than drawing a second line
@@ -22,7 +23,7 @@ import Testing
         try Data("<html><body>Agent</body></html>".utf8).write(to: file)
         let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
                                    reveal: LaunchReveal(deadline: .zero))
-        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let page = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file)))
         defer { page.close() }
         pane.hidesStrip = true
         pane.show(page)

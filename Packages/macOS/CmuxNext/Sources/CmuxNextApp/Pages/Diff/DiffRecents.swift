@@ -49,7 +49,7 @@ final class DiffRecents {
     /// The app's blocking-work lanes: the file reads and writes run there, never on the pool.
     let runner: any MayBlockRunner
     private var items: [DiffRecent]?
-    private var loading: Task<[DiffRecent], Never>?
+    private var loading: Task<[DiffRecent]?, Never>?
     private var saving: Task<Void, Never>?
 
     init(url: URL, runner: any MayBlockRunner) {
@@ -63,12 +63,20 @@ final class DiffRecents {
         SidebarSnapshotFile.buildDirectory(launch: launch).appending(path: fileName)
     }
 
-    /// The recents, newest first.
+    /// The recents, newest first; none when the read was refused.
     func list() async -> [DiffRecent] {
+        await load() ?? []
+    }
+
+    /// The recents, read once; nil when the read was refused (the next call reads again).
+    private func load() async -> [DiffRecent]? {
         if let items { return items }
         let task = loading ?? Task { [url, runner] in await Self.read(url, on: runner) }
         loading = task
-        let read = await task.value
+        guard let read = await task.value else {
+            loading = nil
+            return nil
+        }
         if items == nil { items = read }
         return items ?? read
     }
@@ -79,8 +87,9 @@ final class DiffRecents {
     }
 
     /// Moves `repository` to the front.
+    /// Drops the record when the file could not be read (quit began): writing then would replace the other recents.
     func record(_ repository: DiffRepository, source: DiffOpenSource, at date: Date = Date()) async {
-        var current = await list()
+        guard var current = await load() else { return }
         current.removeAll { $0.path == repository.root }
         current.insert(DiffRecent(path: repository.root, name: repository.name, openedAt: (date.timeIntervalSince1970 * 1000).rounded(),
                                   source: DiffRecent.sourceKind(source), branch: repository.branch), at: 0)
@@ -95,14 +104,15 @@ final class DiffRecents {
     /// Waits for the writes started so far (tests).
     func flush() async { await saving?.value }
 
-    private static func read(_ url: URL, on runner: any MayBlockRunner) async -> [DiffRecent] {
-        let items = try? await runner.runFiles(.userVisible) { () -> [DiffRecent] in
+    /// The file's recents, newest first ([] for a missing or unreadable file); nil when the lane refused the
+    /// read (quit began, or the caller was cancelled), which is not an empty file.
+    private static func read(_ url: URL, on runner: any MayBlockRunner) async -> [DiffRecent]? {
+        try? await runner.runFiles(.userVisible) { () -> [DiffRecent] in
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 1024 * 1024,
                   let data = try? Data(blockingContentsOf: url),
                   let items = try? JSONDecoder().decode([DiffRecent].self, from: data) else { return [] }
             return items.sorted { $0.openedAt > $1.openedAt }
         }
-        return items ?? []
     }
 
     /// One small atomic replace; quit waits for it.

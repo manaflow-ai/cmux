@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// A Send on the New Tab page with a project picked (a fresh workspace, whose own folder is `~`):
 /// the page asks the host to use the folder (`workspace.useFolder`) in the same turn as the Send,
@@ -46,7 +47,7 @@ struct AgentPaneSendPickedFolderPromptTests {
         let inbox = AgentPaneRelayedAllowTests.PageInbox()
         let transport = AgentPaneTransport(gestures: AgentPaneUserGestures(now: { clock.now }))
         transport.deliver = { event, done in inbox.deliver(event.frames); done() }
-        let model = AgentPaneModel(host: NoHost(), transport: transport)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), transport: transport)
         transport.roots = { [root] }
         transport.homeFolder = home ? folder : "/nonexistent-home-\(UUID().uuidString)"
         let id = try await transport.open(AcpmuxConnection(url: server.url, dashboardToken: "t", localAppToken: nil))

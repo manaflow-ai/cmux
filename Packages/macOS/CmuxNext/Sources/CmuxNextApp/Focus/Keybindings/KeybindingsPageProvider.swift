@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxNextDesign
 import UniformTypeIdentifiers
 
@@ -103,9 +104,9 @@ final class KeybindingsPageProvider: PageProvider {
         guard let url else { return ["cancelled": true] }
         do {
             if export {
-                try await settings.exportShortcutKeymap(to: url)
+                try await settings.exportShortcutKeymap(to: url, runner: services.work)
             } else {
-                try await settings.importShortcutKeymap(from: url)
+                try await settings.importShortcutKeymap(from: url, runner: services.work)
                 for listener in changedListeners.values { listener([:]) }
             }
         } catch {

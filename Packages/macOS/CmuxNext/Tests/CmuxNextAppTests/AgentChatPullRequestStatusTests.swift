@@ -2,6 +2,7 @@
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The PR chip's status popover (cx-ncc.77.1, Codex desktop's PR status): the App reads the pull
 /// request's title, review decision, mergeability and each check from the GitHub CLI, asks again
@@ -99,7 +100,7 @@ struct AgentChatPullRequestStatusTests {
     @Test func aTurnEndAsksAgain() async throws {
         let rig = try Self.rig()
         let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh))
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var hooks = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState.with(pullRequests.badge(cwd: rig.folder)) })
         hooks.refreshPullRequest = { pullRequests.askAgain() }
         model.header = hooks

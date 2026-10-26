@@ -3,6 +3,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The Needs you list reads each chat's open permission requests through the page's own op
 /// (`cmux.agent.chat.asks.pending`), never the relay: the relay refuses `_acpmux/info`, so a read
@@ -56,7 +57,7 @@ struct AgentPanePendingAsksTests {
 
     /// A pane whose last handshake connected it to the acpmux at `socket` (nil: none yet).
     static func pane(socket: String?) -> AgentPaneModel {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.transport.acpmuxSocket = socket
         return model
     }

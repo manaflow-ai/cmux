@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The user, 2026-10-21: "in chief i need to be able to right click any image/video etc 'copy'".
 /// A right-click on an image in an agent chat (Chromium or WebKit page) offers Open Image, Copy
@@ -46,7 +47,7 @@ struct AgentPaneImageMenuActionsTests {
     }
 
     private static func model(_ folder: URL) -> (AgentPaneModel, Effects) {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         let effects = Effects()
         model.replyLinks.imageFolder = folder.appendingPathComponent("copies", isDirectory: true)
         model.replyLinks.copyItem = { effects.copied.append($0); return true }

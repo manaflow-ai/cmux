@@ -62,28 +62,25 @@ public struct ProcessRunner {
         defer { progress?.cancel() }
 
         let box = ProcessBox(process)
-        // The spawn (a fork and exec, hundreds of ms under memory pressure) runs on the launcher's
-        // queue, never on a cooperative pool thread.
-        let launcher = ProcessLauncher(label: "com.cmuxterm.next.process-runner.spawn", priority: .userVisible)
         // A cancelled caller kills the child, so the waiter below ends now
         // instead of at the child's own exit or the deadline.
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    let (exits, exited) = AsyncStream.makeStream(of: Int32.self, bufferingPolicy: .bufferingNewest(1))
-                    box.process.terminationHandler = { process in
-                        exited.yield(process.terminationStatus)
-                        exited.finish()
-                    }
+                    // Resolved only by the child's exit (after a kill too), never by a cancel: a cancelled run
+                    // still reaps its child, and nil always means it did not start.
+                    let exit = FirstOutcome<Int32>()
+                    box.process.terminationHandler = { process in exit.resolve(process.terminationStatus) }
                     do {
-                        try await launcher.launched(box.process)
+                        // The spawn runs on its own queue, never on the caller's actor or a pool thread.
+                        try await AsyncProcess.spawn(box.process)
                     } catch {
                         box.process.terminationHandler = nil
                         return nil
                     }
-                    if Task.isCancelled { box.kill() }
-                    for await status in exits { return status }
-                    return nil
+                    // A cancel or a timeout that came during the spawn could not reach a child not started yet.
+                    if box.stopRequested { box.kill() }
+                    return await exit.value()
                 }
                 group.addTask {
                     guard let progressIdle, let progress else {
@@ -129,16 +126,23 @@ final class ProcessBox: @unchecked Sendable {
     let process: Process
     /// Sends a signal (tests record it instead).
     private let signal: @Sendable (pid_t, Int32) -> Void
+    /// A kill was asked for (cancel or timeout): the spawn kills a child that started after it.
+    private let stopped = Atomic<Bool>(false)
 
     init(_ process: Process, signal: @escaping @Sendable (pid_t, Int32) -> Void = { _ = Darwin.kill($0, $1) }) {
         self.process = process
         self.signal = signal
     }
 
+    /// Whether ``kill()`` was called, also before the child started.
+    var stopRequested: Bool { stopped.load(ordering: .sequentiallyConsistent) }
+
     /// SIGKILL to this child only, and only while it runs: never before launch
     /// (pid 0 would be our own process group) and never after exit (the pid
-    /// may belong to another process by then).
+    /// may belong to another process by then). A call before launch is
+    /// remembered: the spawn kills the child as soon as it starts.
     func kill() {
+        stopped.store(true, ordering: .sequentiallyConsistent)
         let pid = process.processIdentifier
         guard pid > 0, process.isRunning else { return }
         signal(pid, SIGKILL)

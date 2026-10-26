@@ -8,6 +8,7 @@ import CmuxNextSettingsWindow
 @testable import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The New Tab page's edit mode (Leo 2026-10-20, as an iPhone's home screen): right-click > Edit New
 /// Tab, then drag a widget, ✕ it, or + to add one. The page sends `newTab.editWidgets`; the App saves
@@ -60,7 +61,7 @@ import Testing
     }
 
     @Test func theEditModesRequestsReachTheApp() async {
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         var edits: [AgentPaneNewTabEdit] = []
         model.onEditNewTab = { edits.append($0) }
         let send = { (params: [String: Any]) in

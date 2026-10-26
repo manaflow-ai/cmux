@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Changes view's Stage hunk and Unstage hunk (cx-ncc.74, Codex desktop's): the page names one
 /// hunk of a file by its lines as `git.diff` showed them; the App finds that hunk in its own read
@@ -25,7 +26,7 @@ struct AgentPaneGitStageHunkTests {
         changed[1] = "line two"
         changed[18] = "line nineteen"
         try (changed.joined(separator: "\n") + "\n").write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [repo] }
         model.gitWritesHere = { true }
         return (model, repo)

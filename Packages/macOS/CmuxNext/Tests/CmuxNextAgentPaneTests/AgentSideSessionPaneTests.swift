@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// `/btw` side sessions at the pane boundary. A side session (`_acpmux/btw`) goes out like a prompt:
 /// only on a gesture, only about a chat in the pane's scope, and only with the params the page
@@ -27,7 +28,7 @@ struct AgentSideSessionPaneTests {
         try await server.start()
         defer { server.stop() }
         server.answer("_acpmux/btw", with: #"{"sessionId":"side-1","model":"haiku","readOnly":"mode"}"#)
-        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-1")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "chat-1")
         var opened: [String] = []
         model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() },
                                             openSide: { chat, fork in opened.append("\(chat)>\(fork)") })

@@ -94,8 +94,10 @@ CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue,
 MetalYUVRenderer. No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
-once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
+.files (serial per priority); a disk job whose length grows with its input (a folder size walk, a recursive delete,
+a big copy, a trash of many items) uses lane .bulkFiles (4 at once), so it never holds the serial .files slot; a sync
+system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at once, Chrome kDefaultMaxSystemTasks);
+long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
 (default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
@@ -182,16 +184,16 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.app.next.layout-templates`, `com.cmuxterm.app.next.server-fix-ledger`,
   `com.cmuxterm.next.bookmarks.file`, `com.cmuxterm.next.browser.profile-book`, `com.cmuxterm.next.cloud.machine-link`,
   `com.cmuxterm.next.onboarding.classic-migration`, `com.cmuxterm.next.phone.android`,
-  `com.cmuxterm.next.remote.ssh-link`, `com.cmuxterm.next.settings.config-file` (also the keymap and managed-status
-  side files); default: `com.cmuxterm.app.next.agent-pane.owner-avatars`, `com.cmuxterm.next.browser.site-permissions`;
+  `com.cmuxterm.next.remote.ssh-link`, `com.cmuxterm.next.settings.config-file` (the settings file and the managed
+  preferences it reloads with; a keymap file the person picks goes through the files lane); default: `com.cmuxterm.app.next.agent-pane.owner-avatars`, `com.cmuxterm.next.browser.site-permissions`;
   utility (saves and caches nobody waits for): `com.cmuxterm.app.next.markdown-table-widths`,
   `com.cmuxterm.next.browser.site-zoom`, `com.cmuxterm.next.browser.download-temp-files`,
   `com.cmuxterm.next.browser-import.store`, `com.cmuxterm.chromium-runtime.installer`,
   `com.cmuxterm.next.cloud.tunnel-hub`, `com.cmuxterm.next.error-journal`, `com.cmuxterm.next.hang-reports.store`,
   `com.cmuxterm.next.mobile.host-supervisor`, `com.cmuxterm.next.phone.recorder`
-- Spawn queues (`ProcessLauncher`: a child's fork and exec runs here, never on the pool):
-  `com.cmuxterm.next.process-runner.spawn` (default), `com.cmuxterm.next.files.ripgrep-spawn` (user-initiated),
-  `com.cmuxterm.next.cli-install.admin-spawn` (user-initiated), `com.cmuxterm.next.browser.osascript-spawn` (default)
+- Spawn queues: `com.cmuxterm.next.process.spawn.<x>` (`AsyncProcess.spawn`: one serial queue per child, at the
+  caller's QoS, for a caller that streams the child's output or waits for its end itself: `ProcessRunner`, ripgrep;
+  the fork and exec run here, never on the caller's actor or the pool)
 - Every `Thread` and `OperationQueue` sets `name` and `qualityOfService` before it starts; every URLSession
   gets a named delegate queue. None is unnamed.
 

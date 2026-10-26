@@ -14,6 +14,9 @@ import os
 final class IncognitoWorkspaceLedger {
     private let url: URL
     private var written: Set<String>?
+    /// The last run's ids were never read (the lane refused the read: quit began, or the launch was
+    /// cancelled). Writes then keep them in the file, so the next launch still closes them.
+    private var keepsLeftovers = false
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "incognito")
@@ -41,23 +44,30 @@ final class IncognitoWorkspaceLedger {
     /// only while it lists some (an existence check, no read).
     var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
 
-    /// The ids the last run left (read on the files lane).
+    /// The ids the last run left (read on the files lane); none when the read was refused, and then later
+    /// writes keep them in the file.
     func load() async -> [String] {
         let url = url
-        let ids = try? await runner.runFiles(.userBlocking) { () -> [String] in
-            guard let data = try? Data(blockingContentsOf: url),
-                  let document = try? JSONDecoder().decode(Document.self, from: data) else { return [] }
-            return document.workspaces
+        do {
+            return try await runner.runFiles(.userBlocking) { Self.read(url) }
+        } catch {
+            keepsLeftovers = true
+            return []
         }
-        return ids ?? []
+    }
+
+    /// The ids in the file at `url`, none when it is missing or unreadable; on the files lane.
+    nonisolated private static func read(_ url: URL) -> [String] {
+        guard let data = try? Data(blockingContentsOf: url),
+              let document = try? JSONDecoder().decode(Document.self, from: data) else { return [] }
+        return document.workspaces
     }
 
     /// Records `ids` when they changed (written off the main thread).
     func record(_ ids: Set<String>) {
         guard ids != written else { return }
         written = ids
-        let url = url, logger = logger
-        let data = try? JSONEncoder().encode(Document(workspaces: ids.sorted()))
+        let url = url, logger = logger, keepsLeftovers = keepsLeftovers
         let previous = lastWrite, runner = runner
         // task-owner: lastWrite; each write waits for the one before it, so they land in order.
         lastWrite = Task {
@@ -65,7 +75,9 @@ final class IncognitoWorkspaceLedger {
             do {
                 // The ledger is what closes a crashed run's incognito pages: quit waits for this small write.
                 try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
-                    if let data, !ids.isEmpty {
+                    let all = keepsLeftovers ? ids.union(Self.read(url)) : ids
+                    let data = try? JSONEncoder().encode(Document(workspaces: all.sorted()))
+                    if let data, !all.isEmpty {
                         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                         try data.write(to: url, options: .atomic)
                     } else if FileManager.default.fileExists(atPath: url.path) {

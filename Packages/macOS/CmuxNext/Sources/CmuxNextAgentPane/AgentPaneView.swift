@@ -172,7 +172,7 @@ public final class AgentPaneView: NSView {
             if renderRate != .capped {
                 WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
             }
-            source.register(on: configuration)
+            source.register(on: configuration, runner: model.runner)
             // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
             // background is the one surface token, or clear over a see-through
             // window (plans/cmux-next/windows.md).

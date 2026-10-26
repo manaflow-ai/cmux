@@ -59,16 +59,17 @@ public struct FileInfoReader: Sendable {
 
     /// Adds up everything inside `folder` (packages and hidden items too). Stops early when cancelled.
     public func folderSize(of folder: URL) async -> FolderSize {
-        // A long walk: the lane checks the flag the caller's cancel sets.
-        let stop = FolderSizeStop()
+        // A walk of a home folder takes minutes: it runs on the bulk lane, never on the serial files slot every
+        // other Files call at its priority waits on, and checks the flag the caller's cancel sets.
+        let stop = FileWorkStop()
         return await withTaskCancellationHandler {
-            (try? await work.run(.userVisible, mayBlock: .files) { Self.walk(folder, stop: stop) }) ?? FolderSize()
+            (try? await work.run(.userVisible, mayBlock: .bulkFiles) { Self.walk(folder, stop: stop) }) ?? FolderSize()
         } onCancel: {
             stop.set()
         }
     }
 
-    private static func walk(_ folder: URL, stop: FolderSizeStop) -> FolderSize {
+    private static func walk(_ folder: URL, stop: FileWorkStop) -> FolderSize {
         var total = FolderSize()
         let keys: [URLResourceKey] = [.fileSizeKey, .totalFileAllocatedSizeKey, .isRegularFileKey]
         guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys,

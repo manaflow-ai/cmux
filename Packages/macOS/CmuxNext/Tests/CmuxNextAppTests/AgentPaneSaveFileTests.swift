@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The side panel's Save (cx-ncc.75, Claude parity): `pane.saveFile` hands a document to the pane's
 /// save panel under a plain file name with its kind's extension, as the inspector's `pane.saveLog`
@@ -20,7 +21,7 @@ struct AgentPaneSaveFileTests {
     }
 
     @Test func savesADocumentUnderItsKindsExtension() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var saved: [AgentPaneSave] = []
         var answer = true
         model.onSaveFile = { save in
@@ -52,7 +53,7 @@ struct AgentPaneSaveFileTests {
     }
 
     @Test func refusesAnotherKindNoTextOrNoSavePanel() async {
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         var saved = 0
         model.onSaveFile = { _ in
             saved += 1

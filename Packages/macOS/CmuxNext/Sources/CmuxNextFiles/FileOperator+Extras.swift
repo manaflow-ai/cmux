@@ -1,7 +1,8 @@
 public import CmuxNextWakeups
 public import Foundation
 
-/// Make Alias, Delete Immediately, Compress and Expand on the real file system, on the files lane.
+/// Make Alias, Delete Immediately, Compress and Expand on the real file system, on the files lanes (the long
+/// steps on the bulk lane).
 extension FileOperator {
     public func makeLinks(_ urls: [URL], kind: LinkKind) async throws -> [URL] {
         var made: [URL] = []
@@ -30,7 +31,8 @@ extension FileOperator {
     }
 
     public func deleteImmediately(_ urls: [URL]) async throws {
-        try await work.run(.userBlocking, mayBlock: .files) {
+        // A recursive delete of a large tree is long: the bulk lane.
+        try await work.run(.userBlocking, mayBlock: .bulkFiles) {
             for url in urls {
                 do {
                     try FileManager.default.removeItem(at: url)
@@ -60,7 +62,8 @@ extension FileOperator {
         }
         // ditto archives one source: clone the items (metadata-only on APFS)
         // into a staging folder on the same volume and archive its contents.
-        let (target, staging) = try await work.run(.userBlocking, mayBlock: .files) { () -> (URL, URL) in
+        // The staging copy is a clone on APFS but a full copy elsewhere: the bulk lane.
+        let (target, staging) = try await work.run(.userBlocking, mayBlock: .bulkFiles) { () -> (URL, URL) in
             let target = folder.appendingPathComponent(namer.freeName(for: base + ".zip", style: .number,
                                                                       taken: Self.names(in: folder)))
             let staging = try Self.stagingFolder(near: folder)
@@ -77,10 +80,10 @@ extension FileOperator {
         do {
             try await ditto(["-c", "-k", "--sequesterRsrc", staging.path, target.path])
         } catch {
-            work.post(.bestEffort, mayBlock: .files) { Self.removeStaging(staging) }
+            work.post(.bestEffort, mayBlock: .bulkFiles) { Self.removeStaging(staging) }
             throw error
         }
-        work.post(.bestEffort, mayBlock: .files) { Self.removeStaging(staging) }
+        work.post(.bestEffort, mayBlock: .bulkFiles) { Self.removeStaging(staging) }
         return target
     }
 
@@ -90,12 +93,13 @@ extension FileOperator {
         do {
             try await ditto(["-x", "-k", archive.path, staging.path])
         } catch {
-            work.post(.bestEffort, mayBlock: .files) { Self.removeStaging(staging) }
+            work.post(.bestEffort, mayBlock: .bulkFiles) { Self.removeStaging(staging) }
             throw error
         }
         let namer = namer
-        return try await work.run(.userBlocking, mayBlock: .files) {
-            defer { Self.removeStaging(staging) }
+        // What the move leaves (an archive's `__MACOSX`, or all of it when the move fails) can be a large tree.
+        defer { work.post(.bestEffort, mayBlock: .bulkFiles) { Self.removeStaging(staging) } }
+        return try await work.run(.userBlocking, mayBlock: .files) { () throws -> URL in
             let items = ((try? FileManager.default.contentsOfDirectory(atPath: staging.path)) ?? [])
                 .filter { $0 != "__MACOSX" }
             let taken = Self.names(in: folder)
@@ -118,7 +122,7 @@ extension FileOperator {
         }
     }
 
-    /// Removes a staging folder; on the files lane only.
+    /// Removes a staging folder; on the bulk files lane only (it can hold a large tree).
     static func removeStaging(_ staging: URL) {
         try? FileManager.default.removeItem(at: staging)
     }

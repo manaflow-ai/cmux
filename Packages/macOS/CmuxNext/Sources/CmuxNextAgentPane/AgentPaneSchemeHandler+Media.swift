@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import WebKit
 
@@ -69,20 +70,19 @@ extension AgentPaneSchemeHandler {
         return (start, end)
     }
 
-    /// Reads the slice off the main thread.
-    @concurrent nonisolated static func readSlice(of file: URL, range: String?) async -> MediaSlice? {
-        // concurrency-allow: @concurrent, so this read never runs on the main actor
-        mediaSlice(of: file, range: range)
+    /// Reads the slice on `runner`'s files lane (the player waits for it), never on the main thread or the pool.
+    nonisolated static func readSlice(of file: URL, range: String?, on runner: any MayBlockRunner) async -> MediaSlice? {
+        (try? await runner.runFiles(.userVisible) { mediaSlice(of: file, range: range) }) ?? nil
     }
 
     /// Answers `task` for the granted `file`; a stopped task is never answered.
     func serveMedia(_ file: URL, url: URL, task: any WKURLSchemeTask) {
         let id = ObjectIdentifier(task)
         active.insert(id)
-        let range = task.request.value(forHTTPHeaderField: "Range")
+        let range = task.request.value(forHTTPHeaderField: "Range"), runner = runner
         // task-owner: one range read per media request; a stopped task is never answered
         Task { @MainActor [weak self] in
-            let slice = await Self.readSlice(of: file, range: range)
+            let slice = await Self.readSlice(of: file, range: range, on: runner)
             guard let self, self.active.remove(id) != nil else { return }
             guard let slice,
                   let response = HTTPURLResponse(url: url, statusCode: slice.status, httpVersion: "HTTP/1.1", headerFields: slice.headers)

@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// New Worktree (cx-lyqio.2): a new chat's page asks for a worktree of its folder, and the App
 /// runs the session host's `git.worktree.create` there. It needs a real click in the pane, a chat
@@ -23,7 +24,7 @@ struct AgentPaneGitWorktreeTests {
     private static func rig() throws -> (AgentPaneModel, Sent, String) {
         let folder = FileManager.default.temporaryDirectory.appending(path: "git-worktree-\(UUID().uuidString)").path
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [folder] }
         model.gitWritesHere = { true }
         let sent = Sent()
@@ -99,7 +100,7 @@ struct AgentPaneGitWorktreeTests {
     private static let worktreeRoot = "/Users/me/.cmux/worktrees/app/fix-login"
 
     private static func applyRig(isLocal: Bool = true) -> (AgentPaneModel, Sent) {
-        let model = AgentPaneModel(host: WorktreeHost(AgentPaneSessionFolder(cwd: worktreeRoot, isLocal: isLocal)), sessionId: "s1")
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: WorktreeHost(AgentPaneSessionFolder(cwd: worktreeRoot, isLocal: isLocal)), sessionId: "s1")
         model.gitWritesHere = { true }
         let sent = Sent()
         model.onGitWrite = { write, cwd in

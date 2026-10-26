@@ -124,8 +124,9 @@ package nonisolated struct RipgrepSearch {
             exited.continuation.finish()
         }
         do {
-            // The spawn (a fork and exec) runs on the launcher's queue, never on a cooperative pool thread.
-            try await ProcessLauncher(label: "com.cmuxterm.next.files.ripgrep-spawn", priority: .userBlocking).launched(process)
+            // The spawn (a fork and exec) runs on its own queue, never on a cooperative pool thread; the
+            // matches stream in as rg prints them, so `AsyncProcess.run`'s collect-at-exit does not fit.
+            try await AsyncProcess.spawn(process)
         } catch {
             return .failed(status: -1)
         }

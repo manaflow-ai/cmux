@@ -127,6 +127,7 @@ public final class BackgroundWork: Sendable {
             case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth), mayBlock: true)
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)), mayBlock: false)
+            case .bulkFiles: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.bulkFilesWidth), mayBlock: true)
             }
         }
     }
@@ -135,6 +136,10 @@ public final class BackgroundWork: Sendable {
     /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
     /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
     public static let systemWidth = 6
+
+    /// How many ``BlockingLane/bulkFiles`` items run at once: a few long disk jobs (Get Info on a home
+    /// folder, a big delete) side by side, and still a bound on the disk work nobody waits for at once.
+    public static let bulkFilesWidth = 4
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.

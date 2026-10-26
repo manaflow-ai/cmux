@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Changes view's Create PR (cx-tcwj): the App opens the pushed branch's pull request with the
 /// GitHub CLI, the open one when there is one. It never pushes (the session host's Push does,
@@ -133,7 +134,7 @@ struct AgentPaneGitPullRequestTests {
     /// Through the pane: a request needs a real click or key and a chat on this Mac.
     @Test func thePaneNeedsAGestureAndAChatOnThisMac() async throws {
         let rig = try Self.rig()
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [rig.repo] }
         model.gitWritesHere = { true }
         let body: [String: Any] = ["method": "git.pullRequest", "params": ["cwd": rig.repo]]

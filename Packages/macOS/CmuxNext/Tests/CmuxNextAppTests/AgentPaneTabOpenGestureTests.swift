@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// cx-hnpxh: `tab.open` with a terminal and `run` types the line into a new terminal tab and runs it,
 /// so a chat page's script (rendered agent output, say) could run one shell line on this Mac without
@@ -20,7 +21,7 @@ struct AgentPaneTabOpenGestureTests {
 
     /// A pane in a tab (a chat, or the New Tab page when `newTab`), with the tabs it opened recorded.
     private final class Rig {
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         var opened: [AgentPaneOpenTab] = []
         var typedAhead: [String] = []
 
@@ -137,7 +138,7 @@ struct AgentPaneTabOpenGestureTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body><input></body></html>".utf8).write(to: file)
-        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), allowsTabConversion: true)
         model.becomeNewTab(AgentPaneNewTab(kind: .terminal))
         let view = try #require(AgentPaneView(model: model, source: .bundled(file)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],

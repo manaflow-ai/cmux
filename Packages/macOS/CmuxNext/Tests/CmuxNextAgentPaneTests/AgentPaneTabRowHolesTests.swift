@@ -6,6 +6,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Lawrence 2026-10-21 (msg 8412, "default behavior, show the tabs in agent chats"): with the chat's
 /// tools in the tab row (`chrome.tabs.rowTools`, on by default) the pane lays the chat over its tab
@@ -23,7 +24,7 @@ struct AgentPaneTabRowHolesTests {
     private func chromiumChat() async throws -> (AgentPaneView, FakeChromiumPage) {
         let file = try #require(AgentPageTestRoot.page)
         let hosting = FakeChromiumHosting()
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file),
+        let view = try #require(AgentPaneView(model: AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost()), source: .bundled(file),
                                               pageHost: .agentPaneTestHost(chromium: hosting)))
         view.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         view.layoutSubtreeIfNeeded()
