@@ -196,6 +196,23 @@ describe("groupVariants", () => {
     expect(groups[0]!.offers[0]!.model.id).toBe(rows[1]!.id);
     expect(groups[0]!.model.id).toBe(rows[1]!.id);
   });
+
+  test("duplicate provider retention chooses an available row in either order", async () => {
+    const { groupVariants } = await variants();
+    const available = { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" };
+    const unavailable = {
+      id: "openrouter/qwen/Coder-3",
+      name: "OpenRouter/Coder 3",
+      unavailable: "offline",
+    };
+    for (const rows of [
+      [available, unavailable],
+      [unavailable, available],
+    ]) {
+      const groups = groupVariants(rows, unavailable.id);
+      expect(groups[0]!.offers[0]!.model.id).toBe(available.id);
+    }
+  });
 });
 
 const openCode = [
@@ -222,6 +239,7 @@ const railed = [
     ...openCode[0]!,
     models: [
       ...openCode[0]!.models,
+      { id: "openrouter/deepseek/DeepSeek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
       { id: "openrouter/meta/llama-scout", name: "OpenRouter/Llama Scout" },
       { id: "together/meta/llama-scout", name: "Together/Llama Scout" },
       { id: "mistral/codestral", name: "Mistral/Codestral" },
@@ -245,7 +263,12 @@ const railed = [
   },
 ];
 
-async function mount(model = "opencode/deepseek-v4-pro", rail = false, catalog = rail ? railed : openCode) {
+async function mount(
+  model = "opencode/deepseek-v4-pro",
+  rail = false,
+  catalog = rail ? railed : openCode,
+  providers?: "row" | "submenu" | "expanded",
+) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const landed: string[] = [];
@@ -260,7 +283,7 @@ async function mount(model = "opencode/deepseek-v4-pro", rail = false, catalog =
         efforts={[]}
         recents={[]}
         harnessFixed={!rail}
-        quick={{}}
+        quick={providers ? { providers } : {}}
         onLand={(id) => landed.push(id)}
         onEffort={() => undefined}
       />,
@@ -437,4 +460,14 @@ test("the held list height and width count the chat tab's Provider row, on every
     for (const row of modelRows(menus()[0]!))
       expect(heldWidths, `${name}'s ${nameOf(row)}`).toContainEqual({ label: nameOf(row), value: detailOf(row) });
   }
+});
+
+test("submenu width probes use only the rendered chevron marker", async () => {
+  await mount(undefined, true, railed, "submenu");
+  const probe = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")].find(
+    (row) => row.querySelector(".acpmux-menu-label")?.textContent === "DeepSeek V4 Pro",
+  );
+  expect(probe).toBeDefined();
+  expect(probe?.querySelector(".ui-submenu-chevron")).not.toBeNull();
+  expect(probe?.querySelector(".ui-menu-check, .ui-menu-shortcut")).toBeNull();
 });
