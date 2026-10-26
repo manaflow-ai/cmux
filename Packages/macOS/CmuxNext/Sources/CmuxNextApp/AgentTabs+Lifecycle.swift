@@ -121,12 +121,13 @@ extension AgentTabStore {
     }
 
     /// Why a tab cannot open on the session host `host`, nil when it can: none, this Mac's own
-    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab). Another
+    /// host, or this app's Chief home (`chief:<home id>`, a Chief subagent's tab), or in a pane of
+    /// this Mac any other Chief home's, which is this Mac's too (#25262). Another
     /// machine's session never opens in a tab of this Mac (cx-k21v), and the refusal says so
     /// (`app_agent_open` with `host: "cmux16"` said only "see the app log", 2026-10-20). This
     /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
     static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
-        guard let host, host != chiefHost else { return nil }
+        guard let host, host != chiefHost, !(daemonIsLocal && host.hasPrefix(ChiefHomeAcpmux.hostPrefix)) else { return nil }
         if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
         return RefusalStrings.agentTabRunsOnHost(host)
     }
