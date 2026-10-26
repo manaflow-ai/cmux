@@ -40,6 +40,35 @@ nonisolated struct AgentPaneReplyPaths {
         self.base = base
     }
 
+    /// A chat's folders as spelled (``AgentPaneModel/replyPathScope()``), before they are made
+    /// canonical, which reads the disk.
+    struct Scope: Equatable, Sendable {
+        /// A chat on this Mac; a remote chat's paths are its host's, never this Mac's.
+        var local: Bool
+        /// The pane's roots and the folders the person added.
+        var roots: [String]
+        /// The folder acpmux reported for the chat's session, when the pane has it.
+        var session: String?
+        /// The pane's workspace root, chosen with the rest (``AgentPaneModel/primaryRoot()``).
+        var primary: AgentPanePrimaryRoot
+        var home: String
+    }
+
+    /// The paths of `scope`: its roots and its session's folder (never `/` or the home folder,
+    /// ``AgentPaneModel/sessionRoots()``'s rule), and for images and videos also the chat's folder
+    /// (the session's, else the workspace's), `/tmp` and home.
+    init(_ scope: Scope) {
+        let home = AcpmuxPathPolicy.canonical(NSHomeDirectory()) ?? NSHomeDirectory()
+        let session = scope.session.flatMap(AcpmuxPathPolicy.canonical).flatMap { $0 != "/" && $0 != home ? $0 : nil }
+        let base = session ?? scope.primary.resolve()
+        guard scope.local else {
+            self.init(roots: [], imageRoots: [], home: scope.home, base: nil)
+            return
+        }
+        self.init(roots: scope.roots + (session.map { [$0] } ?? []), imageRoots: [base, "/tmp", scope.home].compactMap { $0 },
+                  home: scope.home, base: base)
+    }
+
     /// Longest path the page may send (a path is far shorter).
     static let maximumLength = 4096
 
@@ -148,6 +177,21 @@ nonisolated struct AgentPaneReplyPaths {
     /// the path-chip gate.
     func resolveImage(_ text: String) -> Resolved? {
         guard Self.isImagePath(text) else { return nil }
+        return resolve(text, inside: roots + imageRoots)
+    }
+
+    /// Movies AVFoundation reads (``AgentPaneVideoInfo``); the page's `isVideoAttachment` names the same.
+    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+
+    static func isVideoPath(_ text: String) -> Bool {
+        guard let path = imagePath(text) else { return false }
+        return videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// Resolves a video an attachment names (its poster and Quick Look) with the image roots: a
+    /// screen recording lands on the Desktop, outside the project. Read-only, like an image.
+    func resolveVideo(_ text: String) -> Resolved? {
+        guard Self.isVideoPath(text) else { return nil }
         return resolve(text, inside: roots + imageRoots)
     }
 }

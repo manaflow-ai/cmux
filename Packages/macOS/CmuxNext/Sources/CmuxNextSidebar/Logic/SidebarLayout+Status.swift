@@ -9,14 +9,14 @@ import Foundation
 /// Done shows under its state and a long section lists every row.
 nonisolated extension SidebarLayout {
     /// The rows of `sections`' computers (the pinned area and the document's sections lay out as before), from `y`;
-    /// `spaced` puts the section spacing above them.
+    /// `spacing` goes above them: the section spacing, the row spacing under a block, or none.
     static func statusRows(
-        _ sections: [SidebarSection], spaced: Bool, chats: inout SidebarChatHistoryPlacement,
+        _ sections: [SidebarSection], spacing: CGFloat, chats: inout SidebarChatHistoryPlacement,
         options o: SidebarLayoutOptions, metrics m: SidebarLayoutMetrics, y: inout CGFloat
     ) -> [SidebarRow] {
         let machines = sections.filter { $0.machine != nil }
         guard let first = machines.first else { return [] }
-        if spaced { y += m.sectionSpacing }
+        y += spacing
         chats.placePinned(&y)
         var members: [SidebarStatusSection: [(ws: SidebarWorkspace, section: SidebarSection, index: Int)]] = [:]
         for section in machines {
@@ -62,7 +62,7 @@ nonisolated extension SidebarLayout {
                     y += m.tabRowHeight + m.rowSpacing
                 }
             }
-            y += m.groupBottomPadding
+            // The next status group follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
         }
         return rows
     }
