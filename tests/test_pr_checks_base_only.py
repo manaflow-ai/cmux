@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """pr-checks.yml skips its advisory jobs only on a push that just merged the base.
 
-A base-only update (the new head's parents are the old head and a commit on the
-base branch, and the pull request's diff is unchanged) started about 6.5
-advisory runs per head on 2026-10-26; the folded workflow starts one run whose
-first job answers this. Anything else must answer false, so every check runs:
-another event, a plain commit, a merge that also edits, a merge of a branch
-that is not the base, or a head the branch has already moved past.
+A base-only update started about 6.5 advisory runs per head on 2026-10-26; the
+folded workflow starts one run whose first job answers whether the push only
+merged feat-cmux-next. It says yes only when the new head's parents are the
+previous head and a commit on the base, the new head's tree is the clean merge
+of the two, the pull request's diff is unchanged, the fetched history is whole
+above the merge base, and the previous head's own push run finished green.
+Anything else answers no, so every check runs: another event, a plain commit,
+a merge that also edits or moves an edit, a merge of a branch that is not the
+base, a head the branch has moved past, a cut history, or a previous run that
+was cancelled, held or never ran.
 
-pr-capture-check can block a merge and a merger reads a missing verdict as a
-pass, so it never waits on that answer.
+None of the skipped jobs can fail a pull request, so a skipped one hides no
+verdict; pr-capture-check, which can, is not in this workflow.
 
-The step runs here as the workflow runs it, against a local origin.
+The step runs here as the workflow runs it, against a local origin, with `gh`
+replaced by a stub that answers the previous head's run.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -26,11 +32,13 @@ import yaml
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = yaml.safe_load((ROOT / ".github/workflows/pr-checks.yml").read_text())
+WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
+WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text())
 JOBS = WORKFLOW["jobs"]
 STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
 SKIPPED_ON_BASE_ONLY = ("link", "size", "split")
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
+LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 
 
 def git(repo: Path, *args: str) -> str:
@@ -43,6 +51,16 @@ def write(repo: Path, path: str, text: str) -> None:
     target.write_text(text, encoding="utf-8")
 
 
+def edit(text: str, line: int, new: str) -> str:
+    rows = text.splitlines(keepends=True)
+    rows[line] = new
+    return "".join(rows)
+
+
+def run(status: str, conclusion: str | None, title: str = "synchronize: t", number: int = 1) -> dict:
+    return {"status": status, "conclusion": conclusion, "display_title": title, "run_number": number}
+
+
 class BaseOnlyStepTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -53,62 +71,111 @@ class BaseOnlyStepTests(unittest.TestCase):
         git(src, "config", "user.email", "t@example.com")
         git(src, "config", "user.name", "t")
         git(src, "config", "uploadpack.allowFilter", "true")
-        write(src, "app/a.swift", "".join(f"let a{i} = {i}\n" for i in range(40)))
+        git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
+        write(src, "app/a.swift", LINES)
         write(src, "docs/base.md", "base\n")
         git(src, "add", "-A")
         git(src, "commit", "-qm", "base")
         git(src, "checkout", "-qb", "pr")
-        write(src, "app/a.swift", "".join(f"let a{i} = {i * (2 if i == 5 else 1)}\n" for i in range(40)))
+        write(src, "app/a.swift", edit(LINES, 5, "let a5 = 50\n"))
         write(src, "app/new.swift", "let n = 1\n")
         git(src, "add", "-A")
         git(src, "commit", "-qm", "pr")
         self.before = git(src, "rev-parse", "HEAD")
         git(src, "checkout", "-q", "feat-cmux-next")
         # The base moves under the pull request: a line far from its hunk, and a file of its own.
-        write(src, "app/a.swift", "".join(f"let a{i} = {i * (3 if i == 30 else 1)}\n" for i in range(40)))
+        write(src, "app/a.swift", edit(LINES, 40, "let a40 = 400\n"))
         write(src, "docs/base.md", "base moved\n")
         git(src, "commit", "-qam", "base moves on")
         self.base = git(src, "rev-parse", "HEAD")
         git(src, "checkout", "-q", "pr")
         self.temp = root / "temp"
         self.temp.mkdir()
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        self.gh_log = root / "gh.log"
+        self.runs = root / "runs.json"
+        self.answer([run("completed", "success")])
+        # The stub applies the step's own --jq filter to the canned runs, as gh would.
+        (self.bin / "gh").write_text(
+            '#!/usr/bin/env bash\necho "$*" >> "$GH_LOG"\n'
+            '[ -n "${GH_FAIL:-}" ] && exit 1\n'
+            'while [ $# -gt 0 ]; do [ "$1" = --jq ] && { shift; jq -r "$1" "$GH_RUNS"; exit; }; shift; done\n')
+        (self.bin / "gh").chmod(0o755)
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def answer(self, runs: list[dict]) -> None:
+        self.runs.write_text(json.dumps({"workflow_runs": runs}))
 
     def push(self, sha: str) -> str:
         git(self.src, "update-ref", "refs/pull/7/head", sha)
         return sha
 
-    def merge_base(self, *extra: str) -> str:
+    def merge_base(self, *extra: tuple[str, str]) -> str:
         git(self.src, "merge", "-q", "--no-ff", "--no-commit", "feat-cmux-next")
-        for path in extra:
-            write(self.src, path, "edited in the merge\n")
+        for path, text in extra:
+            write(self.src, path, text)
             git(self.src, "add", path)
         git(self.src, "commit", "-qm", "Merge feat-cmux-next")
         return self.push(git(self.src, "rev-parse", "HEAD"))
 
-    def decide(self, after: str, action: str = "synchronize", before: str | None = None) -> tuple[str, str]:
+    def decide(self, after: str, action: str = "synchronize", before: str | None = None,
+               remote: str | None = None, **extra: str) -> tuple[str, str]:
         output = self.temp / "github_output"
         output.write_text("")
-        env = {**os.environ, "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(output),
-               "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": action,
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "GH_LOG": str(self.gh_log),
+               "GH_RUNS": str(self.runs), "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(output),
+               "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": action, "REPOSITORY": "o/r",
                "BEFORE": self.before if before is None else before, "AFTER": after,
-               "BASE_REF": "feat-cmux-next", "PR": "7", "REMOTE": f"file://{self.src}"}
+               "BASE_REF": "feat-cmux-next", "PR": "7", "REMOTE": remote or f"file://{self.src}", **extra}
         subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True)
         result = subprocess.run(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         return outputs.get("base_only", ""), result.stdout
 
-    def test_a_merge_of_the_base_is_base_only(self):
+    def gh_calls(self) -> list[str]:
+        return self.gh_log.read_text().splitlines() if self.gh_log.exists() else []
+
+    def test_a_clean_merge_of_the_base_is_base_only(self):
         answer, why = self.decide(self.merge_base())
         self.assertEqual(answer, "true", why)
+        self.assertEqual(len(self.gh_calls()), 1)
+        self.assertIn(f"actions/workflows/pr-checks.yml/runs?head_sha={self.before}&event=pull_request", self.gh_calls()[0])
 
     def test_a_merge_that_also_edits_runs_everything(self):
-        answer, why = self.decide(self.merge_base("app/new.swift"))
+        answer, why = self.decide(self.merge_base(("app/new.swift", "let n = 2\n")))
         self.assertEqual(answer, "false", why)
-        self.assertIn("own diff", why)
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_a_merge_that_moves_an_edit_runs_everything(self):
+        # The same replacement at another line: the -U0 diff without line numbers matches,
+        # the merged tree does not.
+        moved = edit(edit(LINES, 40, "let a40 = 400\n"), 7, "let a5 = 50\n")
+        answer, why = self.decide(self.merge_base(("app/a.swift", moved)))
+        self.assertEqual(answer, "false", why)
+        self.assertIn("clean merge", why)
+
+    def test_a_previous_run_that_did_not_finish_green_runs_everything(self):
+        after = self.merge_base()
+        for runs in ([run("completed", "cancelled")], [run("in_progress", None)], [],
+                     [run("completed", "success", number=1), run("completed", "cancelled", number=2)],
+                     [run("completed", "success", "synchronize (held): t")],
+                     [run("completed", "success", "edited: t")],
+                     [run("completed", "success", "opened (draft): t")]):
+            with self.subTest(runs=runs):
+                self.answer(runs)
+                answer, why = self.decide(after)
+                self.assertEqual(answer, "false", why)
+                self.assertIn("previous head", why)
+        self.answer([run("completed", "success", "ready_for_review: t", 2), run("completed", "cancelled", "edited: t", 3)])
+        self.assertEqual(self.decide(after)[0], "true")
+
+    def test_an_unreadable_previous_run_runs_everything(self):
+        answer, why = self.decide(self.merge_base(), GH_FAIL="1")
+        self.assertEqual(answer, "false", why)
 
     def test_a_plain_commit_runs_everything(self):
         write(self.src, "app/new.swift", "let n = 2\n")
@@ -143,37 +210,61 @@ class BaseOnlyStepTests(unittest.TestCase):
         self.assertEqual(answer, "false")
         self.assertIn("moved past", why)
 
+    def test_a_history_cut_above_the_merge_base_runs_everything(self):
+        # The base merges an old side branch: the shallow fetch keeps the merge but cuts
+        # the side branch's parent, so the history above the merge base is not whole.
+        git(self.src, "checkout", "-q", "feat-cmux-next")
+        git(self.src, "checkout", "-qb", "side", f"{self.base}^")
+        write(self.src, "docs/side.md", "side\n")
+        git(self.src, "add", "-A")
+        old = "2000-01-01T00:00:00Z"
+        subprocess.run(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True,
+                       env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
+        git(self.src, "checkout", "-q", "feat-cmux-next")
+        git(self.src, "merge", "-q", "--no-ff", "-m", "Merge side", "side")
+        git(self.src, "checkout", "-q", "pr")
+        answer, why = self.decide(self.merge_base())
+        self.assertEqual(answer, "false", why)
+
     def test_a_failed_fetch_runs_everything(self):
-        output = self.temp / "github_output"
-        output.write_text("")
-        env = {**os.environ, "RUNNER_TEMP": str(self.temp), "GITHUB_OUTPUT": str(output),
-               "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": "synchronize",
-               "BEFORE": self.before, "AFTER": "a" * 40, "BASE_REF": "feat-cmux-next", "PR": "7",
-               "REMOTE": f"file://{self.temp}/missing"}
-        result = subprocess.run(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("base_only=false", output.read_text())
+        answer, why = self.decide("a" * 40, remote=f"file://{self.temp}/missing")
+        self.assertEqual(answer, "false", why)
+        self.assertEqual(self.gh_calls(), [])
 
 
 class WorkflowShapeTests(unittest.TestCase):
     def test_the_answer_never_fails_the_run(self):
         self.assertTrue(STEP.get("continue-on-error"))
-        self.assertEqual(JOBS["base-only"]["permissions"], {"contents": "read"})
-        self.assertNotIn("GH_TOKEN", str(STEP.get("env")))
+        self.assertEqual(JOBS["base-only"]["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(JOBS["base-only"]["if"], "github.event.action == 'synchronize'")
 
-    def test_only_the_advisory_jobs_wait_on_it(self):
+    def test_only_advisory_jobs_and_every_one_waits_on_it(self):
+        self.assertEqual(set(JOBS), {"base-only", *SKIPPED_ON_BASE_ONLY})
         for job_id in SKIPPED_ON_BASE_ONLY:
             with self.subTest(job=job_id):
                 job = JOBS[job_id]
                 self.assertEqual(job["needs"], "base-only")
                 # A skipped or failed answer runs the job: no implicit success().
                 self.assertTrue(str(job["if"]).startswith("${{ !cancelled() && " + ANSWER))
-        self.assertNotIn("needs", JOBS["capture"])
-        self.assertEqual(JOBS["capture"]["name"], "pr-capture-check")
+                self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("pull_request_target", WORKFLOW_PATH.read_text())
+
+    def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
+        title = WORKFLOW["run-name"]
+        self.assertTrue(title.startswith("${{ github.event.action }}"), title)
+        self.assertIn("vars.CI_QUOTA_HOLD == '1' && ' (held)'", title)
+        self.assertIn("github.event.pull_request.draft && ' (draft)'", title)
+        self.assertIn('test("^(opened|synchronize|reopened|ready_for_review):")', STEP["run"])
+
+    def test_a_description_edit_never_cancels_a_push_run(self):
+        group = WORKFLOW["concurrency"]["group"]
+        self.assertIn("github.event.action == 'edited' && 'edited' || 'push'", group)
+        self.assertTrue(WORKFLOW["concurrency"]["cancel-in-progress"])
+        for job_id in SKIPPED_ON_BASE_ONLY:
+            self.assertNotIn("concurrency", JOBS[job_id])
 
     def test_check_names_are_unchanged(self):
         names = {job_id: job.get("name", job_id) for job_id, job in JOBS.items()}
-        self.assertEqual(names["capture"], "pr-capture-check")
         self.assertEqual(names["link"], "link")
         self.assertEqual(names["size"], "PR size (advisory)")
         self.assertEqual(names["split"], "split-plan advisory")

@@ -1,39 +1,41 @@
 name: PR checks
 
-# The feat-cmux-next pull request checks that run from the pull request's own
-# event (`pull_request`), folded into one workflow so a push starts one run
-# instead of four: pr-capture-check, the review link, the size advisory and the
-# split-plan advisory. Their jobs, names, permissions and steps are what their
-# own workflows had (pr-capture-check.yml, gallery-link.yml,
-# pr-size-advisory.yml, cmux-next-split-guard.yml).
+# Three advisory feat-cmux-next pull request checks, folded into one workflow so
+# a push starts one run instead of three: the review link, the size advisory and
+# the split-plan advisory. Their jobs, names, permissions and steps are the ones
+# their own workflows had (gallery-link.yml, pr-size-advisory.yml,
+# cmux-next-split-guard.yml). None of them can fail a pull request, so a skipped
+# one hides no verdict; pr-capture-check, which can, keeps its own workflow.
 #
 # Base-only updates: a push that only merged feat-cmux-next into the branch
-# (the new head's parents are the old head and a commit on feat-cmux-next, and
-# the pull request's own diff is the same before and after) skips the review
-# link, the size advisory and the split-plan advisory: their answers are the old
-# head's. pr-capture-check always runs, since a merger reads a missing verdict
-# as a pass. On 2026-10-26, 19:30-19:55Z, 33 such updates started 523 runs, 214
-# of them advisory, and every run spends from the one GITHUB_TOKEN budget.
+# skips all three, and their answers stay the previous head's. On 2026-10-26,
+# 19:30-19:55Z, 33 such updates started 523 runs, 214 of them advisory, and every
+# run spends from the one GITHUB_TOKEN budget.
 on:
   pull_request:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled, ready_for_review]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+# The base-only job reads the previous head's run by this title: an `edited` run
+# (the size advisory alone), a held one (CI_QUOTA_HOLD) or a draft's does not
+# answer for that head's other checks.
+run-name: "${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
 
 permissions: {}
 
-# A push supersedes the previous push's run. A description or label event gets
-# its own group so it never cancels a push's run; pr-capture-check, which runs on
-# every event, keeps its own job group, so the newest event's verdict is the one
-# that finishes. The size advisory has no job group: a skipped job must never
-# cancel a running one, and a description edit within a push's run is rare.
+# A push supersedes the previous push's run, which then reads as cancelled, so
+# a base-only push after it runs every check rather than keep answers that never
+# finished. A description edit (the size advisory alone) has its own group and
+# never cancels a push's run.
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}-${{ contains(fromJSON('["edited","labeled","unlabeled"]'), github.event.action) && 'metadata' || 'push' }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && 'edited' || 'push' }}
   cancel-in-progress: true
 
 jobs:
-  # Whether this push only merged the base. Commits and trees by git, no API
-  # call and no token; any doubt (another event, a force push, a failed fetch, a
-  # conflict resolved in the merge) answers false and every check runs.
+  # Whether this push only merged the base, so the previous head's answers still
+  # hold. Any doubt (another event, a force push, a failed fetch or read, a
+  # conflict resolved by hand, a previous run that did not finish) answers false
+  # and every check runs.
   base-only:
     name: base-only update
     if: github.event.action == 'synchronize'
@@ -41,6 +43,7 @@ jobs:
     timeout-minutes: 6
     permissions:
       contents: read
+      actions: read
     outputs:
       base_only: ${{ steps.decide.outputs.base_only }}
     steps:
@@ -49,6 +52,8 @@ jobs:
         continue-on-error: true
         timeout-minutes: 5
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
           ACTION: ${{ github.event.action }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.pull_request.head.sha }}
@@ -68,11 +73,12 @@ jobs:
           git init -q "$repo"
           git -C "$repo" remote add origin "$REMOTE"
           # Commits and trees only, back far enough to find where the previous head
-          # last met the base; the two diffs below fetch only the blobs they read.
+          # last met the base; the merge and the diffs below fetch only the blobs they read.
           timeout 150 git -C "$repo" fetch -q --no-tags --filter=blob:none --shallow-since="4 days ago" origin \
             "+refs/pull/$PR/head:refs/remotes/pr/head" "+refs/heads/$BASE_REF:refs/remotes/origin/base" \
             || decide false "Could not fetch the head and $BASE_REF: every check runs."
           [ "$(git -C "$repo" rev-parse refs/remotes/pr/head)" = "$AFTER" ] || decide false "The branch moved past $AFTER: every check runs."
+          # The new head's parents: the previous head, then a commit on the base.
           read -r first second extra <<<"$(git -C "$repo" rev-list --parents -n 1 "$AFTER" | cut -d' ' -f2-)"
           if [ "${first:-}" != "$BEFORE" ] || [ -z "${second:-}" ] || [ -n "${extra:-}" ]; then
             decide false "The head is not a merge onto the previous head: every check runs."
@@ -83,8 +89,21 @@ jobs:
           if [ -z "$bases" ] || [ "$(wc -l <<<"$bases")" -ne 1 ]; then
             decide false "No single point where the previous head met $BASE_REF: every check runs."
           fi
-          # The pull request's own change, before and after, without context, line
-          # numbers or blob ids, so a base that moved under unchanged hunks keeps it equal.
+          # That merge base is the real one only if the fetched history is whole above it:
+          # a commit whose parents the shallow fetch cut, reachable from either side but
+          # not from the merge base, could hide a newer common ancestor.
+          if [ -f "$repo/.git/shallow" ] \
+              && git -C "$repo" rev-list "$BEFORE" "$second" --not "$bases" | grep -qFxf "$repo/.git/shallow"; then
+            decide false "The fetched history is cut above where the previous head met $BASE_REF: every check runs."
+          fi
+          # The new head is exactly the clean merge of the base into the previous head:
+          # nothing resolved or edited by hand.
+          merged="$(timeout 120 git -C "$repo" merge-tree --write-tree --no-messages "$BEFORE" "$second")" \
+            || decide false "Merging $BASE_REF into the previous head does not merge cleanly: every check runs."
+          [ "$merged" = "$(git -C "$repo" rev-parse "$AFTER^{tree}")" ] \
+            || decide false "The head is not the clean merge of $BASE_REF into the previous head: every check runs."
+          # And the pull request's own change is the same: no context, line numbers or blob
+          # ids, so a base that moved under unchanged hunks keeps it equal.
           change() {
             timeout 120 git -C "$repo" -c diff.renames=false diff -U0 --binary --no-color --no-ext-diff "$1" "$2" \
               > "$RUNNER_TEMP/base-only.diff" || return 1
@@ -93,82 +112,16 @@ jobs:
           old="$(change "$bases" "$BEFORE")" || decide false "Could not diff the previous head: every check runs."
           new="$(change "$second" "$AFTER")" || decide false "Could not diff the new head: every check runs."
           [ "$old" = "$new" ] || decide false "The merge changed the pull request's own diff: every check runs."
+          # The previous head's answers exist: its newest push run (not a description edit,
+          # a held run or a draft's) finished green. One read, only for a base-only head.
+          previous="$(gh api "repos/$REPOSITORY/actions/workflows/pr-checks.yml/runs?head_sha=$BEFORE&event=pull_request&per_page=30" \
+            --jq '[.workflow_runs[] | select(.display_title | test("^(opened|synchronize|reopened|ready_for_review):"))]
+                  | sort_by(.run_number) | last | if . == null then "none" else "\(.status)/\(.conclusion)" end')" \
+            || decide false "Could not read the previous head's run: every check runs."
+          [ "$previous" = "completed/success" ] \
+            || decide false "The previous head's run did not finish green ($previous): every check runs."
           echo "::notice title=Base-only update::$AFTER only merged $BASE_REF; the advisory checks keep the previous head's answers."
-          decide true "$AFTER only merged $BASE_REF ($second) into $BEFORE, and the pull request's diff is unchanged: the advisory checks are skipped."
-
-  # A pull request that changes native app UI shows a real capture of it in its description:
-  # what `cmux-ci capture` prints (a fleet build driven on a capture mini, light and dark, checked
-  # for private text), the media-tour label, or a `No capture: <why>` line. Lanes kept merging UI
-  # changes with no capture or with mock stills. scripts/ci/pr_capture_check.py decides; it runs
-  # from the base branch, never the pull request's code. Editing the description re-runs it.
-  # Every event and every draft runs it, base-only updates included.
-  capture:
-    name: pr-capture-check
-    concurrency:
-      group: pr-capture-check-${{ github.event.pull_request.number }}
-      cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Checkout the check from the base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.base.ref }}
-          persist-credentials: false
-          sparse-checkout: |
-            scripts/ci/pr_capture_check.py
-            scripts/cmux-next/media/path_map.py
-          sparse-checkout-cone-mode: false
-
-      # The paths this pull request changes, from git rather than the files API
-      # (a call per 100 files on each of the check's events: every push, label
-      # and description edit). The event's merge commit and its first parent,
-      # the base, without blobs: two trees, read as data, never run. The files
-      # API's `.filename` lists the paths the pull request adds, changes or
-      # removes, a rename under its new name; so does this diff, with rename
-      # detection on. It leaves out only a change the base already carries,
-      # which merging changes nothing for. Any failure leaves `listed` unset,
-      # and the next step reads the files API.
-      - name: List the changed paths
-        id: paths
-        continue-on-error: true
-        timeout-minutes: 2
-        env:
-          MERGE_SHA: ${{ github.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA"
-          # Only the merge of this head counts; a stale or one-parent commit reads the files API.
-          [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ]
-          git diff --name-only -z -M "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"
-          echo "listed=true" >> "$GITHUB_OUTPUT"
-
-      - name: Check the description for a real capture
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BODY: ${{ github.event.pull_request.body }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-          LISTED: ${{ steps.paths.outputs.listed }}
-        run: |
-          set -euo pipefail
-          if [ ! -f scripts/ci/pr_capture_check.py ]; then
-            # The pull request that adds the check: its base has no check to run yet.
-            echo "::notice::The base branch has no scripts/ci/pr_capture_check.py yet; nothing to check."
-            exit 0
-          fi
-          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          if [ "$LISTED" != true ]; then
-            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/paths.txt"
-          fi
-          python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
-            --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
+          decide true "$AFTER is the clean merge of $BASE_REF ($second) into $BEFORE, whose checks finished: the advisory checks are skipped."
 
   # Keep PRs navigable without publishing internal gallery payloads. The detailed
   # visual evidence stays in the private HQ feed and Actions artifacts; the PR gets
@@ -284,7 +237,7 @@ jobs:
   split:
     name: split-plan advisory
     needs: base-only
-    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) }}
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:

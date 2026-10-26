@@ -69,10 +69,10 @@ DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
     "pr-checks.yml": ("link", "size"),
 }
 # Checks a merger reads as a pass when skipped; they must never skip drafts.
-NEVER_DRAFT_SKIPPED: dict[str, tuple[str, ...]] = {
-    "cmux-next-defaults-guard.yml": (),
-    "pr-checks.yml": ("capture",),
-}
+NEVER_DRAFT_SKIPPED = (
+    "cmux-next-defaults-guard.yml",
+    "pr-capture-check.yml",
+)
 DRAFT = "!github.event.pull_request.draft"
 PR_EVENTS = ("pull_request", "pull_request_target")
 
@@ -215,19 +215,10 @@ class QuotaHoldGateTests(unittest.TestCase):
         self.assertTrue(any("does not list ready_for_review" in f for f in failures), failures)
 
     def test_merge_blocking_checks_still_run_on_drafts(self) -> None:
-        for name, jobs in NEVER_DRAFT_SKIPPED.items():
+        for name in NEVER_DRAFT_SKIPPED:
             with self.subTest(workflow=name):
-                if not jobs:
-                    self.assertNotIn("pull_request.draft", (WORKFLOWS / name).read_text(encoding="utf-8"))
-                    self.assertNotIn(name, DRAFT_SKIPPED)
-                    continue
-                workflow = load(WORKFLOWS / name)
-                for job_id in jobs:
-                    job = workflow["jobs"][job_id]
-                    self.assertNotIn("pull_request.draft", str(job))
-                    # A skipped dependency would skip it too.
-                    self.assertNotIn("needs", job)
-                    self.assertNotIn(job_id, DRAFT_SKIPPED.get(name, ()))
+                self.assertNotIn("pull_request.draft", (WORKFLOWS / name).read_text(encoding="utf-8"))
+                self.assertNotIn(name, DRAFT_SKIPPED)
 
     def write(self, directory: Path, name: str, text: str) -> Path:
         path = directory / name
