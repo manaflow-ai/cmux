@@ -127,7 +127,8 @@ public final class HomeNativeTranscriptView: NSView {
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
     let showsHeader = HomeTunables.chatHeader.value
-    /// Visible while the view is in a window and not stopped: the live settings apply only then.
+    /// Visible while the view is in a window, not hidden there (a parked tab, an unselected
+    /// conversation) and not stopped: the live settings apply only then (``updateVisibility()``).
     let visibility = VisibilityNode(root: "home.transcript", own: .hidden)
     /// The live settings (HomeNativeTranscriptView+Settings.swift).
     var settingsWatch: FrameObservation<HomeTranscriptSettings>?
@@ -430,7 +431,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        visibility.set(window != nil && !stopped ? .visible : .hidden)
+        updateVisibility()
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)

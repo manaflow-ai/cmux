@@ -36,7 +36,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         didSet { loneRailWatch = followLoneConversationTunable() }
     }
     private let mainWork: MainWorkScheduler
-    /// Visible while the view is in a window: the Debug Settings switch lays out again only then.
+    /// Visible while the view is in a window and not hidden there (a parked tab): the Debug
+    /// Settings switch lays out again only then.
     private let visibility = VisibilityNode(root: "home.split", own: .hidden)
     private var loneRailWatch: FrameObservation<Bool>?
 
@@ -178,7 +179,24 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        visibility.set(window == nil ? .hidden : .visible)
+        updateVisibility()
+        registerDropTypes()
+    }
+
+    override public func viewDidHide() {
+        super.viewDidHide()
+        updateVisibility()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateVisibility()
+    }
+
+    /// In a window, and neither this view nor an ancestor hidden (a parked tab stays in its window
+    /// with `isHidden`; AppKit sends the hide and unhide to its descendants).
+    private func updateVisibility() {
+        visibility.set(window != nil && !isHiddenOrHasHiddenAncestor ? .visible : .hidden)
     }
 
     private func place(_ width: CGFloat) {

@@ -40,6 +40,24 @@ extension HomeNativeTranscriptView {
         return watch
     }
 
+    override public func viewDidHide() {
+        super.viewDidHide()
+        updateVisibility()
+    }
+
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
+        updateVisibility()
+    }
+
+    /// The settings' node is visible while a person can see the transcript: in a window, neither it
+    /// nor an ancestor hidden (a parked tab stays in its window with `isHidden`;
+    /// `PaneContentView+Parking`), and not stopped. AppKit sends `viewDidHide`/`viewDidUnhide` to
+    /// the descendants of a view whose `isHidden` changes, so an ancestor's hide reaches here.
+    func updateVisibility() {
+        visibility.set(window != nil && !isHiddenOrHasHiddenAncestor && !stopped ? .visible : .hidden)
+    }
+
     /// Applies the settings that differ from the last ones applied (all of them the first time).
     func applySettings(_ settings: HomeTranscriptSettings) {
         let last = appliedSettings
