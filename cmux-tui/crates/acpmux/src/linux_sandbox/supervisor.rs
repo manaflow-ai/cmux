@@ -5,6 +5,7 @@
 //! Activation requires A2 to reject mounts under writable roots that are not
 //! whole filesystems, and G1 to reject group/world-writable roots. Shared-root
 //! resolve/check/perform serialization across daemon processes belongs to E1b/F.
+//! Stricter than Seatbelt: casefold directories are refused at every depth.
 //! Stricter: non-UTF-8 paths and anonymous/deleted proc-fd targets are refused.
 //! Opens use O_NONBLOCK while acquiring the fd (a FIFO without a reader fails
 //! ENXIO); the requested blocking mode is restored before handing it over.
@@ -93,32 +94,65 @@ struct Resolved {
 /// held directories and cannot leave root. Procfs is recognized by fstatfs,
 /// including mounts reached through aliases. Symlinks are read through their
 /// pinned O_PATH fd, never through a mutable directory entry a second time.
+/// Relative starts use one additional absolute walk to verify cwd/dirfd identity;
+/// this recursion ends immediately because the verified start is absolute.
 fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result<Resolved> {
-    resolve_with_flags(task, dir, path, flags, nspid, &|_| Ok(0))
+    resolve_with_flags(task, dir, path, flags, nspid, &directory_flags)
 }
 
-// Red-test seam: directory flag checks are implemented after runner confirmation.
+// O_PATH descriptors cannot receive GETFLAGS; reopen the pinned directory.
+fn directory_flags(fd: RawFd) -> Result<c_long> {
+    let readable = open_at(fd, ".", O_RDONLY | O_DIRECTORY | O_NONBLOCK, 0).map_err(|_| EACCES)?;
+    let mut flags: c_long = 0;
+    if unsafe { ioctl(readable.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } < 0 {
+        // Filesystems without this inode-flags interface cannot enable Linux
+        // FS_CASEFOLD_FL. Unexpected failures are not treated as flag absence.
+        return match error() {
+            ENOTTY | EOPNOTSUPP => Ok(0),
+            _ => Err(EACCES),
+        };
+    }
+    Ok(flags)
+}
+
+// The injectable reader makes casefold enforcement testable on ordinary CI disks.
 fn resolve_with_flags(
     task: RawFd,
     dir: i32,
     path: &str,
     flags: i32,
     nspid: &str,
-    _read_flags: &dyn Fn(RawFd) -> Result<c_long>,
+    read_flags: &dyn Fn(RawFd) -> Result<c_long>,
 ) -> Result<Resolved> {
     if path.is_empty() {
         return Err(ENOENT);
     }
     let root = open_at(task, "root", O_PATH | O_DIRECTORY, 0).map_err(|_| EACCES)?;
+    let check_directory = |fd| {
+        if read_flags(fd)? & 0x4000_0000 != 0 { Err(EACCES) } else { Ok(()) }
+    };
+    check_directory(root.as_raw_fd())?;
+    let mut directory_required = path.ends_with('/');
     let start = if path.starts_with('/') {
         path.to_owned()
     } else {
         let at = if dir == AT_FDCWD { "cwd".to_owned() } else { format!("fd/{dir}") };
+        let actual = open_at(task, &at, O_PATH, 0).map_err(|_| EACCES)?;
+        let actual = stat(actual.as_raw_fd())?;
+        if actual.st_mode & S_IFMT != S_IFDIR {
+            return Err(ENOTDIR);
+        }
         let cwd = link_at(task, &at).map_err(|_| EACCES)?;
         if !cwd.starts_with('/') || cwd.ends_with(" (deleted)") {
             return Err(EACCES);
         }
-        format!("{cwd}/{path}")
+        let walked = resolve_with_flags(task, AT_FDCWD, &cwd, O_DIRECTORY, nspid, read_flags)?;
+        let pin = open_at(walked.parent.as_raw_fd(), &walked.name, O_PATH | O_NOFOLLOW, 0)?;
+        let walked_stat = stat(pin.as_raw_fd())?;
+        if (actual.st_dev, actual.st_ino) != (walked_stat.st_dev, walked_stat.st_ino) {
+            return Err(EACCES);
+        }
+        format!("{}/{path}", walked.logical)
     };
     let mut queue = components(&start);
     let mut stack = vec![root];
@@ -146,7 +180,7 @@ fn resolve_with_flags(
                     name,
                     logical: target.to_str().ok_or(EACCES)?.into(),
                     object: None,
-                    directory_required: false,
+                    directory_required,
                 });
             }
             Err(e) => return Err(e),
@@ -194,6 +228,9 @@ fn resolve_with_flags(
                 return Err(ELOOP);
             }
             let target = link_at(pin.as_raw_fd(), "")?;
+            if queue.is_empty() && target.ends_with('/') {
+                directory_required = true;
+            }
             if target.starts_with('/') {
                 stack.truncate(1);
                 logical = "/".into();
@@ -202,6 +239,11 @@ fn resolve_with_flags(
             next.append(&mut queue);
             queue = next;
             continue;
+        }
+        if metadata.st_mode & S_IFMT == S_IFDIR {
+            check_directory(pin.as_raw_fd())?;
+        } else if queue.is_empty() && directory_required {
+            return Err(ENOTDIR);
         }
         logical = target;
         if queue.is_empty() {
@@ -217,7 +259,7 @@ fn resolve_with_flags(
                     name,
                     logical: logical.to_str().ok_or(EACCES)?.into(),
                     object: Some(pin),
-                    directory_required: false,
+                    directory_required,
                 });
             }
             return Ok(Resolved {
@@ -225,7 +267,7 @@ fn resolve_with_flags(
                 name,
                 logical: logical.to_str().ok_or(EACCES)?.into(),
                 object: None,
-                directory_required: false,
+                directory_required,
             });
         }
         if metadata.st_mode & S_IFMT != S_IFDIR {
@@ -241,7 +283,7 @@ fn resolve_with_flags(
         name: ".".into(),
         logical: logical.to_str().ok_or(EACCES)?.into(),
         object: None,
-        directory_required: false,
+        directory_required,
     })
 }
 
