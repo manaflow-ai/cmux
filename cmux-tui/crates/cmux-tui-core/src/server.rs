@@ -264,6 +264,7 @@ use group_outcome_json::{
 use split_respawn::{
     SplitRespawnRequest, frontend_shell, placement_spawn_options, shell_argv, split_tab,
 };
+mod memory_report;
 mod terminal_create;
 mod terminal_history;
 mod terminal_ports;
@@ -2275,6 +2276,10 @@ enum Command {
         surface: SurfaceId,
         delta: isize,
     },
+    /// Where this daemon's memory goes (server/memory_report.rs): per
+    /// terminal, the registry's consumers and the process footprint. Owner
+    /// only.
+    MemoryReport,
 }
 
 impl Command {

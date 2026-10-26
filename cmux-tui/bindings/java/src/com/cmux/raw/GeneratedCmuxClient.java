@@ -1052,6 +1052,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object memoryReport() throws CmuxException {
+        Object result = execute(Commands.MEMORY_REPORT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);

@@ -10818,6 +10818,7 @@
         "required": true
       }
     },
+    "request:memory-report": {},
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -20808,6 +20809,12 @@
       }
     },
     "response:mark-workspaces-provider-managed": {},
+    "response:memory-report": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",

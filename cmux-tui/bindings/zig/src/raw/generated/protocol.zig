@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f";
+pub const ir_sha256 = "6959f4baf6ad2a1b05d569f62df829cd6e45aeb1877f3552f8257ac497162d86";
 
 pub const AccessRequestKind = enum {
     file,
@@ -8950,6 +8950,23 @@ pub fn markWorkspacesProviderManaged(client: anytype, request: MarkWorkspacesPro
     );
 }
 
+pub const MemoryReportRequest = struct {};
+
+pub const MemoryReportResult = wire.Value;
+
+pub fn memoryReport(client: anytype, request: MemoryReportRequest) !wire.Decoded(MemoryReportResult) {
+    return client.callTyped(
+        MemoryReportResult,
+        .{
+            .name = "memory-report",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const MintTerminalRendererRequest = struct {
     surface: Id,
     ttl_ms: ?u64 = null,
@@ -14413,7 +14430,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 356;
+pub const command_count: usize = 357;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -14622,6 +14639,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "machine-listening-tcp", .authority = "control", .since = 12, .capability = "machine-listening-tcp-v1", .stream = null },
     .{ .name = "machine-usage", .authority = "control", .since = 12, .capability = "machine-usage-v1", .stream = null },
     .{ .name = "mark-workspaces-provider-managed", .authority = "provider-authority", .since = 9, .capability = "provider-managed-workspace-authority-v2", .stream = null },
+    .{ .name = "memory-report", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer", .authority = "frontend", .since = 9, .capability = null, .stream = null },
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },

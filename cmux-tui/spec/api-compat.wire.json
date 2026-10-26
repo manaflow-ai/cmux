@@ -927,6 +927,10 @@
         "id": 2570,
         "priority": "control"
       },
+      "memory-report": {
+        "id": 274,
+        "priority": "background"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"

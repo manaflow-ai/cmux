@@ -548,6 +548,7 @@
       "trace-start",
       "trace-stop",
       "trace-status",
+      "memory-report",
       "subscribe-activity",
       "set-terminal-command-history",
       "list-terminal-commands",

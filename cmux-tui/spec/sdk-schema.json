@@ -37,7 +37,7 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 18
+   "next_ordinal": 19
   },
   "clients": {
    "id": 2,
@@ -20543,6 +20543,31 @@
    ],
    "method_id": 272,
    "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "memory-report": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "opaque_json",
+    "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
+   },
+   "stream": null,
+   "constraints": [
+    "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+    "Read only, never journaled; names no title, path, URL or command."
+   ],
+   "method_id": 274,
+   "priority": "background",
    "durability": "read_only",
    "clients": [
     "sdk"

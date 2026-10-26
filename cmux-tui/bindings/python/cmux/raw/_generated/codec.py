@@ -531,6 +531,7 @@ MODEL_BY_PATH = {
     'commands/machine-listening-tcp/request': models.MachineListeningTcpRequest,
     'commands/machine-usage/request': models.MachineUsageRequest,
     'commands/mark-workspaces-provider-managed/request': models.MarkWorkspacesProviderManagedRequest,
+    'commands/memory-report/request': models.MemoryReportRequest,
     'commands/mint-terminal-renderer/request': models.MintTerminalRendererRequest,
     'commands/mint-terminal-renderer-by-terminal/request': models.MintTerminalRendererByTerminalRequest,
     'commands/move-bookmark/request': models.MoveBookmarkRequest,

@@ -46,6 +46,8 @@ struct TerminalWorkState {
 /// dropped owner never joins a worker that holds its last reference.
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
+    /// The owner's memory registry; `memory-report` lists its consumers.
+    memory: Arc<crate::memory::DaemonMemory>,
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
@@ -55,10 +57,12 @@ pub(crate) struct TerminalWorkPool {
 /// memory registry (one owner per daemon).
 impl Default for TerminalWorkPool {
     fn default() -> Self {
+        let memory = Arc::<crate::memory::DaemonMemory>::default();
         Self {
             state: Arc::default(),
             #[cfg(any(unix, windows))]
-            standby: standby_host::StandbyHostSlot::new(Arc::default()),
+            standby: standby_host::StandbyHostSlot::new(memory.clone()),
+            memory,
         }
     }
 }
@@ -169,6 +173,11 @@ impl PrelaunchedTerminal {
 }
 
 impl Mux {
+    /// This owner's memory registry (its consumers and pressure level).
+    pub(crate) fn memory_registry(&self) -> &cmux_memory::MemoryRegistry {
+        self.terminal_work.memory.registry()
+    }
+
     /// Queue `job` on the terminal work pool. Returns it when the pool is
     /// saturated, so the caller runs it inline.
     pub(crate) fn submit_terminal_work(

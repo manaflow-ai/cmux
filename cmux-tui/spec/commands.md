@@ -897,6 +897,65 @@ control call is running`, `this session has no state root to record into (it is
 ephemeral)`, `unknown trace category ...`, `the key category records per-key
 records: ask for it with keys: true`.
 
+### memory-report
+
+| Field | Value |
+| --- | --- |
+| name | `memory-report` |
+| status | implemented |
+| since | protocol 12 |
+
+Where this daemon's memory goes, read when the request arrives (no sampler,
+cache or timer; like Chrome's memory-infra dump, which asks each provider for
+its size only when a dump is requested). Read only and owner only: a client
+that is not on the trusted local socket gets `memory report requires a trusted
+local connection` before anything is read, and a remote relay client is
+refused earlier by its frame gate (`remote_denied`). The reply names no title,
+path, URL or command.
+
+Per PTY terminal, from the daemon's libghostty-vt terminal (for a hosted
+terminal this is the daemon's mirror; the host process's own memory is in
+`terminal-resources`): primary-screen pages (`scrollback`; `live_bytes` are
+the resident bytes of pages that are not compressed, `compressed_bytes` the
+compressed page data), the alternate screen's resident bytes, Kitty image
+bytes of both screens, and for a holder terminal the size of the ring segment
+the daemon keeps a copy of. A field libghostty-vt cannot report is `null`.
+`totals` sums the terminal rows. `consumers` lists the daemon's memory registry
+(cmux-memory) in registration order; `bytes` is `null` when the consumer's
+memory is held in another process. `process` is the daemon's private footprint
+(macOS `phys_footprint`; Linux `RssAnon + VmSwap`) and resident set, `null`
+where the platform does not report it.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:1,
+  pid:uint32,
+  process:object{private_footprint_bytes:uint64, resident_bytes:uint64}|null,
+  pressure:"normal"|"warning"|"critical",
+  terminals:array<object{
+    surface:SurfaceId,
+    terminal_id:string|null,
+    home:"daemon"|"holder"|"host"|"exited",
+    scrollback:object{live_bytes:uint64, compressed_bytes:uint64,
+      virtual_bytes:uint64, pages:uint64, compressed_pages:uint64}|null,
+    compression_supported:bool|null,
+    alternate_screen_bytes:uint64|null,
+    kitty_image_bytes:uint64|null,
+    holder_ring_bytes:uint64|null
+  }>,
+  totals:object{terminals:uint64, scrollback_live_bytes:uint64,
+    scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
+    kitty_image_bytes:uint64, holder_ring_bytes:uint64},
+  consumers:array<object{name:string, retention:"lossless"|"lossy", bytes:uint64|null}>
+}
+```
+
+Errors: `memory report requires a trusted local connection`.
+
 ### browser-host-provider
 
 | Field | Value |

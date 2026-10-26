@@ -217,6 +217,7 @@ public final class Commands {
     public static final CommandMetadata MACHINE_LISTENING_TCP = new CommandMetadata("machine-listening-tcp", Authority.CONTROL, 12, "machine-listening-tcp-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MACHINE_USAGE = new CommandMetadata("machine-usage", Authority.CONTROL, 12, "machine-usage-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MARK_WORKSPACES_PROVIDER_MANAGED = new CommandMetadata("mark-workspaces-provider-managed", Authority.PROVIDER_AUTHORITY, 9, "provider-managed-workspace-authority-v2", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata MEMORY_REPORT = new CommandMetadata("memory-report", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER = new CommandMetadata("mint-terminal-renderer", Authority.FRONTEND, 9, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MINT_TERMINAL_RENDERER_BY_TERMINAL = new CommandMetadata("mint-terminal-renderer-by-terminal", Authority.FRONTEND, 11, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata MOVE_BOOKMARK = new CommandMetadata("move-bookmark", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -577,6 +578,7 @@ public final class Commands {
         values.put("machine-listening-tcp", MACHINE_LISTENING_TCP);
         values.put("machine-usage", MACHINE_USAGE);
         values.put("mark-workspaces-provider-managed", MARK_WORKSPACES_PROVIDER_MANAGED);
+        values.put("memory-report", MEMORY_REPORT);
         values.put("mint-terminal-renderer", MINT_TERMINAL_RENDERER);
         values.put("mint-terminal-renderer-by-terminal", MINT_TERMINAL_RENDERER_BY_TERMINAL);
         values.put("move-bookmark", MOVE_BOOKMARK);

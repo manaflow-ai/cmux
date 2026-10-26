@@ -66,6 +66,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::TraceStatus => {
             cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
         }
+        Command::MemoryReport => cmd_server::memory_report(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, client, machine_metadata, revisions)
