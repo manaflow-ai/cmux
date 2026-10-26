@@ -105,7 +105,12 @@ export function playResize(node: HTMLElement, from: number): void {
 
 /// Stops the resize `node` is playing, if any (`playResize`), leaving it at the height it lays out at.
 export function cancelResize(node: HTMLElement): void {
-  resizing.get(node)?.cancel();
+  const animation = resizing.get(node);
+  if (!animation) return;
+  // Let go of the clip now: the cancel event comes after this frame's paint.
+  resizing.delete(node);
+  node.style.overflow = "";
+  animation.cancel();
 }
 
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
