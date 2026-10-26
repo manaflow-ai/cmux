@@ -1613,6 +1613,10 @@ path = "tests/test_nightly_build_state.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_budget_wait.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_trusted_routing.py"
 lane = "linux-guard"
 
