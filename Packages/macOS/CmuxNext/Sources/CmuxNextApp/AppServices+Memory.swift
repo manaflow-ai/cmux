@@ -14,6 +14,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
@@ -71,6 +72,7 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
@@ -97,6 +99,13 @@ struct AppMemoryConsumers {
     func registerDaemonCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store
+    /// every window shares) are one lossless consumer (p07-memory-053).
+    func registerDesignCaches(backdrops: BackdropImageStore = .shared) {
+        guard services.features.isEnabled(.memoryBackdropImages) else { return }
+        backdrops.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical
