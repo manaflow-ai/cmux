@@ -34,7 +34,13 @@ import {
   isEffortOption,
   isFastModeOption,
 } from "./heldOptions";
-import { type KeptStartMode, type StartMode, useStartMode } from "./startMode";
+import {
+  type KeptStartMode,
+  type StartMode,
+  useFullAccessManaged,
+  useFullAccessProbe,
+  useStartMode,
+} from "./startMode";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { useModelCatalogState } from "./modelCatalogHost";
@@ -76,6 +82,8 @@ export const PICKER_LABELS = {
   plan: "picker.plan",
   build: "picker.build",
   fullAccessWarning: "picker.fullAccessWarning",
+  /// A full-access row while MDM or a team policy keeps full access off (#23322).
+  fullAccessManaged: "picker.fullAccessManaged",
   /// `{percent}` is the share of the context window used.
   context: "picker.context",
 } as const satisfies Record<string, StringKey>;
@@ -737,6 +745,18 @@ export function ComposerPickers({
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // A local chat whose menu has a full-access row learns whether full access is managed off, and
+  // again on `_acpmux/start_mode_changed` (#23322).
+  useFullAccessProbe(
+    chipHarness,
+    folder ?? summary?.cwd,
+    !asksStart &&
+      snapshot.origin !== "remote" &&
+      snapshot.origin !== "peer" &&
+      !summary?.host &&
+      summary?.hostKind !== "cloud" &&
+      modes.some((choice) => unrestricted(choice.id)),
+  );
   // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
   // harness's highest permission level, the level acpmux starts a chat in when the person chose
   // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
@@ -977,6 +997,7 @@ export function ComposerPickers({
           current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          managedReason={t(PICKER_LABELS.fullAccessManaged)}
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
           permissionAccess={permissionAccess}
@@ -1066,6 +1087,7 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  managedReason,
   help,
   refusedReason,
   permissionAccess,
@@ -1078,6 +1100,7 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  managedReason: string;
   help: string;
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
@@ -1105,13 +1128,16 @@ function AccessMenu({
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
   const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
+  // MDM or a team policy keeps full access off (#23322): its rows are disabled and say so.
+  const managed = useFullAccessManaged();
+  const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
   const grants = permissionAccess?.grants ?? [];
   const pick = (next: string) => {
-    if (refusedIds.includes(next)) return;
+    if (blocked(next)) return;
     setOptimistic({ sessionId, modeId: next });
     setOpen(false);
     void settle(() => onMode(next)).then((applied) => {
@@ -1189,7 +1215,7 @@ function AccessMenu({
                 <MenuRadioItem
                   key={choice.id}
                   value={choice.id}
-                  disabled={refusedIds.includes(choice.id)}
+                  disabled={blocked(choice.id)}
                   shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
                   className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
@@ -1210,6 +1236,8 @@ function AccessMenu({
                     )}
                     {refusedIds.includes(choice.id) ? (
                       <span className="acpmux-menu-description">{refusedReason}</span>
+                    ) : managed && unrestricted(choice.id) ? (
+                      <span className="acpmux-menu-description">{managedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
                       <span className="acpmux-menu-description">{choice.description ?? warning}</span>
                     ) : null}
