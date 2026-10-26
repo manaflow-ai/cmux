@@ -365,6 +365,11 @@ fn handle_websocket_connection_with_permit(
             while let Some(item) = writer_outbound.recv() {
                 let result = match item {
                     OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                    // The WebSocket sink refuses frames before they queue.
+                    OutboundItem::Frame(..) => Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "a frame reached a WebSocket",
+                    )),
                     OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
                         let _ = flushed.send(());
                     }),

@@ -147,6 +147,7 @@ mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
 mod command_args;
+mod frame_dispatch;
 #[cfg(unix)]
 mod fs_wire;
 mod line_connection;

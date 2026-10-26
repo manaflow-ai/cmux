@@ -15,7 +15,8 @@ use std::time::Duration;
 use cmux_ipc::{Aux, BadMessage, CallAux, CallFlags, FrameHeader, FrameKind, PriorityHint};
 use serde_json::{Value, json};
 
-use super::{ConnectionBadMessage, ConnectionEnd, FrameLane, UnroutedFrames, serve_connection};
+use super::{ConnectionBadMessage, ConnectionEnd, FrameConnection, FrameLane, serve_connection};
+use crate::server::frame_dispatch::{CallRefusal, RequestFrames};
 use crate::server::*;
 
 type Seen = Arc<Mutex<Vec<(FrameKind, u32, Vec<u8>)>>>;
@@ -31,10 +32,14 @@ impl FrameLane for RecordingFrames {
         self.grant.load(Ordering::SeqCst)
     }
 
-    fn route(&mut self, frame: cmux_ipc::Frame) -> Result<(), ConnectionBadMessage> {
+    fn route(
+        &mut self,
+        frame: cmux_ipc::Frame,
+        _connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage> {
         let request = frame.header().call().map_or(0, |call| call.request_id);
         self.seen.lock().unwrap().push((frame.header().kind(), request, frame.payload().to_vec()));
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -83,7 +88,7 @@ fn connect_with(
                 None,
                 transport,
                 &*admission,
-                &mut UnroutedFrames,
+                &mut RequestFrames::default(),
             ),
         }
     });
@@ -361,7 +366,9 @@ fn same_user_peer(label: &str) -> Peer {
 }
 
 /// The production lane: `ipc-frames-v2`, declared in a real `set-client-info`
-/// at this daemon's revision, is the grant, and no frame kind has a route yet.
+/// at this daemon's revision, is the grant: the frame reaches the request
+/// router (frame_dispatch_tests covers what it answers), whose check of
+/// the `{}` body against `ping` closes the connection.
 #[test]
 fn line_connection_the_declared_capability_negotiates_frames() {
     let (current, _) = api_revision_wire::identify_fields();
@@ -380,7 +387,9 @@ fn line_connection_the_declared_capability_negotiates_frames() {
     assert_eq!(peer.reply(), None);
     assert_eq!(
         peer.finish(),
-        ConnectionEnd::BadMessage(ConnectionBadMessage::UnroutedKind { kind: FrameKind::Request })
+        ConnectionEnd::BadMessage(ConnectionBadMessage::Call(CallRefusal::MethodMismatch {
+            method_id: 0x0101
+        }))
     );
 
     let mut peer = same_user_peer("undeclared");

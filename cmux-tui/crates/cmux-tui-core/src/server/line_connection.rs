@@ -18,6 +18,8 @@
 //! A bad message closes the connection, as Chrome's `ReportBadMessage`
 //! (mojo/public/cpp/bindings/message.h) ends the sender: nothing after the
 //! bad byte is interpreted.
+//!
+//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071).
 
 use std::fmt;
 
@@ -70,7 +72,7 @@ pub(super) fn serve_line_connection(
         connection_permit,
         transport,
         admission,
-        &mut UnroutedFrames,
+        &mut frame_dispatch::RequestFrames::default(),
     );
 }
 
@@ -84,23 +86,24 @@ pub(super) trait FrameLane {
     /// frames (not a local Unix socket, or an admission that sees only lines).
     fn granted(&self, mux: &Mux, client: u64) -> bool;
 
-    /// Takes one frame; an error closes the connection with it.
-    fn route(&mut self, frame: Frame) -> Result<(), ConnectionBadMessage>;
+    /// Takes one frame. `Ok(false)` closes the connection as a line's
+    /// handler does; an error closes it as a bad message.
+    fn route(
+        &mut self,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage>;
 }
 
-/// Production: the grant is the client's recorded capability, and no frame
-/// kind has a route yet (REQUEST and CANCEL get theirs in p05-ipc-071), so
-/// a granted frame is still a bad message.
-struct UnroutedFrames;
-
-impl FrameLane for UnroutedFrames {
-    fn granted(&self, mux: &Mux, client: u64) -> bool {
-        mux.control_clients.supports_capability(client, IPC_FRAMES_CAPABILITY)
-    }
-
-    fn route(&mut self, frame: Frame) -> Result<(), ConnectionBadMessage> {
-        Err(ConnectionBadMessage::UnroutedKind { kind: frame.header().kind() })
-    }
+/// The connection a frame arrived on: what a line's dispatch gets.
+pub(super) struct FrameConnection<'a> {
+    pub(super) mux: &'a Arc<Mux>,
+    pub(super) client: u64,
+    pub(super) transport: ClientTransport,
+    pub(super) writer: &'a MessageWriter,
+    pub(super) scheduler: &'a Arc<ConnectionSurfaceScheduler>,
+    /// When the reader cut the frame, for its request span.
+    pub(super) arrived: Instant,
 }
 
 /// Why a connection was closed as a bad message.
@@ -110,6 +113,9 @@ pub(super) enum ConnectionBadMessage {
     Wire(BadMessage),
     /// A valid frame of a kind this daemon does not route.
     UnroutedKind { kind: FrameKind },
+    /// A REQUEST or CANCEL frame that its method or the requests in flight
+    /// refuse.
+    Call(frame_dispatch::CallRefusal),
     /// A descriptor arrived; no frame kind carries one yet.
     UnexpectedFds,
 }
@@ -120,6 +126,7 @@ impl ConnectionBadMessage {
         match self {
             ConnectionBadMessage::Wire(bad) => bad.reason(),
             ConnectionBadMessage::UnroutedKind { .. } => "unrouted_kind",
+            ConnectionBadMessage::Call(refusal) => refusal.reason(),
             ConnectionBadMessage::UnexpectedFds => "unexpected_fds",
         }
     }
@@ -132,6 +139,7 @@ impl fmt::Display for ConnectionBadMessage {
             ConnectionBadMessage::UnroutedKind { kind } => {
                 write!(f, "no route for {} frames", kind.name())
             }
+            ConnectionBadMessage::Call(refusal) => write!(f, "{refusal}"),
             ConnectionBadMessage::UnexpectedFds => write!(f, "a file descriptor arrived"),
         }
     }
@@ -227,10 +235,21 @@ pub(super) fn serve_connection(
                 }
                 text
             }
-            Ok(Some(Message::Frame(frame))) => match frames.route(frame) {
-                Ok(()) => continue,
-                Err(bad) => break ConnectionEnd::BadMessage(bad),
-            },
+            Ok(Some(Message::Frame(frame))) => {
+                let connection = FrameConnection {
+                    mux: &mux,
+                    client,
+                    transport,
+                    writer: &writer,
+                    scheduler: &surface_scheduler,
+                    arrived: Instant::now(),
+                };
+                match frames.route(frame, &connection) {
+                    Ok(true) => continue,
+                    Ok(false) => break ConnectionEnd::Dropped,
+                    Err(bad) => break ConnectionEnd::BadMessage(bad),
+                }
+            }
             Ok(None) if input.ended => break ConnectionEnd::PeerClosed,
             Ok(None) => match input.fill() {
                 Ok(()) => continue,

@@ -14,6 +14,7 @@ use super::ResponseErrorDelivery;
 use super::ServerSurfaceAdmissionError;
 use super::ServerSurfaceBytesPermit;
 use super::ServerSurfaceOperationAdmission;
+use super::frame_dispatch::FrameCall;
 use super::handle_request_with_cancellation;
 use super::send_request_error;
 use super::send_request_error_with_delivery;
@@ -43,6 +44,9 @@ pub(super) struct PendingSurfaceRequest {
     /// whichever thread runs it (the dispatcher, a clear-history worker or
     /// a creation commit on the terminal work pool).
     pub(super) cause: EventCause,
+    /// The REQUEST frame it came in, if any: its reply is that frame's
+    /// REPLY or ERROR, and a CANCEL of it ends it.
+    pub(super) frame_call: Option<Arc<FrameCall>>,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
 }
@@ -79,6 +83,34 @@ impl ConnectionCancellation {
 
     pub(super) fn register_interrupt(&self, interrupt: &Arc<StreamInterrupt>) {
         self.interrupts.register(interrupt);
+    }
+
+    /// Cancels `self` when `parent` cancels (at once if it has), for as long
+    /// as the returned link lives: a request's own cancellation follows its
+    /// connection's.
+    pub(super) fn follow(
+        self: &Arc<Self>,
+        parent: &ConnectionCancellation,
+    ) -> Arc<StreamInterrupt> {
+        let link = StreamInterrupt::new();
+        let child = Arc::downgrade(self);
+        link.on_fire(move || {
+            if let Some(child) = child.upgrade() {
+                child.cancel();
+            }
+        });
+        parent.register_interrupt(&link);
+        link
+    }
+}
+
+impl PendingSurfaceRequest {
+    /// The writer its reply goes through: `writer`, answering its frame.
+    pub(super) fn reply_writer(&self, writer: &MessageWriter) -> MessageWriter {
+        match &self.frame_call {
+            Some(call) => writer.replying_to(call.clone()),
+            None => writer.clone(),
+        }
     }
 }
 
@@ -206,13 +238,18 @@ impl ConnectionSurfaceScheduler {
             request: queued,
             arrival,
             cause: EventCause::current(),
+            frame_call: writer.frame_call().cloned(),
             retained_bytes,
             _bytes_permit: bytes_permit,
         });
         self.changed.notify_all();
         drop(state);
 
-        if start_dispatcher && let Err(error) = self.start_dispatcher(mux, client, writer.clone()) {
+        // The dispatcher outlives this request: it gets the connection's
+        // writer, and each request answers on its own (`frame_call`).
+        if start_dispatcher
+            && let Err(error) = self.start_dispatcher(mux, client, writer.connection_writer())
+        {
             self.finish_dispatcher();
             self.close();
             return Some(send_request_error_with_delivery(
@@ -395,8 +432,20 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, arrival, cause, _bytes_permit, .. } = pending;
+    let writer = &pending.reply_writer(writer);
+    let PendingSurfaceRequest { request, arrival, cause, frame_call, _bytes_permit, .. } = pending;
     let _cause = EventCauseScope::enter(cause);
+    // A framed request ends on its own CANCEL or with its connection.
+    let (cancellation, _follows_connection) = match &frame_call {
+        Some(call) => {
+            (&**call.cancellation(), Some(call.cancellation().follow(&scheduler.cancelled)))
+        }
+        None => (&scheduler.cancelled, None),
+    };
+    if frame_call.is_some() && cancellation.is_cancelled() {
+        // Cancelled while queued: answered, never run.
+        return send_request_error(writer, request.id, "request cancelled");
+    }
     // The dispatcher, a clear-history worker or a creation commit runs the
     // request: a request path like the reader's (`crate::request_path`).
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
@@ -404,14 +453,7 @@ pub(super) fn run_pending_request(
     // server-stats `slow_requests` (request_watchdog.rs). This runs off the
     // connection thread, whose own watch ended with the hand-off.
     let _watched = mux.request_watchdog.begin_command(client, &request.cmd);
-    handle_request_with_cancellation(
-        mux,
-        client,
-        request,
-        arrival,
-        writer,
-        Some(&scheduler.cancelled),
-    )
+    handle_request_with_cancellation(mux, client, request, arrival, writer, Some(cancellation))
 }
 
 fn run_connection_surface_dispatcher(
@@ -427,11 +469,11 @@ fn run_connection_surface_dispatcher(
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
             let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
-                let id = pending.request.id.clone();
+                let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
                 drop(pending);
                 scheduler.finish_clear(surface);
                 if !send_request_error_with_delivery(
-                    &writer,
+                    &reply,
                     id,
                     "too many clear-history operations are already in progress",
                     Some(ResponseErrorDelivery::KnownNotDelivered),
@@ -472,11 +514,11 @@ fn run_connection_surface_dispatcher(
                     scheduler.finish_clear(surface);
                     continue;
                 };
-                let id = pending.request.id.clone();
+                let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
                 drop(pending);
                 scheduler.finish_clear(surface);
                 if !send_request_error_with_delivery(
-                    &writer,
+                    &reply,
                     id,
                     &format!("could not start clear-history worker: {error}"),
                     Some(ResponseErrorDelivery::KnownNotDelivered),
